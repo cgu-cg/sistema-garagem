@@ -258,3 +258,5 @@ Para testes iniciais de validação de papéis de segurança no sistema, o scrip
 | **`abastecimento@teste.com`** | `abastecimento123` | **`COLABORADOR_ABASTECIMENTO`** (Operador de abastecimento) |
 | **`soltura@teste.com`** | `soltura123` | **`COLABORADOR_SOLTURA`** (Fiscal despachante de ônibus) |
 | **`colaborador@teste.com`** | `colaborador123` | **`COLABORADOR`** (Visualizador geral do dashboard) |
+
+teste
