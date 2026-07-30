@@ -1,0 +1,75 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int       @id @default(autoincrement())
+  name      String
+  email     String    @unique
+  password  String
+  role      String    @default("COLABORADOR")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  abastecimentos Abastecimento[]
+  solturas       Soltura[]
+
+  @@map("users")
+}
+
+model Bus {
+  id        Int       @id @default(autoincrement())
+  plate     String    @unique @map("placa")
+  prefix    String    @map("prefixo")
+  model     String    @map("modelo")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  abastecimentos       Abastecimento[]
+  solturasRealizadas   Soltura[]       @relation("RealizedBuses")
+  solturasProgramadas  Soltura[]       @relation("ProgrammedBuses")
+
+  @@map("buses")
+}
+
+model Abastecimento {
+  id         Int       @id @default(autoincrement())
+  busId      Int       @map("bus_id")
+  liters     Decimal   @map("litros")
+  value      Decimal   @map("valor")
+  driverName String    @map("motorista")
+  odometer   Int       @map("hodometro")
+  userId     Int       @map("user_id")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  bus  Bus  @relation(fields: [busId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("abastecimentos")
+}
+
+model Soltura {
+  id              Int       @id @default(autoincrement())
+  busId           Int       @map("bus_id")
+  programmedBusId Int?      @map("programmed_bus_id")
+  linha           String
+  tabela          String
+  driverCode      String    @map("driver_code")
+  driverName      String    @map("motorista")
+  saidaGaragem    String    @map("saida_garagem")
+  inicioLinha     String    @map("inicio_linha")
+  notes           String?   @map("observacoes")
+  userId          Int       @map("user_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  bus           Bus  @relation("RealizedBuses", fields: [busId], references: [id])
+  programmedBus Bus? @relation("ProgrammedBuses", fields: [programmedBusId], references: [id])
+  user          User @relation(fields: [userId], references: [id])
+
+  @@map("solturas")
+}
