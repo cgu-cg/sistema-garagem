@@ -174,6 +174,11 @@ O controle de rotas no backend e no frontend é rigidamente baseado no papel (`r
 5.  **Gestão de Usuários (`/admin/usuarios`)**:
     *   Uma interface administrativa elegante que lista todos os colaboradores do sistema com badges coloridos de identificação da função (`ADMIN` = Roxo, `Abastecimento` = Verde, `Soltura` = Laranja, `Colaborador` = Azul).
     *   Permite a criação e edição de novos usuários através de diálogos modais, além da exclusão de contas obsoletas.
+6.  **Conferência de Catracas (`/catracas`)**:
+    *   Uma tela dividida (Split Screen) com design de alta fidelidade voltada para auditoria operacional.
+    *   **Painel Esquerdo (Auditoria)**: Contém abas para analisar consistência de turnos (`fnConsisteCatracaVEICULOS`), alertas de datas inválidas (`TotalizadorServico`), coletores fora de frota, busca histórica de serviços de um veículo e atualização de datas de backup de coletas na tabela `Veiculos` do SQL Server.
+    *   **Painel de Inspeção**: Ao selecionar um veículo com discrepância, o sistema detalha automaticamente os últimos logs de WiFi (`tbLogWiFi`), cartões com erro de leitura (Erro 154), batimento físico de catracas inicial e final, e ordens de serviço de manutenção (Bilhetagem + Simanet) para ajudar a diagnosticar o motivo da diferença.
+    *   **Painel Direito (Diário de Bordo)**: Renderiza o diário de bordo digitalizado em PDF correspondente à data e veículo selecionados. Permite analisar um intervalo de dias de forma sequencial com navegação local sem abrir múltiplos popups.
 
 ---
 

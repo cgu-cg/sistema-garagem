@@ -15,6 +15,7 @@ import * as usersController from "../controllers/users";
 import * as busesController from "../controllers/buses";
 import * as abastecimentoController from "../controllers/abastecimento";
 import * as solturaController from "../controllers/soltura";
+import * as catracasController from "../controllers/catracas";
 
 const router = Router();
 
@@ -40,4 +41,15 @@ router.post("/abastecimentos", authenticate, authorize("ADMIN", "COLABORADOR_ABA
 router.get("/solturas", authenticate, authorize("ADMIN", "COLABORADOR_SOLTURA"), solturaController.list);
 router.post("/solturas", authenticate, authorize("ADMIN", "COLABORADOR_SOLTURA"), validate(createSolturaSchema), solturaController.create);
 
+// Catracas
+router.get("/catracas/consistencia", authenticate, catracasController.getConsistenciaCatraca);
+router.get("/catracas/datas-incorretas", authenticate, catracasController.getDatasIncorretas);
+router.get("/catracas/fora-frota", authenticate, catracasController.getVeiculosForaFrota);
+router.get("/catracas/veiculo-servicos", authenticate, catracasController.getVeiculoServicos);
+router.get("/catracas/backup", authenticate, catracasController.getBackupStatus);
+router.post("/catracas/backup/update", authenticate, catracasController.updateBackupStatus);
+router.get("/catracas/detalhes-veiculo", authenticate, catracasController.getDetalhesVeiculo);
+router.get("/catracas/diarios", authenticate, catracasController.getDiarios);
+
 export default router;
+

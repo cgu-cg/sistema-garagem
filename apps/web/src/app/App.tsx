@@ -8,6 +8,7 @@ import { HomePage } from "@/pages/home";
 import { AbastecimentoPage } from "@/pages/abastecimento";
 import { SolturaPage } from "@/pages/soltura";
 import { UsersPage } from "@/pages/admin/users";
+import { CatracasPage } from "@/pages/catracas";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { token } = useAuth();
@@ -42,6 +43,12 @@ export function App() {
           }
         >
           <Route path="/home" element={<HomePage />} />
+          <Route path="/catracas" element={<CatracasPage />} />
+          <Route path="/catracas/consistencia" element={<CatracasPage />} />
+          <Route path="/catracas/alertas" element={<CatracasPage />} />
+          <Route path="/catracas/backup" element={<CatracasPage />} />
+          <Route path="/catracas/historico" element={<CatracasPage />} />
+          <Route path="/catracas/diario" element={<CatracasPage />} />
           <Route
             path="/abastecimento"
             element={

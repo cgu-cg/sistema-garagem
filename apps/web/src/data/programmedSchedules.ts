@@ -1,0 +1,103 @@
+export interface ProgrammedSchedule {
+  id: string;
+  linha: string;
+  tabela: string;
+  programmedBusPrefix?: string;
+  saidaGaragem: string;
+  inicioLinha: string;
+  tipo: "REGULAR" | "VCM" | "FRETAMENTO";
+}
+
+export const programmedSchedules: ProgrammedSchedule[] = [
+  // Coluna 1
+  { id: "413-1", linha: "413", tabela: "1", programmedBusPrefix: "4160", saidaGaragem: "04:50", inicioLinha: "05:15", tipo: "REGULAR" },
+  { id: "70-9", linha: "70", tabela: "9", programmedBusPrefix: "4241", saidaGaragem: "04:52", inicioLinha: "05:12", tipo: "REGULAR" },
+  { id: "230-2/1", linha: "230", tabela: "2/1", programmedBusPrefix: "2327", saidaGaragem: "04:55", inicioLinha: "05:15", tipo: "REGULAR" },
+  { id: "81-11", linha: "81", tabela: "11", programmedBusPrefix: "4204", saidaGaragem: "04:55", inicioLinha: "05:30", tipo: "REGULAR" },
+  { id: "54-1", linha: "54", tabela: "1", programmedBusPrefix: "4245", saidaGaragem: "04:55", inicioLinha: "05:30", tipo: "REGULAR" },
+  { id: "406-2", linha: "406", tabela: "2", programmedBusPrefix: "4230", saidaGaragem: "04:55", inicioLinha: "05:57", tipo: "REGULAR" },
+  { id: "85-1", linha: "85", tabela: "1", programmedBusPrefix: "4209", saidaGaragem: "04:55", inicioLinha: "05:25", tipo: "REGULAR" },
+  { id: "409-2/3", linha: "409", tabela: "2/3", programmedBusPrefix: "4264", saidaGaragem: "04:55", inicioLinha: "05:30", tipo: "REGULAR" },
+  { id: "53-4", linha: "53", tabela: "4", programmedBusPrefix: "4279", saidaGaragem: "04:55", inicioLinha: "05:10", tipo: "REGULAR" },
+  { id: "601-1", linha: "601", tabela: "1", programmedBusPrefix: "3271", saidaGaragem: "04:57", inicioLinha: "05:17", tipo: "REGULAR" },
+  { id: "215/060-3/1", linha: "215/060", tabela: "3/1", programmedBusPrefix: "2420", saidaGaragem: "05:00", inicioLinha: "05:50", tipo: "REGULAR" },
+  { id: "81-7", linha: "81", tabela: "7", programmedBusPrefix: "4240", saidaGaragem: "05:00", inicioLinha: "05:50", tipo: "REGULAR" },
+  { id: "407-2", linha: "407", tabela: "2", programmedBusPrefix: "4266", saidaGaragem: "05:00", inicioLinha: "05:25", tipo: "REGULAR" },
+  { id: "321/302-4/3", linha: "321/302", tabela: "4/3", programmedBusPrefix: "", saidaGaragem: "05:00", inicioLinha: "05:40", tipo: "REGULAR" },
+  { id: "212-4", linha: "212", tabela: "4", programmedBusPrefix: "", saidaGaragem: "05:00", inicioLinha: "06:30", tipo: "REGULAR" },
+  { id: "309-3", linha: "309", tabela: "3", programmedBusPrefix: "", saidaGaragem: "05:00", inicioLinha: "05:35", tipo: "REGULAR" },
+  { id: "317-2", linha: "317", tabela: "2", programmedBusPrefix: "", saidaGaragem: "05:00", inicioLinha: "05:31", tipo: "REGULAR" },
+  { id: "414-4", linha: "414", tabela: "4", programmedBusPrefix: "", saidaGaragem: "05:00", inicioLinha: "05:27", tipo: "REGULAR" },
+  { id: "86-1", linha: "86", tabela: "1", programmedBusPrefix: "4275", saidaGaragem: "05:00", inicioLinha: "05:37", tipo: "REGULAR" },
+  { id: "321-3", linha: "321", tabela: "3", programmedBusPrefix: "3158", saidaGaragem: "05:00", inicioLinha: "05:35", tipo: "REGULAR" },
+  { id: "235-2", linha: "235", tabela: "2", programmedBusPrefix: "4226", saidaGaragem: "05:00", inicioLinha: "06:10", tipo: "REGULAR" },
+  { id: "422-1", linha: "422", tabela: "1", programmedBusPrefix: "4248", saidaGaragem: "05:00", inicioLinha: "05:48", tipo: "REGULAR" },
+  { id: "222-1", linha: "222", tabela: "1", programmedBusPrefix: "4233", saidaGaragem: "05:00", inicioLinha: "05:30", tipo: "REGULAR" },
+  { id: "412-3", linha: "412", tabela: "3", programmedBusPrefix: "4185", saidaGaragem: "05:00", inicioLinha: "05:25", tipo: "REGULAR" },
+  { id: "414/242-2/1", linha: "414/242", tabela: "2/1", programmedBusPrefix: "4271", saidaGaragem: "05:02", inicioLinha: "05:57", tipo: "REGULAR" },
+  { id: "225-1", linha: "225", tabela: "1", programmedBusPrefix: "3216", saidaGaragem: "05:03", inicioLinha: "05:37", tipo: "REGULAR" },
+  { id: "212-3", linha: "212", tabela: "3", programmedBusPrefix: "4198", saidaGaragem: "05:03", inicioLinha: "05:50", tipo: "REGULAR" },
+  { id: "81-3", linha: "81", tabela: "3", programmedBusPrefix: "4188", saidaGaragem: "05:03", inicioLinha: "05:35", tipo: "REGULAR" },
+  { id: "234-1/2", linha: "234", tabela: "1/2", programmedBusPrefix: "4207", saidaGaragem: "05:05", inicioLinha: "05:30", tipo: "REGULAR" },
+  { id: "303-2", linha: "303", tabela: "2", programmedBusPrefix: "3210", saidaGaragem: "05:05", inicioLinha: "05:40", tipo: "REGULAR" },
+  { id: "246-1", linha: "246", tabela: "1", programmedBusPrefix: "4015", saidaGaragem: "05:05", inicioLinha: "05:30", tipo: "REGULAR" },
+  { id: "72-5", linha: "72", tabela: "5", programmedBusPrefix: "3100", saidaGaragem: "05:05", inicioLinha: "05:43", tipo: "REGULAR" },
+  { id: "70-6", linha: "70", tabela: "6", programmedBusPrefix: "4237", saidaGaragem: "05:05", inicioLinha: "05:40", tipo: "REGULAR" },
+  { id: "50-2", linha: "50", tabela: "2", programmedBusPrefix: "3014", saidaGaragem: "05:05", inicioLinha: "05:45", tipo: "REGULAR" },
+  { id: "81-2", linha: "81", tabela: "2", programmedBusPrefix: "4244", saidaGaragem: "05:05", inicioLinha: "05:41", tipo: "REGULAR" },
+  { id: "203-2", linha: "203", tabela: "2", programmedBusPrefix: "", saidaGaragem: "05:05", inicioLinha: "05:33", tipo: "REGULAR" },
+  { id: "205-3", linha: "205", tabela: "3", programmedBusPrefix: "3903", saidaGaragem: "05:10", inicioLinha: "05:45", tipo: "REGULAR" },
+  { id: "71-3", linha: "71", tabela: "3", programmedBusPrefix: "4251", saidaGaragem: "05:10", inicioLinha: "05:40", tipo: "REGULAR" },
+  { id: "080-9", linha: "080", tabela: "9", programmedBusPrefix: "4242", saidaGaragem: "05:10", inicioLinha: "05:40", tipo: "REGULAR" },
+  { id: "401-3", linha: "401", tabela: "3", programmedBusPrefix: "2409", saidaGaragem: "05:10", inicioLinha: "05:28", tipo: "REGULAR" },
+  { id: "302/080-88/7", linha: "302/080", tabela: "88/7", programmedBusPrefix: "3289", saidaGaragem: "05:10", inicioLinha: "05:40", tipo: "REGULAR" },
+  { id: "073-4", linha: "073", tabela: "4", programmedBusPrefix: "4247", saidaGaragem: "05:10", inicioLinha: "05:55", tipo: "REGULAR" },
+  { id: "081-10", linha: "081", tabela: "10", programmedBusPrefix: "2706", saidaGaragem: "05:12", inicioLinha: "05:32", tipo: "REGULAR" },
+  { id: "051-2", linha: "051", tabela: "2", programmedBusPrefix: "3253", saidaGaragem: "05:13", inicioLinha: "05:48", tipo: "REGULAR" },
+  { id: "206-2", linha: "206", tabela: "2", programmedBusPrefix: "2715", saidaGaragem: "05:13", inicioLinha: "05:43", tipo: "REGULAR" },
+  { id: "081-5", linha: "081", tabela: "5", programmedBusPrefix: "3038", saidaGaragem: "05:15", inicioLinha: "04:50", tipo: "REGULAR" },
+  { id: "085-3", linha: "085", tabela: "3", programmedBusPrefix: "4249", saidaGaragem: "05:15", inicioLinha: "05:35", tipo: "REGULAR" },
+  { id: "072-6", linha: "072", tabela: "6", programmedBusPrefix: "3065", saidaGaragem: "05:15", inicioLinha: "06:05", tipo: "REGULAR" },
+  { id: "080/222-88/2", linha: "080/222", tabela: "88/2", programmedBusPrefix: "4227", saidaGaragem: "05:15", inicioLinha: "05:45", tipo: "REGULAR" },
+  { id: "418/414-1/2", linha: "418/414", tabela: "1/2", programmedBusPrefix: "4238", saidaGaragem: "05:15", inicioLinha: "05:50", tipo: "REGULAR" },
+  { id: "412-4", linha: "412", tabela: "4", programmedBusPrefix: "4197", saidaGaragem: "05:15", inicioLinha: "05:55", tipo: "REGULAR" },
+  { id: "237-2", linha: "237", tabela: "2", programmedBusPrefix: "4194", saidaGaragem: "05:15", inicioLinha: "05:50", tipo: "REGULAR" },
+
+  // Coluna 2
+  { id: "301-4", linha: "301", tabela: "4", programmedBusPrefix: "3014", saidaGaragem: "05:15", inicioLinha: "05:35", tipo: "REGULAR" },
+  { id: "321-5", linha: "321", tabela: "5", programmedBusPrefix: "3099", saidaGaragem: "05:20", inicioLinha: "05:50", tipo: "REGULAR" },
+  { id: "403-2", linha: "403", tabela: "2", programmedBusPrefix: "4220", saidaGaragem: "05:20", inicioLinha: "05:55", tipo: "REGULAR" },
+  { id: "309-2", linha: "309", tabela: "2", programmedBusPrefix: "", saidaGaragem: "05:20", inicioLinha: "05:45", tipo: "REGULAR" },
+  { id: "474-2", linha: "474", tabela: "2", programmedBusPrefix: "2800", saidaGaragem: "05:20", inicioLinha: "05:55", tipo: "REGULAR" },
+  { id: "416-2", linha: "416", tabela: "2", programmedBusPrefix: "4256", saidaGaragem: "05:20", inicioLinha: "05:45", tipo: "REGULAR" },
+  { id: "86-2", linha: "86", tabela: "2", programmedBusPrefix: "4253", saidaGaragem: "05:20", inicioLinha: "05:50", tipo: "REGULAR" },
+  { id: "224-1", linha: "224", tabela: "1", programmedBusPrefix: "2702", saidaGaragem: "05:20", inicioLinha: "05:37", tipo: "REGULAR" },
+  { id: "322-1", linha: "322", tabela: "1", programmedBusPrefix: "4208", saidaGaragem: "05:22", inicioLinha: "05:43", tipo: "REGULAR" },
+  { id: "411/073-88/6", linha: "411/073", tabela: "88/6", programmedBusPrefix: "", saidaGaragem: "05:23", inicioLinha: "05:45", tipo: "REGULAR" },
+  { id: "431/412-1/7", linha: "431/412", tabela: "1/7", programmedBusPrefix: "4278", saidaGaragem: "05:23", inicioLinha: "05:45", tipo: "REGULAR" },
+  { id: "412/086-88/3", linha: "412/086", tabela: "88/3", programmedBusPrefix: "4016", saidaGaragem: "05:25", inicioLinha: "06:05", tipo: "REGULAR" },
+  { id: "73-9", linha: "73", tabela: "9", programmedBusPrefix: "4208", saidaGaragem: "05:25", inicioLinha: "05:45", tipo: "REGULAR" },
+  { id: "414-6", linha: "414", tabela: "6", programmedBusPrefix: "4205", saidaGaragem: "05:45", inicioLinha: "06:23", tipo: "REGULAR" },
+  { id: "308/054-88/4", linha: "308/054", tabela: "88/4", programmedBusPrefix: "3003", saidaGaragem: "05:25", inicioLinha: "05:47", tipo: "REGULAR" },
+  { id: "085-8", linha: "085", tabela: "8", programmedBusPrefix: "4249", saidaGaragem: "05:27", inicioLinha: "06:00", tipo: "REGULAR" },
+  { id: "412/086-88/4", linha: "412/086", tabela: "88/4", programmedBusPrefix: "4125", saidaGaragem: "05:28", inicioLinha: "05:58", tipo: "REGULAR" },
+  { id: "225-2", linha: "225", tabela: "2", programmedBusPrefix: "4191", saidaGaragem: "05:28", inicioLinha: "06:21", tipo: "REGULAR" },
+  { id: "412-5", linha: "412", tabela: "5", programmedBusPrefix: "4186", saidaGaragem: "05:30", inicioLinha: "05:52", tipo: "REGULAR" },
+  { id: "414/242-7/2", linha: "414/242", tabela: "7/2", programmedBusPrefix: "2426", saidaGaragem: "05:32", inicioLinha: "05:55", tipo: "REGULAR" },
+  { id: "410-1", linha: "410", tabela: "1", programmedBusPrefix: "4197", saidaGaragem: "05:35", inicioLinha: "06:07", tipo: "REGULAR" },
+  { id: "85-4", linha: "85", tabela: "4", programmedBusPrefix: "4196", saidaGaragem: "05:35", inicioLinha: "06:05", tipo: "REGULAR" },
+  { id: "411/412-88/8", linha: "411/412", tabela: "88/8", programmedBusPrefix: "4197", saidaGaragem: "05:35", inicioLinha: "06:07", tipo: "REGULAR" },
+  { id: "412/411-6/6", linha: "412/411", tabela: "6/6", programmedBusPrefix: "2611", saidaGaragem: "05:35", inicioLinha: "06:06", tipo: "REGULAR" },
+  { id: "601-2/3", linha: "601", tabela: "2/3", programmedBusPrefix: "2355", saidaGaragem: "", inicioLinha: "", tipo: "REGULAR" },
+  { id: "79-5", linha: "79", tabela: "5", programmedBusPrefix: "", saidaGaragem: "", inicioLinha: "", tipo: "REGULAR" },
+  { id: "302/321-3/88", linha: "302/321", tabela: "3/88", programmedBusPrefix: "2355", saidaGaragem: "", inicioLinha: "", tipo: "REGULAR" },
+  { id: "421-3", linha: "421", tabela: "3", programmedBusPrefix: "", saidaGaragem: "", inicioLinha: "", tipo: "REGULAR" },
+
+  // LINHAS VCM
+  { id: "316-01", linha: "316", tabela: "01", programmedBusPrefix: "", saidaGaragem: "04:10", inicioLinha: "VCM", tipo: "VCM" },
+  { id: "82-3", linha: "82", tabela: "3", programmedBusPrefix: "", saidaGaragem: "04:37", inicioLinha: "VCM", tipo: "VCM" },
+
+  // FRETAMENTO
+  { id: "SISEP-SISEP", linha: "SISEP", tabela: "SISEP", programmedBusPrefix: "", saidaGaragem: "05:50", inicioLinha: "", tipo: "FRETAMENTO" },
+  { id: "ESPECIAL-ESPECIAL", linha: "ESPECIAL", tabela: "ESPECIAL", programmedBusPrefix: "", saidaGaragem: "05:50", inicioLinha: "", tipo: "FRETAMENTO" },
+];

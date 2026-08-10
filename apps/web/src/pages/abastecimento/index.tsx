@@ -126,7 +126,7 @@ export function AbastecimentoPage() {
                 <Label>Motorista</Label>
                 <Input value={driverName} onChange={(e) => setDriverName(e.target.value)} placeholder="Nome do motorista" />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Litros</Label>
                   <Input type="number" step="0.01" value={liters} onChange={(e) => setLiters(e.target.value)} placeholder="0.00" />

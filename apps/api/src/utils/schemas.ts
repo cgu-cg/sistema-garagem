@@ -44,3 +44,37 @@ export const createSolturaSchema = z.object({
   inicioLinha: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Horário de início inválido (HH:mm)"),
   notes: z.string().optional().nullable(),
 });
+
+export const consisteCatracaQuerySchema = z.object({
+  date: z.string().min(1, "Data é obrigatória"),
+  minDiff: z.string().optional().transform((v) => (v ? parseInt(v, 10) : 1)),
+});
+
+export const datasIncorretasQuerySchema = z.object({
+  startDate: z.string().optional(),
+  year: z.string().optional(),
+});
+
+export const foraFrotaQuerySchema = z.object({
+  startDate: z.string().optional(),
+});
+
+export const backupStatusQuerySchema = z.object({
+  ids: z.string().min(1, "IDs de carros obrigatórios").transform((v) =>
+    v.split(",")
+      .map((id) => parseInt(id.trim(), 10))
+      .filter((id) => !isNaN(id))
+  ),
+});
+
+export const updateBackupSchema = z.object({
+  ids: z.array(z.number().int().positive("Carro inválido")),
+  coletaBKPIni: z.string().min(1, "Data inicial de backup é obrigatória"),
+  coletaBKPFim: z.string().min(1, "Data final de backup é obrigatória"),
+});
+
+export const detalhesVeiculoQuerySchema = z.object({
+  idVeiculo: z.string().transform((v) => parseInt(v, 10)),
+  date: z.string().min(1, "Data é obrigatória"),
+});
+
