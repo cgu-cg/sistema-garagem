@@ -3,7 +3,7 @@ import { useAuth, roleLabels } from "@/stores/auth";
 import { Building2, Fuel, Bus, Users, LogOut, ChevronRight, LayoutDashboard, ClipboardCheck, Radio, Sun, Moon, Gauge } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const allNavItems = [
   { to: "/home", label: "Início", icon: LayoutDashboard, roles: ["ADMIN", "COLABORADOR", "tanque", "abastecimento", "soltura", "operacional"] },
@@ -35,13 +35,14 @@ export function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [openSubMenus, setOpenSubMenus] = useState<Record<string, boolean>>({});
+  const sidebarRef = useRef<HTMLDivElement | null>(null);
 
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     const saved = localStorage.getItem("theme");
     if (saved === "light" || saved === "dark") return saved;
-    return "dark"; // Default to dark mode
+    return "light"; // Default to light mode
   });
 
   useEffect(() => {
@@ -53,6 +54,20 @@ export function Layout() {
       localStorage.setItem("theme", "light");
     }
   }, [theme]);
+
+  // Fechar o menu ao clicar fora dele
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (sidebarOpen && sidebarRef.current && !sidebarRef.current.contains(event.target as Node)) {
+        setSidebarOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [sidebarOpen]);
 
   const handleLogout = () => {
     logout();
@@ -100,6 +115,7 @@ export function Layout() {
   return (
     <div className="min-h-screen bg-muted/30">
       <aside
+        ref={sidebarRef}
         className={cn(
           "fixed inset-y-0 left-0 z-40 flex flex-col border-r bg-background transition-all duration-300",
           sidebarOpen ? "w-64 shadow-xl" : "w-12 md:w-16 shadow-none"
