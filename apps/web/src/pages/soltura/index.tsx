@@ -55,8 +55,6 @@ export function SolturaPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [busId, setBusId] = useState("");
   const [driverId, setDriverId] = useState("");
-  const [driverCode, setDriverCode] = useState("");
-  const [driverName, setDriverName] = useState("");
   const [saidaGaragem, setSaidaGaragem] = useState("");
   const [inicioLinha, setInicioLinha] = useState("");
   const [notes, setNotes] = useState("");
@@ -93,8 +91,6 @@ export function SolturaPage() {
       // View mode
       setBusId(String(dispatched.bus.id));
       setDriverId(dispatched.driverCode);
-      setDriverCode(dispatched.driverCode);
-      setDriverName(dispatched.driverName);
       setSaidaGaragem(dispatched.saidaGaragem);
       setInicioLinha(dispatched.inicioLinha);
       setNotes(dispatched.notes || "");
@@ -107,8 +103,6 @@ export function SolturaPage() {
         setBusId("");
       }
       setDriverId("");
-      setDriverCode("");
-      setDriverName("");
       setNotes("");
 
       const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
@@ -120,16 +114,6 @@ export function SolturaPage() {
 
   const handleDriverSelect = (val: string) => {
     setDriverId(val);
-    if (val !== "custom" && val !== "") {
-      const d = drivers.find(drv => drv.code === val);
-      if (d) {
-        setDriverCode(d.code);
-        setDriverName(d.name);
-      }
-    } else {
-      setDriverCode("");
-      setDriverName("");
-    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -137,8 +121,8 @@ export function SolturaPage() {
     if (!selectedSchedule) return;
     setLoading(true);
     try {
-      const finalDriverCode = driverId === "custom" ? driverCode : driverId;
-      const finalDriverName = driverId === "custom" ? driverName : (drivers.find(d => d.code === driverId)?.name || "");
+      const finalDriverCode = driverId;
+      const finalDriverName = drivers.find(d => d.code === driverId)?.name || "";
 
       const data = {
         busId: Number(busId),
@@ -161,8 +145,6 @@ export function SolturaPage() {
       setSelectedSchedule(null);
       setBusId("");
       setDriverId("");
-      setDriverCode("");
-      setDriverName("");
       setNotes("");
       load();
     } catch (err: any) {
@@ -198,8 +180,8 @@ export function SolturaPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Soltura de Ônibus</h1>
-          <p className="text-muted-foreground">Registre e gerencie as saídas dos veículos (Segunda a Sexta)</p>
+          <h1 className="text-xl md:text-3xl font-bold pb-3">Soltura de Ônibus</h1>
+          <p className="text-muted-foreground text-xs md:text-sm">Registre e gerencie as saídas dos veículos (Segunda a Sexta)</p>
         </div>
       </div>
 
@@ -308,14 +290,14 @@ export function SolturaPage() {
 
       {/* Modal / Popup de Despacho */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-md bg-white border border-slate-700 text-slate-800">
+        <DialogContent className="max-w-md bg-background border border-border text-foreground">
           <DialogHeader>
             <DialogTitle>
               {selectedSchedule && todayRecords.some(r => r.linha === selectedSchedule.linha && r.tabela === selectedSchedule.tabela)
                 ? "Visualizar Soltura"
                 : "Realizar Soltura"}
             </DialogTitle>
-            <DialogDescription className="text-slate-500">
+            <DialogDescription className="text-muted-foreground">
               {selectedSchedule ? `Linha ${selectedSchedule.linha} - Tabela ${selectedSchedule.tabela}` : ""}
             </DialogDescription>
           </DialogHeader>
@@ -325,77 +307,77 @@ export function SolturaPage() {
               {/* Card Banner no topo do Dialog */}
               <div
                 className={`grid grid-cols-7 text-center font-mono text-[11px] sm:text-xs p-3 rounded-xl border cursor-pointer select-none shadow-sm ${selectedSchedule && todayRecords.some(r => r.linha === selectedSchedule.linha && r.tabela === selectedSchedule.tabela)
-                  ? "bg-green-100 border-green-500 text-green-500"
-                  : "bg-slate-900 border-slate-700/50 text-white"
+                  ? "bg-green-100/20 border-green-500 text-green-500"
+                  : "bg-muted border-border text-foreground"
                   }`}
               >
                 <div>
-                  <span className="text-[9px] text-slate-500 block uppercase font-sans font-semibold">Lin</span>
+                  <span className="text-[9px] text-muted-foreground block uppercase font-sans font-semibold">Lin</span>
                   <span className="font-bold text-base ">{selectedSchedule.linha}</span>
                 </div>
                 <div>
-                  <span className="text-[9px] text-slate-500 block uppercase font-sans font-semibold">Tab</span>
+                  <span className="text-[9px] text-muted-foreground block uppercase font-sans font-semibold">Tab</span>
                   <span className="font-bold text-base">{selectedSchedule.tabela}</span>
                 </div>
                 <div>
-                  <span className="text-[9px] text-slate-500 block uppercase font-sans font-semibold">Prog.</span>
+                  <span className="text-[9px] text-muted-foreground block uppercase font-sans font-semibold">Prog.</span>
                   <span className="font-bold text-base">{selectedSchedule.programmedBusPrefix || "—"}</span>
                 </div>
                 <div>
-                  <span className="text-[9px] text-slate-500 block uppercase font-sans font-semibold">Real.</span>
+                  <span className="text-[9px] text-muted-foreground block uppercase font-sans font-semibold">Real.</span>
                   <span className="font-bold text-base">
                     {todayRecords.find(r => r.linha === selectedSchedule.linha && r.tabela === selectedSchedule.tabela)?.bus.prefix || "..."}
                   </span>
                 </div>
                 <div>
-                  <span className="text-[9px] text-slate-500 block uppercase font-sans font-semibold">Moto</span>
+                  <span className="text-[9px] text-muted-foreground block uppercase font-sans font-semibold">Moto</span>
                   <span className="font-bold text-base">
                     {todayRecords.find(r => r.linha === selectedSchedule.linha && r.tabela === selectedSchedule.tabela)?.driverCode || "..."}
                   </span>
                 </div>
                 <div>
-                  <span className="text-[9px] text-slate-500 block uppercase font-sans font-semibold">Garagem</span>
+                  <span className="text-[9px] text-muted-foreground block uppercase font-sans font-semibold">Garagem</span>
                   <span className="font-bold text-base">{saidaGaragem || "—"}</span>
                 </div>
                 <div>
-                  <span className="text-[9px] text-slate-500 block uppercase font-sans font-semibold">Inicio</span>
+                  <span className="text-[9px] text-muted-foreground block uppercase font-sans font-semibold">Inicio</span>
                   <span className="font-bold text-base">{inicioLinha || "—"}</span>
                 </div>
               </div>
 
               {/* Form ou Visualização */}
               {todayRecords.some(r => r.linha === selectedSchedule.linha && r.tabela === selectedSchedule.tabela) ? (
-                <div className="space-y-4 bg-white text-sm">
-                  <div className="grid grid-cols-2 gap-4 border rounded-xl p-4 border-slate-800">
+                <div className="space-y-4 bg-background text-sm">
+                  <div className="grid grid-cols-2 gap-4 border rounded-xl p-4 border-border">
                     <div>
-                      <span className="text-slate-400 text-xs block">Carro Realizado</span>
-                      <span className="font-semibold text-slate-800">
-                        {todayRecords.find(r => r.linha === selectedSchedule.linha && r.tabela === selectedSchedule.tabela)?.bus.prefix} - {todayRecords.find(r => r.linha === selectedSchedule.linha && r.tabela === selectedSchedule.tabela)?.bus.plate}
+                      <span className="text-muted-foreground text-xs block">Carro Realizado</span>
+                      <span className="font-semibold text-foreground">
+                        {todayRecords.find(r => r.linha === selectedSchedule.linha && r.tabela === selectedSchedule.tabela)?.bus.prefix}
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-400 text-xs block">Motorista</span>
-                      <span className="font-semibold text-slate-800">
+                      <span className="text-muted-foreground text-xs block">Motorista</span>
+                      <span className="font-semibold text-foreground">
                         [{todayRecords.find(r => r.linha === selectedSchedule.linha && r.tabela === selectedSchedule.tabela)?.driverCode}] {todayRecords.find(r => r.linha === selectedSchedule.linha && r.tabela === selectedSchedule.tabela)?.driverName}
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-400 text-xs block">Saída da Garagem</span>
-                      <span className="font-semibold text-slate-800">{saidaGaragem}</span>
+                      <span className="text-muted-foreground text-xs block">Saída da Garagem</span>
+                      <span className="font-semibold text-foreground">{saidaGaragem}</span>
                     </div>
                     <div>
-                      <span className="text-slate-400 text-xs block">Início da Linha</span>
-                      <span className="font-semibold text-slate-800">{inicioLinha}</span>
+                      <span className="text-muted-foreground text-xs block">Início da Linha</span>
+                      <span className="font-semibold text-foreground">{inicioLinha}</span>
                     </div>
                   </div>
                   {notes && (
-                    <div className="border-t border-slate-800 pt-3">
-                      <span className="text-slate-400 text-xs block">Observações</span>
-                      <p className="text-white italic mt-1">"{notes}"</p>
+                    <div className="border-t border-border pt-3">
+                      <span className="text-muted-foreground text-xs block">Observações</span>
+                      <p className="text-foreground italic mt-1">"{notes}"</p>
                     </div>
                   )}
                   <div className="flex justify-end pt-2">
-                    <Button variant="outline" onClick={() => setIsDialogOpen(false)} className="border-slate-700 bg-slate-800 hover:bg-slate-900 text-white hover:text-white ">
+                    <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
                       Fechar
                     </Button>
                   </div>
@@ -406,13 +388,13 @@ export function SolturaPage() {
                   <div className="space-y-2">
                     <Label htmlFor="busId">Carro Realizado (Saída de Fato)</Label>
                     <Select value={busId} onValueChange={setBusId}>
-                      <SelectTrigger className="border-slate-700 text-slate-800">
+                      <SelectTrigger className="border-input bg-background text-foreground">
                         <SelectValue placeholder="Selecione o veículo realizado..." />
                       </SelectTrigger>
-                      <SelectContent className="border-slate-700 text-slate-800">
+                      <SelectContent className="border-input bg-popover text-popover-foreground">
                         {buses.map((bus) => (
                           <SelectItem key={bus.id} value={String(bus.id)} className="cursor-pointer">
-                            {bus.prefix} - {bus.plate} ({bus.model})
+                            {bus.prefix}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -423,53 +405,22 @@ export function SolturaPage() {
                   <div className="space-y-2">
                     <Label htmlFor="driverId">Motorista</Label>
                     <Select value={driverId} onValueChange={handleDriverSelect}>
-                      <SelectTrigger className="border-slate-700 text-slate-800">
+                      <SelectTrigger className="border-input bg-background text-foreground">
                         <SelectValue placeholder="Selecione um motorista..." />
                       </SelectTrigger>
-                      <SelectContent className="border-slate-700 text-slate-800">
+                      <SelectContent className="border-input bg-popover text-popover-foreground">
                         {drivers.map((drv) => (
                           <SelectItem key={drv.code} value={drv.code} className="cursor-pointer">
-                            [{drv.code}] {drv.name}
+                            {drv.name}
                           </SelectItem>
                         ))}
-                        <SelectItem value="custom" className="text-yellow-400 hover:bg-slate-800 focus:bg-slate-800">
-                          Outro / Digitar manual...
-                        </SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
 
-                  {/* Custom Driver Fields */}
-                  {driverId === "custom" && (
-                    <div className="grid grid-cols-3 gap-3 bg-slate-950/50 p-3 rounded-lg border border-slate-800">
-                      <div className="space-y-2 col-span-1">
-                        <Label htmlFor="driverCode">Código MOTO</Label>
-                        <Input
-                          id="driverCode"
-                          value={driverCode}
-                          onChange={(e) => setDriverCode(e.target.value)}
-                          placeholder="1021"
-                          required
-                          className="bg-slate-950 border-slate-700 text-white"
-                        />
-                      </div>
-                      <div className="space-y-2 col-span-2">
-                        <Label htmlFor="driverName">Nome Completo</Label>
-                        <Input
-                          id="driverName"
-                          value={driverName}
-                          onChange={(e) => setDriverName(e.target.value)}
-                          placeholder="Nome do motorista"
-                          required
-                          className="bg-slate-950 border-slate-700 text-white"
-                        />
-                      </div>
-                    </div>
-                  )}
-
                   {/* Manual Times if empty/VCM */}
                   {(!selectedSchedule.saidaGaragem || !selectedSchedule.inicioLinha || selectedSchedule.inicioLinha === "VCM") && (
-                    <div className="grid grid-cols-2 gap-4 bg-slate-950/30 p-3 rounded-lg border border-slate-800/50">
+                    <div className="grid grid-cols-2 gap-4 bg-muted/30 p-3 rounded-lg border border-border">
                       <div className="space-y-2">
                         <Label htmlFor="saidaGaragem">Saída Garagem</Label>
                         <Input
@@ -478,7 +429,7 @@ export function SolturaPage() {
                           value={saidaGaragem}
                           onChange={(e) => setSaidaGaragem(e.target.value)}
                           required
-                          className="bg-slate-950 border-slate-700 text-white"
+                          className="bg-background border-input text-foreground"
                         />
                       </div>
                       <div className="space-y-2">
@@ -489,7 +440,7 @@ export function SolturaPage() {
                           value={inicioLinha}
                           onChange={(e) => setInicioLinha(e.target.value)}
                           required
-                          className="bg-slate-950 border-slate-700 text-white"
+                          className="bg-background border-input text-foreground"
                         />
                       </div>
                     </div>
@@ -503,7 +454,7 @@ export function SolturaPage() {
                       value={notes}
                       onChange={(e) => setNotes(e.target.value)}
                       placeholder="Ex: Utilizou carro reserva (opcional)"
-                      className="border-slate-700 text-slate-800"
+                      className="border-input bg-background text-foreground"
                     />
                   </div>
 
@@ -512,11 +463,10 @@ export function SolturaPage() {
                       type="button"
                       variant="outline"
                       onClick={() => setIsDialogOpen(false)}
-                      className="border-slate-700 hover:bg-slate-800 hover:text-white"
                     >
                       Cancelar
                     </Button>
-                    <Button type="submit" className="bg-primary hover:bg-primary/90 text-white" disabled={loading}>
+                    <Button type="submit" className="bg-primary hover:bg-primary/90 text-primary-foreground" disabled={loading}>
                       {loading ? "Salvando..." : "Registrar Despacho"}
                     </Button>
                   </div>

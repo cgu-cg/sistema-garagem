@@ -4,72 +4,261 @@ import bcrypt from "bcryptjs";
 const prisma = new PrismaClient();
 
 async function main() {
-  const adminPassword = await bcrypt.hash("admin123", 10);
-  const colabPassword = await bcrypt.hash("colaborador123", 10);
+  const password = await bcrypt.hash("123456", 10);
 
+  // ── Groups ──────────────────────────────────────────────
+
+  const groupTodos = await prisma.group.upsert({
+    where: { name: "Todos" },
+    update: {
+      description: "Acesso a Leitura de Tanques, Abastecimento por Carro, Soltura e Controle Operacional",
+      permissions: JSON.stringify([
+        "/abastecimento",
+        "/abastecimentos",
+        "/abastecimento-carro",
+        "/soltura",
+        "/solturas",
+        "/controle-operacional",
+      ]),
+    },
+    create: {
+      name: "Todos",
+      description: "Acesso a Leitura de Tanques, Abastecimento por Carro, Soltura e Controle Operacional",
+      permissions: JSON.stringify([
+        "/abastecimento",
+        "/abastecimentos",
+        "/abastecimento-carro",
+        "/soltura",
+        "/solturas",
+        "/controle-operacional",
+      ]),
+    },
+  });
+
+  const groupTanque = await prisma.group.upsert({
+    where: { name: "Leitura de Tanques" },
+    update: {
+      description: "Acesso ao menu Leitura de Tanques",
+      permissions: JSON.stringify(["/abastecimento", "/abastecimentos"]),
+    },
+    create: {
+      name: "Leitura de Tanques",
+      description: "Acesso ao menu Leitura de Tanques",
+      permissions: JSON.stringify(["/abastecimento", "/abastecimentos"]),
+    },
+  });
+
+  const groupAbastCarro = await prisma.group.upsert({
+    where: { name: "Abastecimento por Carro" },
+    update: {
+      description: "Acesso ao menu Abastecimento por Carro",
+      permissions: JSON.stringify(["/abastecimento-carro"]),
+    },
+    create: {
+      name: "Abastecimento por Carro",
+      description: "Acesso ao menu Abastecimento por Carro",
+      permissions: JSON.stringify(["/abastecimento-carro"]),
+    },
+  });
+
+  const groupSoltura = await prisma.group.upsert({
+    where: { name: "Soltura" },
+    update: {
+      description: "Acesso ao menu Soltura",
+      permissions: JSON.stringify(["/soltura", "/solturas"]),
+    },
+    create: {
+      name: "Soltura",
+      description: "Acesso ao menu Soltura",
+      permissions: JSON.stringify(["/soltura", "/solturas"]),
+    },
+  });
+
+  const groupOperacional = await prisma.group.upsert({
+    where: { name: "Controle Operacional" },
+    update: {
+      description: "Acesso ao menu Controle Operacional",
+      permissions: JSON.stringify(["/controle-operacional"]),
+    },
+    create: {
+      name: "Controle Operacional",
+      description: "Acesso ao menu Controle Operacional",
+      permissions: JSON.stringify(["/controle-operacional"]),
+    },
+  });
+
+  // ── Users ───────────────────────────────────────────────
+
+  // admin@teste.com — ADMIN, vê tudo
   await prisma.user.upsert({
     where: { email: "admin@teste.com" },
     update: {},
     create: {
       name: "Administrador",
       email: "admin@teste.com",
-      password: adminPassword,
+      password,
       role: "ADMIN",
     },
   });
 
+  // teste@teste.com — COLABORADOR com acesso a todos os menus
   await prisma.user.upsert({
-    where: { email: "colaborador@teste.com" },
-    update: {},
+    where: { email: "teste@teste.com" },
+    update: {
+      groups: { set: [{ id: groupTodos.id }] },
+    },
     create: {
-      name: "Colaborador",
-      email: "colaborador@teste.com",
-      password: colabPassword,
+      name: "Teste",
+      email: "teste@teste.com",
+      password,
       role: "COLABORADOR",
+      groups: { connect: [{ id: groupTodos.id }] },
     },
   });
 
-  const abastPassword = await bcrypt.hash("abastecimento123", 10);
-
+  // tanque_vcg@teste.com — Leitura de Tanques, VCG
   await prisma.user.upsert({
-    where: { email: "abastecimento@teste.com" },
-    update: {},
+    where: { email: "tanque_vcg@teste.com" },
+    update: {
+      role: "tanque",
+      garagem: "VCG",
+      groups: { set: [{ id: groupTanque.id }] },
+    },
     create: {
-      name: "Colaborador Abastecimento",
-      email: "abastecimento@teste.com",
-      password: abastPassword,
-      role: "COLABORADOR_ABASTECIMENTO",
+      name: "Tanque VCG",
+      email: "tanque_vcg@teste.com",
+      password,
+      role: "tanque",
+      garagem: "VCG",
+      groups: { connect: [{ id: groupTanque.id }] },
     },
   });
 
-  const solturaPassword = await bcrypt.hash("soltura123", 10);
-
+  // tanque_vcm@teste.com — Leitura de Tanques, VCM
   await prisma.user.upsert({
-    where: { email: "soltura@teste.com" },
-    update: {},
+    where: { email: "tanque_vcm@teste.com" },
+    update: {
+      role: "tanque",
+      garagem: "VCM",
+      groups: { set: [{ id: groupTanque.id }] },
+    },
     create: {
-      name: "Colaborador Soltura",
-      email: "soltura@teste.com",
-      password: solturaPassword,
-      role: "COLABORADOR_SOLTURA",
+      name: "Tanque VCM",
+      email: "tanque_vcm@teste.com",
+      password,
+      role: "tanque",
+      garagem: "VCM",
+      groups: { connect: [{ id: groupTanque.id }] },
     },
   });
 
-  const buses = [
-    { plate: "ABC-1A23", prefix: "101", model: "Mercedes-Benz OF-1721" },
-    { plate: "DEF-2B34", prefix: "102", model: "Volvo B270F" },
-    { plate: "GHI-3C45", prefix: "103", model: "Scania K310" },
-    { plate: "JKL-4D56", prefix: "104", model: "Iveco 170S28" },
-    { plate: "MNO-5E67", prefix: "201", model: "Mercedes-Benz OF-1519" },
-  ];
+  // abastecimento_vcg@teste.com — Abastecimento por Carro, VCG
+  await prisma.user.upsert({
+    where: { email: "abastecimento_vcg@teste.com" },
+    update: {
+      role: "abastecimento",
+      garagem: "VCG",
+      groups: { set: [{ id: groupAbastCarro.id }] },
+    },
+    create: {
+      name: "Abastecimento VCG",
+      email: "abastecimento_vcg@teste.com",
+      password,
+      role: "abastecimento",
+      garagem: "VCG",
+      groups: { connect: [{ id: groupAbastCarro.id }] },
+    },
+  });
 
-  for (const bus of buses) {
-    await prisma.bus.upsert({
-      where: { plate: bus.plate },
-      update: {},
-      create: bus,
-    });
-  }
+  // abastecimento_vcm@teste.com — Abastecimento por Carro, VCM
+  await prisma.user.upsert({
+    where: { email: "abastecimento_vcm@teste.com" },
+    update: {
+      role: "abastecimento",
+      garagem: "VCM",
+      groups: { set: [{ id: groupAbastCarro.id }] },
+    },
+    create: {
+      name: "Abastecimento VCM",
+      email: "abastecimento_vcm@teste.com",
+      password,
+      role: "abastecimento",
+      garagem: "VCM",
+      groups: { connect: [{ id: groupAbastCarro.id }] },
+    },
+  });
+
+  // soltura_vcg@teste.com — Soltura, VCG
+  await prisma.user.upsert({
+    where: { email: "soltura_vcg@teste.com" },
+    update: {
+      role: "soltura",
+      garagem: "VCG",
+      groups: { set: [{ id: groupSoltura.id }] },
+    },
+    create: {
+      name: "Soltura VCG",
+      email: "soltura_vcg@teste.com",
+      password,
+      role: "soltura",
+      garagem: "VCG",
+      groups: { connect: [{ id: groupSoltura.id }] },
+    },
+  });
+
+  // soltura_vcm@teste.com — Soltura, VCM
+  await prisma.user.upsert({
+    where: { email: "soltura_vcm@teste.com" },
+    update: {
+      role: "soltura",
+      garagem: "VCM",
+      groups: { set: [{ id: groupSoltura.id }] },
+    },
+    create: {
+      name: "Soltura VCM",
+      email: "soltura_vcm@teste.com",
+      password,
+      role: "soltura",
+      garagem: "VCM",
+      groups: { connect: [{ id: groupSoltura.id }] },
+    },
+  });
+
+  // operacional_vcg@teste.com — Controle Operacional, VCG
+  await prisma.user.upsert({
+    where: { email: "operacional_vcg@teste.com" },
+    update: {
+      role: "operacional",
+      garagem: "VCG",
+      groups: { set: [{ id: groupOperacional.id }] },
+    },
+    create: {
+      name: "Operacional VCG",
+      email: "operacional_vcg@teste.com",
+      password,
+      role: "operacional",
+      garagem: "VCG",
+      groups: { connect: [{ id: groupOperacional.id }] },
+    },
+  });
+
+  // operacional_vcm@teste.com — Controle Operacional, VCM
+  await prisma.user.upsert({
+    where: { email: "operacional_vcm@teste.com" },
+    update: {
+      role: "operacional",
+      garagem: "VCM",
+      groups: { set: [{ id: groupOperacional.id }] },
+    },
+    create: {
+      name: "Operacional VCM",
+      email: "operacional_vcm@teste.com",
+      password,
+      role: "operacional",
+      garagem: "VCM",
+      groups: { connect: [{ id: groupOperacional.id }] },
+    },
+  });
 
   console.log("Seed concluído!");
 }

@@ -9,14 +9,16 @@ export const createUserSchema = z.object({
   name: z.string().min(1, "Nome obrigatório"),
   email: z.string().email("Email inválido"),
   password: z.string().min(6, "Senha deve ter no mínimo 6 caracteres"),
-  role: z.string().refine((v) => ["ADMIN", "COLABORADOR", "COLABORADOR_ABASTECIMENTO", "COLABORADOR_SOLTURA"].includes(v), "Tipo inválido"),
+  role: z.string().refine((v) => ["ADMIN", "COLABORADOR", "COLABORADOR_ABASTECIMENTO", "COLABORADOR_SOLTURA", "COLABORADOR_CONTROLE_OPERACIONAL"].includes(v), "Tipo inválido"),
+  garagem: z.string().nullable().optional(),
 });
 
 export const updateUserSchema = z.object({
   name: z.string().min(1).optional(),
   email: z.string().email().optional(),
   password: z.string().min(6).optional(),
-  role: z.string().refine((v) => ["ADMIN", "COLABORADOR", "COLABORADOR_ABASTECIMENTO", "COLABORADOR_SOLTURA"].includes(v), "Tipo inválido").optional(),
+  role: z.string().refine((v) => ["ADMIN", "COLABORADOR", "COLABORADOR_ABASTECIMENTO", "COLABORADOR_SOLTURA", "COLABORADOR_CONTROLE_OPERACIONAL"].includes(v), "Tipo inválido").optional(),
+  garagem: z.string().nullable().optional(),
 });
 
 export const createBusSchema = z.object({
@@ -26,11 +28,12 @@ export const createBusSchema = z.object({
 });
 
 export const createAbastecimentoSchema = z.object({
-  busId: z.number().int().positive("Ônibus inválido"),
-  liters: z.number().positive("Litros deve ser positivo"),
-  value: z.number().positive("Valor deve ser positivo"),
-  driverName: z.string().min(1, "Nome do motorista obrigatório"),
-  odometer: z.number().int().positive("Odômetro deve ser positivo"),
+  litersT1: z.number().positive("Litros do tanque 1 deve ser positivo"),
+  fotoT1: z.string().min(1, "Foto do tanque 1 é obrigatória"),
+  litersT2: z.number().positive("Litros do tanque 2 deve ser positivo"),
+  fotoT2: z.string().min(1, "Foto do tanque 2 é obrigatória"),
+  litersT3: z.number().positive("Litros do tanque 3 deve ser positivo").nullable().optional(),
+  fotoT3: z.string().min(1, "Foto do tanque 3 é obrigatória").nullable().optional(),
 });
 
 export const createSolturaSchema = z.object({
@@ -76,5 +79,33 @@ export const updateBackupSchema = z.object({
 export const detalhesVeiculoQuerySchema = z.object({
   idVeiculo: z.string().transform((v) => parseInt(v, 10)),
   date: z.string().min(1, "Data é obrigatória"),
+});
+
+export const startSessionSchema = z.object({
+  matricula: z.string().min(1, "Matrícula do funcionário é obrigatória"),
+  b1Ini: z.number().nullable().optional(),
+  b2Ini: z.number().nullable().optional(),
+  b3Ini: z.number().nullable().optional(),
+  b4Ini: z.number().nullable().optional(),
+  b5Ini: z.number().nullable().optional(),
+  b6Ini: z.number().nullable().optional(),
+});
+
+export const finishSessionSchema = z.object({
+  sessionId: z.number().int().positive("ID da sessão inválido"),
+  b1Fim: z.number().nullable().optional(),
+  b2Fim: z.number().nullable().optional(),
+  b3Fim: z.number().nullable().optional(),
+  b4Fim: z.number().nullable().optional(),
+  b5Fim: z.number().nullable().optional(),
+  b6Fim: z.number().nullable().optional(),
+});
+
+export const createAbastecimentoCarroItemSchema = z.object({
+  sessionId: z.number().int().positive("ID da sessão inválido"),
+  carro: z.string().min(1, "Veículo é obrigatório"),
+  liters: z.number().positive("Litros deve ser maior que zero"),
+  bomba: z.string().min(1, "Bomba é obrigatória"),
+  foto: z.string().min(1, "Foto é obrigatória"),
 });
 

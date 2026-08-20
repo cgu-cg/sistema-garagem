@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "@/stores/auth";
+import { useAuth, getDefaultRoute } from "@/stores/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,7 +21,11 @@ export function LoginPage() {
     try {
       await login(email, password);
       toast.success("Login realizado com sucesso!");
-      navigate("/home");
+      
+      // Obter rota padrão baseada nas permissões
+      const user = useAuth.getState().user;
+      const targetRoute = getDefaultRoute(user);
+      navigate(targetRoute);
     } catch (err: any) {
       toast.error(err.message || "Erro ao fazer login");
     } finally {

@@ -50,21 +50,41 @@ export const api = {
   deleteUser: (id: number) =>
     request(`/users/${id}`, { method: "DELETE" }),
 
+  // Groups
+  listGroups: () => request("/groups"),
+  createGroup: (data: any) =>
+    request("/groups", { method: "POST", body: JSON.stringify(data) }),
+  updateGroup: (id: number, data: any) =>
+    request(`/groups/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteGroup: (id: number) =>
+    request(`/groups/${id}`, { method: "DELETE" }),
+
   // Buses
   listBuses: () => request("/buses"),
   createBus: (data: any) =>
     request("/buses", { method: "POST", body: JSON.stringify(data) }),
 
   // Abastecimento
-  listAbastecimentos: (params?: { startDate?: string; endDate?: string }) => {
+  listAbastecimentos: (params?: { date?: string; garagem?: string }) => {
     const query = new URLSearchParams();
-    if (params?.startDate) query.set("startDate", params.startDate);
-    if (params?.endDate) query.set("endDate", params.endDate);
+    if (params?.date) query.set("date", params.date);
+    if (params?.garagem) query.set("garagem", params.garagem);
     const qs = query.toString();
     return request(`/abastecimentos${qs ? `?${qs}` : ""}`);
   },
   createAbastecimento: (data: any) =>
     request("/abastecimentos", { method: "POST", body: JSON.stringify(data) }),
+
+  // Abastecimento por Carro
+  getActiveAbastecimentoCarroSession: () => request("/abastecimento-carro/session/active"),
+  startAbastecimentoCarroSession: (data: any) =>
+    request("/abastecimento-carro/session/start", { method: "POST", body: JSON.stringify(data) }),
+  createAbastecimentoCarroItem: (data: any) =>
+    request("/abastecimento-carro/item", { method: "POST", body: JSON.stringify(data) }),
+  finishAbastecimentoCarroSession: (data: any) =>
+    request("/abastecimento-carro/session/finish", { method: "POST", body: JSON.stringify(data) }),
+  listAbastecimentoCarroSessions: () => request("/abastecimento-carro/sessions"),
+  getAbastecimentoCarroSessionDetails: (id: number) => request(`/abastecimento-carro/sessions/${id}`),
 
   // Soltura
   listSolturas: (params?: { startDate?: string; endDate?: string }) => {
@@ -130,5 +150,20 @@ export const api = {
     if (params.dateSV2) query.set("dateSV2", params.dateSV2);
     return request(`/catracas/diarios?${query.toString()}`);
   },
+
+  // Controle Operacional
+  listControleOperacional: (params?: { date?: string; garagem?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.date) query.set("date", params.date);
+    if (params?.garagem) query.set("garagem", params.garagem);
+    const qs = query.toString();
+    return request(`/controle-operacional${qs ? `?${qs}` : ""}`);
+  },
+  listOperacionalVeiculos: () => request("/controle-operacional/veiculos"),
+  listOperacionalLinhas: () => request("/controle-operacional/linhas"),
+  createControleOperacional: (data: any) =>
+    request("/controle-operacional", { method: "POST", body: JSON.stringify(data) }),
+  deleteControleOperacional: (id: number) =>
+    request(`/controle-operacional/${id}`, { method: "DELETE" }),
 };
 

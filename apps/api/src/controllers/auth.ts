@@ -7,7 +7,18 @@ import { AuthRequest } from "../middleware/auth";
 export async function login(req: AuthRequest, res: Response) {
   const { email, password } = req.body;
 
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await prisma.user.findUnique({ 
+    where: { email },
+    include: {
+      groups: {
+        select: {
+          id: true,
+          name: true,
+          permissions: true
+        }
+      }
+    }
+  });
   if (!user) {
     return res.status(401).json({ error: "Credenciais inválidas" });
   }
@@ -30,6 +41,12 @@ export async function login(req: AuthRequest, res: Response) {
       name: user.name,
       email: user.email,
       role: user.role,
+      garagem: user.garagem,
+      groups: user.groups.map(g => ({
+        id: g.id,
+        name: g.name,
+        permissions: JSON.parse(g.permissions || "[]")
+      }))
     },
   });
 }
@@ -37,12 +54,33 @@ export async function login(req: AuthRequest, res: Response) {
 export async function me(req: AuthRequest, res: Response) {
   const user = await prisma.user.findUnique({
     where: { id: req.userId },
-    select: { id: true, name: true, email: true, role: true, createdAt: true },
+    select: { 
+      id: true, 
+      name: true, 
+      email: true, 
+      role: true, 
+      garagem: true,
+      createdAt: true,
+      groups: {
+        select: {
+          id: true,
+          name: true,
+          permissions: true
+        }
+      }
+    },
   });
 
   if (!user) {
     return res.status(404).json({ error: "Usuário não encontrado" });
   }
 
-  return res.json(user);
+  return res.json({
+    ...user,
+    groups: user.groups.map(g => ({
+      id: g.id,
+      name: g.name,
+      permissions: JSON.parse(g.permissions || "[]")
+    }))
+  });
 }

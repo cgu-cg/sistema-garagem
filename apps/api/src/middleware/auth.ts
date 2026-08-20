@@ -28,11 +28,55 @@ export function authenticate(req: AuthRequest, res: Response, next: NextFunction
   }
 }
 
+import prisma from "../utils/prisma";
+
 export function authorize(...roles: string[]) {
-  return (req: AuthRequest, res: Response, next: NextFunction) => {
-    if (!req.userRole || !roles.includes(req.userRole)) {
+  return async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.userId || !req.userRole) {
       return res.status(403).json({ error: "Sem permissão" });
     }
-    next();
+
+    // 1. Se o papel estático estiver na lista de permitidos, avança
+    if (roles.includes(req.userRole)) {
+      return next();
+    }
+
+    // 2. Se não for ADMIN, verifica as permissões dos seus grupos no banco
+    if (req.userRole !== "ADMIN") {
+      try {
+        const user = await prisma.user.findUnique({
+          where: { id: req.userId },
+          include: {
+            groups: true,
+          },
+        });
+
+        if (user && user.groups && user.groups.length > 0) {
+          const cleanPath = req.originalUrl.replace(/^\/api/, "").split("?")[0];
+
+          const hasPermission = user.groups.some((group) => {
+            let perms: string[] = [];
+            try {
+              perms = JSON.parse(group.permissions || "[]");
+            } catch {
+              perms = [];
+            }
+            return perms.some((permittedPath) => {
+              if (permittedPath === "/home") return false;
+              const cleanPermitted = permittedPath.split("?")[0];
+              return cleanPath === cleanPermitted || cleanPath.startsWith(cleanPermitted + "/");
+            });
+          });
+
+          if (hasPermission) {
+            return next();
+          }
+        }
+      } catch (err) {
+        console.error("Erro no middleware de autorização de grupos:", err);
+      }
+    }
+
+    return res.status(403).json({ error: "Sem permissão" });
   };
 }

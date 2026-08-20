@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -17,6 +17,7 @@ import {
   Copy,
   Check,
   Database,
+  ClipboardCheck,
   ArrowRight,
   ChevronRight,
   ChevronDown,
@@ -51,6 +52,32 @@ const EMPRESAS_MAP: Record<string, { pasta: string; sigla: string }> = {
 
 export function CatracasPage() {
   const location = useLocation();
+  const dateInputRef = useRef<HTMLInputElement>(null);
+
+  const formatDisplayDate = (dateVal: string | Date | null | undefined) => {
+    if (!dateVal) return "Não configurado";
+
+    const str = String(dateVal);
+    const match = str.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
+    if (match) {
+      const [, year, month, day, hour, min, sec] = match;
+      return `${day}/${month}/${year} ${hour}:${min}:${sec}`;
+    }
+
+    try {
+      const d = new Date(dateVal);
+      if (isNaN(d.getTime())) return str;
+      const day = d.getDate().toString().padStart(2, "0");
+      const month = (d.getMonth() + 1).toString().padStart(2, "0");
+      const year = d.getFullYear();
+      const hour = d.getHours().toString().padStart(2, "0");
+      const min = d.getMinutes().toString().padStart(2, "0");
+      const sec = d.getSeconds().toString().padStart(2, "0");
+      return `${day}/${month}/${year} ${hour}:${min}:${sec}`;
+    } catch {
+      return str;
+    }
+  };
 
   const activeTab = location.pathname.includes("/alertas")
     ? "alertas"
@@ -142,6 +169,13 @@ export function CatracasPage() {
     setPdfCarId(idCarro.toString());
     setPdfDateIni(dateStr);
     setPdfDateFim(dateStr);
+
+    setTimeout(() => {
+      const element = document.getElementById("detalhes-veiculo");
+      if (element) {
+        element.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 100);
 
     try {
       const response = await api.getDetalhesVeiculo({
@@ -242,7 +276,7 @@ export function CatracasPage() {
         return;
       }
 
-      // Formatar datas para o SQL Server (DD/MM/YYYY HH:mm:ss)
+      // Formatar datas para o SQL Server (YYYY-MM-DD HH:mm:ss)
       const formatToSql = (isoStr: string) => {
         const d = new Date(isoStr);
         const day = d.getDate().toString().padStart(2, "0");
@@ -251,7 +285,7 @@ export function CatracasPage() {
         const hour = d.getHours().toString().padStart(2, "0");
         const min = d.getMinutes().toString().padStart(2, "0");
         const sec = d.getSeconds().toString().padStart(2, "0");
-        return `${day}/${month}/${year} ${hour}:${min}:${sec}`;
+        return `${year}-${month}-${day} ${hour}:${min}:${sec}`;
       };
 
       const iniFormatted = formatToSql(coletaBKPIni);
@@ -439,12 +473,22 @@ export function CatracasPage() {
 
   const formatDate = (dateVal: any) => {
     if (!dateVal) return "";
+    if (typeof dateVal === "string") {
+      if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateVal)) {
+        return dateVal;
+      }
+      const match = dateVal.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (match) {
+        const [, y, m, d] = match;
+        return `${d}/${m}/${y}`;
+      }
+    }
     try {
       const d = new Date(dateVal);
       if (isNaN(d.getTime())) return dateVal;
-      const day = d.getDate().toString().padStart(2, "0");
-      const month = (d.getMonth() + 1).toString().padStart(2, "0");
-      const year = d.getFullYear();
+      const day = d.getUTCDate().toString().padStart(2, "0");
+      const month = (d.getUTCMonth() + 1).toString().padStart(2, "0");
+      const year = d.getUTCFullYear();
       return `${day}/${month}/${year}`;
     } catch (e) {
       return dateVal;
@@ -453,18 +497,32 @@ export function CatracasPage() {
 
   const formatDateTime = (dateVal: any) => {
     if (!dateVal) return "";
-    if (typeof dateVal === "string" && /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/.test(dateVal)) {
-      return dateVal;
+    if (typeof dateVal === "string") {
+      if (/^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}(:\d{2})?$/.test(dateVal)) {
+        return dateVal;
+      }
+      if (dateVal.includes("T") || dateVal.includes("-")) {
+        const match = dateVal.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
+        if (match) {
+          const [, y, m, d, h, min, s] = match;
+          return `${d}/${m}/${y} ${h}:${min}:${s}`;
+        }
+        const matchDateOnly = dateVal.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (matchDateOnly) {
+          const [, y, m, d] = matchDateOnly;
+          return `${d}/${m}/${y}`;
+        }
+      }
     }
     try {
       const d = new Date(dateVal);
       if (isNaN(d.getTime())) return dateVal;
-      const day = d.getDate().toString().padStart(2, "0");
-      const month = (d.getMonth() + 1).toString().padStart(2, "0");
-      const year = d.getFullYear();
-      const hours = d.getHours().toString().padStart(2, "0");
-      const minutes = d.getMinutes().toString().padStart(2, "0");
-      const seconds = d.getSeconds().toString().padStart(2, "0");
+      const day = d.getUTCDate().toString().padStart(2, "0");
+      const month = (d.getUTCMonth() + 1).toString().padStart(2, "0");
+      const year = d.getUTCFullYear();
+      const hours = d.getUTCHours().toString().padStart(2, "0");
+      const minutes = d.getUTCMinutes().toString().padStart(2, "0");
+      const seconds = d.getUTCSeconds().toString().padStart(2, "0");
       return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
     } catch (e) {
       return dateVal;
@@ -483,11 +541,10 @@ export function CatracasPage() {
         </div>
       )}
 
-      {/* Título da Página */}
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Conferência de Catracas</h1>
-          <p className="text-muted-foreground">Auditoria de turnos,WiFi logs, ordens de serviço de manutenção e diários de bordo.</p>
+          <h1 className="text-xl md:text-3xl font-bold tracking-tight pb-3">Conferência de Catracas</h1>
+          <p className="text-muted-foreground text-xs md:text-sm">Auditoria de turnos, WiFi logs, ordens de serviço de manutenção e diários de bordo.</p>
         </div>
       </div>
 
@@ -499,7 +556,7 @@ export function CatracasPage() {
           <Card className="shadow-md">
             <CardHeader className="pb-4">
               <CardTitle className="text-xl font-bold flex items-center gap-2">
-                <Database className="h-5 w-5 text-indigo-600" />
+                <ClipboardCheck className="h-5 w-5 text-indigo-600" />
                 Diferenças de Catraca por Carro
               </CardTitle>
               <CardDescription>
@@ -510,16 +567,17 @@ export function CatracasPage() {
               {/* Filtros */}
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <div className="space-y-2">
-                  <Label htmlFor="date">Data de Auditoria</Label>
+                  <Label htmlFor="date">Data de Conferência</Label>
                   <div className="relative">
                     <Input
                       type="date"
                       id="date"
+                      ref={dateInputRef}
                       value={consistenciaDate}
                       onChange={(e) => setConsistenciaDate(e.target.value)}
-                      className="pl-9"
+                      className="pl-2 pr-8 cursor-pointer"
+                      onClick={() => dateInputRef.current?.showPicker()}
                     />
-                    <Calendar className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -545,8 +603,8 @@ export function CatracasPage() {
               </div>
 
               {/* Tabela de Resultados */}
-              <div className="rounded-md border overflow-hidden">
-                <table className="w-full text-sm text-left">
+              <div className="rounded-md border overflow-x-auto w-full">
+                <table className="w-full text-sm text-left min-w-[700px] md:min-w-0">
                   <thead className="bg-muted/80 text-muted-foreground text-xs uppercase font-semibold">
                     <tr>
                       <th className="px-3 py-2">Carro</th>
@@ -578,7 +636,7 @@ export function CatracasPage() {
                         <tr
                           key={row.idCarro}
                           onClick={() => handleSelectCar(row.idCarro, consistenciaDate)}
-                          className={`hover:bg-accent-400 cursor-pointer transition-colors ${selectedCar === row.idCarro ? "bg-indigo-200 dark:bg-indigo-950/20" : ""
+                          className={`hover:bg-accent-400 cursor-pointer transition-colors ${selectedCar === row.idCarro ? "bg-indigo-200 dark:bg-indigo-950" : ""
                             }`}
                         >
                           <td className="px-4 py-1 text-xs font-bold text-indigo-600 dark:text-indigo-400">
@@ -621,7 +679,7 @@ export function CatracasPage() {
             <CardHeader className="pb-4">
               <CardTitle className="text-xl font-bold flex items-center gap-2">
                 <AlertTriangle className="h-5 w-5 text-rose-600" />
-                Alertas Globais de Erros de Configuração
+                ULs com datas incorretas
               </CardTitle>
               <CardDescription>
                 Monitora dados incomuns vindos de validadores ou carros, indicando horários e equipamentos mal configurados.
@@ -700,7 +758,7 @@ export function CatracasPage() {
                             <th className="px-3 py-2">Data Inicial (HIni)</th>
                             <th className="px-3 py-2">Data Final (HFim)</th>
                             <th className="px-3 py-2">Catraca Fim</th>
-                            <th className="px-3 py-2">Último Batimento</th>
+                            <th className="px-3 py-2">Data Hora UL</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y">
@@ -893,8 +951,8 @@ export function CatracasPage() {
                           <tr key={row.idCarro} className="hover:bg-muted/30">
                             <td className="px-3 py-2 font-semibold">{row.idCarro}</td>
                             <td className="px-3 py-2">{row.garage || "N/A"}</td>
-                            <td className="px-3 py-2 text-indigo-600 font-semibold">{row.coletaBKPIni || "Não configurado"}</td>
-                            <td className="px-3 py-2 text-indigo-600 font-semibold">{row.coletaBKPFim || "Não configurado"}</td>
+                            <td className="px-3 py-2 text-indigo-600 font-semibold">{formatDisplayDate(row.coletaBKPIni)}</td>
+                            <td className="px-3 py-2 text-indigo-600 font-semibold">{formatDisplayDate(row.coletaBKPFim)}</td>
                             <td className="px-3 py-2">
                               <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${row.emManutencao ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
                                 }`}>
@@ -1024,7 +1082,7 @@ export function CatracasPage() {
 
       {/* Painel de Detalhes e Diário de Bordo (Dividido 50% / 50%) */}
       {activeTab === "consistencia" && selectedCar && (
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 mt-6">
+        <div id="detalhes-veiculo" className="grid grid-cols-1 gap-6 md:grid-cols-2 mt-6">
 
           {/* Lado Esquerdo: Detalhes do Veículo (50%) */}
           {selectedCar ? (
@@ -1163,109 +1221,110 @@ export function CatracasPage() {
                             <RefreshCw className="h-4 w-4 text-indigo-600" />
                             <h4 className="font-semibold text-sm">Comunicação e Ajustes de Catraca</h4>
                           </CardHeader>
-                          <CardContent className="py-4 text-xs">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <CardContent className="py-4 text-xs px-3">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
 
-                              {/* 1. Primeiras Conexões */}
-                              <div className="flex flex-col bg-slate-50/50 dark:bg-slate-900/40 p-3 rounded-lg border justify-between">
+                              {/* 1. Últimas Conexões */}
+                              <div className="flex flex-col bg-slate-50/50 dark:bg-slate-900/40 p-3 rounded-lg border">
                                 <div>
                                   <div className="font-semibold text-emerald-700 dark:text-emerald-400 text-xs mb-2 pb-1.5 border-b border-emerald-100/50 dark:border-emerald-900/30 flex items-center gap-1.5">
                                     <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
-                                    Últimas conexões ({consistenciaBase?.catracaFim})
+                                    Últimas conexões SV1
                                   </div>
-                                  <div className="space-y-1 mt-2 bg-muted/30 p-2.5 rounded border text-[11px] font-mono">
+                                  <div className="mt-2">
                                     {latestLog ? (
-                                      <div className="overflow-x-auto">
-                                        <table className="w-full text-left font-mono">
-                                          <thead>
-                                            <tr className="text-muted-foreground text-[10px] border-b border-muted">
-                                              <th className="pb-1.5 font-semibold">MAC Validador</th>
-                                              <th className="pb-1.5 text-center font-semibold">Catraca</th>
-                                              <th className="pb-1.5 text-right font-semibold">Data/Hora</th>
-                                            </tr>
-                                          </thead>
-                                          <tbody>
-                                            <tr className="border-b last:border-0 border-muted/30">
-                                              <td className="py-1.5 text-foreground">{latestLog.MACValidador}</td>
-                                              <td className="py-1.5 text-center text-foreground font-semibold">{latestLog.CATRACA}</td>
-                                              <td className="py-1.5 text-right text-muted-foreground">{formatDateTime(latestLog.DataHora)}</td>
-                                            </tr>
-                                          </tbody>
-                                        </table>
+                                      <div className="font-mono text-[11px]">
+                                        <div className="grid items-center border-b border-muted/40 pb-1 mb-1">
+                                          <span className="text-muted-foreground font-sans text-[10px]">MAC Validador:</span>
+                                          <span className="font-semibold text-foreground">{latestLog.MACValidador}</span>
+                                        </div>
+                                        <div className="grid items-center border-b border-muted/40 pb-1">
+                                          <span className="text-muted-foreground font-sans text-[10px]">Catraca:</span>
+                                          <span className="font-semibold text-foreground">{latestLog.CATRACA ?? latestLog.catraca ?? consistenciaBase?.catracaFim}</span>
+                                        </div>
+                                        <div className="grid items-center">
+                                          <span className="text-muted-foreground font-sans text-[10px]">Data/Hora:</span>
+                                          <span className="font-semibold text-foreground">{formatDateTime(latestLog.DataHora)}</span>
+                                        </div>
                                       </div>
                                     ) : (
-                                      <div className="text-muted-foreground py-2 text-xs">Nenhum log WiFi registrado com esse valor.</div>
+                                      <div className="text-muted-foreground py-2 text-xs">Nenhum log WiFi registrado com esse valor de catraca.</div>
                                     )}
                                   </div>
                                 </div>
                               </div>
 
                               {/* 2. Ajustes de Catraca */}
-                              <div className="flex flex-col bg-slate-50/50 dark:bg-slate-900/40 p-3 rounded-lg border justify-between">
+                              <div className="flex flex-col bg-slate-50/50 dark:bg-slate-900/40 p-3 rounded-lg border">
                                 <div>
                                   <div className="font-semibold text-amber-700 dark:text-amber-400 text-xs mb-2 pb-1.5 border-b border-amber-100/50 dark:border-amber-900/30 flex items-center gap-1.5">
                                     <span className="h-2 w-2 rounded-full bg-amber-500"></span>
                                     Ajustes de Catraca
                                   </div>
-                                  <div className="space-y-1 mt-2 bg-muted/30 p-2.5 rounded border text-[11px]">
+                                  <div className="mt-2">
                                     {errosEvento && errosEvento.length > 0 ? (
                                       <div className="overflow-x-auto max-h-[140px] overflow-y-auto">
-                                        <table className="w-full text-left font-mono">
+                                        {errosEvento.map((err: any, idx: number) => (
+                                          <div key={idx} className="font-mono text-[11px] border-b border-muted/40 pb-1 mb-1">
+                                            <div className="grid items-center pb-1">
+                                              <span className="text-muted-foreground font-sans text-[10px]">Catraca:</span>
+                                              <span className="font-semibold text-foreground">{err.catraca}</span>
+                                            </div>
+                                            <div className="grid items-center">
+                                              <span className="text-muted-foreground font-sans text-[10px]">Data/Hora:</span>
+                                              <span className="font-semibold text-foreground">{formatDateTime(err.Datahora)}</span>
+                                            </div>
+                                          </div>
+                                        ))}
+                                        {/*<table className="w-full text-left font-mono text-[11px]">
                                           <thead>
-                                            <tr className="text-muted-foreground text-[10px] border-b border-muted">
-                                              <th className="pb-1.5">Cartão</th>
-                                              <th className="pb-1.5 text-right">Catraca</th>
-                                              <th className="pb-1.5 text-right">Data/Hora</th>
+                                            <tr className="border-b border-muted/40">
+                                              <th className="text-muted-foreground font-sans text-[10px] pb-1 font-normal">Catraca</th>
+                                              <th className="text-muted-foreground font-sans text-[10px] pb-1 font-normal">Data/Hora</th>
                                             </tr>
                                           </thead>
                                           <tbody>
                                             {errosEvento.map((err: any, idx: number) => (
                                               <tr key={idx} className="border-b last:border-0 border-muted/30">
-                                                <td className="py-1 font-semibold text-rose-600">{err.idCartao}</td>
-                                                <td className="py-1 text-right">{err.catraca}</td>
-                                                <td className="py-1 text-right text-muted-foreground">{formatDateTime(err.Datahora)}</td>
+                                                <td className="py-1 font-semibold text-foreground">{err.catraca}</td>
+                                                <td className="py-1 font-semibold text-foreground">{formatDateTime(err.Datahora)}</td>
                                               </tr>
                                             ))}
                                           </tbody>
-                                        </table>
+                                        </table>*/}
                                       </div>
                                     ) : (
-                                      <div className="text-muted-foreground py-2 text-xs">Nenhum erro de evento codErro = 154 registrado.</div>
+                                      <div className="text-muted-foreground py-2 text-xs">Nenhum evento de ajuste de catraca registrado.</div>
                                     )}
                                   </div>
                                 </div>
                               </div>
 
-                              {/* 3. Últimas Conexões */}
-
-                              <div className="flex flex-col bg-slate-50/50 dark:bg-slate-900/40 p-3 rounded-lg border justify-between">
+                              {/* 3. Primeiras Conexões */}
+                              <div className="flex flex-col bg-slate-50/50 dark:bg-slate-900/40 p-3 rounded-lg border">
                                 <div>
                                   <div className="font-semibold text-indigo-700 dark:text-indigo-400 text-xs mb-2 pb-1.5 border-b border-indigo-100/50 dark:border-indigo-900/30 flex items-center gap-1.5">
                                     <span className="h-2 w-2 rounded-full bg-indigo-500"></span>
-                                    Primeiras conexões ({consistenciaBase?.catracaIni})
+                                    Primeiras conexões SV2
                                   </div>
-                                  <div className="space-y-1 mt-2 bg-muted/30 p-2.5 rounded border text-[11px] font-mono">
+                                  <div className="mt-2">
                                     {earliestLog ? (
-                                      <div className="overflow-x-auto">
-                                        <table className="w-full text-left font-mono">
-                                          <thead>
-                                            <tr className="text-muted-foreground text-[10px] border-b border-muted">
-                                              <th className="pb-1.5 font-semibold">MAC Validador</th>
-                                              <th className="pb-1.5 text-center font-semibold">Catraca</th>
-                                              <th className="pb-1.5 text-right font-semibold">Data/Hora</th>
-                                            </tr>
-                                          </thead>
-                                          <tbody>
-                                            <tr className="border-b last:border-0 border-muted/30">
-                                              <td className="py-1.5 text-foreground">{earliestLog.MACValidador}</td>
-                                              <td className="py-1.5 text-center text-foreground font-semibold">{earliestLog.CATRACA}</td>
-                                              <td className="py-1.5 text-right text-muted-foreground">{formatDateTime(earliestLog.DataHora)}</td>
-                                            </tr>
-                                          </tbody>
-                                        </table>
+                                      <div className="font-mono text-[11px]">
+                                        <div className="grid items-center border-b border-muted/40 pb-1">
+                                          <span className="text-muted-foreground font-sans text-[10px]">MAC Validador:</span>
+                                          <span className="font-semibold text-foreground">{earliestLog.MACValidador}</span>
+                                        </div>
+                                        <div className="grid items-center border-b border-muted/40 pb-1">
+                                          <span className="text-muted-foreground font-sans text-[10px]">Catraca:</span>
+                                          <span className="font-semibold text-foreground">{earliestLog.CATRACA ?? earliestLog.catraca ?? consistenciaBase?.catracaIni}</span>
+                                        </div>
+                                        <div className="grid items-center">
+                                          <span className="text-muted-foreground font-sans text-[10px]">Data/Hora:</span>
+                                          <span className="font-semibold text-foreground">{formatDateTime(earliestLog.DataHora)}</span>
+                                        </div>
                                       </div>
                                     ) : (
-                                      <div className="text-muted-foreground py-2 text-xs">Nenhum log WiFi registrado com esse valor.</div>
+                                      <div className="text-muted-foreground py-2 text-xs">Nenhum log WiFi registrado com esse valor de catraca.</div>
                                     )}
                                   </div>
                                 </div>
@@ -1284,15 +1343,11 @@ export function CatracasPage() {
                           <CardContent className="py-3 text-xs">
                             {detailsData.ordemServicoBilhetagem ? (
                               <div className="space-y-2">
-                                <div className="flex justify-between border-b pb-1">
+                                <div className="flex justify-between">
                                   <span className="font-semibold">ID OS: {detailsData.ordemServicoBilhetagem.Id}</span>
                                   <span className="text-muted-foreground">{formatDateTime(detailsData.ordemServicoBilhetagem.DataHora)}</span>
                                 </div>
-                                <div className="flex justify-between">
-                                  <span className="text-muted-foreground">Equipamento: <span className="text-black" >Validador</span></span>
-                                  <span className="text-muted-foreground">Status da OS: <span className="font-bold text-indigo-600">{detailsData.ordemServicoBilhetagem.status}</span></span>
-                                </div>
-                                <div className="pt-2">
+                                <div className="pt-1">
                                   <details className="group border rounded-md overflow-hidden bg-muted/20">
                                     <summary className="flex justify-between items-center font-semibold text-[11px] text-muted-foreground p-2 bg-muted/40 cursor-pointer list-none select-none hover:bg-muted/60 transition-colors">
                                       <span>Descrição ({detailsData.ordemServicoBilhetagem.itens?.length || 0})</span>
@@ -1310,8 +1365,8 @@ export function CatracasPage() {
                                                 </div>
                                               )}
                                               {it.observacaoSolucao && (
-                                                <div className="mt-0.5 text-emerald-600 dark:text-emerald-400">
-                                                  <strong>Solução:</strong>{" "}
+                                                <div className="mt-0.5">
+                                                  <strong className="text-emerald-600 dark:text-emerald-400">Solução:</strong>{" "}
                                                   <span>{it.observacaoSolucao}</span>
                                                 </div>
                                               )}
@@ -1335,20 +1390,16 @@ export function CatracasPage() {
                         <Card className="border shadow-none">
                           <CardHeader className="py-2.5 bg-muted/40 border-b flex flex-row items-center gap-2">
                             <Wrench className="h-4 w-4 text-emerald-600" />
-                            <h4 className="font-semibold text-sm">OS de Oficina Física (Simanet)</h4>
+                            <h4 className="font-semibold text-sm">OS de Validadores (Simanet)</h4>
                           </CardHeader>
                           <CardContent className="py-3 text-xs">
                             {detailsData.ordemServicoSimanet ? (
                               <div className="space-y-2">
-                                <div className="flex justify-between border-b pb-1">
+                                <div className="flex justify-between">
                                   <span className="font-semibold">ID OS: {detailsData.ordemServicoSimanet.IdOrdemServico}</span>
                                   <span className="text-muted-foreground">{formatDateTime(detailsData.ordemServicoSimanet.DataHora)}</span>
                                 </div>
-                                <div className="grid grid-cols-2">
-                                  <span className="text-muted-foreground">Status da OS:</span>
-                                  <span className="font-bold text-indigo-600">{detailsData.ordemServicoSimanet.status}</span>
-                                </div>
-                                <div className="pt-2">
+                                <div className="pt-1">
                                   <details className="group border rounded-md overflow-hidden bg-muted/20">
                                     <summary className="flex justify-between items-center font-semibold text-[11px] text-muted-foreground p-2 bg-muted/40 cursor-pointer list-none select-none hover:bg-muted/60 transition-colors">
                                       <span>Equipamentos em Análise ({detailsData.ordemServicoSimanet.equipamentos?.length || 0})</span>
@@ -1358,12 +1409,19 @@ export function CatracasPage() {
                                       {detailsData.ordemServicoSimanet.equipamentos && detailsData.ordemServicoSimanet.equipamentos.length > 0 ? (
                                         <ul className="space-y-1 text-[11px]">
                                           {detailsData.ordemServicoSimanet.equipamentos.map((eq: any, idx: number) => (
-                                            <li key={idx} className="flex flex-col border-b last:border-0 pb-1 mb-1 last:pb-0 last:mb-0 border-muted/50">
-                                              <div className="flex justify-between font-semibold">
-                                                <span>{eq.descricao}</span>
-                                                <span className="text-muted-foreground text-[10px]">{eq.numeroSerie}</span>
-                                              </div>
-                                              <span className="text-rose-600 text-[10px]">{eq.defeitoRelatado}</span>
+                                            <li key={idx} className="flex flex-col border-b last:border-0 pb-1.5 mb-1.5 last:pb-0 last:mb-0 border-muted/50">
+                                              {(eq.DescricaoProblema || eq.defeitoRelatado) && (
+                                                <div>
+                                                  <strong className="text-rose-600 dark:text-rose-400">Problema:</strong>{" "}
+                                                  <span className="whitespace-pre-line">{eq.DescricaoProblema || eq.defeitoRelatado}</span>
+                                                </div>
+                                              )}
+                                              {eq.DescricaoSolucao && (
+                                                <div className="mt-0.5">
+                                                  <strong className="text-emerald-600 dark:text-emerald-400">Solução:</strong>{" "}
+                                                  <span className="whitespace-pre-line">{eq.DescricaoSolucao}</span>
+                                                </div>
+                                              )}
                                             </li>
                                           ))}
                                         </ul>

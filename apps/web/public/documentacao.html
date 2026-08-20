@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistema Garagem - Documentação Oficial</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Fira+Code:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['Fira Code', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .dark ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-200 font-sans transition-colors duration-200 min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="sticky top-0 z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur border-b border-slate-200 dark:border-slate-800 px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="p-2 bg-indigo-600 rounded-lg text-white font-bold tracking-wider text-sm shadow-md">SG</div>
+      <div>
+        <h1 class="font-extrabold text-lg tracking-tight">Sistema Garagem</h1>
+        <p class="text-[10px] text-slate-500 dark:text-slate-400 font-medium">DOCUMENTAÇÃO DO PROJETO</p>
+      </div>
+    </div>
+    
+    <div class="flex items-center gap-4">
+      <button 
+        id="theme-toggle" 
+        class="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors"
+        title="Alternar Tema"
+      >
+        <span id="theme-icon">☀️</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="flex flex-1 relative">
+    
+    <!-- Sidebar Navigation -->
+    <aside class="hidden lg:block w-72 border-r border-slate-200 dark:border-slate-800 p-6 sticky top-[73px] h-[calc(100vh-73px)] overflow-y-auto bg-white dark:bg-slate-900/50">
+      <h2 class="text-xs font-semibold uppercase text-slate-400 dark:text-slate-500 tracking-wider mb-4">Conteúdo</h2>
+      <nav class="space-y-1">
+        <a href="#visao-geral" class="block px-3 py-2 text-sm font-medium rounded-lg text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50">1. Visão Geral</a>
+        <a href="#modelagem-dados" class="block px-3 py-2 text-sm font-medium rounded-lg text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/50">2. Banco de Dados</a>
+        <a href="#rbac" class="block px-3 py-2 text-sm font-medium rounded-lg text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/50">3. Permissões (RBAC)</a>
+        <a href="#backend" class="block px-3 py-2 text-sm font-medium rounded-lg text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/50">4. Backend (API)</a>
+        <a href="#frontend" class="block px-3 py-2 text-sm font-medium rounded-lg text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/50">5. Frontend (Web)</a>
+        <a href="#infra" class="block px-3 py-2 text-sm font-medium rounded-lg text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/50">6. DevOps & Docker</a>
+        <a href="#execucao" class="block px-3 py-2 text-sm font-medium rounded-lg text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/50">7. Como Rodar</a>
+        <a href="#credenciais" class="block px-3 py-2 text-sm font-medium rounded-lg text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/50">8. Acessos Padrão</a>
+        <a href="#deploy" class="block px-3 py-2 text-sm font-medium rounded-lg text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/50">9. Roteiro de Deploy</a>
+      </nav>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 p-6 md:p-10 max-w-4xl mx-auto overflow-y-auto">
+      
+      <!-- Visão Geral -->
+      <section id="visao-geral" class="mb-16 scroll-mt-24">
+        <h2 class="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-4">1. Visão Geral e Arquitetura</h2>
+        <p class="text-slate-600 dark:text-slate-300 text-base leading-relaxed mb-6">
+          O **Sistema Garagem** foi desenvolvido para o gerenciamento interno de operações de garagem de ônibus, focando no registro e controle de abastecimentos de combustível e solturas (despacho) de veículos.
+        </p>
+        <p class="text-slate-600 dark:text-slate-300 text-base leading-relaxed mb-6">
+          O projeto está estruturado como um **Monorepo** utilizando **NPM Workspaces**, composto por duas aplicações principais localizadas em <code>apps/</code>:
+        </p>
+        <div class="grid md:grid-cols-2 gap-4 mb-8">
+          <div class="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+            <h3 class="font-bold text-indigo-600 dark:text-indigo-400 mb-2">Backend (apps/api)</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400">
+              API REST em **Node.js** com **Express** e **TypeScript**, usando **Prisma ORM** e conectando-se a um banco de dados **PostgreSQL** e **SQL Server**.
+            </p>
+          </div>
+          <div class="p-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+            <h3 class="font-bold text-indigo-600 dark:text-indigo-400 mb-2">Frontend (apps/web)</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400">
+              SPA moderna construída em **React**, **Vite** e **TypeScript**, com design responsivo em **Tailwind CSS**, componentes **Radix UI** e Zustand.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Banco de Dados -->
+      <section id="modelagem-dados" class="mb-16 scroll-mt-24">
+        <h2 class="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-4">2. Modelagem do Banco de Dados</h2>
+        <p class="text-slate-600 dark:text-slate-300 text-base leading-relaxed mb-6">
+          A estrutura relacional das tabelas gerenciadas pelo Prisma ORM no PostgreSQL é composta da seguinte forma:
+        </p>
+        
+        <div class="bg-slate-900 text-slate-300 p-4 rounded-xl font-mono text-xs overflow-x-auto border border-slate-800 mb-6">
+          <div class="text-slate-500 mb-2">// Principais Modelos Relacionados</div>
+          <span class="text-indigo-400">model</span> <span class="text-white">User</span> { id Int @id, name String, role String, ... }<br/>
+          <span class="text-indigo-400">model</span> <span class="text-white">Bus</span> { id Int @id, plate String, prefix String, ... }<br/>
+          <span class="text-indigo-400">model</span> <span class="text-white">Abastecimento</span> { id Int @id, litersT1 Decimal, fotoT1 String, litersT2 Decimal, fotoT2 String, userId Int, ... }<br/>
+          <span class="text-indigo-400">model</span> <span class="text-white">Soltura</span> { id Int @id, busId Int, programmedBusId Int, linha String, tabela String, ... }
+        </div>
+
+        <h3 class="font-bold text-lg mb-2">Tabelas e Campos:</h3>
+        <ul class="list-disc list-inside space-y-2 text-slate-600 dark:text-slate-300 text-sm mb-6">
+          <li><strong>users</strong>: Armazena credenciais e perfis (roles) de acesso de colaboradores e administradores.</li>
+          <li><strong>buses</strong>: Frota de ônibus cadastrada com prefixo, placa e modelo.</li>
+          <li><strong>abastecimentos</strong>: Registro de combustíveis independente por tanque (T1 e T2) e caminhos de arquivos das fotos no disco.</li>
+          <li><strong>solturas</strong>: Registros de despacho físico contendo linha, tabela, horários programados/reais, código de motorista e observações.</li>
+        </ul>
+      </section>
+
+      <!-- RBAC -->
+      <section id="rbac" class="mb-16 scroll-mt-24">
+        <h2 class="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-4">3. Controle de Acesso e Permissões (RBAC)</h2>
+        <p class="text-slate-600 dark:text-slate-300 text-base leading-relaxed mb-4">
+          A visualização de dados e rotas no sistema é estritamente regulada conforme o papel do colaborador logado:
+        </p>
+        <div class="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl mb-6">
+          <table class="w-full text-left text-sm">
+            <thead class="bg-slate-100 dark:bg-slate-900/50 text-slate-700 dark:text-slate-300 font-semibold border-b border-slate-200 dark:border-slate-800">
+              <tr>
+                <th class="p-4">Perfil</th>
+                <th class="p-4">Descrição</th>
+                <th class="p-4">Acesso às Funcionalidades</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+              <tr>
+                <td class="p-4 font-bold text-purple-600 dark:text-purple-400">ADMIN</td>
+                <td class="p-4">Administrador</td>
+                <td class="p-4">Acesso completo (usuários, frotas, abastecimentos, solturas e auditoria de catracas).</td>
+              </tr>
+              <tr>
+                <td class="p-4 font-bold text-green-600 dark:text-green-400">COLABORADOR_ABASTECIMENTO</td>
+                <td class="p-4">Operador de Bomba</td>
+                <td class="p-4">Visualização restrita da Dashboard e acesso apenas à tela de Abastecimento.</td>
+              </tr>
+              <tr>
+                <td class="p-4 font-bold text-orange-600 dark:text-orange-400">COLABORADOR_SOLTURA</td>
+                <td class="p-4">Fiscal de Pista</td>
+                <td class="p-4">Visualização restrita da Dashboard e acesso apenas à tela de Solturas.</td>
+              </tr>
+              <tr>
+                <td class="p-4 font-bold text-blue-600 dark:text-blue-400">COLABORADOR</td>
+                <td class="p-4">Visualizador Geral</td>
+                <td class="p-4">Acesso apenas aos painéis gerais e leitura de métricas básicas da dashboard.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Backend -->
+      <section id="backend" class="mb-16 scroll-mt-24">
+        <h2 class="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-4">4. Detalhamento Técnico do Backend</h2>
+        <p class="text-slate-600 dark:text-slate-300 text-base leading-relaxed mb-4">
+          A API expõe rotas seguras com criptografia bcrypt de senhas e autenticação via Token JWT com expiração padrão de 8 horas.
+        </p>
+        <ul class="list-disc list-inside space-y-2 text-slate-600 dark:text-slate-300 text-sm">
+          <li><code>POST /api/auth/login</code>: Login de usuários.</li>
+          <li><code>GET /api/buses</code>: Listagem de frota.</li>
+          <li><code>POST /api/abastecimentos</code>: Cadastro de consumo de combustível com webcams.</li>
+          <li><code>POST /api/solturas</code>: Registro de saídas operacionais.</li>
+        </ul>
+      </section>
+
+      <!-- Frontend -->
+      <section id="frontend" class="mb-16 scroll-mt-24">
+        <h2 class="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-4">5. Detalhamento Técnico do Frontend</h2>
+        <p class="text-slate-600 dark:text-slate-300 text-base leading-relaxed mb-6">
+          O aplicativo do cliente React é projetado com estética rica e suporte completo a Light/Dark Mode reativo salvando escolhas do usuário no <code>localStorage</code>.
+        </p>
+        <h3 class="font-bold text-lg mb-2">Páginas Principais:</h3>
+        <ul class="list-disc list-inside space-y-2 text-slate-600 dark:text-slate-300 text-sm">
+          <li><strong>Dashboard</strong>: Gráficos de consumo e barras de progresso adaptáveis.</li>
+          <li><strong>Controle de Câmeras</strong>: Validação segura de dispositivos de mídia para registrar abastecimentos com fotos.</li>
+          <li><strong>Catracas (ADMIN)</strong>: Painel avançado integrado ao SQL Server e PDF de diários de bordo operacionais.</li>
+        </ul>
+      </section>
+
+      <!-- Infra -->
+      <section id="infra" class="mb-16 scroll-mt-24">
+        <h2 class="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-4">6. Infraestrutura e Docker</h2>
+        <p class="text-slate-600 dark:text-slate-300 text-base leading-relaxed mb-4">
+          O projeto utiliza <strong>Docker Compose</strong> para subir localmente e em produção todas as aplicações de forma encapsulada:
+        </p>
+        <ul class="list-disc list-inside space-y-2 text-slate-600 dark:text-slate-300 text-sm">
+          <li><strong>Banco</strong>: PostgreSQL 16.</li>
+          <li><strong>API</strong>: Node Alpine com Prisma Client.</li>
+          <li><strong>Frontend</strong>: Build otimizada com Vite servida pelo proxy reverso Nginx.</li>
+        </ul>
+      </section>
+
+      <!-- Como Rodar -->
+      <section id="execucao" class="mb-16 scroll-mt-24">
+        <h2 class="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-4">7. Como Executar o Projeto</h2>
+        <div class="space-y-4">
+          <div>
+            <h4 class="font-bold text-sm text-indigo-600 dark:text-indigo-400 mb-1">Passo 1: Instalar dependências</h4>
+            <pre class="bg-slate-900 text-slate-300 p-3 rounded-lg text-xs font-mono">npm install</pre>
+          </div>
+          <div>
+            <h4 class="font-bold text-sm text-indigo-600 dark:text-indigo-400 mb-1">Passo 2: Configurar variáveis e rodar migrations</h4>
+            <pre class="bg-slate-900 text-slate-300 p-3 rounded-lg text-xs font-mono">cp .env.example .env&#10;npm run db:migrate&#10;npm run db:seed</pre>
+          </div>
+          <div>
+            <h4 class="font-bold text-sm text-indigo-600 dark:text-indigo-400 mb-1">Passo 3: Executar ambiente dev</h4>
+            <pre class="bg-slate-900 text-slate-300 p-3 rounded-lg text-xs font-mono">npm run dev</pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- Acessos -->
+      <section id="credenciais" class="mb-16 scroll-mt-24">
+        <h2 class="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-4">8. Credenciais de Acesso Padrão</h2>
+        <div class="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+          <table class="w-full text-left text-sm">
+            <thead class="bg-slate-100 dark:bg-slate-900/50 text-slate-700 dark:text-slate-300 font-semibold border-b border-slate-200 dark:border-slate-800">
+              <tr>
+                <th class="p-4">Email</th>
+                <th class="p-4">Senha</th>
+                <th class="p-4">Perfil</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+              <tr>
+                <td class="p-4">admin@teste.com</td>
+                <td class="p-4 font-mono">admin123</td>
+                <td class="p-4"><span class="px-2 py-1 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 text-xs font-semibold">ADMIN</span></td>
+              </tr>
+              <tr>
+                <td class="p-4">abastecimento@teste.com</td>
+                <td class="p-4 font-mono">abastecimento123</td>
+                <td class="p-4"><span class="px-2 py-1 rounded bg-green-500/10 text-green-600 dark:text-green-400 text-xs font-semibold">ABASTECIMENTO</span></td>
+              </tr>
+              <tr>
+                <td class="p-4">soltura@teste.com</td>
+                <td class="p-4 font-mono">soltura123</td>
+                <td class="p-4"><span class="px-2 py-1 rounded bg-orange-500/10 text-orange-600 dark:text-orange-400 text-xs font-semibold">SOLTURA</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Deploy -->
+      <section id="deploy" class="mb-16 scroll-mt-24">
+        <h2 class="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-4">9. Roteiro de Deploy (Servidor Linux)</h2>
+        <p class="text-slate-600 dark:text-slate-300 text-base leading-relaxed mb-6">
+          Siga o sequenciamento prático abaixo para aplicar atualizações locais no servidor de produção da empresa:
+        </p>
+        
+        <div class="space-y-6">
+          <div>
+            <h3 class="font-bold text-sm mb-1">1. Enviar arquivos atualizados via Rsync</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mb-2">Exclui pastas de controle de versão e dependências locais:</p>
+            <pre class="bg-slate-900 text-slate-300 p-3 rounded-lg text-xs font-mono overflow-x-auto border border-slate-800">rsync -avz --exclude 'node_modules' --exclude '.git' --exclude 'build' --exclude 'dist' ./ validasic@192.168.0.52:~/sistema-garagem</pre>
+          </div>
+
+          <div>
+            <h3 class="font-bold text-sm mb-1">2. Conectar e derrubar containers de produção</h3>
+            <pre class="bg-slate-900 text-slate-300 p-3 rounded-lg text-xs font-mono overflow-x-auto border border-slate-800">sudo docker-compose down</pre>
+          </div>
+
+          <div>
+            <h3 class="font-bold text-sm mb-1">3. Recompilar e iniciar containers atualizados</h3>
+            <pre class="bg-slate-900 text-slate-300 p-3 rounded-lg text-xs font-mono overflow-x-auto border border-slate-800">sudo docker-compose up -d --build</pre>
+          </div>
+
+          <div>
+            <h3 class="font-bold text-sm mb-1">4. Aplicar migrations de banco</h3>
+            <pre class="bg-slate-900 text-slate-300 p-3 rounded-lg text-xs font-mono overflow-x-auto border border-slate-800">sudo docker-compose exec api npx prisma migrate deploy</pre>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-200 dark:border-slate-800 px-6 py-4 text-center text-xs text-slate-500 dark:text-slate-400">
+    &copy; 2026 CGU Sistema Garagem - Todos os direitos reservados.
+  </footer>
+
+  <!-- Theme Switching Script -->
+  <script>
+    const themeToggle = document.getElementById('theme-toggle');
+    const themeIcon = document.getElementById('theme-icon');
+    const htmlElement = document.documentElement;
+
+    // Load theme preference from localStorage or default to dark
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    if (savedTheme === 'dark') {
+      htmlElement.classList.add('dark');
+      themeIcon.innerText = '🌙';
+    } else {
+      htmlElement.classList.remove('dark');
+      themeIcon.innerText = '☀️';
+    }
+
+    themeToggle.addEventListener('click', () => {
+      if (htmlElement.classList.contains('dark')) {
+        htmlElement.classList.remove('dark');
+        localStorage.setItem('theme', 'light');
+        themeIcon.innerText = '☀️';
+      } else {
+        htmlElement.classList.add('dark');
+        localStorage.setItem('theme', 'dark');
+        themeIcon.innerText = '🌙';
+      }
+    });
+  </script>
+</body>
+</html>

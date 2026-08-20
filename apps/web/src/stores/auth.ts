@@ -1,20 +1,30 @@
 import { create } from "zustand";
 import { api } from "@/lib/api";
 
-export type Role = "ADMIN" | "COLABORADOR" | "COLABORADOR_ABASTECIMENTO" | "COLABORADOR_SOLTURA";
+export type Role = "ADMIN" | "COLABORADOR" | "tanque" | "abastecimento" | "soltura" | "operacional";
+
+export interface Group {
+  id: number;
+  name: string;
+  permissions: string[];
+}
 
 export interface User {
   id: number;
   name: string;
   email: string;
   role: Role;
+  groups?: Group[];
+  garagem?: string;
 }
 
 export const roleLabels: Record<Role, string> = {
   ADMIN: "Administrador",
   COLABORADOR: "Colaborador",
-  COLABORADOR_ABASTECIMENTO: "Colaborador (Abastecimento)",
-  COLABORADOR_SOLTURA: "Colaborador (Soltura)",
+  tanque: "Tanque",
+  abastecimento: "Abastecimento",
+  soltura: "Soltura",
+  operacional: "Controle Operacional",
 };
 
 interface AuthState {
@@ -29,7 +39,7 @@ interface AuthState {
 export const useAuth = create<AuthState>((set) => ({
   user: null,
   token: localStorage.getItem("token"),
-  loading: false,
+  loading: !!localStorage.getItem("token"),
 
   login: async (email, password) => {
     const data = await api.login(email, password);
@@ -56,3 +66,15 @@ export const useAuth = create<AuthState>((set) => ({
     }
   },
 }));
+
+export function getDefaultRoute(user: User | null): string {
+  if (!user) return "/";
+  if (user.role === "ADMIN") return "/home";
+  if (user.role === "tanque") return "/abastecimento";
+  if (user.role === "soltura") return "/soltura";
+  if (user.role === "operacional") return "/controle-operacional";
+  if (user.role === "abastecimento") return "/abastecimento-carro";
+  if (user.role === "COLABORADOR") return "/home";
+
+  return "/home";
+}

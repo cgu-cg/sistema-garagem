@@ -48,7 +48,6 @@ O banco de dados utiliza a seguinte estrutura relacional definida em [schema.pri
 erDiagram
     User ||--o{ Abastecimento : "registra"
     User ||--o{ Soltura : "registra"
-    Bus ||--o{ Abastecimento : "abastece"
     Bus ||--o{ Soltura : "libera"
 
     User {
@@ -72,11 +71,10 @@ erDiagram
 
     Abastecimento {
         Int id PK
-        Int busId FK
-        Decimal liters
-        Decimal value
-        String driverName
-        Int odometer
+        Decimal litersT1
+        String fotoT1
+        Decimal litersT2
+        String fotoT2
         Int userId FK
         DateTime createdAt
     }
@@ -99,9 +97,9 @@ erDiagram
 
 ### Tabelas e Campos:
 *   **`users`**: Armazena os usuários do sistema com controle de acesso baseado em papéis (`role`).
-    *   `role` pode ser: `ADMIN`, `COLABORADOR`, `COLABORADOR_ABASTECIMENTO` ou `COLABORADOR_SOLTURA`.
+    *   `role` pode ser: `ADMIN`, `COLABORADOR`, `COLABORADOR_ABASTECIMENTO`, `COLABORADOR_SOLTURA` ou `COLABORADOR_CONTROLE_OPERACIONAL`.
 *   **`buses`**: Frota de ônibus cadastrada (placa, prefixo e modelo do veículo).
-*   **`abastecimentos`**: Registro de consumo de combustível. Contém o veículo abastecido, motorista que realizou a viagem, litros inseridos, valor monetário gasto, a quilometragem atual do hodômetro e o usuário do sistema que efetuou a inserção do registro.
+*   **`abastecimentos`**: Registro de consumo de combustível. Suporta controle de dois tanques independentes (`litros_t1`, `litros_t2`), armazenando o caminho das fotos associadas a cada medição (`foto_t1`, `foto_t2`) salvas no disco do servidor, além do usuário do sistema que realizou o registro. Não se relaciona diretamente à frota cadastrada.
 *   **`solturas`**: Despacho de veículos da garagem para as ruas. Contém o veículo liberado, veículo programado, linha, tabela, código e nome do motorista, horários de saída da garagem e início da linha, além de observações adicionais e o usuário que registrou o despacho.
 
 ---
@@ -112,10 +110,14 @@ O controle de rotas no backend e no frontend é rigidamente baseado no papel (`r
 
 | Perfil (`role`) | Descrição | Acesso às Funcionalidades |
 | :--- | :--- | :--- |
-| **`ADMIN`** | Administrador do Sistema | Acesso total. Pode gerenciar usuários, cadastrar ônibus e visualizar/registrar tanto abastecimentos quanto solturas. |
-| **`COLABORADOR_ABASTECIMENTO`** | Operador da Bomba de Combustível | Visualização do dashboard diário e acesso exclusivo à tela de registros de **Abastecimento**. Não visualiza solturas nem gerencia usuários. |
-| **`COLABORADOR_SOLTURA`** | Fiscal de Pista / Despachante | Visualização do dashboard diário e acesso exclusivo à tela de registros de **Solturas**. Não visualiza abastecimentos nem gerencia usuários. |
+| **`ADMIN`** | Administrador do Sistema | Acesso total. Pode gerenciar usuários, cadastrar ônibus, visualizar/registrar abastecimentos e solturas, e auditar a **Conferência de Catracas**. |
+| **`COLABORADOR_ABASTECIMENTO`** | Operador da Bomba de Combustível | Visualização restrita da Dashboard (apenas dados de abastecimento) e acesso exclusivo ao menu de **Abastecimento**. |
+| **`COLABORADOR_SOLTURA`** | Fiscal de Pista / Despachante | Visualização restrita da Dashboard (apenas dados de soltura) e acesso exclusivo ao menu de **Solturas**. |
+| **`COLABORADOR_CONTROLE_OPERACIONAL`** | Fiscal Operacional / Vistoriador | Visualização restrita da Dashboard (dados de vistoria e solturas) e acesso à tela de **Controle Operacional**. |
 | **`COLABORADOR`** | Operador Padrão Geral | Acesso básico à página inicial (Dashboard). |
+
+> [!NOTE]
+> A tela de **Conferência de Catracas** (e suas subpáginas como consistência de turnos e backups) está restrita exclusivamente ao perfil **`ADMIN`**.
 
 ---
 
@@ -163,22 +165,23 @@ O controle de rotas no backend e no frontend é rigidamente baseado no papel (`r
 
 1.  **Tela de Login (`/`)**:
     *   Formulário limpo com validação de formato de email e obrigatoriedade de senha. Armazena o token de sessão localmente e redireciona para a Dashboard em caso de sucesso.
-2.  **Dashboard (`/home`)**:
-    *   Exibe cartões estatísticos rápidos com dados do dia atual: *Quantidade de Abastecimentos*, *Litros Totais Abastecidos*, *Quantidade de Solturas* e *Total de Ônibus da Frota*.
-    *   **Aparência Inteligente**: Se o colaborador logado for de Abastecimento, ele não visualizará o cartão de solturas (e vice-versa).
+2.  **Dashboard / Início (`/home`)**:
+    *   Exibe cartões estatísticos rápidos com dados do dia atual integrados às APIs operacionais.
+    *   **Visibilidade Otimizada**: Usuários de Abastecimento visualizam apenas histórico e volume abastecido. Usuários de Soltura veem o progresso de despachos. O cartão de "Frota Total" é exibido unicamente para `ADMIN`.
+    *   **Gráficos Premium**: Inclui um gráfico de consumo acumulado dos últimos 6 dias (barras puras em Tailwind) e um gráfico de rosca de distribuição de combustível dos dois tanques (CSS `conic-gradient`), além de barras de progresso de metas de despacho.
 3.  **Gestão de Abastecimento (`/abastecimento`)**:
-    *   Exibe à esquerda um formulário intuitivo para registrar um abastecimento (seleção do ônibus por prefixo/placa, nome do motorista, litros de combustível, valor em R$ e quilometragem do hodômetro).
-    *   À direita, lista os abastecimentos já realizados no dia atual em ordem cronológica reversa.
+    *   Formulário moderno de medição em dois tanques independentes (Tanque 1 e Tanque 2) com suporte a disparo de fotos baseadas no stream da webcam/câmera local do dispositivo.
+    *   Salvamento de fotos em formato físico no diretório do servidor API. Incorpora modal Lightbox com sobreposição escura e desfoque para ampliação.
 4.  **Gestão de Soltura (`/soltura`)**:
-    *   Possui o formulário de despacho completo baseado no documento físico de controle de horários de saída (campos: Linha, Tabela, Ônibus Programado, Ônibus Realizado, Código do Motorista (MOTO), Nome do Motorista, Horário de Saída da Garagem, Horário de Início da Linha e Observações) e o feed cronológico lateral detalhando todas as solturas registradas no dia atual.
+    *   Despacho ágil com dropdowns restritos a motoristas programados (`Motorista 01` a `Motorista 06`) e prefixos programados (`1000` a `1006`).
+    *   Modal/Popup de despacho com suporte fluido a Dark/Light Mode e manutenção do banner de detalhes nas cores originais de status da escala (verde para concluído, preto para pendente).
 5.  **Gestão de Usuários (`/admin/usuarios`)**:
-    *   Uma interface administrativa elegante que lista todos os colaboradores do sistema com badges coloridos de identificação da função (`ADMIN` = Roxo, `Abastecimento` = Verde, `Soltura` = Laranja, `Colaborador` = Azul).
-    *   Permite a criação e edição de novos usuários através de diálogos modais, além da exclusão de contas obsoletas.
+    *   Uma interface administrativa elegante que lista todos os colaboradores do sistema com badges coloridos de identificação da função. Permite gerenciar contas e perfis de acesso.
 6.  **Conferência de Catracas (`/catracas`)**:
-    *   Uma tela dividida (Split Screen) com design de alta fidelidade voltada para auditoria operacional.
-    *   **Painel Esquerdo (Auditoria)**: Contém abas para analisar consistência de turnos (`fnConsisteCatracaVEICULOS`), alertas de datas inválidas (`TotalizadorServico`), coletores fora de frota, busca histórica de serviços de um veículo e atualização de datas de backup de coletas na tabela `Veiculos` do SQL Server.
-    *   **Painel de Inspeção**: Ao selecionar um veículo com discrepância, o sistema detalha automaticamente os últimos logs de WiFi (`tbLogWiFi`), cartões com erro de leitura (Erro 154), batimento físico de catracas inicial e final, e ordens de serviço de manutenção (Bilhetagem + Simanet) para ajudar a diagnosticar o motivo da diferença.
-    *   **Painel Direito (Diário de Bordo)**: Renderiza o diário de bordo digitalizado em PDF correspondente à data e veículo selecionados. Permite analisar um intervalo de dias de forma sequencial com navegação local sem abrir múltiplos popups.
+    *   Painel restrito a administradores. Gerencia consistência de catracas físicas versus dados WiFi e logs do coletor.
+    *   **Backup de Coletas**: Atualiza em lote as faixas de data/hora de backup de dados dos validadores na tabela `Veiculos` do SQL Server de forma segura, utilizando formato de data internacional (`YYYY-MM-DD HH:mm:ss`) para evitar inversões de dia/mês causadas por localização e corrigindo distorções de fuso horário local.
+7.  **Alternador de Temas (Dark/Light)**:
+    *   Menu lateral contendo alternador estético de tema que armazena a preferência de visualização no `localStorage`, definindo a aplicação em Dark Mode por padrão.
 
 ---
 
@@ -264,4 +267,32 @@ Para testes iniciais de validação de papéis de segurança no sistema, o scrip
 | **`soltura@teste.com`** | `soltura123` | **`COLABORADOR_SOLTURA`** (Fiscal despachante de ônibus) |
 | **`colaborador@teste.com`** | `colaborador123` | **`COLABORADOR`** (Visualizador geral do dashboard) |
 
-teste
+---
+
+## 9. Procedimento de Deploy e Atualização no Servidor Linux
+
+Para enviar novas alterações locais para o servidor de produção Linux corporativo e aplicar as atualizações nos containers Docker, siga as instruções abaixo:
+
+1.  **Sincronizar Arquivos Locais com o Servidor**:
+    Use o utilitário `rsync` na raiz do projeto local para enviar a árvore de diretórios atualizada para o servidor de destino, excluindo pastas de dependências (`node_modules`), controle de versão (`.git`) e builds locais (`build`, `dist`):
+    ```bash
+    rsync -avz --exclude 'node_modules' --exclude '.git' --exclude 'build' --exclude 'dist' ./ validasic@192.168.0.52:~/sistema-garagem
+    ```
+
+2.  **Derrubar os Containers Ativos**:
+    Conecte-se via SSH no servidor e pare a execução das instâncias dos containers Docker ativos no diretório `~/sistema-garagem`:
+    ```bash
+    sudo docker-compose down
+    ```
+
+3.  **Compilar e Iniciar os Containers**:
+    Recompile as imagens Docker de produção com o novo código e inicie os containers em segundo plano (modo daemon):
+    ```bash
+    sudo docker-compose up -d --build
+    ```
+
+4.  **Executar Migrações do Banco de Dados**:
+    Execute as migrações de banco pendentes do Prisma ORM no container ativo da API REST para atualizar as tabelas do banco PostgreSQL de produção:
+    ```bash
+    sudo docker-compose exec api npx prisma migrate deploy
+    ```

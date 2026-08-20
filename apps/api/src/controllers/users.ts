@@ -5,14 +5,24 @@ import { AuthRequest } from "../middleware/auth";
 
 export async function list(req: AuthRequest, res: Response) {
   const users = await prisma.user.findMany({
-    select: { id: true, name: true, email: true, role: true, createdAt: true },
+    select: { 
+      id: true, 
+      name: true, 
+      email: true, 
+      role: true, 
+      garagem: true,
+      createdAt: true,
+      groups: {
+        select: { id: true, name: true }
+      }
+    },
     orderBy: { createdAt: "desc" },
   });
   return res.json(users);
 }
 
 export async function create(req: AuthRequest, res: Response) {
-  const { name, email, password, role } = req.body;
+  const { name, email, password, role, groupIds, garagem } = req.body;
 
   const exists = await prisma.user.findUnique({ where: { email } });
   if (exists) {
@@ -22,8 +32,27 @@ export async function create(req: AuthRequest, res: Response) {
   const hashed = await bcrypt.hash(password, 10);
 
   const user = await prisma.user.create({
-    data: { name, email, password: hashed, role },
-    select: { id: true, name: true, email: true, role: true, createdAt: true },
+    data: { 
+      name, 
+      email, 
+      password: hashed, 
+      role,
+      garagem: garagem || null,
+      groups: groupIds && Array.isArray(groupIds) ? {
+        connect: groupIds.map((gid: number) => ({ id: Number(gid) }))
+      } : undefined
+    },
+    select: { 
+      id: true, 
+      name: true, 
+      email: true, 
+      role: true, 
+      garagem: true,
+      createdAt: true,
+      groups: {
+        select: { id: true, name: true }
+      }
+    },
   });
 
   return res.status(201).json(user);
@@ -31,18 +60,35 @@ export async function create(req: AuthRequest, res: Response) {
 
 export async function update(req: AuthRequest, res: Response) {
   const { id } = req.params;
-  const { name, email, password, role } = req.body;
+  const { name, email, password, role, groupIds, garagem } = req.body;
 
   const data: any = {};
   if (name) data.name = name;
   if (email) data.email = email;
   if (role) data.role = role;
   if (password) data.password = await bcrypt.hash(password, 10);
+  if (garagem !== undefined) data.garagem = garagem || null;
+
+  if (groupIds !== undefined && Array.isArray(groupIds)) {
+    data.groups = {
+      set: groupIds.map((gid: number) => ({ id: Number(gid) }))
+    };
+  }
 
   const user = await prisma.user.update({
     where: { id: Number(id) },
     data,
-    select: { id: true, name: true, email: true, role: true, createdAt: true },
+    select: { 
+      id: true, 
+      name: true, 
+      email: true, 
+      role: true, 
+      garagem: true,
+      createdAt: true,
+      groups: {
+        select: { id: true, name: true }
+      }
+    },
   });
 
   return res.json(user);
