@@ -65,8 +65,8 @@ export async function create(req: AuthRequest, res: Response) {
     return res.status(401).json({ error: "Não autorizado" });
   }
 
-  if (!carro || !linha || !garagem || !foto1) {
-    return res.status(400).json({ error: "Campos obrigatórios: carro, linha, garagem e foto1" });
+  if (!carro || !linha || !garagem || !foto1 || !foto2 || !foto3) {
+    return res.status(400).json({ error: "Campos obrigatórios: carro, linha, garagem, foto1, foto2 e foto3" });
   }
 
   try {
@@ -75,17 +75,11 @@ export async function create(req: AuthRequest, res: Response) {
     // Save photo 1
     const foto1Path = saveBase64Image(foto1, cleanCarro, "");
 
-    // Save photo 2 if present
-    let foto2Path: string | null = null;
-    if (foto2) {
-      foto2Path = saveBase64Image(foto2, cleanCarro, "_1");
-    }
+    // Save photo 2
+    const foto2Path = saveBase64Image(foto2, cleanCarro, "_1");
 
-    // Save photo 3 if present
-    let foto3Path: string | null = null;
-    if (foto3) {
-      foto3Path = saveBase64Image(foto3, cleanCarro, "_2");
-    }
+    // Save photo 3
+    const foto3Path = saveBase64Image(foto3, cleanCarro, "_2");
 
     const registration = await prisma.controleOperacional.create({
       data: {

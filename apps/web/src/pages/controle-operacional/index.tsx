@@ -87,6 +87,8 @@ export function ControleOperacionalPage() {
 
   // Form states
   const [selectedCarro, setSelectedCarro] = useState("");
+  const [carroSearch, setCarroSearch] = useState("");
+  const [carroDropdownOpen, setCarroDropdownOpen] = useState(false);
   const [km, setKm] = useState("");
   const [selectedGaragem, setSelectedGaragem] = useState("");
   const [foto1, setFoto1] = useState<string | null>(null);
@@ -363,6 +365,7 @@ export function ControleOperacionalPage() {
 
   const resetForm = () => {
     setSelectedCarro("");
+    setCarroSearch("");
     setKm("");
     setSelectedGaragem(isVCGOrVCM && user?.garagem ? GARAGEM_MAP[user.garagem] || "" : "");
     setFoto1(null);
@@ -374,12 +377,27 @@ export function ControleOperacionalPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!selectedCarro) {
-      toast.error("Selecione um carro.");
+    let finalCarro = selectedCarro;
+    if (!finalCarro && carroSearch) {
+      const match = veiculos.find((v) => String(v) === carroSearch.trim());
+      if (match) {
+        finalCarro = String(match);
+      }
+    }
+
+    if (!finalCarro) {
+      toast.error("Selecione um carro válido da lista.");
       return;
     }
-    if (!km || Number(km) <= 0) {
+    
+    if (!km) {
       toast.error("Insira a quilometragem (km).");
+      return;
+    }
+    
+    const kmClean = String(km).replace(/\D/g, "");
+    if (kmClean.length !== 7) {
+      toast.error("A quilometragem (km) deve conter exatamente 7 dígitos.");
       return;
     }
 
@@ -388,13 +406,22 @@ export function ControleOperacionalPage() {
       toast.error("Selecione uma garagem.");
       return;
     }
+    
     if (!foto1) {
-      toast.error("A foto principal (Foto 1) é obrigatória.");
+      toast.error("A foto Frontal (Foto 1) é obrigatória.");
+      return;
+    }
+    if (!foto2) {
+      toast.error("A foto Frente e Lateral Direita (Foto 2) é obrigatória.");
+      return;
+    }
+    if (!foto3) {
+      toast.error("A foto Traseira e Lateral Direita (Foto 3) é obrigatória.");
       return;
     }
 
     const data: any = {
-      carro: selectedCarro,
+      carro: finalCarro,
       linha: String(km),
       garagem: garagemToSend,
       foto1,
@@ -598,8 +625,8 @@ export function ControleOperacionalPage() {
           <CardTitle className="text-sm font-semibold">Filtros</CardTitle>
         </CardHeader>
         <CardContent className="pt-4">
-          <div className="flex flex-col sm:flex-row flex-wrap gap-3 items-end">
-            <div className="flex flex-col gap-1.5">
+          <div className="flex flex-row flex-wrap gap-3 items-end">
+            <div className="flex flex-col gap-1.5 flex-1 sm:flex-initial">
               <Label className="text-xs font-medium">Data</Label>
               <Input
                 type="date"
@@ -609,7 +636,7 @@ export function ControleOperacionalPage() {
               />
             </div>
             {user?.role === "ADMIN" && (
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-1.5 flex-1 sm:flex-initial">
                 <Label className="text-xs font-medium">Garagem</Label>
                 <Select value={filterGaragem || "all"} onValueChange={(v) => setFilterGaragem(v === "all" ? "" : v)}>
                   <SelectTrigger className="w-full sm:w-40">
@@ -626,7 +653,7 @@ export function ControleOperacionalPage() {
                 </Select>
               </div>
             )}
-            <Button onClick={loadRecords} disabled={listLoading} className="gap-1.5">
+            <Button onClick={loadRecords} disabled={listLoading} className="gap-1.5 w-full sm:w-auto">
               <RefreshCw className={`h-4 w-4 ${listLoading ? "animate-spin" : ""}`} />
               Filtrar
             </Button>
@@ -796,22 +823,53 @@ export function ControleOperacionalPage() {
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2">
+              <div className="space-y-2 relative">
                 <Label htmlFor="carro" className="font-semibold text-sm">
                   Carro: <span className="text-destructive">*</span>
                 </Label>
-                <Select value={selectedCarro} onValueChange={setSelectedCarro} disabled={veiculosLoading}>
-                  <SelectTrigger id="carro" className="bg-background">
-                    <SelectValue placeholder={veiculosLoading ? "Carregando..." : "Selecionar carro"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {veiculos.map((v) => (
-                      <SelectItem key={v} value={String(v)}>
-                        {v}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="relative">
+                  <Input
+                    id="carro"
+                    type="text"
+                    placeholder={veiculosLoading ? "Carregando..." : "Digite para buscar..."}
+                    value={carroSearch}
+                    disabled={veiculosLoading}
+                    onChange={(e) => {
+                      setCarroSearch(e.target.value);
+                      setSelectedCarro("");
+                      setCarroDropdownOpen(true);
+                    }}
+                    onFocus={() => setCarroDropdownOpen(true)}
+                    onBlur={() => {
+                      setTimeout(() => setCarroDropdownOpen(false), 200);
+                    }}
+                    className="bg-background font-medium"
+                    autoComplete="off"
+                  />
+                  {carroDropdownOpen && (
+                    <div className="absolute z-50 w-full mt-1 max-h-60 overflow-y-auto rounded-md border border-input bg-popover text-popover-foreground shadow-md outline-none">
+                      {veiculos
+                        .filter((v) => String(v).includes(carroSearch))
+                        .map((v) => (
+                          <button
+                            key={v}
+                            type="button"
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+                            onClick={() => {
+                              setSelectedCarro(String(v));
+                              setCarroSearch(String(v));
+                              setCarroDropdownOpen(false);
+                            }}
+                          >
+                            {v}
+                          </button>
+                        ))}
+                      {veiculos.filter((v) => String(v).includes(carroSearch)).length === 0 && (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">Nenhum carro encontrado</div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -820,13 +878,18 @@ export function ControleOperacionalPage() {
                 </Label>
                 <Input
                   id="km"
-                  type="number"
-                  step="0.01"
-                  min="0"
+                  type="text"
                   value={km}
-                  onChange={(e) => setKm(e.target.value)}
-                  placeholder="0.00"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (/^[0-9.,]*$/.test(val)) {
+                      setKm(val);
+                    }
+                  }}
+                  placeholder="000000.0"
+                  maxLength={9}
                   className="bg-background font-medium"
+                  autoComplete="off"
                 />
               </div>
 
@@ -853,8 +916,8 @@ export function ControleOperacionalPage() {
 
             <div className="grid gap-4 md:grid-cols-3 pt-2">
               {renderPhotoSlot(1, "Frontal", true, foto1, setFoto1)}
-              {renderPhotoSlot(2, "Frente e Lateral Direita", false, foto2, setFoto2)}
-              {renderPhotoSlot(3, "Traseira e Lateral Direita", false, foto3, setFoto3)}
+              {renderPhotoSlot(2, "Frente e Lateral Direita", true, foto2, setFoto2)}
+              {renderPhotoSlot(3, "Traseira e Lateral Direita", true, foto3, setFoto3)}
             </div>
 
             <div className="flex items-center justify-end gap-3 border-t pt-4">
