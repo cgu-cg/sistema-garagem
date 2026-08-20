@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
-import { Building2, LogIn } from "lucide-react";
+import { BusFront, LogIn } from "lucide-react";
 import { toast } from "sonner";
 
 export function LoginPage() {
@@ -21,7 +21,7 @@ export function LoginPage() {
     try {
       await login(email, password);
       toast.success("Login realizado com sucesso!");
-      
+
       // Obter rota padrão baseada nas permissões
       const user = useAuth.getState().user;
       const targetRoute = getDefaultRoute(user);
@@ -39,11 +39,11 @@ export function LoginPage() {
         <CardHeader className="space-y-1 text-center">
           <div className="flex justify-center mb-4">
             <div className="rounded-full bg-primary p-3">
-              <Building2 className="h-8 w-8 text-primary-foreground" />
+              <BusFront className="h-8 w-8 text-primary-foreground" />
             </div>
           </div>
           <CardTitle className="text-2xl">Sistema Garagem</CardTitle>
-          <CardDescription>Gerencie abastecimento e soltura de ônibus</CardDescription>
+          <CardDescription>Gerenciamente de operações internas</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">

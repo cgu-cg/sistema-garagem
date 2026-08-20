@@ -1,6 +1,6 @@
 import { Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth, roleLabels } from "@/stores/auth";
-import { Building2, Fuel, Bus, Users, LogOut, ChevronRight, LayoutDashboard, ClipboardCheck, Radio, Sun, Moon, Gauge } from "lucide-react";
+import { Fuel, Bus, Users, LogOut, ChevronRight, LayoutDashboard, ClipboardCheck, Radio, Sun, Moon, Gauge } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useState, useEffect, useRef } from "react";
@@ -125,7 +125,11 @@ export function Layout() {
           className={cn("flex h-14 items-center border-b cursor-pointer transition-all", sidebarOpen ? "px-4" : "justify-center px-1")}
           onClick={() => { if (!sidebarOpen) setSidebarOpen(true); }}
         >
-          <Building2 className={cn("shrink-0 transition-all text-primary", sidebarOpen ? "h-6 w-6" : "h-5 w-5 md:h-6 md:w-6")} />
+          {sidebarOpen ? (
+            <Bus className="shrink-0 transition-all text-primary h-6 w-6" />
+          ) : (
+            <ChevronRight className="shrink-0 transition-all text-primary h-5 w-5 md:h-6 md:w-6" />
+          )}
           {sidebarOpen ? (
             <>
               <span className="ml-3 font-semibold truncate">Sistema Garagem</span>
