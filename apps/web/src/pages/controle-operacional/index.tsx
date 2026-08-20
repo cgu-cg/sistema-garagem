@@ -722,7 +722,7 @@ export function ControleOperacionalPage() {
                       <td className="p-4">
                         <div className="flex items-center gap-2">
                           <MapPin className="h-4 w-4 text-muted-foreground" />
-                          {record.garagem}
+                          {record.garagem.replace(/Garagem:?\s*/gi, "")}
                         </div>
                       </td>
                       <td className="p-4">
