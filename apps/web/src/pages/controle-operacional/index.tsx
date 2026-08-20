@@ -547,19 +547,19 @@ export function ControleOperacionalPage() {
                 {!isMobile ? (
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="default"
                     size="sm"
                     onClick={() => {
                       setActiveCameraSlot(slotNumber);
                     }}
-                    className="gap-1.5"
+                    className="gap-1.5 font-semibold shadow-sm"
                   >
                     <Camera className="h-4 w-4" />
                     Abrir Câmera
                   </Button>
                 ) : (
-                  <label className="inline-flex items-center justify-center rounded-md text-xs font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3 gap-1.5 cursor-pointer shadow-sm">
-                    <Camera className="h-4 w-4 text-muted-foreground" />
+                  <label className="inline-flex items-center justify-center rounded-md text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-3 gap-1.5 cursor-pointer shadow-sm transition-colors">
+                    <Camera className="h-4 w-4" />
                     Tirar Foto
                     <input
                       type="file"
