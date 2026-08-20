@@ -36,19 +36,31 @@ interface AuthState {
   loadUser: () => Promise<void>;
 }
 
+const getCachedUser = (): User | null => {
+  const cached = localStorage.getItem("user");
+  if (!cached) return null;
+  try {
+    return JSON.parse(cached);
+  } catch {
+    return null;
+  }
+};
+
 export const useAuth = create<AuthState>((set) => ({
-  user: null,
+  user: getCachedUser(),
   token: localStorage.getItem("token"),
   loading: !!localStorage.getItem("token"),
 
   login: async (email, password) => {
     const data = await api.login(email, password);
     localStorage.setItem("token", data.token);
+    localStorage.setItem("user", JSON.stringify(data.user));
     set({ token: data.token, user: data.user });
   },
 
   logout: () => {
     localStorage.removeItem("token");
+    localStorage.removeItem("user");
     set({ token: null, user: null });
   },
 
@@ -59,9 +71,18 @@ export const useAuth = create<AuthState>((set) => ({
     set({ loading: true });
     try {
       const user = await api.me();
+      localStorage.setItem("user", JSON.stringify(user));
       set({ user, loading: false });
-    } catch {
+    } catch (error) {
+      if (!navigator.onLine) {
+        const cachedUser = getCachedUser();
+        if (cachedUser) {
+          set({ user: cachedUser, loading: false });
+          return;
+        }
+      }
       localStorage.removeItem("token");
+      localStorage.removeItem("user");
       set({ token: null, user: null, loading: false });
     }
   },
