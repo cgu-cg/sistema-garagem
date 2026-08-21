@@ -15,20 +15,33 @@ async function request(path: string, options: RequestInit = {}) {
     headers["Content-Type"] = "application/json";
   }
 
-  const res = await fetch(`${API_URL}${path}`, {
-    ...options,
-    headers,
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 6000); // 6 segundos de timeout
 
-  if (res.status === 204) return null;
+  try {
+    const res = await fetch(`${API_URL}${path}`, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
 
-  const data = await res.json();
+    if (res.status === 204) return null;
 
-  if (!res.ok) {
-    throw new Error(data.error || "Erro na requisição");
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.error || "Erro na requisição");
+    }
+
+    return data;
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === "AbortError") {
+      throw new Error("TIMEOUT_ERROR");
+    }
+    throw err;
   }
-
-  return data;
 }
 
 export const api = {

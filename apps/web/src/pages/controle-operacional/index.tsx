@@ -518,7 +518,33 @@ export function ControleOperacionalPage() {
         }
       }
     } catch (err: any) {
-      toast.error(err.message || "Erro ao salvar controle operacional.");
+      const isNetworkOrTimeout = 
+        err.message === "TIMEOUT_ERROR" || 
+        err.message.includes("Failed to fetch") || 
+        err.message.includes("NetworkError") || 
+        err.message.toLowerCase().includes("network");
+
+      if (isNetworkOrTimeout && !editingRecord) {
+        try {
+          const record: PendingRecord = {
+            id: crypto.randomUUID(),
+            type: "controle-operacional",
+            data,
+            token: token || "",
+            createdAt: new Date().toISOString(),
+          };
+          await savePending(record);
+          toast.warning("Conexão instável! O cadastro foi salvo offline para sua segurança.");
+          resetForm();
+          setDialogOpen(false);
+          updatePendingCount();
+          loadRecords();
+        } catch (dbErr: any) {
+          toast.error("Conexão interrompida e falha ao salvar offline: " + dbErr.message);
+        }
+      } else {
+        toast.error(err.message || "Erro ao salvar controle operacional.");
+      }
     } finally {
       setLoading(false);
     }
