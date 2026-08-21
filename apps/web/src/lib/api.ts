@@ -31,7 +31,9 @@ async function request(path: string, options: RequestInit = {}) {
     const data = await res.json();
 
     if (!res.ok) {
-      throw new Error(data.error || "Erro na requisição");
+      const error = new Error(data.error || "Erro na requisição") as any;
+      error.status = res.status;
+      throw error;
     }
 
     return data;

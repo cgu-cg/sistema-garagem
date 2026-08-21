@@ -73,8 +73,9 @@ export const useAuth = create<AuthState>((set) => ({
       const user = await api.me();
       localStorage.setItem("user", JSON.stringify(user));
       set({ user, loading: false });
-    } catch (error) {
-      if (!navigator.onLine) {
+    } catch (error: any) {
+      const isAuthError = error.status === 401 || error.status === 403;
+      if (!isAuthError) {
         const cachedUser = getCachedUser();
         if (cachedUser) {
           set({ user: cachedUser, loading: false });
