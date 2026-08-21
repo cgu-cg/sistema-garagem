@@ -171,6 +171,23 @@ export function AbastecimentoPage() {
     };
   }, [handleSync]);
 
+  // Auto-sincronização em segundo plano a cada 30 segundos se estiver online
+  useEffect(() => {
+    if (!token) return;
+
+    const interval = setInterval(() => {
+      if (navigator.onLine && !syncing) {
+        getPending().then((pending) => {
+          if (pending.length > 0) {
+            handleSync();
+          }
+        });
+      }
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [token, syncing, handleSync]);
+
   // Camera Stream Lifecycle
   useEffect(() => {
     let streamInstance: MediaStream | null = null;

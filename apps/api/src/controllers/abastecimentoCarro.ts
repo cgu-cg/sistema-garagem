@@ -1,10 +1,8 @@
 import { Response } from "express";
 import { AuthRequest } from "../middleware/auth";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../utils/prisma";
 import fs from "fs";
 import path from "path";
-
-const prisma = new PrismaClient();
 
 // Helper to save base64 image
 function saveBase64Image(base64Str: string, tankName: string): string {
