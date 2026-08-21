@@ -4,6 +4,7 @@ import { Fuel, Bus, Users, LogOut, ChevronRight, LayoutDashboard, ClipboardCheck
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useState, useEffect, useRef } from "react";
+import { toast } from "sonner";
 
 const allNavItems = [
   { to: "/home", label: "Início", icon: LayoutDashboard, roles: ["ADMIN", "COLABORADOR", "tanque", "abastecimento", "soltura", "operacional"] },
@@ -70,6 +71,10 @@ export function Layout() {
   }, [sidebarOpen]);
 
   const handleLogout = () => {
+    if (!navigator.onLine) {
+      toast.warning("Não é possível sair em modo offline. Você precisa de internet para entrar novamente.");
+      return;
+    }
     logout();
     navigate("/");
   };
