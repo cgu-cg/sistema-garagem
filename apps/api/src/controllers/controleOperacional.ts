@@ -194,6 +194,81 @@ export async function remove(req: AuthRequest, res: Response) {
   }
 }
 
+export async function update(req: AuthRequest, res: Response) {
+  const { id } = req.params;
+  const { carro, linha, garagem, foto1, foto2, foto3 } = req.body;
+  const userId = req.userId;
+
+  if (!userId) {
+    return res.status(401).json({ error: "Não autorizado" });
+  }
+
+  try {
+    const record = await prisma.controleOperacional.findUnique({
+      where: { id: parseInt(id, 10) }
+    });
+
+    if (!record) {
+      return res.status(404).json({ error: "Registro não encontrado" });
+    }
+
+    const cleanCarro = carro.replace(/[^a-zA-Z0-9-]/g, "_");
+
+    // Helper to process photo
+    const processPhoto = (newPhoto: string, oldPhotoPath: string | null, indexStr: string) => {
+      // If it is already a stored URL path, keep it
+      if (newPhoto.startsWith("/api/uploads/")) {
+        return newPhoto;
+      }
+      
+      // Delete old photo file if it exists
+      if (oldPhotoPath) {
+        try {
+          const fullPath = path.join(process.cwd(), oldPhotoPath);
+          if (fs.existsSync(fullPath)) {
+            fs.unlinkSync(fullPath);
+          }
+        } catch (err) {
+          console.error(`Falha ao excluir arquivo antigo ${oldPhotoPath}:`, err);
+        }
+      }
+
+      // Save new base64 photo
+      return saveBase64Image(newPhoto, cleanCarro, indexStr);
+    };
+
+    const foto1Path = processPhoto(foto1, record.foto1, "");
+    const foto2Path = processPhoto(foto2, record.foto2, "_1");
+    const foto3Path = processPhoto(foto3, record.foto3, "_2");
+
+    const updated = await prisma.controleOperacional.update({
+      where: { id: parseInt(id, 10) },
+      data: {
+        carro,
+        linha,
+        garagem,
+        foto1: foto1Path,
+        foto2: foto2Path,
+        foto3: foto3Path,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          }
+        }
+      }
+    });
+
+    return res.json(updated);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: "Erro ao atualizar controle operacional" });
+  }
+}
+
 export async function listVeiculos(req: AuthRequest, res: Response) {
   try {
     const data = await mssqlService.queryVeiculosSelect();

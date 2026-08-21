@@ -165,5 +165,7 @@ export const api = {
     request("/controle-operacional", { method: "POST", body: JSON.stringify(data) }),
   deleteControleOperacional: (id: number) =>
     request(`/controle-operacional/${id}`, { method: "DELETE" }),
+  updateControleOperacional: (id: number, data: any) =>
+    request(`/controle-operacional/${id}`, { method: "PUT", body: JSON.stringify(data) }),
 };
 

@@ -35,6 +35,7 @@ import {
   WifiOff,
   CloudUpload,
   Gauge,
+  Pencil,
 } from "lucide-react";
 import {
   savePending,
@@ -114,6 +115,8 @@ export function ControleOperacionalPage() {
 
   // Filter state
   const [filterGaragem, setFilterGaragem] = useState<string>("");
+  const [filterCarro, setFilterCarro] = useState("");
+  const [editingRecord, setEditingRecord] = useState<OperationalControlRecord | null>(null);
 
   const isVCGOrVCM = user?.garagem === "VCG" || user?.garagem === "VCM";
 
@@ -392,6 +395,19 @@ export function ControleOperacionalPage() {
     setFoto2(null);
     setFoto3(null);
     setActiveCameraSlot(null);
+    setEditingRecord(null);
+  };
+
+  const handleEditClick = (record: OperationalControlRecord) => {
+    setEditingRecord(record);
+    setSelectedCarro(record.carro);
+    setCarroSearch(record.carro);
+    setKm(record.linha);
+    setSelectedGaragem(record.garagem);
+    setFoto1(record.foto1);
+    setFoto2(record.foto2);
+    setFoto3(record.foto3);
+    setDialogOpen(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -451,29 +467,58 @@ export function ControleOperacionalPage() {
 
     setLoading(true);
     try {
-      if (!navigator.onLine) {
-        const record: PendingRecord = {
-          id: crypto.randomUUID(),
-          type: "controle-operacional",
-          data,
-          token: token || "",
-          createdAt: new Date().toISOString(),
-        };
-        await savePending(record);
-        toast.success("Salvo offline! Será sincronizado quando a conexão voltar.");
-        resetForm();
-        setDialogOpen(false);
-        updatePendingCount();
-        loadRecords();
+      if (editingRecord) {
+        if (editingRecord.pendingId) {
+          const record: PendingRecord = {
+            id: editingRecord.pendingId,
+            type: "controle-operacional",
+            data,
+            token: token || "",
+            createdAt: editingRecord.dataInsercao,
+          };
+          await savePending(record);
+          toast.success("Rascunho offline atualizado com sucesso!");
+          resetForm();
+          setDialogOpen(false);
+          updatePendingCount();
+          loadRecords();
+        } else {
+          if (!navigator.onLine) {
+            toast.error("Não é possível editar registros já sincronizados enquanto estiver offline.");
+            setLoading(false);
+            return;
+          }
+          await api.updateControleOperacional(editingRecord.id, data);
+          toast.success("Registro atualizado com sucesso!");
+          resetForm();
+          setDialogOpen(false);
+          loadRecords();
+        }
       } else {
-        await api.createControleOperacional(data);
-        toast.success("Controle operacional registrado com sucesso!");
-        resetForm();
-        setDialogOpen(false);
-        loadRecords();
+        if (!navigator.onLine) {
+          const record: PendingRecord = {
+            id: crypto.randomUUID(),
+            type: "controle-operacional",
+            data,
+            token: token || "",
+            createdAt: new Date().toISOString(),
+          };
+          await savePending(record);
+          toast.success("Salvo offline! Será sincronizado quando a conexão voltar.");
+          resetForm();
+          setDialogOpen(false);
+          updatePendingCount();
+          loadRecords();
+        } else {
+          await api.createControleOperacional(data);
+          toast.success("Controle operacional registrado com sucesso!");
+          resetForm();
+          setDialogOpen(false);
+          loadRecords();
+        }
       }
     } catch (err: any) {
-      toast.error(err.message || "Erro ao registrar controle operacional.");
+      toast.error(err.message || "Erro ao salvar controle operacional.");
     } finally {
       setLoading(false);
     }
@@ -603,10 +648,12 @@ export function ControleOperacionalPage() {
     records.map((r) => String(r.carro).trim())
   );
 
-  // Filtrar veículos disponíveis
-  const availableVeiculos = veiculos.filter(
-    (v) => !registeredCars.has(String(v).trim())
-  );
+  // Filtrar veículos disponíveis (mantém o carro que está sendo editado na lista)
+  const availableVeiculos = veiculos.filter((v) => {
+    const isThisCarEditing = editingRecord && String(editingRecord.carro).trim() === String(v).trim();
+    if (isThisCarEditing) return true;
+    return !registeredCars.has(String(v).trim());
+  });
 
   // Ordenar registros por número do carro numericamente
   const sortedRecords = [...records].sort((a, b) => {
@@ -616,6 +663,12 @@ export function ControleOperacionalPage() {
       return a.carro.localeCompare(b.carro);
     }
     return numA - numB;
+  });
+
+  // Filtrar registros por carro na busca do filtro local
+  const filteredRecords = sortedRecords.filter((record) => {
+    if (!filterCarro) return true;
+    return String(record.carro).trim().toLowerCase().includes(filterCarro.trim().toLowerCase());
   });
 
   return (
@@ -666,6 +719,15 @@ export function ControleOperacionalPage() {
         </CardHeader>
         <CardContent className="pt-4">
           <div className="flex flex-row flex-wrap gap-3 items-end">
+            <div className="flex flex-col gap-1.5 flex-1 sm:flex-initial">
+              <Label className="text-xs font-medium">Carro</Label>
+              <Input
+                placeholder="Buscar carro..."
+                value={filterCarro}
+                onChange={(e) => setFilterCarro(e.target.value)}
+                className="w-full sm:w-48 bg-background"
+              />
+            </div>
             {user?.role === "ADMIN" && (
               <div className="flex flex-col gap-1.5 flex-1 sm:flex-initial">
                 <Label className="text-xs font-medium">Garagem</Label>
@@ -737,7 +799,7 @@ export function ControleOperacionalPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {sortedRecords.map((record) => (
+                  {filteredRecords.map((record) => (
                     <tr key={record.pendingId || record.id} className={`transition-colors ${record.pendingId ? "bg-amber-500/5 hover:bg-amber-500/10" : "hover:bg-muted/10"}`}>
                       <td className="p-4 font-medium text-foreground">
                         <div className="flex items-center gap-2">
@@ -820,19 +882,49 @@ export function ControleOperacionalPage() {
                         </div>
                       </td>
                       <td className="p-4 text-center">
-                        {record.pendingId ? (
+                        <div className="flex items-center justify-center gap-1">
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => handleDeletePending(record.pendingId!)}
-                            className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                            title="Remover rascunho offline"
+                            onClick={() => handleEditClick(record)}
+                            className="h-8 w-8 text-primary hover:bg-primary/10"
+                            title="Editar registro"
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Pencil className="h-4 w-4" />
                           </Button>
-                        ) : (
-                          <span className="text-xs text-muted-foreground/40">-</span>
-                        )}
+                          {record.pendingId ? (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDeletePending(record.pendingId!)}
+                              className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                              title="Remover rascunho offline"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          ) : (
+                            user?.role === "ADMIN" && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  if (confirm("Deseja realmente excluir este registro do banco de dados?")) {
+                                    api.deleteControleOperacional(record.id)
+                                      .then(() => {
+                                        toast.success("Registro removido com sucesso!");
+                                        loadRecords();
+                                      })
+                                      .catch((err) => toast.error(err.message || "Erro ao excluir."));
+                                  }
+                                }}
+                                className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                                title="Excluir do banco de dados"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -860,11 +952,11 @@ export function ControleOperacionalPage() {
         setDialogOpen(open);
         if (!open) resetForm();
       }}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" onOpenAutoFocus={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl font-semibold">
               <CheckCircle2 className="h-5 w-5 text-primary" />
-              Nova Inserção de Controle
+              {editingRecord ? "Editar Inserção de Controle" : "Nova Inserção de Controle"}
             </DialogTitle>
           </DialogHeader>
 
@@ -972,7 +1064,9 @@ export function ControleOperacionalPage() {
                 Limpar Campos
               </Button>
               <Button type="submit" disabled={loading} className="px-6 font-semibold">
-                {loading ? "Cadastrando..." : "Cadastrar"}
+                {editingRecord
+                  ? (loading ? "Salvando..." : "Salvar Alterações")
+                  : (loading ? "Cadastrando..." : "Cadastrar")}
               </Button>
             </div>
           </form>

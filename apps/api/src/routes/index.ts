@@ -77,6 +77,7 @@ router.get("/controle-operacional/veiculos", authenticate, controleOperacionalCo
 router.get("/controle-operacional/linhas", authenticate, controleOperacionalController.listLinhas);
 router.post("/controle-operacional", authenticate, authorize("ADMIN", "operacional"), controleOperacionalController.create);
 router.delete("/controle-operacional/:id", authenticate, authorize("ADMIN"), controleOperacionalController.remove);
+router.put("/controle-operacional/:id", authenticate, authorize("ADMIN", "operacional"), controleOperacionalController.update);
 
 export default router;
 
