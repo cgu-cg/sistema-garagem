@@ -1,4 +1,4 @@
-const CACHE_VERSION = "garagem-v9";
+const CACHE_VERSION = "garagem-v10";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

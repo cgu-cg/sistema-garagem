@@ -70,6 +70,16 @@ export async function create(req: AuthRequest, res: Response) {
   }
 
   try {
+    const existing = await prisma.controleOperacional.findFirst({
+      where: {
+        carro: carro.trim()
+      }
+    });
+
+    if (existing) {
+      return res.status(200).json(existing);
+    }
+
     const cleanCarro = carro.replace(/[^a-zA-Z0-9-]/g, "_");
     
     // Save photo 1
