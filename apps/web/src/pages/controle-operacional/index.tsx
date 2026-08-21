@@ -39,6 +39,7 @@ import {
 import {
   savePending,
   getPending,
+  removePending,
   syncPending,
   saveCache,
   getCache,
@@ -62,6 +63,14 @@ interface OperationalControlRecord {
   };
   pendingId?: string;
 }
+
+const FALLBACK_VEICULOS = [
+  1101, 1102, 1103, 1104, 1105, 1106, 1107, 1108, 1109, 1110,
+  1111, 1112, 1113, 1114, 1115, 1116, 1117, 1118, 1119, 1120,
+  1271, 1272, 1273, 1274, 1275, 1276, 1277, 1278, 1279, 1280,
+  1361, 1362, 1363, 1364, 1365, 1366, 1367, 1368, 1369, 1370,
+  4258, 4259, 4260, 4261, 4262, 4263, 4264, 4265, 4276, 4277
+];
 
 const GARAGEM_MAP: Record<string, string> = {
   VCG: "Garagem: VCG",
@@ -104,8 +113,6 @@ export function ControleOperacionalPage() {
   const [isMobile, setIsMobile] = useState(false);
 
   // Filter state
-  const today = new Date().toISOString().split("T")[0];
-  const [filterDate, setFilterDate] = useState(today);
   const [filterGaragem, setFilterGaragem] = useState<string>("");
 
   const isVCGOrVCM = user?.garagem === "VCG" || user?.garagem === "VCM";
@@ -121,8 +128,11 @@ export function ControleOperacionalPage() {
       const cached = await getCache("operacional-veiculos");
       if (cached) {
         setVeiculos(cached);
-      } else if (navigator.onLine) {
-        toast.error("Erro ao carregar veículos: " + err.message);
+      } else {
+        setVeiculos(FALLBACK_VEICULOS);
+        if (navigator.onLine) {
+          toast.error("Erro ao carregar veículos, usando lista padrão: " + err.message);
+        }
       }
     } finally {
       setVeiculosLoading(false);
@@ -133,7 +143,6 @@ export function ControleOperacionalPage() {
     setListLoading(true);
     try {
       const data = await api.listControleOperacional({
-        date: filterDate,
         ...(filterGaragem ? { garagem: filterGaragem } : {}),
       });
       const serverRecords = data as OperationalControlRecord[];
@@ -212,6 +221,17 @@ export function ControleOperacionalPage() {
       updatePendingCount();
     }
   }, [syncing, token]);
+
+  const handleDeletePending = async (pendingId: string) => {
+    try {
+      await removePending(pendingId);
+      toast.success("Registro pendente removido!");
+      updatePendingCount();
+      loadRecords();
+    } catch (err: any) {
+      toast.error("Erro ao remover registro: " + err.message);
+    }
+  };
 
   useEffect(() => {
     loadVeiculos();
@@ -578,6 +598,26 @@ export function ControleOperacionalPage() {
     );
   };
 
+  // Obter o conjunto de carros já cadastrados na data selecionada
+  const registeredCars = new Set(
+    records.map((r) => String(r.carro).trim())
+  );
+
+  // Filtrar veículos disponíveis
+  const availableVeiculos = veiculos.filter(
+    (v) => !registeredCars.has(String(v).trim())
+  );
+
+  // Ordenar registros por número do carro numericamente
+  const sortedRecords = [...records].sort((a, b) => {
+    const numA = parseInt(a.carro.replace(/\D/g, ""), 10);
+    const numB = parseInt(b.carro.replace(/\D/g, ""), 10);
+    if (isNaN(numA) || isNaN(numB)) {
+      return a.carro.localeCompare(b.carro);
+    }
+    return numA - numB;
+  });
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -626,15 +666,6 @@ export function ControleOperacionalPage() {
         </CardHeader>
         <CardContent className="pt-4">
           <div className="flex flex-row flex-wrap gap-3 items-end">
-            <div className="flex flex-col gap-1.5 flex-1 sm:flex-initial">
-              <Label className="text-xs font-medium">Data</Label>
-              <Input
-                type="date"
-                value={filterDate}
-                onChange={(e) => setFilterDate(e.target.value)}
-                className="w-full sm:w-40"
-              />
-            </div>
             {user?.role === "ADMIN" && (
               <div className="flex flex-col gap-1.5 flex-1 sm:flex-initial">
                 <Label className="text-xs font-medium">Garagem</Label>
@@ -655,7 +686,7 @@ export function ControleOperacionalPage() {
             )}
             <Button onClick={loadRecords} disabled={listLoading} className="gap-1.5 w-full sm:w-auto">
               <RefreshCw className={`h-4 w-4 ${listLoading ? "animate-spin" : ""}`} />
-              Filtrar
+              Atualizar Lista
             </Button>
           </div>
         </CardContent>
@@ -702,10 +733,11 @@ export function ControleOperacionalPage() {
                     <th className="p-4 font-semibold">Fotos</th>
                     <th className="p-4 font-semibold">Data e Hora</th>
                     <th className="p-4 font-semibold">Inserido Por</th>
+                    <th className="p-4 font-semibold w-16 text-center">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {records.map((record) => (
+                  {sortedRecords.map((record) => (
                     <tr key={record.pendingId || record.id} className={`transition-colors ${record.pendingId ? "bg-amber-500/5 hover:bg-amber-500/10" : "hover:bg-muted/10"}`}>
                       <td className="p-4 font-medium text-foreground">
                         <div className="flex items-center gap-2">
@@ -787,6 +819,21 @@ export function ControleOperacionalPage() {
                           </div>
                         </div>
                       </td>
+                      <td className="p-4 text-center">
+                        {record.pendingId ? (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDeletePending(record.pendingId!)}
+                            className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                            title="Remover rascunho offline"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground/40">-</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -800,7 +847,7 @@ export function ControleOperacionalPage() {
       <Button
         onClick={() => {
           resetForm();
-          setDialogOpen(true);
+          setTimeout(() => setDialogOpen(true), 30);
         }}
         className="fixed bottom-6 right-6 z-40 h-14 w-14 rounded-full shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40 transition-all"
         size="icon"
@@ -848,7 +895,7 @@ export function ControleOperacionalPage() {
                   />
                   {carroDropdownOpen && (
                     <div className="absolute z-50 w-full mt-1 max-h-60 overflow-y-auto rounded-md border border-input bg-popover text-popover-foreground shadow-md outline-none">
-                      {veiculos
+                      {availableVeiculos
                         .filter((v) => String(v).includes(carroSearch))
                         .map((v) => (
                           <button
@@ -864,7 +911,7 @@ export function ControleOperacionalPage() {
                             {v}
                           </button>
                         ))}
-                      {veiculos.filter((v) => String(v).includes(carroSearch)).length === 0 && (
+                      {availableVeiculos.filter((v) => String(v).includes(carroSearch)).length === 0 && (
                         <div className="px-3 py-2 text-sm text-muted-foreground">Nenhum carro encontrado</div>
                       )}
                     </div>
