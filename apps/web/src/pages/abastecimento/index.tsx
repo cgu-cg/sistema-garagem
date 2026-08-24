@@ -38,6 +38,7 @@ import {
   savePending,
   getPending,
   syncPending,
+  removePending,
   type PendingRecord,
 } from "@/lib/offline-db";
 
@@ -51,6 +52,7 @@ interface Abastecimento {
   fotoT3?: string;
   createdAt: string;
   user: { name: string; email?: string };
+  pendingId?: string;
 }
 
 export function AbastecimentoPage() {
@@ -80,24 +82,88 @@ export function AbastecimentoPage() {
   const [isMobile, setIsMobile] = useState(false);
 
   // Filter state
-  const today = new Date().toISOString().split("T")[0];
-  const [filterDate, setFilterDate] = useState(today);
+  const [filterDate, setFilterDate] = useState("");
   const [filterGaragem, setFilterGaragem] = useState<string>("");
 
   const load = async () => {
     setListLoading(true);
     try {
       const r = await api.listAbastecimentos({
-        date: filterDate,
+        ...(filterDate ? { date: filterDate } : {}),
         ...(filterGaragem ? { garagem: filterGaragem } : {}),
       });
-      setRecords(r as Abastecimento[]);
+      const serverRecords = r as Abastecimento[];
+
+      const pending = await getPending();
+      const offlineRecords: Abastecimento[] = pending
+        .filter((p) => p.type === "abastecimento")
+        .map((p) => ({
+          id: -1,
+          litersT1: String(p.data.litersT1),
+          fotoT1: p.data.fotoT1,
+          litersT2: String(p.data.litersT2),
+          fotoT2: p.data.fotoT2,
+          litersT3: p.data.litersT3 ? String(p.data.litersT3) : undefined,
+          fotoT3: p.data.fotoT3 || undefined,
+          createdAt: p.createdAt,
+          user: { name: user?.name || "Você", email: user?.email || "" },
+          pendingId: p.id,
+        } as Abastecimento));
+
+      // Filtra registros locais pela data do filtro
+      const filteredOffline = offlineRecords.filter(rec => {
+        const dateMatch = !filterDate || rec.createdAt.split("T")[0] === filterDate;
+        if (filterGaragem) {
+          return dateMatch && (user?.garagem === filterGaragem);
+        }
+        return dateMatch;
+      });
+
+      setRecords([...filteredOffline, ...serverRecords]);
     } catch (err: any) {
+      const pending = await getPending();
+      const offlineRecords: Abastecimento[] = pending
+        .filter((p) => p.type === "abastecimento")
+        .map((p) => ({
+          id: -1,
+          litersT1: String(p.data.litersT1),
+          fotoT1: p.data.fotoT1,
+          litersT2: String(p.data.litersT2),
+          fotoT2: p.data.fotoT2,
+          litersT3: p.data.litersT3 ? String(p.data.litersT3) : undefined,
+          fotoT3: p.data.fotoT3 || undefined,
+          createdAt: p.createdAt,
+          user: { name: user?.name || "Você", email: user?.email || "" },
+          pendingId: p.id,
+        } as Abastecimento));
+
+      const filteredOffline = offlineRecords.filter(rec => {
+        const dateMatch = !filterDate || rec.createdAt.split("T")[0] === filterDate;
+        if (filterGaragem) {
+          return dateMatch && (user?.garagem === filterGaragem);
+        }
+        return dateMatch;
+      });
+
+      setRecords(filteredOffline);
+
       if (navigator.onLine) {
         toast.error("Erro ao carregar registros: " + err.message);
       }
     } finally {
       setListLoading(false);
+    }
+  };
+
+  const handleDeletePending = async (pendingId: string) => {
+    if (!window.confirm("Deseja realmente remover este registro pendente offline?")) return;
+    try {
+      await removePending(pendingId);
+      toast.success("Registro pendente removido!");
+      updatePendingCount();
+      load();
+    } catch (err: any) {
+      toast.error("Erro ao remover registro: " + err.message);
     }
   };
 
@@ -342,18 +408,19 @@ export function AbastecimentoPage() {
       }
     }
 
+    const data: any = {
+      litersT1: Number(litersT1),
+      fotoT1,
+      litersT2: Number(litersT2),
+      fotoT2,
+    };
+    if (isVCM) {
+      data.litersT3 = Number(litersT3);
+      data.fotoT3 = fotoT3;
+    }
+
     setLoading(true);
     try {
-      const data: any = {
-        litersT1: Number(litersT1),
-        fotoT1,
-        litersT2: Number(litersT2),
-        fotoT2,
-      };
-      if (isVCM) {
-        data.litersT3 = Number(litersT3);
-        data.fotoT3 = fotoT3;
-      }
 
       if (!navigator.onLine) {
         const record: PendingRecord = {
@@ -368,6 +435,7 @@ export function AbastecimentoPage() {
         resetForm();
         setDialogOpen(false);
         updatePendingCount();
+        load();
       } else {
         await api.createAbastecimento(data);
         toast.success("Abastecimento registrado com sucesso!");
@@ -376,7 +444,33 @@ export function AbastecimentoPage() {
         load();
       }
     } catch (err: any) {
-      toast.error(err.message || "Erro ao registrar abastecimento");
+      const isNetworkOrTimeout = 
+        err.message === "TIMEOUT_ERROR" || 
+        err.message.includes("Failed to fetch") || 
+        err.message.includes("NetworkError") || 
+        err.message.toLowerCase().includes("network");
+
+      if (isNetworkOrTimeout) {
+        try {
+          const record: PendingRecord = {
+            id: crypto.randomUUID(),
+            type: "abastecimento",
+            data,
+            token: token || "",
+            createdAt: new Date().toISOString(),
+          };
+          await savePending(record);
+          toast.warning("Conexão instável! A leitura foi salva offline para sua segurança.");
+          resetForm();
+          setDialogOpen(false);
+          updatePendingCount();
+          load();
+        } catch (dbErr: any) {
+          toast.error("Conexão interrompida e falha ao salvar offline: " + dbErr.message);
+        }
+      } else {
+        toast.error(err.message || "Erro ao registrar abastecimento");
+      }
     } finally {
       setLoading(false);
     }
@@ -540,21 +634,21 @@ export function AbastecimentoPage() {
           <CardTitle className="text-sm font-semibold">Filtros</CardTitle>
         </CardHeader>
         <CardContent className="pt-4">
-          <div className="flex flex-col sm:flex-row flex-wrap gap-3 items-end">
-            <div className="flex flex-col gap-1.5">
+          <div className="flex flex-row flex-wrap gap-3 items-end">
+            <div className="flex flex-col gap-1.5 flex-1 min-w-[120px]">
               <Label className="text-xs font-medium">Data</Label>
               <Input
                 type="date"
                 value={filterDate}
                 onChange={(e) => setFilterDate(e.target.value)}
-                className="w-full sm:w-40"
+                className="w-full"
               />
             </div>
             {user?.role === "ADMIN" && (
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-1.5 flex-1 min-w-[120px]">
                 <Label className="text-xs font-medium">Garagem</Label>
                 <Select value={filterGaragem || "all"} onValueChange={(v) => setFilterGaragem(v === "all" ? "" : v)}>
-                  <SelectTrigger className="w-full sm:w-40">
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="Todas" />
                   </SelectTrigger>
                   <SelectContent>
@@ -565,7 +659,7 @@ export function AbastecimentoPage() {
                 </Select>
               </div>
             )}
-            <Button onClick={load} disabled={listLoading} className="gap-1.5">
+            <Button onClick={load} disabled={listLoading} className="gap-1.5 w-full sm:w-auto">
               <RefreshCw className={`h-4 w-4 ${listLoading ? "animate-spin" : ""}`} />
               Filtrar
             </Button>
@@ -623,7 +717,7 @@ export function AbastecimentoPage() {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {records.map((r) => (
-                    <tr key={r.id} className="hover:bg-muted/10 transition-colors">
+                    <tr key={r.pendingId || r.id} className={`transition-colors ${r.pendingId ? "bg-amber-500/5 hover:bg-amber-500/10" : "hover:bg-muted/10"}`}>
                       <td className="p-4 font-mono font-semibold text-foreground">
                         {Number(r.litersT1).toFixed(2)}L
                       </td>
@@ -676,13 +770,30 @@ export function AbastecimentoPage() {
                       )}
                       <td className="p-4">
                         <div className="flex flex-col">
-                          <span className="font-mono text-xs text-muted-foreground">
+                          <span className="font-mono text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
                             {new Date(r.createdAt).toLocaleDateString("pt-BR")} {new Date(r.createdAt).toLocaleTimeString("pt-BR")}
+                            {r.pendingId && (
+                              <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-amber-600 dark:text-amber-400">
+                                Pendente
+                              </span>
+                            )}
                           </span>
-                          <span className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                            <User className="h-3 w-3" />
-                            {r.user.name}
-                          </span>
+                          <div className="flex items-center justify-between mt-0.5 gap-2">
+                            <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                              <User className="h-3 w-3" />
+                              {r.user.name}
+                            </span>
+                            {r.pendingId && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-5 w-5 text-destructive hover:bg-destructive/10"
+                                onClick={() => handleDeletePending(r.pendingId!)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       </td>
                     </tr>
