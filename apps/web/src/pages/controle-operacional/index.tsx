@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/stores/auth";
 import { Button } from "@/components/ui/button";
@@ -91,10 +91,6 @@ export function ControleOperacionalPage() {
   const [foto1, setFoto1] = useState<string | null>(null);
   const [foto2, setFoto2] = useState<string | null>(null);
   const [foto3, setFoto3] = useState<string | null>(null);
-
-  // Camera states
-  const [activeCameraSlot, setActiveCameraSlot] = useState<number | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   // Lightbox state
   const [activePhotoView, setActivePhotoView] = useState<string | null>(null);
@@ -251,65 +247,6 @@ export function ControleOperacionalPage() {
     return () => clearInterval(interval);
   }, [token, syncing, handleSync]);
 
-  // Handle camera stream lifecycle
-  useEffect(() => {
-    let streamInstance: MediaStream | null = null;
-
-    if (activeCameraSlot !== null) {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        toast.error("Acesso à câmera indisponível. Certifique-se de que a conexão é segura (HTTPS) ou use localhost.");
-        setActiveCameraSlot(null);
-        return;
-      }
-
-      navigator.mediaDevices
-        .getUserMedia({
-          video: {
-            facingMode: "environment",
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-        })
-        .then((stream) => {
-          streamInstance = stream;
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-            videoRef.current.play().catch((e) => console.log("Video play interrupted", e));
-          }
-        })
-        .catch((err) => {
-          console.error("Camera error:", err);
-          toast.error("Não foi possível acessar a câmera. Verifique as permissões de acesso.");
-          setActiveCameraSlot(null);
-        });
-    }
-
-    return () => {
-      if (streamInstance) {
-        streamInstance.getTracks().forEach((track) => track.stop());
-      }
-    };
-  }, [activeCameraSlot]);
-
-  const capturePhoto = (slot: number) => {
-    const video = videoRef.current;
-    if (video) {
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth || 640;
-      canvas.height = video.videoHeight || 480;
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const base64 = canvas.toDataURL("image/jpeg", 0.85);
-
-        if (slot === 1) setFoto1(base64);
-        if (slot === 2) setFoto2(base64);
-        if (slot === 3) setFoto3(base64);
-      }
-    }
-    setActiveCameraSlot(null);
-  };
-
   const resizeImage = (base64Str: string, maxWidth = 1280, maxHeight = 960): Promise<string> => {
     return new Promise((resolve) => {
       const img = new Image();
@@ -371,7 +308,6 @@ export function ControleOperacionalPage() {
     setFoto1(null);
     setFoto2(null);
     setFoto3(null);
-    setActiveCameraSlot(null);
     setEditingRecord(null);
   };
 
@@ -548,8 +484,6 @@ export function ControleOperacionalPage() {
     photoState: string | null,
     setPhotoState: (val: string | null) => void
   ) => {
-    const isCameraActive = activeCameraSlot === slotNumber;
-
     return (
       <div className="flex flex-col space-y-2 border border-border/80 bg-card rounded-xl p-4 shadow-sm relative overflow-hidden transition-all hover:border-muted-foreground/30">
         <div className="flex items-center justify-between">
@@ -570,34 +504,7 @@ export function ControleOperacionalPage() {
         </div>
 
         <div className="relative h-48 w-full rounded-lg bg-muted/30 flex items-center justify-center border border-dashed border-muted overflow-hidden">
-          {isCameraActive ? (
-            <div className="absolute inset-0 flex flex-col justify-between bg-black">
-              <video
-                ref={videoRef}
-                className="w-full h-full object-cover"
-                playsInline
-                muted
-              />
-              <div className="absolute bottom-2 inset-x-0 flex items-center justify-center gap-3 px-4 z-10">
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => capturePhoto(slotNumber)}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-md shadow-emerald-950/20"
-                >
-                  Capturar
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setActiveCameraSlot(null)}
-                >
-                  Cancelar
-                </Button>
-              </div>
-            </div>
-          ) : photoState ? (
+          {photoState ? (
             <div className="relative inset-0 w-full h-full group">
               <img
                 src={photoState}
@@ -610,39 +517,28 @@ export function ControleOperacionalPage() {
                   variant="secondary"
                   size="icon"
                   onClick={() => setActivePhotoView(photoState)}
-                  className="h-8 w-8 rounded-full"
+                  className="h-8 w-8 rounded-full animate-in fade-in duration-100"
                 >
                   <Eye className="h-4 w-4" />
                 </Button>
               </div>
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center p-6 text-center space-y-4">
+            <div className="flex flex-col items-center justify-center p-6 text-center space-y-4 w-full">
               <div className="rounded-full bg-primary/5 p-3">
                 <Camera className="h-6 w-6 text-muted-foreground" />
               </div>
-              <div className="flex flex-col items-center gap-1.5">
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => setActiveCameraSlot(slotNumber)}
-                  className="w-full"
-                >
+              <div className="flex flex-col items-center gap-1.5 w-full">
+                <label className="inline-flex items-center justify-center rounded-md text-sm font-semibold ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 py-2 cursor-pointer w-full text-center">
                   Tirar Foto
-                </Button>
-                <div className="text-xs text-muted-foreground flex items-center gap-1">
-                  <span>ou</span>
-                  <label className="text-primary hover:underline cursor-pointer font-medium">
-                    escolher arquivo
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      onChange={(e) => handleFileChange(e, slotNumber)}
-                      className="hidden"
-                    />
-                  </label>
-                </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={(e) => handleFileChange(e, slotNumber)}
+                    className="hidden"
+                  />
+                </label>
               </div>
             </div>
           )}
@@ -1116,7 +1012,7 @@ export function ControleOperacionalPage() {
 
       {/* Lightbox Modal */}
       {activePhotoView && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="relative max-w-4xl w-full max-h-[85vh] flex flex-col items-center justify-center">
             <Button
               variant="outline"
