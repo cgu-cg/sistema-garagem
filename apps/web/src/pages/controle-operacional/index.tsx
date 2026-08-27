@@ -595,6 +595,36 @@ export function ControleOperacionalPage() {
     }
   };
 
+  // Reusable Lightbox Renderer that guarantees pointer events inside Radix Dialog bounds
+  const renderLightbox = () => {
+    if (!activePhotoView) return null;
+    return (
+      <div
+        onClick={() => setActivePhotoView(null)}
+        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200 cursor-zoom-out pointer-events-auto"
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="relative max-w-4xl w-full max-h-[85vh] flex flex-col items-center justify-center pointer-events-auto"
+        >
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setActivePhotoView(null)}
+            className="absolute -top-12 right-0 h-10 w-10 bg-background/20 text-white hover:bg-background/40 hover:text-white border-white/20 rounded-full"
+          >
+            <X className="h-5 w-5" />
+          </Button>
+          <img
+            src={activePhotoView}
+            className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl border border-white/10"
+            alt="Ampliada"
+          />
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -767,7 +797,7 @@ export function ControleOperacionalPage() {
                   <span className="font-bold text-sm tracking-tight">{car}</span>
                   <span className="text-[9px] font-semibold opacity-75 mt-0.5 leading-none block">
                     {statusInfo.type === "completed" && "Concluído"}
-                    {statusInfo.type === "pending" && "Offline"}
+                    {statusInfo.type === "pending" && "Pendente"}
                     {statusInfo.type === "none" && "Sem Vistoria"}
                   </span>
                 </button>
@@ -778,6 +808,7 @@ export function ControleOperacionalPage() {
 
       {/* New Record Dialog */}
       <Dialog open={dialogOpen} onOpenChange={(open) => {
+        if (activePhotoView) return;
         setDialogOpen(open);
         if (!open) resetForm();
       }}>
@@ -872,9 +903,6 @@ export function ControleOperacionalPage() {
                   Excluir Rascunho
                 </Button>
               )}
-              <Button type="button" variant="outline" onClick={resetForm} disabled={loading}>
-                Limpar Campos
-              </Button>
               <Button type="submit" disabled={loading} className="px-6 font-semibold">
                 {editingRecord
                   ? (loading ? "Salvando..." : "Salvar Alterações")
@@ -882,11 +910,15 @@ export function ControleOperacionalPage() {
               </Button>
             </div>
           </form>
+          {renderLightbox()}
         </DialogContent>
       </Dialog>
 
       {/* Visualizador de Registro Concluído */}
-      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
+      <Dialog open={viewDialogOpen} onOpenChange={(open) => {
+        if (activePhotoView) return;
+        setViewDialogOpen(open);
+      }}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl font-bold text-emerald-600 dark:text-emerald-400">
@@ -1007,29 +1039,11 @@ export function ControleOperacionalPage() {
               )}
             </div>
           )}
+          {renderLightbox()}
         </DialogContent>
       </Dialog>
 
-      {/* Lightbox Modal */}
-      {activePhotoView && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="relative max-w-4xl w-full max-h-[85vh] flex flex-col items-center justify-center">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => setActivePhotoView(null)}
-              className="absolute -top-12 right-0 h-10 w-10 bg-background/20 text-white hover:bg-background/40 hover:text-white border-white/20 rounded-full"
-            >
-              <X className="h-5 w-5" />
-            </Button>
-            <img
-              src={activePhotoView}
-              className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl border border-white/10"
-              alt="Ampliada"
-            />
-          </div>
-        </div>
-      )}
+      {renderLightbox()}
     </div>
   );
 }
