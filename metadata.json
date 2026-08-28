@@ -1,0 +1,5 @@
+{
+  "name": "Sistema Garagem",
+  "description": "Sistema de Gestão de Garagem - Conferência de Catracas, Abastecimento, Soltura e Controle Operacional",
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

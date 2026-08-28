@@ -7,13 +7,14 @@
   "scripts": {
     "dev:api": "npm run dev -w apps/api",
     "dev:web": "npm run dev -w apps/web",
-    "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
-    "build": "npm run build -w apps/api && npm run build -w apps/web",
-    "db:migrate": "npm run db:migrate -w apps/api",
-    "db:seed": "npm run db:seed -w apps/api"
+    "dev": "npm run build -w apps/web && tsx apps/api/src/index.ts",
+    "build": "npm run build -w apps/web && npm run build -w apps/api",
+    "start": "node apps/api/dist/index.js",
+    "lint": "tsc -b apps/web && tsc --noEmit -p apps/api"
   },
   "devDependencies": {
-    "@types/node": "^26.1.2",
-    "concurrently": "^8.2.2"
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
   }
 }

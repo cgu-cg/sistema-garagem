@@ -35,7 +35,7 @@ function PermissionRoute({ to, fallbackRoles, children }: { to: string; fallback
   if (user.role === "ADMIN") return <>{children}</>;
 
   if (user.groups && user.groups.length > 0) {
-    const normalizedTo = to.startsWith("/catracas") ? "/catracas" : to;
+    const normalizedTo = to.startsWith("/catracas") ? "/catracas" : to.startsWith("/soltura") ? "/soltura" : to;
     const hasPerm = user.groups.some(g => {
       const perms = Array.isArray(g.permissions) ? g.permissions : [];
       return perms.some(p => {
@@ -153,7 +153,23 @@ export function App() {
             path="/soltura"
             element={
               <PermissionRoute to="/soltura" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
-                <SolturaPage />
+                <SolturaPage defaultTab="FOLHA" />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/soltura/ci-manutencao"
+            element={
+              <PermissionRoute to="/soltura" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+                <SolturaPage defaultTab="CI_MANUTENCAO" />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/soltura/carro-realizado"
+            element={
+              <PermissionRoute to="/soltura" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+                <SolturaPage defaultTab="CARRO_REALIZADO" />
               </PermissionRoute>
             }
           />
