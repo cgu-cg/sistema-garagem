@@ -54,7 +54,7 @@ export function authorize(...roles: string[]) {
         if (user && user.groups && user.groups.length > 0) {
           const cleanPath = req.originalUrl.replace(/^\/api/, "").split("?")[0];
 
-          const hasPermission = user.groups.some((group) => {
+          const hasPermission = user.groups.some((group: any) => {
             let perms: string[] = [];
             try {
               perms = JSON.parse(group.permissions || "[]");

@@ -23,7 +23,7 @@ import * as solturaController from "../controllers/soltura";
 import * as catracasController from "../controllers/catracas";
 import * as controleOperacionalController from "../controllers/controleOperacional";
 
-const router = Router();
+const router: Router = Router();
 
 // Auth
 router.post("/auth/login", validate(loginSchema), authController.login);

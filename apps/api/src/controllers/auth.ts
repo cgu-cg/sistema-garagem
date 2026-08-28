@@ -42,10 +42,10 @@ export async function login(req: AuthRequest, res: Response) {
       email: user.email,
       role: user.role,
       garagem: user.garagem,
-      groups: user.groups.map(g => ({
+      groups: (user.groups || []).map((g: any) => ({
         id: g.id,
         name: g.name,
-        permissions: JSON.parse(g.permissions || "[]")
+        permissions: typeof g.permissions === "string" ? JSON.parse(g.permissions || "[]") : (g.permissions || [])
       }))
     },
   });
@@ -77,10 +77,10 @@ export async function me(req: AuthRequest, res: Response) {
 
   return res.json({
     ...user,
-    groups: user.groups.map(g => ({
+    groups: (user.groups || []).map((g: any) => ({
       id: g.id,
       name: g.name,
-      permissions: JSON.parse(g.permissions || "[]")
+      permissions: typeof g.permissions === "string" ? JSON.parse(g.permissions || "[]") : (g.permissions || [])
     }))
   });
 }

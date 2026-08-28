@@ -44,7 +44,7 @@ async function getCompleteFleetIds(): Promise<number[]> {
     const buses = await prisma.bus.findMany({
       select: { prefix: true },
     });
-    const localIds = buses.map((b) => parseInt(b.prefix, 10)).filter((id) => !isNaN(id));
+    const localIds = buses.map((b: any) => parseInt(b.prefix, 10)).filter((id: number) => !isNaN(id));
     // Junta com a lista estática e remove duplicados
     return Array.from(new Set([...STATIC_FLEET_IDS, ...localIds]));
   } catch (err) {

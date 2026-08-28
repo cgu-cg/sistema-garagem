@@ -8,9 +8,9 @@ export async function list(req: AuthRequest, res: Response) {
       orderBy: { name: "asc" },
     });
     // Parse permissions field back to a string array
-    const parsedGroups = groups.map(g => ({
+    const parsedGroups = groups.map((g: any) => ({
       ...g,
-      permissions: JSON.parse(g.permissions || "[]")
+      permissions: typeof g.permissions === "string" ? JSON.parse(g.permissions || "[]") : (g.permissions || [])
     }));
     return res.json(parsedGroups);
   } catch (error: any) {
