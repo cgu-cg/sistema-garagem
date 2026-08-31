@@ -28,10 +28,23 @@ async function request(path: string, options: RequestInit = {}) {
 
     if (res.status === 204) return null;
 
-    const data = await res.json();
+    let data: any = {};
+    const text = await res.text();
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { error: text.length < 150 ? text : `Erro na comunicação com o servidor (${res.status})` };
+      }
+    }
 
     if (!res.ok) {
-      const error = new Error(data.error || "Erro na requisição") as any;
+      const errorMsg =
+        data?.error ||
+        (res.status === 502 || res.status === 504 || res.status === 500
+          ? "Servidor da API indisponível. Verifique se o backend está em execução."
+          : `Erro na requisição (${res.status})`);
+      const error = new Error(errorMsg) as any;
       error.status = res.status;
       throw error;
     }

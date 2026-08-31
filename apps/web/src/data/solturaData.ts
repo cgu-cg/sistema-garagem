@@ -9,6 +9,7 @@ export interface SolturaItem {
   motoristaCodigo?: string;
   motoristaNome?: string;
   saidaGaragem: string;
+  inicioLinha?: string;
   inicioBairro?: string;
   status: "PENDENTE" | "LIBERADO" | "SUBSTITUIDO" | "ATRASADO";
   tipo?: "REGULAR" | "VCM" | "FRETAMENTO" | "EXTRA";
@@ -423,3 +424,46 @@ export const terminaisReservaVCM: TerminalReserva[] = [
   { terminal: "Term. Hércules", cor: "AZUL", carro1: "1220", carro2: "1346", horario: "04:20" },
   { terminal: "Term. Aero Rancho", cor: "AZUL", carro1: "3850", carro2: "3211", horario: "04:20" },
 ];
+
+// ----------------------------------------------------
+// CARROS PENDURADOS / ALTO CONSUMO
+// ----------------------------------------------------
+export interface CarroPendurado {
+  prefixo: string;
+  tipo: "AZUL" | "VERMELHO" | "MICRO" | "ARTICULADO" | "CINZA";
+  garagem: "VCG" | "VCM";
+}
+
+export const carrosPendurados: CarroPendurado[] = [
+  // VCM Pendurados (de vcm-sabado.jpeg / vcm-seg-sext-2.jpeg)
+  { prefixo: "1108", tipo: "VERMELHO", garagem: "VCM" },
+  { prefixo: "1109", tipo: "VERMELHO", garagem: "VCM" },
+  { prefixo: "1110", tipo: "VERMELHO", garagem: "VCM" },
+  { prefixo: "1112", tipo: "VERMELHO", garagem: "VCM" },
+  { prefixo: "1264", tipo: "VERMELHO", garagem: "VCM" },
+  { prefixo: "1265", tipo: "VERMELHO", garagem: "VCM" },
+  { prefixo: "1266", tipo: "VERMELHO", garagem: "VCM" },
+  { prefixo: "1268", tipo: "VERMELHO", garagem: "VCM" },
+  { prefixo: "1270", tipo: "VERMELHO", garagem: "VCM" },
+  { prefixo: "1308", tipo: "VERMELHO", garagem: "VCM" },
+  { prefixo: "1329", tipo: "VERMELHO", garagem: "VCM" },
+  { prefixo: "1330", tipo: "VERMELHO", garagem: "VCM" },
+  { prefixo: "1331", tipo: "VERMELHO", garagem: "VCM" },
+  { prefixo: "2321", tipo: "VERMELHO", garagem: "VCM" },
+  { prefixo: "2328", tipo: "VERMELHO", garagem: "VCM" },
+  { prefixo: "2329", tipo: "VERMELHO", garagem: "VCM" },
+  { prefixo: "2331", tipo: "VERMELHO", garagem: "VCM" },
+  { prefixo: "2422", tipo: "VERMELHO", garagem: "VCM" },
+  { prefixo: "3855", tipo: "VERMELHO", garagem: "VCM" },
+  // Azuis
+  { prefixo: "1200", tipo: "AZUL", garagem: "VCM" },
+  { prefixo: "1202", tipo: "AZUL", garagem: "VCM" },
+  // Micros
+  { prefixo: "2708", tipo: "MICRO", garagem: "VCM" },
+  // Articulados
+  { prefixo: "3070", tipo: "ARTICULADO", garagem: "VCM" },
+  { prefixo: "3083", tipo: "ARTICULADO", garagem: "VCM" },
+  // VCG Pendurados (vcg-seg-sext-2.jpeg)
+  { prefixo: "3003", tipo: "VERMELHO", garagem: "VCG" },
+];
+

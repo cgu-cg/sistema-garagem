@@ -27,25 +27,25 @@
   }
 
   .dark {
-    --background: 160 20% 6%;
-    --foreground: 150 15% 95%;
-    --card: 160 22% 9%;
-    --card-foreground: 150 15% 95%;
-    --popover: 160 22% 9%;
-    --popover-foreground: 150 15% 95%;
-    --primary: 152 50% 35%;
+    --background: 224 71% 4%;
+    --foreground: 210 20% 98%;
+    --card: 224 45% 7%;
+    --card-foreground: 210 20% 98%;
+    --popover: 224 45% 7%;
+    --popover-foreground: 210 20% 98%;
+    --primary: 158 64% 42%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 160 20% 14%;
-    --secondary-foreground: 150 15% 95%;
-    --muted: 160 18% 13%;
-    --muted-foreground: 150 10% 65%;
-    --accent: 160 20% 15%;
-    --accent-foreground: 150 15% 95%;
+    --secondary: 222 25% 13%;
+    --secondary-foreground: 210 20% 98%;
+    --muted: 223 25% 11%;
+    --muted-foreground: 217.9 10.6% 64.9%;
+    --accent: 222 25% 14%;
+    --accent-foreground: 210 20% 98%;
     --destructive: 0 62.8% 45%;
     --destructive-foreground: 0 0% 98%;
-    --border: 160 15% 18%;
-    --input: 160 15% 18%;
-    --ring: 152 50% 35%;
+    --border: 223 20% 15%;
+    --input: 223 20% 15%;
+    --ring: 158 64% 42%;
   }
 }
 
@@ -96,5 +96,95 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 @media (max-width: 640px) {
   button, input, select, textarea {
     touch-action: manipulation;
+  }
+}
+
+/* ========================================= */
+/* ESTILOS DE IMPRESSÃO A4 - FOLHA SOLTURA  */
+/* ========================================= */
+@media print {
+  /* Reset de page */
+  @page {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+
+  /* Esconder tudo que não é a folha */
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 9pt !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Esconder sidebar, navbar, KPIs, abas, barra de busca, etc. */
+  nav, aside, header, footer,
+  [data-sidebar], [data-print-hide],
+  .space-y-5 > div:first-child, /* Card de cabeçalho principal */
+  .space-y-5 > div:nth-child(2) /* Abas e filtros */ {
+    display: none !important;
+  }
+
+  /* Remover sombras, bordas arredondadas e backgrounds decorativos */
+  .shadow-xs, .shadow-sm, .shadow-md, .shadow-2xs {
+    box-shadow: none !important;
+  }
+
+  .rounded-2xl, .rounded-xl, .rounded-lg {
+    border-radius: 2px !important;
+  }
+
+  /* Tabelas ocupam 100% */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 8pt !important;
+  }
+
+  th, td {
+    border: 0.5pt solid #ccc !important;
+    padding: 2px 4px !important;
+  }
+
+  /* Inputs viram texto simples */
+  input[type="text"] {
+    border: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    font-weight: bold !important;
+    box-shadow: none !important;
+  }
+
+  /* Botões de ação (Liberar, desfazer) invisíveis */
+  button, .btn, [role="button"] {
+    display: none !important;
+  }
+
+  /* Mas manter badges e spans clicáveis */
+  span[class*="rounded-full"],
+  span[class*="rounded"] {
+    display: inline-flex !important;
+  }
+
+  /* Grid de 2 colunas lado a lado */
+  .xl\:grid-cols-2 {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+  }
+
+  /* Garantir que os cards de reserva/pendurado imprimam */
+  .bg-muted\/20, .bg-rose-500\/5 {
+    background: #f9f9f9 !important;
+  }
+
+  /* Forçar quebra de página entre seções grandes */
+  .space-y-4 > .grid {
+    page-break-inside: avoid;
+  }
+
+  /* Esconder a coluna Ações na impressão */
+  th:last-child, td:last-child {
+    display: none !important;
   }
 }

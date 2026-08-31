@@ -1,12 +1,24 @@
-import "dotenv/config";
-import express from "express";
-import cors from "cors";
+import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
+
+// Carregar variáveis de ambiente da raiz do monorepo ou da pasta local
+const rootEnv = path.resolve(__dirname, "../../../.env");
+const localEnv = path.resolve(process.cwd(), ".env");
+if (fs.existsSync(rootEnv)) {
+  dotenv.config({ path: rootEnv });
+}
+if (fs.existsSync(localEnv)) {
+  dotenv.config({ path: localEnv });
+}
+dotenv.config();
+
+import express from "express";
+import cors from "cors";
 import routes from "./routes";
 
 const app = express();
-const PORT = Number(process.env.PORT || process.env.API_PORT || 3000);
+const PORT = Number(process.env.PORT || process.env.API_PORT || 3001);
 
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));

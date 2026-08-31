@@ -34,7 +34,9 @@ import {
   terminaisReservaVCG, 
   terminaisReservaVCM,
   BloqueioCarro,
-  TerminalReserva
+  TerminalReserva,
+  CarroPendurado,
+  carrosPendurados
 } from "@/data/solturaData";
 import { drivers } from "@/data/drivers";
 import { cn } from "@/lib/utils";
@@ -166,6 +168,11 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   // Reservas ativas
   const reservasAtivas = useMemo<TerminalReserva[]>(() => {
     return garagem === "VCG" ? terminaisReservaVCG : terminaisReservaVCM;
+  }, [garagem]);
+
+  // Pendurados (carros em alto consumo/bloqueados na CI) filtrados por garagem
+  const penduradosAtivos = useMemo<CarroPendurado[]>(() => {
+    return carrosPendurados.filter(p => p.garagem === garagem);
   }, [garagem]);
 
   // Mapear itens mesclando programação base + despachos realizados
@@ -386,16 +393,16 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           
           {/* Título e Identificação Oficial */}
-          <div className="flex items-start gap-3">
-            <div className="w-12 h-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0 border border-primary/20">
+          <div className="flex items-start gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-[#164E3A] dark:text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20">
               <Bus className="w-6 h-6" />
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[11px] font-mono tracking-wider uppercase px-2 py-0.5 rounded bg-muted text-muted-foreground font-semibold">
+                <span className="text-[10px] font-mono tracking-wider uppercase px-2 py-0.5 rounded bg-muted text-muted-foreground font-bold">
                   CGU.REG.OP.0001
                 </span>
-                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
                   Consórcio Guaicurus
                 </span>
               </div>
@@ -408,85 +415,88 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
             </div>
           </div>
 
-          {/* Seletor de Garagem e Escala */}
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Seletor de Garagem, Escala, Data e Ação Imprimir */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
             
-            {/* Seletor de Garagem */}
-            <div className="flex items-center bg-muted/60 p-1 rounded-xl border">
-              <button
-                type="button"
-                onClick={() => setGaragem("VCG")}
-                className={cn(
-                  "px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5",
-                  garagem === "VCG"
-                    ? "bg-primary text-primary-foreground shadow-xs"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <span className="w-2 h-2 rounded-full bg-amber-400" />
-                Viação Campo Grande (VCG)
-              </button>
+            {/* Linha Superior: Garagem e Escala */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Seletor de Garagem */}
+              <div className="flex items-center bg-muted/60 p-1 rounded-full border border-border/80">
+                <button
+                  type="button"
+                  onClick={() => setGaragem("VCG")}
+                  className={cn(
+                    "px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-2",
+                    garagem === "VCG"
+                      ? "bg-[#164E3A] text-white shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <span className="w-2 h-2 rounded-full bg-[#22C55E]" />
+                  Viação Campo Grande (VCG)
+                </button>
 
-              <button
-                type="button"
-                onClick={() => setGaragem("VCM")}
-                className={cn(
-                  "px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5",
-                  garagem === "VCM"
-                    ? "bg-primary text-primary-foreground shadow-xs"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <span className="w-2 h-2 rounded-full bg-blue-400" />
-                Viação Cidade Morena (VCM)
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setGaragem("VCM")}
+                  className={cn(
+                    "px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-2",
+                    garagem === "VCM"
+                      ? "bg-[#164E3A] text-white shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <span className="w-2 h-2 rounded-full bg-[#3B82F6]" />
+                  Viação Cidade Morena (VCM)
+                </button>
+              </div>
+
+              {/* Seletor de Escala */}
+              <div className="flex items-center bg-muted/60 p-1 rounded-full border border-border/80">
+                <button
+                  type="button"
+                  onClick={() => setEscalaTipo("SEG_SEX")}
+                  className={cn(
+                    "px-3 py-1 rounded-full text-xs transition-all",
+                    escalaTipo === "SEG_SEX"
+                      ? "bg-card text-foreground shadow-2xs font-bold border"
+                      : "text-muted-foreground hover:text-foreground font-medium"
+                  )}
+                >
+                  Segunda a Sexta
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setEscalaTipo("SABADO")}
+                  className={cn(
+                    "px-3 py-1 rounded-full text-xs transition-all",
+                    escalaTipo === "SABADO"
+                      ? "bg-card text-foreground shadow-2xs font-bold border"
+                      : "text-muted-foreground hover:text-foreground font-medium"
+                  )}
+                >
+                  Sábado
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setEscalaTipo("DOM_FER")}
+                  className={cn(
+                    "px-3 py-1 rounded-full text-xs transition-all",
+                    escalaTipo === "DOM_FER"
+                      ? "bg-card text-foreground shadow-2xs font-bold border"
+                      : "text-muted-foreground hover:text-foreground font-medium"
+                  )}
+                >
+                  Dom / Feriado
+                </button>
+              </div>
             </div>
 
-            {/* Seletor de Escala */}
-            <div className="flex items-center bg-muted/60 p-1 rounded-xl border">
-              <button
-                type="button"
-                onClick={() => setEscalaTipo("SEG_SEX")}
-                className={cn(
-                  "px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all",
-                  escalaTipo === "SEG_SEX"
-                    ? "bg-background text-foreground shadow-2xs font-bold border"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                Segunda a Sexta
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setEscalaTipo("SABADO")}
-                className={cn(
-                  "px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all",
-                  escalaTipo === "SABADO"
-                    ? "bg-background text-foreground shadow-2xs font-bold border"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                Sábado
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setEscalaTipo("DOM_FER")}
-                className={cn(
-                  "px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all",
-                  escalaTipo === "DOM_FER"
-                    ? "bg-background text-foreground shadow-2xs font-bold border"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                Dom / Feriado
-              </button>
-            </div>
-
-            {/* Data e Ação Imprimir */}
+            {/* Linha Inferior/Ao lado: Data e Ação Imprimir */}
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1.5 bg-background border px-2.5 py-1.5 rounded-xl text-xs">
+              <div className="flex items-center gap-1.5 bg-card border px-3 py-1.5 rounded-xl text-xs shadow-2xs">
                 <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
                 <input
                   type="date"
@@ -500,11 +510,11 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                 variant="outline"
                 size="sm"
                 onClick={handlePrint}
-                className="h-9 px-3 text-xs gap-1.5 border-dashed"
+                className="h-8 px-3 text-xs gap-1.5 rounded-xl border font-semibold shadow-2xs"
                 title="Imprimir folha de soltura em formato papel A4"
               >
-                <Printer className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Imprimir A4</span>
+                <Printer className="w-3.5 h-3.5 text-muted-foreground" />
+                <span>Imprimir A4</span>
               </Button>
             </div>
 
@@ -514,47 +524,47 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         {/* ========================================================= */}
         {/* BARRA DE ESTATÍSTICAS E PROGRESSO OPERACIONAL */}
         {/* ========================================================= */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-2 border-t">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2 border-t">
           
           {/* Card Total */}
-          <div className="bg-muted/40 p-2.5 rounded-xl border">
+          <div className="bg-card p-3 rounded-2xl border shadow-2xs">
             <span className="text-[11px] text-muted-foreground font-medium block">Total Programado</span>
-            <div className="flex items-baseline gap-1 mt-0.5">
-              <span className="text-lg font-bold text-foreground">{stats.total}</span>
-              <span className="text-[10px] text-muted-foreground">viagens</span>
+            <div className="flex items-baseline gap-1 mt-1">
+              <span className="text-xl font-bold text-foreground">{stats.total}</span>
+              <span className="text-[11px] text-muted-foreground">viagens</span>
             </div>
           </div>
 
           {/* Card Liberados */}
-          <div className="bg-emerald-500/10 p-2.5 rounded-xl border border-emerald-500/20">
-            <span className="text-[11px] text-emerald-700 dark:text-emerald-300 font-medium flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3 text-emerald-500" /> Liberados
+          <div className="bg-emerald-500/10 p-3 rounded-2xl border border-emerald-500/30">
+            <span className="text-[11px] text-emerald-800 dark:text-emerald-300 font-semibold flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> Liberados
             </span>
-            <div className="flex items-baseline gap-1 mt-0.5">
-              <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{stats.liberados}</span>
-              <span className="text-[10px] text-emerald-700/70 dark:text-emerald-300/70">carros na rua</span>
+            <div className="flex items-baseline gap-1 mt-1">
+              <span className="text-xl font-bold text-emerald-700 dark:text-emerald-300">{stats.liberados}</span>
+              <span className="text-[11px] text-emerald-800/80 dark:text-emerald-300/80">carros na rua</span>
             </div>
           </div>
 
           {/* Card Pendentes */}
-          <div className="bg-amber-500/10 p-2.5 rounded-xl border border-amber-500/20">
-            <span className="text-[11px] text-amber-700 dark:text-amber-300 font-medium flex items-center gap-1">
-              <Clock className="w-3 h-3 text-amber-500" /> Pendentes
+          <div className="bg-amber-500/10 p-3 rounded-2xl border border-amber-500/30">
+            <span className="text-[11px] text-amber-800 dark:text-amber-300 font-semibold flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" /> Pendentes
             </span>
-            <div className="flex items-baseline gap-1 mt-0.5">
-              <span className="text-lg font-bold text-amber-600 dark:text-amber-400">{stats.pendentes}</span>
-              <span className="text-[10px] text-amber-700/70 dark:text-amber-300/70">na garagem</span>
+            <div className="flex items-baseline gap-1 mt-1">
+              <span className="text-xl font-bold text-amber-700 dark:text-amber-300">{stats.pendentes}</span>
+              <span className="text-[11px] text-amber-800/80 dark:text-amber-300/80">na garagem</span>
             </div>
           </div>
 
           {/* Card Substituídos (Trocados) */}
-          <div className="bg-blue-500/10 p-2.5 rounded-xl border border-blue-500/20">
-            <span className="text-[11px] text-blue-700 dark:text-blue-300 font-medium flex items-center gap-1">
-              <RefreshCw className="w-3 h-3 text-blue-500" /> Substituídos
+          <div className="bg-blue-500/10 p-3 rounded-2xl border border-blue-500/30">
+            <span className="text-[11px] text-blue-800 dark:text-blue-300 font-semibold flex items-center gap-1.5">
+              <RefreshCw className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" /> Substituídos
             </span>
-            <div className="flex items-baseline gap-1 mt-0.5">
-              <span className="text-lg font-bold text-blue-600 dark:text-blue-400">{stats.substituidos}</span>
-              <span className="text-[10px] text-blue-700/70 dark:text-blue-300/70">trocas</span>
+            <div className="flex items-baseline gap-1 mt-1">
+              <span className="text-xl font-bold text-blue-700 dark:text-blue-300">{stats.substituidos}</span>
+              <span className="text-[11px] text-blue-800/80 dark:text-blue-300/80">trocas</span>
             </div>
           </div>
 
@@ -564,27 +574,27 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
               setViewMode("CI_MANUTENCAO");
               navigate("/soltura/ci-manutencao");
             }}
-            className="bg-rose-500/10 p-2.5 rounded-xl border border-rose-500/20 cursor-pointer hover:bg-rose-500/15 transition-all"
+            className="bg-rose-500/10 p-3 rounded-2xl border border-rose-500/30 cursor-pointer hover:bg-rose-500/15 transition-all"
             title="Clique para abrir a tela de CI Manutenção"
           >
-            <span className="text-[11px] text-rose-700 dark:text-rose-300 font-medium flex items-center gap-1">
-              <Wrench className="w-3 h-3 text-rose-500" /> CI Manutenção
+            <span className="text-[11px] text-rose-800 dark:text-rose-300 font-semibold flex items-center gap-1.5">
+              <Wrench className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" /> CI Manutenção
             </span>
-            <div className="flex items-baseline gap-1 mt-0.5">
-              <span className="text-lg font-bold text-rose-600 dark:text-rose-400">{stats.totalBloqueadosCI}</span>
-              <span className="text-[10px] text-rose-700/70 dark:text-rose-300/70">bloqueados</span>
+            <div className="flex items-baseline gap-1 mt-1">
+              <span className="text-xl font-bold text-rose-700 dark:text-rose-300">{stats.totalBloqueadosCI}</span>
+              <span className="text-[11px] text-rose-800/80 dark:text-rose-300/80">bloqueados</span>
             </div>
           </div>
 
           {/* Card Taxa de Soltura */}
-          <div className="bg-primary/5 p-2.5 rounded-xl border border-primary/20 flex flex-col justify-between">
+          <div className="bg-card p-3 rounded-2xl border shadow-2xs flex flex-col justify-between">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] text-primary font-bold">Soltura</span>
-              <span className="text-xs font-bold text-primary">{stats.percentual}%</span>
+              <span className="text-[11px] text-foreground font-bold">Soltura</span>
+              <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{stats.percentual}%</span>
             </div>
-            <div className="w-full bg-muted rounded-full h-1.5 mt-1.5 overflow-hidden">
+            <div className="w-full bg-muted rounded-full h-2 mt-2 overflow-hidden">
               <div 
-                className="bg-primary h-full rounded-full transition-all duration-500"
+                className="bg-[#164E3A] dark:bg-emerald-500 h-full rounded-full transition-all duration-500"
                 style={{ width: `${stats.percentual}%` }}
               />
             </div>
@@ -721,74 +731,120 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
       {/* ========================================================= */}
       {/* VISUALIZAÇÃO 1: FOLHA DE SOLTURA / PRANCHETA DIGITAL */}
-      {/* Idêntico às fotos dos formulários de papel de VCG e VCM */}
+      {/* Idêntico às fotos dos formulários de papel e layout-soltura.PNG */}
       {/* ========================================================= */}
       {viewMode === "FOLHA" && (
         <div className="bg-card border rounded-2xl p-4 sm:p-5 shadow-xs space-y-4">
           
-          {/* Header da Folha de Papel */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-border/80 gap-2">
+          {/* Header da Folha de Papel — Exibição de Metadados apenas em Impressão */}
+          <div className="hidden print:grid grid-cols-5 gap-2 bg-muted/40 p-2.5 rounded-lg border text-[10px] font-mono text-muted-foreground mb-3">
             <div>
-              <div className="text-[11px] font-mono text-muted-foreground uppercase">
-                Consórcio Guaicurus • Garagem {garagem === "VCG" ? "Viação Campo Grande" : "Viação Cidade Morena"}
+              <span className="uppercase font-semibold block">Data da Criação</span>
+              <span className="text-foreground font-bold text-xs">01/07/2025</span>
+            </div>
+            <div>
+              <span className="uppercase font-semibold block">Revisão nº</span>
+              <span className="text-foreground font-bold text-xs">1</span>
+            </div>
+            <div>
+              <span className="uppercase font-semibold block">Data da Revisão</span>
+              <span className="text-foreground font-bold text-xs">01/07/2025</span>
+            </div>
+            <div>
+              <span className="uppercase font-semibold block">Data da Informação</span>
+              <span className="text-foreground font-bold text-xs">{dataOperacao.split("-").reverse().join("/")}</span>
+            </div>
+            <div>
+              <span className="uppercase font-semibold block">Número</span>
+              <span className="text-foreground font-bold text-xs">{garagem === "VCG" ? "CGU.REG.OP.0001" : "VCM.REG.TR.0017"}</span>
+            </div>
+          </div>
+
+          {/* Cabeçalho da Folha em Tela (fiel a layout-soltura.PNG) */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2">
+            <div>
+              <div className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider font-semibold">
+                CONSÓRCIO GUAICURUS • GARAGEM {garagem === "VCG" ? "VIAÇÃO CAMPO GRANDE" : "VIAÇÃO CIDADE MORENA"}
               </div>
-              <h2 className="text-base font-bold text-foreground">
-                Horário de Saída de Veículos • {escalaTipo === "SEG_SEX" ? "Segunda a Sexta" : escalaTipo === "SABADO" ? "Sábado" : "Domingo e Feriado"}
+              <h2 className="text-base sm:text-lg font-bold text-foreground mt-0.5">
+                Horário de Saída de Veículos • {escalaTipo === "SEG_SEX" ? "Segunda a Sexta" : escalaTipo === "SABADO" ? "Sábado" : "Dom / Feriado"}
               </h2>
             </div>
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            <div className="flex items-center gap-3 text-xs text-muted-foreground font-medium flex-wrap">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#22C55E]" />
                 Carro Liberado
               </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-blue-500" />
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#3B82F6]" />
                 Carro Trocado / Substituto
               </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-amber-500" />
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#F59E0B]" />
                 Saída Pendente
               </span>
             </div>
           </div>
 
-          {/* Grade de 2 Colunas Lado a Lado (como no papel físico) */}
+          {/* Grade de 2 Colunas Lado a Lado (como no papel físico e layout-soltura.PNG) */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             
             {/* Coluna 1 */}
-            <div className="border rounded-xl overflow-hidden shadow-2xs">
-              <div className="bg-muted/70 px-3 py-2 text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between border-b">
-                <span>Coluna 01 (Ordens 01 a {colunaEsquerda.length})</span>
-                <span>{colunaEsquerda.length} horários</span>
+            <div className="border rounded-xl overflow-hidden shadow-2xs bg-card">
+              <div className="bg-muted/60 px-3.5 py-2 text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between border-b">
+                <span className="text-foreground">
+                  COLUNA 01 (ORDENS 01 A {String(colunaEsquerda.length).padStart(2, "0")})
+                </span>
+                <span className="font-semibold">{colunaEsquerda.length} HORÁRIOS</span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs text-left border-collapse">
                   <thead>
                     <tr className="bg-muted/40 text-muted-foreground border-b text-[11px] font-semibold">
-                      <th className="py-2 px-2.5 w-12 text-center">N° / Ord</th>
-                      <th className="py-2 px-2.5 font-bold text-foreground">Linha</th>
-                      <th className="py-2 px-2 text-center">Tab</th>
-                      <th className="py-2 px-2.5">Carro Prog.</th>
-                      <th className="py-2 px-2.5 bg-primary/5 text-primary font-bold">Carro Realiz. (P)</th>
-                      <th className="py-2 px-2.5">MOTO</th>
-                      <th className="py-2 px-2 text-center font-bold">Saída Gar.</th>
-                      <th className="py-2 px-2 text-center text-muted-foreground">Início Linha</th>
-                      <th className="py-2 px-2.5 text-center">Ações</th>
+                      <th className="py-2.5 px-2.5 w-12 text-center">Nº / Ord</th>
+                      <th className="py-2.5 px-2.5 font-bold text-foreground">Linha</th>
+                      <th className="py-2.5 px-2 text-center">Tab</th>
+                      <th className="py-2.5 px-2.5 text-center">Carro Prog.</th>
+                      <th className="py-2.5 px-2.5 bg-primary/5 text-primary font-bold text-center">Carro Realiz. (P)</th>
+                      <th className="py-2.5 px-2.5 text-center">MOTO</th>
+                      <th className="py-2.5 px-2 text-center font-bold text-foreground">Saída Gar.</th>
+                      <th className="py-2.5 px-2 text-center text-muted-foreground">Início Linha</th>
+                      <th className="py-2.5 px-2.5 text-center">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60 font-mono">
-                    {colunaEsquerda.map((item, idx) => (
-                      <FolhaTableRow
-                        key={item.id}
-                        item={item}
-                        index={item.ordem || idx + 1}
-                        checkBloqueioCI={checkBloqueioCI}
-                        onOpenDispatch={handleOpenDispatch}
-                        onQuickRelease={handleQuickRelease}
-                        onUndoDispatch={handleUndoDispatch}
-                        onInlineCommit={handleInlineCommit}
-                      />
-                    ))}
+                    {colunaEsquerda.map((item, idx) => {
+                      const isFirstVCM = item.tipo === "VCM" && (idx === 0 || colunaEsquerda[idx - 1]?.tipo !== "VCM");
+                      const isFirstFrete = item.tipo === "FRETAMENTO" && (idx === 0 || colunaEsquerda[idx - 1]?.tipo !== "FRETAMENTO");
+                      return (
+                        <>
+                          {isFirstVCM && (
+                            <tr key={`sep-vcm-${item.id}`}>
+                              <td colSpan={9} className="py-1.5 px-3 bg-blue-500/10 text-[10px] font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300 border-y border-blue-500/30">
+                                Motoristas VCM que saem da VCG
+                              </td>
+                            </tr>
+                          )}
+                          {isFirstFrete && (
+                            <tr key={`sep-frete-${item.id}`}>
+                              <td colSpan={9} className="py-1.5 px-3 bg-amber-500/10 text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300 border-y border-amber-500/30">
+                                Especial Fretamento
+                              </td>
+                            </tr>
+                          )}
+                          <FolhaTableRow
+                            key={item.id}
+                            item={item}
+                            index={item.ordem || idx + 1}
+                            checkBloqueioCI={checkBloqueioCI}
+                            onOpenDispatch={handleOpenDispatch}
+                            onQuickRelease={handleQuickRelease}
+                            onUndoDispatch={handleUndoDispatch}
+                            onInlineCommit={handleInlineCommit}
+                          />
+                        </>
+                      );
+                    })}
                     {colunaEsquerda.length === 0 && (
                       <tr>
                         <td colSpan={9} className="py-8 text-center text-muted-foreground font-sans">
@@ -802,39 +858,61 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
             </div>
 
             {/* Coluna 2 */}
-            <div className="border rounded-xl overflow-hidden shadow-2xs">
-              <div className="bg-muted/70 px-3 py-2 text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between border-b">
-                <span>Coluna 02 (Ordens {colunaEsquerda.length + 1} a {filteredSchedules.length})</span>
-                <span>{colunaDireita.length} horários</span>
+            <div className="border rounded-xl overflow-hidden shadow-2xs bg-card">
+              <div className="bg-muted/60 px-3.5 py-2 text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between border-b">
+                <span className="text-foreground">
+                  COLUNA 02 (ORDENS {String(colunaEsquerda.length + 1).padStart(2, "0")} A {String(filteredSchedules.length).padStart(2, "0")})
+                </span>
+                <span className="font-semibold">{colunaDireita.length} HORÁRIOS</span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs text-left border-collapse">
                   <thead>
                     <tr className="bg-muted/40 text-muted-foreground border-b text-[11px] font-semibold">
-                      <th className="py-2 px-2.5 w-12 text-center">N° / Ord</th>
-                      <th className="py-2 px-2.5 font-bold text-foreground">Linha</th>
-                      <th className="py-2 px-2 text-center">Tab</th>
-                      <th className="py-2 px-2.5">Carro Prog.</th>
-                      <th className="py-2 px-2.5 bg-primary/5 text-primary font-bold">Carro Realiz. (P)</th>
-                      <th className="py-2 px-2.5">MOTO</th>
-                      <th className="py-2 px-2 text-center font-bold">Saída Gar.</th>
-                      <th className="py-2 px-2 text-center text-muted-foreground">Início Linha</th>
-                      <th className="py-2 px-2.5 text-center">Ações</th>
+                      <th className="py-2.5 px-2.5 w-12 text-center">Nº / Ord</th>
+                      <th className="py-2.5 px-2.5 font-bold text-foreground">Linha</th>
+                      <th className="py-2.5 px-2 text-center">Tab</th>
+                      <th className="py-2.5 px-2.5 text-center">Carro Prog.</th>
+                      <th className="py-2.5 px-2.5 bg-primary/5 text-primary font-bold text-center">Carro Realiz. (P)</th>
+                      <th className="py-2.5 px-2.5 text-center">MOTO</th>
+                      <th className="py-2.5 px-2 text-center font-bold text-foreground">Saída Gar.</th>
+                      <th className="py-2.5 px-2 text-center text-muted-foreground">Início Linha</th>
+                      <th className="py-2.5 px-2.5 text-center">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60 font-mono">
-                    {colunaDireita.map((item, idx) => (
-                      <FolhaTableRow
-                        key={item.id}
-                        item={item}
-                        index={item.ordem || colunaEsquerda.length + idx + 1}
-                        checkBloqueioCI={checkBloqueioCI}
-                        onOpenDispatch={handleOpenDispatch}
-                        onQuickRelease={handleQuickRelease}
-                        onUndoDispatch={handleUndoDispatch}
-                        onInlineCommit={handleInlineCommit}
-                      />
-                    ))}
+                    {colunaDireita.map((item, idx) => {
+                      const isFirstVCM = item.tipo === "VCM" && (idx === 0 || colunaDireita[idx - 1]?.tipo !== "VCM");
+                      const isFirstFrete = item.tipo === "FRETAMENTO" && (idx === 0 || colunaDireita[idx - 1]?.tipo !== "FRETAMENTO");
+                      return (
+                        <>
+                          {isFirstVCM && (
+                            <tr key={`sep-vcm-${item.id}`}>
+                              <td colSpan={9} className="py-1.5 px-3 bg-blue-500/10 text-[10px] font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300 border-y border-blue-500/30">
+                                Motoristas VCM que saem da VCG
+                              </td>
+                            </tr>
+                          )}
+                          {isFirstFrete && (
+                            <tr key={`sep-frete-${item.id}`}>
+                              <td colSpan={9} className="py-1.5 px-3 bg-amber-500/10 text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300 border-y border-amber-500/30">
+                                Especial Fretamento
+                              </td>
+                            </tr>
+                          )}
+                          <FolhaTableRow
+                            key={item.id}
+                            item={item}
+                            index={item.ordem || colunaEsquerda.length + idx + 1}
+                            checkBloqueioCI={checkBloqueioCI}
+                            onOpenDispatch={handleOpenDispatch}
+                            onQuickRelease={handleQuickRelease}
+                            onUndoDispatch={handleUndoDispatch}
+                            onInlineCommit={handleInlineCommit}
+                          />
+                        </>
+                      );
+                    })}
                     {colunaDireita.length === 0 && (
                       <tr>
                         <td colSpan={9} className="py-8 text-center text-muted-foreground font-sans">
@@ -849,15 +927,111 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
           </div>
 
-          {/* Rodapé da Folha com Informações de Assinatura */}
-          <div className="pt-4 border-t flex flex-col sm:flex-row items-center justify-between text-xs text-muted-foreground gap-3">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-foreground">Fiscal de Pista Responsável:</span>
-              <span>Operação Garagem {garagem}</span>
+          {/* ========================================================= */}
+          {/* SEÇÃO: RESERVAS DE TERMINAIS (como no rodapé do papel) */}
+          {/* ========================================================= */}
+          {reservasAtivas.length > 0 && (
+            <div className="border rounded-xl p-3 bg-muted/20 space-y-2">
+              <h3 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-primary" />
+                Reserva Terminal
+              </h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {reservasAtivas.map((res, idx) => (
+                  <div key={idx} className="p-2.5 rounded-lg border bg-card text-xs space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-foreground text-[11px]">{res.terminal}</span>
+                      <span className={cn(
+                        "text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase",
+                        res.cor === "VERMELHO" ? "bg-rose-500/15 text-rose-600" :
+                        res.cor === "AZUL" ? "bg-blue-500/15 text-blue-600" :
+                        "bg-amber-500/15 text-amber-600"
+                      )}>
+                        {res.cor}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between font-mono text-[11px]">
+                      <span className="text-muted-foreground">Carro 1:</span>
+                      <span className="font-bold text-primary">{res.carro1 || "—"}</span>
+                    </div>
+                    {res.carro2 && (
+                      <div className="flex items-center justify-between font-mono text-[11px]">
+                        <span className="text-muted-foreground">Carro 2:</span>
+                        <span className="font-bold text-primary">{res.carro2}</span>
+                      </div>
+                    )}
+                    {res.horario && (
+                      <div className="text-[10px] text-muted-foreground font-mono">
+                        Horário: {res.horario}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="flex items-center gap-4 font-mono text-[11px]">
-              <span>Emissão: {dataOperacao}</span>
-              <span>Status Sistema: ONLINE (Sincronizado)</span>
+          )}
+
+          {/* ========================================================= */}
+          {/* SEÇÃO: PENDURADOS (carros alto consumo / bloqueados CI) */}
+          {/* ========================================================= */}
+          {penduradosAtivos.length > 0 && (
+            <div className="border rounded-xl p-3 bg-rose-500/5 space-y-2">
+              <h3 className="text-[11px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
+                Pendurados — Carros Alto Consumo / Bloqueados
+              </h3>
+              <div className="flex flex-wrap gap-3">
+                {(["VERMELHO", "AZUL", "MICRO", "ARTICULADO", "CINZA"] as const).map(tipo => {
+                  const lista = penduradosAtivos.filter(p => p.tipo === tipo);
+                  if (lista.length === 0) return null;
+                  return (
+                    <div key={tipo} className="space-y-1">
+                      <span className={cn(
+                        "text-[10px] font-bold uppercase px-2 py-0.5 rounded-full inline-block",
+                        tipo === "VERMELHO" ? "bg-rose-500/15 text-rose-600" :
+                        tipo === "AZUL" ? "bg-blue-500/15 text-blue-600" :
+                        tipo === "MICRO" ? "bg-purple-500/15 text-purple-600" :
+                        tipo === "ARTICULADO" ? "bg-amber-500/15 text-amber-600" :
+                        "bg-gray-500/15 text-gray-600"
+                      )}>
+                        {tipo}
+                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {lista.map(p => (
+                          <span key={p.prefixo} className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-muted border text-foreground font-semibold">
+                            {p.prefixo}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Rodapé da Folha — Responsáveis e Paginação */}
+          <div className="pt-4 border-t space-y-3">
+            <div className="grid grid-cols-2 gap-4 text-xs text-muted-foreground">
+              <div className="space-y-1">
+                <span className="font-semibold text-foreground block">Responsável pela Aprovação:</span>
+                <div className="border-b border-dashed pb-3 text-[11px]">
+                  {garagem === "VCG" ? "Paulo Vitor" : "Claudio Benites"}
+                </div>
+                <span className="text-[10px]">Data: ___/___/______</span>
+              </div>
+              <div className="space-y-1">
+                <span className="font-semibold text-foreground block">Responsável pela Elaboração:</span>
+                <div className="border-b border-dashed pb-3 text-[11px]">
+                  {garagem === "VCG" ? "André Luiz" : "Reinaldo Iastremski"}
+                </div>
+                <span className="text-[10px]">Data: ___/___/______</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono">
+              <span>**** CARROS DE PLANO ESCALADOS NAS LINHAS COM OBSERVAÇÃO, CONFERIR COM A CI ****</span>
+              <span className="font-bold text-foreground">Página 01</span>
             </div>
           </div>
 
@@ -1251,7 +1425,18 @@ function FolhaTableRow({
 
       {/* Linha */}
       <td className="py-2 px-2.5 font-bold text-foreground text-xs whitespace-nowrap">
-        {item.linha}
+        <div className="flex items-center gap-1">
+          {item.linha}
+          {item.tipo === "VCM" && (
+            <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400 uppercase">VCM</span>
+          )}
+          {item.tipo === "FRETAMENTO" && (
+            <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 uppercase">Frete</span>
+          )}
+          {item.tipo === "EXTRA" && (
+            <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-purple-500/15 text-purple-600 dark:text-purple-400 uppercase">Extra</span>
+          )}
+        </div>
       </td>
 
       {/* Tabela */}
@@ -1270,15 +1455,15 @@ function FolhaTableRow({
       </td>
 
       {/* Carro Realizado (Input rápido / display) */}
-      <td className="py-1 px-2.5 bg-primary/5">
-        <div className="flex items-center gap-1">
+      <td className="py-1.5 px-2 bg-muted/20 text-center">
+        <div className="flex items-center justify-center gap-1">
           <input
             type="text"
             placeholder={item.carroProgramado || "Carro"}
             value={carroValue}
             onChange={(e) => setCarroValue(e.target.value)}
             onBlur={() => {
-              if (carroValue && carroValue !== item.carroRealizado) {
+              if (carroValue && carroValue !== (item.carroRealizado || item.carroProgramado)) {
                 onInlineCommit(item, "carro", carroValue);
               }
             }}
@@ -1288,28 +1473,30 @@ function FolhaTableRow({
               }
             }}
             className={cn(
-              "w-16 bg-background border rounded px-1.5 py-0.5 text-xs font-bold font-mono focus:outline-hidden focus:ring-1 focus:ring-primary",
-              isSub && "text-blue-600 dark:text-blue-400 border-blue-500/40 bg-blue-500/5",
+              "w-16 h-7 text-center rounded-md border text-xs font-bold font-mono focus:outline-hidden focus:ring-1 focus:ring-[#164E3A] transition-all",
+              isSub 
+                ? "text-blue-600 dark:text-blue-400 border-blue-500/50 bg-blue-500/10"
+                : "bg-background border-border/80 text-foreground",
               bloqueio && "border-rose-500 text-rose-600 bg-rose-500/10"
             )}
           />
           {bloqueio && (
-            <span title={`CI: ${bloqueio.motivo}`} className="cursor-help text-rose-500">
-              <AlertTriangle className="w-3 h-3" />
+            <span title={`Carro no CI: ${bloqueio.motivo}`} className="cursor-help text-rose-500 shrink-0">
+              <AlertTriangle className="w-3.5 h-3.5" />
             </span>
           )}
         </div>
       </td>
 
       {/* Motorista (MOTO) */}
-      <td className="py-1 px-2.5">
+      <td className="py-1.5 px-2 text-center">
         <input
           type="text"
           placeholder="MOTO"
           value={motoValue}
           onChange={(e) => setMotoValue(e.target.value)}
           onBlur={() => {
-            if (motoValue && motoValue !== item.motoristaCodigo) {
+            if (motoValue !== item.motoristaCodigo) {
               onInlineCommit(item, "motorista", motoValue);
             }
           }}
@@ -1318,8 +1505,8 @@ function FolhaTableRow({
               onInlineCommit(item, "motorista", motoValue);
             }
           }}
-          className="w-16 bg-background border rounded px-1.5 py-0.5 text-xs font-semibold font-mono focus:outline-hidden focus:ring-1 focus:ring-primary"
-          title={item.motoristaNome || "Código do motorista"}
+          className="w-16 h-7 text-center rounded-md border border-border/80 bg-background text-xs font-mono font-semibold placeholder:text-muted-foreground/50 focus:outline-hidden focus:ring-1 focus:ring-[#164E3A] transition-all"
+          title={item.motoristaNome || "Código do motorista escalado"}
         />
       </td>
 
@@ -1328,35 +1515,34 @@ function FolhaTableRow({
         {item.saidaGaragem}
       </td>
 
-      {/* Início Linha / Bairro */}
-      <td className="py-2 px-2 text-center text-muted-foreground text-[11px]">
-        {item.inicioBairro || "—"}
+      {/* Início Linha */}
+      <td className="py-2 px-2 text-center text-muted-foreground text-xs">
+        {item.inicioLinha || item.inicioBairro || "—"}
       </td>
 
       {/* Ações */}
       <td className="py-2 px-2.5 text-center whitespace-nowrap">
         {isDone ? (
-          <div className="flex items-center justify-center gap-1">
-            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-              <Check className="w-3 h-3" /> OK
+          <div className="flex items-center justify-center gap-1.5">
+            <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+              <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" /> Liberado
             </span>
             <button
               type="button"
               onClick={() => onUndoDispatch(item.id)}
-              className="p-1 rounded text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 transition-colors"
+              className="p-1 rounded-full text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 transition-colors"
               title="Desfazer liberação"
             >
-              <Undo2 className="w-3 h-3" />
+              <Undo2 className="w-3.5 h-3.5" />
             </button>
           </div>
         ) : (
-          <div className="flex items-center justify-center gap-1">
+          <div className="flex items-center justify-center gap-1.5">
             <Button
               size="sm"
-              variant="default"
               onClick={() => onQuickRelease(item)}
-              className="h-6 px-2 text-[10px] font-bold"
-              title="Liberar saída rápida"
+              className="h-6 px-3 text-[11px] font-bold rounded-full bg-[#164E3A] hover:bg-[#113C2D] text-white shadow-2xs transition-colors"
+              title="Liberar saída do veículo"
             >
               Liberar
             </Button>
@@ -1364,10 +1550,10 @@ function FolhaTableRow({
               size="sm"
               variant="ghost"
               onClick={() => onOpenDispatch(item)}
-              className="h-6 px-1.5 text-muted-foreground hover:text-foreground"
-              title="Abrir detalhes"
+              className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground rounded-full hover:bg-muted"
+              title="Abrir ajustes e detalhes da soltura"
             >
-              <SlidersHorizontal className="w-3 h-3" />
+              <SlidersHorizontal className="w-3.5 h-3.5" />
             </Button>
           </div>
         )}

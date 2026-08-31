@@ -12,8 +12,8 @@ const config = {
   port: parseInt(url.port) || 1433,
   database: url.pathname.replace("/", ""),
   options: {
-    encrypt: url.searchParams.get("encrypt") === "true",
-    trustServerCertificate: url.searchParams.get("trustServerCertificate") === "true",
+    encrypt: false,
+    trustServerCertificate: true,
     enableArithAbort: true
   },
   connectionTimeout: 5000,
