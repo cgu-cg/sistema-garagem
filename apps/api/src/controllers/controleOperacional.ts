@@ -121,11 +121,6 @@ export async function list(req: AuthRequest, res: Response) {
   const { date, garagem } = req.query;
 
   try {
-    const requestingUser = await prisma.user.findUnique({
-      where: { id: req.userId },
-      select: { role: true, garagem: true },
-    });
-
     const where: any = {};
 
     if (date) {
@@ -134,9 +129,7 @@ export async function list(req: AuthRequest, res: Response) {
       where.dataInsercao = { gte: start, lte: end };
     }
 
-    if (requestingUser && requestingUser.role !== "ADMIN" && requestingUser.garagem) {
-      where.garagem = { contains: requestingUser.garagem };
-    } else if (requestingUser?.role === "ADMIN" && garagem) {
+    if (garagem) {
       where.garagem = garagem as string;
     }
 
