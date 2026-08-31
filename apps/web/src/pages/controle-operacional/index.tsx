@@ -39,6 +39,8 @@ import {
   getPending,
   removePending,
   syncPending,
+  saveCache,
+  getCache,
   type PendingRecord,
 } from "@/lib/offline-db";
 
@@ -111,50 +113,73 @@ export function ControleOperacionalPage() {
   const loadRecords = async (overrideGaragem?: string) => {
     setListLoading(true);
     const targetGaragem = overrideGaragem !== undefined ? overrideGaragem : filterGaragem;
+    const cacheKey = targetGaragem
+      ? `controle-operacional-records-${targetGaragem}`
+      : "controle-operacional-records-all";
+
+    const pending = await getPending();
+    const offlineRecords: OperationalControlRecord[] = pending
+      .filter((p) => p.type === "controle-operacional")
+      .map((p) => ({
+        id: -1,
+        carro: p.data.carro,
+        linha: p.data.linha,
+        garagem: p.data.garagem,
+        foto1: p.data.foto1,
+        foto2: p.data.foto2 || null,
+        foto3: p.data.foto3 || null,
+        dataInsercao: p.createdAt,
+        userId: 0,
+        user: { id: 0, name: user?.name || "Você", email: user?.email || "" },
+        pendingId: p.id,
+      } as OperationalControlRecord));
+
     try {
+      if (!navigator.onLine) {
+        throw new Error("OFFLINE");
+      }
+
       const data = await api.listControleOperacional({
         ...(targetGaragem ? { garagem: targetGaragem } : {}),
       });
       const serverRecords = data as OperationalControlRecord[];
 
-      const pending = await getPending();
-      const offlineRecords: OperationalControlRecord[] = pending
-        .filter((p) => p.type === "controle-operacional")
-        .map((p) => ({
-          id: -1,
-          carro: p.data.carro,
-          linha: p.data.linha,
-          garagem: p.data.garagem,
-          foto1: p.data.foto1,
-          foto2: p.data.foto2 || null,
-          foto3: p.data.foto3 || null,
-          dataInsercao: p.createdAt,
-          userId: 0,
-          user: { id: 0, name: user?.name || "Você", email: user?.email || "" },
-          pendingId: p.id,
-        } as OperationalControlRecord));
+      try {
+        await saveCache(cacheKey, serverRecords);
+        if (!targetGaragem) {
+          await saveCache("controle-operacional-records-all", serverRecords);
+        }
+      } catch (cacheErr) {
+        console.error("Erro ao salvar cache local:", cacheErr);
+      }
 
       setRecords([...offlineRecords, ...serverRecords]);
     } catch (err: any) {
-      const pending = await getPending();
-      const offlineRecords: OperationalControlRecord[] = pending
-        .filter((p) => p.type === "controle-operacional")
-        .map((p) => ({
-          id: -1,
-          carro: p.data.carro,
-          linha: p.data.linha,
-          garagem: p.data.garagem,
-          foto1: p.data.foto1,
-          foto2: p.data.foto2 || null,
-          foto3: p.data.foto3 || null,
-          dataInsercao: p.createdAt,
-          userId: 0,
-          user: { id: 0, name: user?.name || "Você", email: user?.email || "" },
-          pendingId: p.id,
-        } as OperationalControlRecord));
-      setRecords(offlineRecords);
+      let cachedServerRecords: OperationalControlRecord[] = [];
+      try {
+        cachedServerRecords = (await getCache(cacheKey)) || [];
+        if ((!cachedServerRecords || cachedServerRecords.length === 0) && targetGaragem) {
+          const allCached: OperationalControlRecord[] =
+            (await getCache("controle-operacional-records-all")) || [];
+          if (allCached && allCached.length > 0) {
+            cachedServerRecords = allCached.filter(
+              (r) => r.garagem && r.garagem.includes(targetGaragem)
+            );
+          }
+        }
+      } catch (cacheErr) {
+        console.error("Erro ao ler cache local:", cacheErr);
+      }
 
-      if (navigator.onLine) {
+      setRecords((prevRecords) => {
+        let serverRecordsToKeep = cachedServerRecords;
+        if (!serverRecordsToKeep || serverRecordsToKeep.length === 0) {
+          serverRecordsToKeep = prevRecords.filter((r) => !r.pendingId && r.id !== -1);
+        }
+        return [...offlineRecords, ...serverRecordsToKeep];
+      });
+
+      if (navigator.onLine && err?.message !== "OFFLINE") {
         toast.error("Erro ao carregar registros: " + err.message);
       }
     } finally {
@@ -548,11 +573,11 @@ export function ControleOperacionalPage() {
     );
   };
 
-  // Mapeamento de status para cada carro do inventário
+  // Mapeamento de status para cada carro do inventário (prioriza os rascunhos offline pendentes mais recentes)
   const recordMap = new Map<string, OperationalControlRecord>();
   for (const record of records) {
     const carKey = String(record.carro).trim();
-    if (!recordMap.has(carKey) || (!record.pendingId && recordMap.get(carKey)?.pendingId)) {
+    if (!recordMap.has(carKey)) {
       recordMap.set(carKey, record);
     }
   }
