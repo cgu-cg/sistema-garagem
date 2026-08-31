@@ -54,7 +54,7 @@ export function LoginPage() {
         </div>
 
         {/* Login Card */}
-        <Card className="shadow-xs border-slate-200/80 dark:border-emerald-950/60 bg-white dark:bg-[#121A15] rounded-3xl overflow-hidden">
+        <Card className="shadow-xs border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0E1420] rounded-3xl overflow-hidden">
           <CardHeader className="space-y-1 pb-4 pt-6 px-6 sm:px-8">
             <CardTitle className="text-lg font-bold text-slate-900 dark:text-white">Acessar Conta</CardTitle>
             <CardDescription className="text-xs text-slate-500 dark:text-slate-400">
@@ -72,7 +72,7 @@ export function LoginPage() {
                   placeholder="seu.email@empresa.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="h-10 text-sm rounded-xl border-slate-200 dark:border-emerald-900/50"
+                  className="h-10 text-sm rounded-xl border-slate-200 dark:border-slate-800 bg-background"
                   required
                 />
               </div>
@@ -85,13 +85,13 @@ export function LoginPage() {
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="h-10 text-sm rounded-xl border-slate-200 dark:border-emerald-900/50"
+                  className="h-10 text-sm rounded-xl border-slate-200 dark:border-slate-800 bg-background"
                   required
                 />
               </div>
 
               <Button 
-                className="w-full h-10 text-sm font-bold bg-[#154D34] hover:bg-[#0E3824] text-white shadow-xs rounded-xl transition-all" 
+                className="w-full h-10 text-sm font-bold bg-[#164E3A] hover:bg-[#113C2D] dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-xs rounded-xl transition-all" 
                 type="submit" 
                 disabled={loading}
               >
@@ -100,10 +100,10 @@ export function LoginPage() {
               </Button>
 
               {/* Quick Demo Access Badges */}
-              <div className="pt-4 border-t border-slate-100 dark:border-emerald-950/40 space-y-2.5">
+              <div className="pt-4 border-t border-slate-100 dark:border-slate-800/60 space-y-2.5">
                 <div className="flex items-center justify-between text-xs font-medium text-slate-500">
                   <span className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300">
-                    <UserCheck className="w-3.5 h-3.5 text-[#154D34] dark:text-emerald-400" />
+                    <UserCheck className="w-3.5 h-3.5 text-[#164E3A] dark:text-emerald-400" />
                     Acesso Rápido para Demonstração
                   </span>
                   <span className="text-[10px] text-slate-400">Senha: 123456</span>
@@ -114,17 +114,17 @@ export function LoginPage() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="text-xs h-8 justify-start px-2.5 rounded-xl border-slate-200 dark:border-emerald-900/40 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                    className="text-xs h-8 justify-start px-2.5 rounded-xl border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800/60"
                     onClick={() => handleQuickLogin("admin@teste.com")}
                   >
-                    <ShieldCheck className="w-3 h-3 mr-1.5 text-[#154D34] dark:text-emerald-400 shrink-0" />
+                    <ShieldCheck className="w-3 h-3 mr-1.5 text-[#164E3A] dark:text-emerald-400 shrink-0" />
                     <span className="truncate">Administrador</span>
                   </Button>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="text-xs h-8 justify-start px-2.5 rounded-xl border-slate-200 dark:border-emerald-900/40 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                    className="text-xs h-8 justify-start px-2.5 rounded-xl border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800/60"
                     onClick={() => handleQuickLogin("teste@teste.com")}
                   >
                     <Bus className="w-3 h-3 mr-1.5 text-blue-500 shrink-0" />
@@ -134,7 +134,7 @@ export function LoginPage() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="text-xs h-8 justify-start px-2.5 rounded-xl border-slate-200 dark:border-emerald-900/40 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                    className="text-xs h-8 justify-start px-2.5 rounded-xl border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800/60"
                     onClick={() => handleQuickLogin("tanque_vcg@teste.com")}
                   >
                     <Gauge className="w-3 h-3 mr-1.5 text-emerald-600 shrink-0" />
@@ -144,7 +144,7 @@ export function LoginPage() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="text-xs h-8 justify-start px-2.5 rounded-xl border-slate-200 dark:border-emerald-900/40 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                    className="text-xs h-8 justify-start px-2.5 rounded-xl border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800/60"
                     onClick={() => handleQuickLogin("abastecimento_vcg@teste.com")}
                   >
                     <Fuel className="w-3 h-3 mr-1.5 text-amber-500 shrink-0" />
@@ -154,7 +154,7 @@ export function LoginPage() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="text-xs h-8 justify-start px-2.5 rounded-xl border-slate-200 dark:border-emerald-900/40 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                    className="text-xs h-8 justify-start px-2.5 rounded-xl border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800/60"
                     onClick={() => handleQuickLogin("soltura_vcg@teste.com")}
                   >
                     <Bus className="w-3 h-3 mr-1.5 text-indigo-500 shrink-0" />
@@ -164,7 +164,7 @@ export function LoginPage() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="text-xs h-8 justify-start px-2.5 rounded-xl border-slate-200 dark:border-emerald-900/40 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                    className="text-xs h-8 justify-start px-2.5 rounded-xl border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800/60"
                     onClick={() => handleQuickLogin("controle_vcg@teste.com")}
                   >
                     <Radio className="w-3 h-3 mr-1.5 text-purple-500 shrink-0" />

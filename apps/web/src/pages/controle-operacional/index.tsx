@@ -4,6 +4,7 @@ import { useAuth } from "@/stores/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -575,9 +576,24 @@ export function ControleOperacionalPage() {
 
   const getCarStatusInfo = (car: string) => {
     const rec = recordMap.get(car);
-    if (!rec) return { type: "none", colorClass: "border-border bg-card hover:border-muted-foreground/30", label: "Não Vistoriado" };
-    if (rec.pendingId) return { type: "pending", colorClass: "border-amber-500/50 bg-amber-500/5 hover:bg-amber-500/10 text-amber-700 dark:text-amber-400", label: "Pendente Sincronização" };
-    return { type: "completed", colorClass: "border-emerald-500/50 bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400", label: "Vistoriado" };
+    if (!rec) return { 
+      type: "none", 
+      colorClass: "border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0E1420] hover:border-slate-400 dark:hover:border-slate-600 text-slate-500 dark:text-slate-400", 
+      label: "Sem Vistoria",
+      badgeClass: "bg-slate-100 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-700/50"
+    };
+    if (rec.pendingId) return { 
+      type: "pending", 
+      colorClass: "border-amber-500/40 bg-white dark:bg-[#0E1420] hover:border-amber-500/80 text-slate-900 dark:text-slate-100", 
+      label: "Pendente",
+      badgeClass: "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/50"
+    };
+    return { 
+      type: "completed", 
+      colorClass: "border-slate-200 dark:border-slate-800/80 bg-white dark:bg-[#0E1420] hover:border-emerald-500/60 dark:hover:border-emerald-500/40 text-slate-900 dark:text-slate-100 shadow-2xs", 
+      label: "Vistoriado",
+      badgeClass: "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/40"
+    };
   };
 
   const handleCardClick = (car: string) => {
@@ -791,11 +807,16 @@ export function ControleOperacionalPage() {
                 <button
                   key={car}
                   onClick={() => handleCardClick(car)}
-                  className={`flex flex-col items-center justify-center p-3 border rounded-lg shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-primary/40 text-center relative overflow-hidden h-20 ${statusInfo.colorClass}`}
+                  className={`flex flex-col items-center justify-center p-2 border rounded-xl shadow-2xs transition-all duration-150 hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-emerald-500/40 text-center relative overflow-hidden h-20 ${statusInfo.colorClass}`}
                 >
-                  <Bus className="h-4 w-4 mb-1 opacity-70" />
-                  <span className="font-bold text-sm tracking-tight">{car}</span>
-                  <span className="text-[9px] font-semibold opacity-75 mt-0.5 leading-none block">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Bus className={cn(
+                      "h-3.5 w-3.5",
+                      statusInfo.type === "completed" ? "text-emerald-600 dark:text-emerald-400" : statusInfo.type === "pending" ? "text-amber-500" : "text-slate-400 dark:text-slate-600"
+                    )} />
+                    <span className="font-bold text-sm tracking-tight font-mono">{car}</span>
+                  </div>
+                  <span className={cn("text-[9px] font-semibold px-2 py-0.5 rounded-full inline-block leading-tight", statusInfo.badgeClass)}>
                     {statusInfo.type === "completed" && "Concluído"}
                     {statusInfo.type === "pending" && "Pendente"}
                     {statusInfo.type === "none" && "Sem Vistoria"}

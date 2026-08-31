@@ -214,9 +214,9 @@ export function Layout() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F4F5F7] dark:bg-[#0C120F] text-foreground flex flex-col md:flex-row font-sans selection:bg-[#154D34]/20">
+    <div className="min-h-screen bg-[#F4F5F7] dark:bg-[#070A11] text-foreground flex flex-col md:flex-row font-sans selection:bg-emerald-500/20">
       {/* Mobile Top Header */}
-      <header className="md:hidden sticky top-0 z-40 bg-white/95 dark:bg-[#121A15]/95 backdrop-blur border-b border-slate-200/80 dark:border-emerald-950/60 px-4 h-15 flex items-center justify-between shadow-xs">
+      <header className="md:hidden sticky top-0 z-40 bg-white/95 dark:bg-[#0B0F19]/95 backdrop-blur border-b border-slate-200/80 dark:border-slate-800/80 px-4 h-15 flex items-center justify-between shadow-xs">
         <div className="flex items-center gap-2.5">
           <Button
             variant="ghost"
@@ -228,7 +228,7 @@ export function Layout() {
             <Menu className="h-5 w-5" />
           </Button>
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-[#154D34] text-white flex items-center justify-center font-bold text-sm shadow-xs">
+            <div className="w-8 h-8 rounded-xl bg-[#164E3A] dark:bg-emerald-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
               G
             </div>
             <span className="font-bold text-sm tracking-tight text-slate-900 dark:text-white">Sistema Garagem</span>
@@ -237,7 +237,7 @@ export function Layout() {
 
         <div className="flex items-center gap-2">
           {user?.garagem && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40">
               {user.garagem}
             </span>
           )}
@@ -263,13 +263,13 @@ export function Layout() {
       {/* Mobile Navigation Drawer */}
       <div
         className={cn(
-          "md:hidden fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] bg-white dark:bg-[#121A15] border-r border-slate-200 dark:border-emerald-950/60 shadow-2xl flex flex-col transition-transform duration-300 ease-in-out",
+          "md:hidden fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] bg-white dark:bg-[#0B0F19] border-r border-slate-200 dark:border-slate-800/80 shadow-2xl flex flex-col transition-transform duration-300 ease-in-out",
           mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <div className="h-16 px-4 border-b border-slate-100 dark:border-emerald-950/50 flex items-center justify-between">
+        <div className="h-16 px-4 border-b border-slate-100 dark:border-slate-800/60 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-[#154D34] text-white flex items-center justify-center font-bold text-sm shadow-xs">
+            <div className="w-8 h-8 rounded-xl bg-[#164E3A] dark:bg-emerald-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
               G
             </div>
             <span className="font-bold text-base text-slate-900 dark:text-white">Sistema Garagem</span>
@@ -286,8 +286,8 @@ export function Layout() {
 
         {/* User Card in Mobile Drawer */}
         {user && (
-          <div className="p-3.5 border-b border-slate-100 dark:border-emerald-950/50 bg-slate-50/70 dark:bg-emerald-950/20 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-[#154D34] text-white font-bold flex items-center justify-center text-sm shrink-0">
+          <div className="p-3.5 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/70 dark:bg-slate-900/60 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-[#164E3A] dark:bg-emerald-600 text-white font-bold flex items-center justify-center text-sm shrink-0">
               {user.name.slice(0, 2).toUpperCase()}
             </div>
             <div className="min-w-0 flex-1">
@@ -295,7 +295,7 @@ export function Layout() {
               <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
                 <span className="truncate">{roleLabels[user.role] || user.role}</span>
                 {user.garagem && (
-                  <span className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 px-1.5 py-0.2 rounded text-[10px] font-semibold">
+                  <span className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 px-1.5 py-0.2 rounded text-[10px] font-semibold">
                     {user.garagem}
                   </span>
                 )}
@@ -331,10 +331,10 @@ export function Layout() {
                     className={cn(
                       "flex items-center justify-between w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all",
                       active
-                        ? "bg-[#154D34] text-white shadow-xs font-semibold"
+                        ? "bg-[#164E3A] text-white dark:bg-emerald-600 shadow-xs font-semibold"
                         : isParentActive
-                          ? "bg-emerald-50 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200 font-semibold"
-                          : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-emerald-950/30"
+                          ? "bg-slate-100 text-slate-900 dark:bg-slate-800/80 dark:text-emerald-300 font-semibold"
+                          : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
                     )}
                   >
                     <div className="flex items-center gap-3">
@@ -355,8 +355,8 @@ export function Layout() {
                     className={cn(
                       "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all",
                       active
-                        ? "bg-[#154D34] text-white shadow-xs font-semibold"
-                        : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-emerald-950/30"
+                        ? "bg-[#164E3A] text-white dark:bg-emerald-600 shadow-xs font-semibold"
+                        : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
                     )}
                   >
                     <Icon className="h-4.5 w-4.5 shrink-0" />
@@ -376,8 +376,8 @@ export function Layout() {
                           className={cn(
                             "flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors",
                             subActive
-                              ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 font-semibold"
-                              : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-emerald-950/30"
+                              ? "bg-emerald-50 text-emerald-800 dark:bg-slate-800 dark:text-emerald-300 font-semibold"
+                              : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50"
                           )}
                         >
                           <span>{subItem.label}</span>
@@ -406,8 +406,8 @@ export function Layout() {
                     className={cn(
                       "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all",
                       active
-                        ? "bg-[#154D34] text-white shadow-xs font-semibold"
-                        : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-emerald-950/30"
+                        ? "bg-[#164E3A] text-white dark:bg-emerald-600 shadow-xs font-semibold"
+                        : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
                     )}
                   >
                     <Icon className="h-4.5 w-4.5 shrink-0" />
@@ -419,7 +419,7 @@ export function Layout() {
           )}
         </nav>
 
-        <div className="p-3 border-t border-slate-100 dark:border-emerald-950/50 space-y-1">
+        <div className="p-3 border-t border-slate-100 dark:border-slate-800/60 space-y-1">
           <Button
             variant="ghost"
             size="sm"
@@ -435,14 +435,14 @@ export function Layout() {
       {/* Desktop Persistent Sidebar (Donezo UI Inspired) */}
       <aside
         className={cn(
-          "hidden md:flex flex-col border-r border-slate-200/80 dark:border-emerald-950/60 bg-[#FAFAFB] dark:bg-[#101713] h-screen sticky top-0 transition-all duration-300 z-30 shadow-xs",
+          "hidden md:flex flex-col border-r border-slate-200/80 dark:border-slate-800/70 bg-[#FAFAFB] dark:bg-[#0B0F19] h-screen sticky top-0 transition-all duration-300 z-30 shadow-xs",
           sidebarCollapsed ? "w-18" : "w-64"
         )}
       >
         {/* Brand Header */}
-        <div className="h-16 px-4 border-b border-slate-200/60 dark:border-emerald-950/50 flex items-center justify-between">
+        <div className="h-16 px-4 border-b border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between">
           <div className="flex items-center gap-3 overflow-hidden">
-            <div className="w-9 h-9 rounded-xl bg-[#154D34] text-white flex items-center justify-center font-bold text-sm shadow-xs shrink-0 tracking-wider">
+            <div className="w-9 h-9 rounded-xl bg-[#164E3A] dark:bg-emerald-600 text-white flex items-center justify-center font-bold text-sm shadow-xs shrink-0 tracking-wider">
               (G)
             </div>
             {!sidebarCollapsed && (
@@ -505,10 +505,10 @@ export function Layout() {
                       "flex items-center w-full rounded-xl transition-all group relative",
                       sidebarCollapsed ? "justify-center p-2.5" : "justify-between px-3.5 py-2.5 text-sm font-medium",
                       active
-                        ? "bg-[#154D34] text-white shadow-xs font-semibold"
+                        ? "bg-[#164E3A] text-white dark:bg-emerald-600 shadow-xs font-semibold"
                         : isParentActive
-                          ? "bg-emerald-50 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200 font-semibold"
-                          : "text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-emerald-950/30 hover:text-slate-900"
+                          ? "bg-slate-100 text-slate-900 dark:bg-slate-800/80 dark:text-emerald-300 font-semibold"
+                          : "text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white"
                     )}
                     title={sidebarCollapsed ? item.label : undefined}
                   >
@@ -529,8 +529,8 @@ export function Layout() {
                       "flex items-center rounded-xl transition-all group relative",
                       sidebarCollapsed ? "justify-center p-2.5" : "gap-3 px-3.5 py-2.5 text-sm font-medium",
                       active
-                        ? "bg-[#154D34] text-white shadow-xs font-semibold"
-                        : "text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-emerald-950/30 hover:text-slate-900"
+                        ? "bg-[#164E3A] text-white dark:bg-emerald-600 shadow-xs font-semibold"
+                        : "text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white"
                     )}
                     title={sidebarCollapsed ? item.label : undefined}
                   >
@@ -551,8 +551,8 @@ export function Layout() {
                           className={cn(
                             "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
                             subActive
-                              ? "bg-emerald-100/70 text-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300 font-semibold"
-                              : "text-slate-500 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-emerald-950/20 hover:text-slate-800"
+                              ? "bg-emerald-50 text-emerald-900 dark:bg-slate-800 dark:text-emerald-300 font-semibold"
+                              : "text-slate-500 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800/50 hover:text-slate-800 dark:hover:text-slate-200"
                           )}
                         >
                           <span className="truncate">{subItem.label}</span>
@@ -583,8 +583,8 @@ export function Layout() {
                       "flex items-center rounded-xl transition-all group relative",
                       sidebarCollapsed ? "justify-center p-2.5" : "gap-3 px-3.5 py-2.5 text-sm font-medium",
                       active
-                        ? "bg-[#154D34] text-white shadow-xs font-semibold"
-                        : "text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-emerald-950/30 hover:text-slate-900"
+                        ? "bg-[#164E3A] text-white dark:bg-emerald-600 shadow-xs font-semibold"
+                        : "text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white"
                     )}
                     title={sidebarCollapsed ? item.label : undefined}
                   >
@@ -596,19 +596,19 @@ export function Layout() {
             </>
           )}
 
-          {/* Offline / Mobile App Promotion Card (like Donezo UI bottom card) */}
+          {/* Offline / Mobile App Promotion Card */}
           {!sidebarCollapsed && (
-            <div className="pt-4 mt-4 border-t border-slate-200/60 dark:border-emerald-950/40">
-              <div className="p-3.5 rounded-2xl bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-950/40 dark:to-emerald-900/20 border border-emerald-200/70 dark:border-emerald-800/40">
-                <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 mb-1.5">
-                  <Smartphone className="w-4 h-4" />
+            <div className="pt-4 mt-4 border-t border-slate-200/60 dark:border-slate-800/60">
+              <div className="p-3.5 rounded-2xl bg-slate-50/90 dark:bg-[#0E1420] border border-slate-200/80 dark:border-slate-800/80">
+                <div className="flex items-center gap-2 text-slate-900 dark:text-slate-100 mb-1.5">
+                  <Smartphone className="w-4 h-4 text-emerald-500" />
                   <span className="text-xs font-bold">Modo PWA Offline</span>
                 </div>
-                <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-snug">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
                   Operação garantida sem internet na pista e na garagem.
                 </p>
                 <div className="mt-2.5 flex items-center justify-between">
-                  <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-white/80 dark:bg-emerald-900/60 px-2 py-0.5 rounded-md">
+                  <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 dark:bg-emerald-950/40 border border-emerald-500/20 px-2 py-0.5 rounded-md">
                     100% Sincronizado
                   </span>
                 </div>
@@ -618,10 +618,10 @@ export function Layout() {
         </nav>
 
         {/* User Card & Controls at Bottom */}
-        <div className="border-t border-slate-200/80 dark:border-emerald-950/60 p-2.5 space-y-1 bg-white/50 dark:bg-[#0E1411]">
+        <div className="border-t border-slate-200/80 dark:border-slate-800/80 p-2.5 space-y-1 bg-white/50 dark:bg-[#090D16]">
           {user && !sidebarCollapsed && (
-            <div className="p-2.5 rounded-xl bg-white dark:bg-[#141C17] border border-slate-200/80 dark:border-emerald-950/50 mb-1 flex items-center gap-2.5 shadow-2xs">
-              <div className="w-8 h-8 rounded-full bg-[#154D34] text-white font-bold flex items-center justify-center text-xs shrink-0">
+            <div className="p-2.5 rounded-xl bg-white dark:bg-[#0E1420] border border-slate-200/80 dark:border-slate-800/80 mb-1 flex items-center gap-2.5 shadow-2xs">
+              <div className="w-8 h-8 rounded-full bg-[#164E3A] dark:bg-emerald-600 text-white font-bold flex items-center justify-center text-xs shrink-0">
                 {user.name.slice(0, 2).toUpperCase()}
               </div>
               <div className="min-w-0 flex-1">
@@ -629,7 +629,7 @@ export function Layout() {
                 <div className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
                   <span className="truncate">{roleLabels[user.role] || user.role}</span>
                   {user.garagem && (
-                    <span className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 px-1 py-0.2 rounded font-semibold text-[10px]">
+                    <span className="bg-emerald-100 text-emerald-800 dark:bg-slate-800 dark:text-emerald-300 px-1 py-0.2 rounded font-semibold text-[10px]">
                       {user.garagem}
                     </span>
                   )}
@@ -681,8 +681,8 @@ export function Layout() {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Desktop Top Header Bar (Donezo UI style with search bar and live badges) */}
-        <header className="hidden md:flex h-16 border-b border-slate-200/80 dark:border-emerald-950/60 bg-white/90 dark:bg-[#101713]/90 backdrop-blur-md px-6 items-center justify-between sticky top-0 z-20 shadow-2xs">
+        {/* Desktop Top Header Bar */}
+        <header className="hidden md:flex h-16 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/90 dark:bg-[#0B0F19]/90 backdrop-blur-md px-6 items-center justify-between sticky top-0 z-20 shadow-2xs">
           <div className="flex items-center gap-4 min-w-0">
             <div>
               <h1 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
@@ -694,7 +694,7 @@ export function Layout() {
             </div>
           </div>
 
-          {/* Center Search Input (Donezo style) */}
+          {/* Center Search Input */}
           <div className="hidden lg:flex items-center w-72 max-w-sm relative">
             <Search className="w-4 h-4 absolute left-3 text-slate-400" />
             <Input
@@ -702,9 +702,9 @@ export function Layout() {
               placeholder="Buscar no sistema..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 pr-12 h-9 text-xs rounded-full bg-slate-100/80 dark:bg-emerald-950/30 border-slate-200 dark:border-emerald-900/40 focus-visible:ring-[#154D34]"
+              className="pl-9 pr-12 h-9 text-xs rounded-full bg-slate-100/80 dark:bg-slate-900/90 border-slate-200 dark:border-slate-800 focus-visible:ring-emerald-500"
             />
-            <kbd className="absolute right-3 px-1.5 py-0.5 text-[10px] font-medium text-slate-400 bg-white dark:bg-emerald-950/60 rounded border border-slate-200 dark:border-emerald-900/50">
+            <kbd className="absolute right-3 px-1.5 py-0.5 text-[10px] font-medium text-slate-400 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
               ⌘K
             </kbd>
           </div>
@@ -712,7 +712,7 @@ export function Layout() {
           {/* Right Action Icons & Badges */}
           <div className="flex items-center gap-2.5 shrink-0">
             {/* Live date badge */}
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-slate-100/80 dark:bg-emerald-950/30 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-emerald-900/30">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-slate-100/80 dark:bg-slate-900/80 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-800/80">
               <Calendar className="w-3.5 h-3.5 text-slate-500" />
               <span>
                 {new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
@@ -723,8 +723,8 @@ export function Layout() {
             <div className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border",
               isOnline 
-                ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/50" 
-                : "bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border-amber-200 dark:border-amber-800/50"
+                ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/40" 
+                : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/40"
             )}>
               <span className={cn(
                 "w-2 h-2 rounded-full",
@@ -735,7 +735,7 @@ export function Layout() {
 
             {/* Garage Tag */}
             {user?.garagem && (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-[#154D34]/10 text-[#154D34] dark:bg-emerald-950/60 dark:text-emerald-300 border border-[#154D34]/20">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-[#164E3A]/10 text-[#164E3A] dark:bg-slate-800 dark:text-emerald-300 border border-[#164E3A]/20 dark:border-slate-700">
                 <Building2 className="w-3.5 h-3.5" />
                 <span>Garagem {user.garagem}</span>
               </div>
@@ -745,11 +745,11 @@ export function Layout() {
             <Button
               variant="ghost"
               size="icon"
-              className="h-9 w-9 rounded-full relative text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-emerald-950/40"
+              className="h-9 w-9 rounded-full relative text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
               title="Notificações operacionais"
             >
               <Bell className="w-4 h-4" />
-              <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-[#101713]" />
+              <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-[#0B0F19]" />
             </Button>
           </div>
         </header>

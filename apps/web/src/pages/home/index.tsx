@@ -298,12 +298,12 @@ export function HomePage() {
         </div>
 
         {/* CARD 2: Litros Totais Abastecidos */}
-        <div className="rounded-3xl bg-white dark:bg-[#121A15] border border-slate-200/80 dark:border-emerald-950/60 p-5 shadow-2xs flex flex-col justify-between min-h-[148px]">
+        <div className="rounded-3xl bg-white dark:bg-[#0E1420] border border-slate-200/80 dark:border-slate-800/80 p-5 shadow-2xs flex flex-col justify-between min-h-[148px]">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
               Combustível Hoje
             </span>
-            <div className="w-8 h-8 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-[#154D34] dark:text-emerald-300 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full bg-emerald-50 dark:bg-slate-800 text-[#164E3A] dark:text-emerald-400 flex items-center justify-center">
               <Fuel className="w-4 h-4" />
             </div>
           </div>
@@ -317,7 +317,7 @@ export function HomePage() {
             </p>
           </div>
 
-          <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-emerald-950/40">
+          <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800/60">
             <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1 text-[11px]">
               <ArrowUpRight className="w-3 h-3" />
               +8.2% vs ontem
@@ -329,12 +329,12 @@ export function HomePage() {
         </div>
 
         {/* CARD 3: Tanques & Leituras */}
-        <div className="rounded-3xl bg-white dark:bg-[#121A15] border border-slate-200/80 dark:border-emerald-950/60 p-5 shadow-2xs flex flex-col justify-between min-h-[148px]">
+        <div className="rounded-3xl bg-white dark:bg-[#0E1420] border border-slate-200/80 dark:border-slate-800/80 p-5 shadow-2xs flex flex-col justify-between min-h-[148px]">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
               Medição Tanques
             </span>
-            <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-slate-800 text-blue-600 dark:text-blue-400 flex items-center justify-center">
               <Gauge className="w-4 h-4" />
             </div>
           </div>
@@ -348,7 +348,7 @@ export function HomePage() {
             </p>
           </div>
 
-          <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-emerald-950/40">
+          <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800/60">
             <span className="text-blue-600 dark:text-blue-400 font-semibold text-[11px] flex items-center gap-1">
               <CheckCircle2 className="w-3 h-3" />
               Tanque 1 & 2 Operando
@@ -360,12 +360,12 @@ export function HomePage() {
         </div>
 
         {/* CARD 4: Conferência Catracas */}
-        <div className="rounded-3xl bg-white dark:bg-[#121A15] border border-slate-200/80 dark:border-emerald-950/60 p-5 shadow-2xs flex flex-col justify-between min-h-[148px]">
+        <div className="rounded-3xl bg-white dark:bg-[#0E1420] border border-slate-200/80 dark:border-slate-800/80 p-5 shadow-2xs flex flex-col justify-between min-h-[148px]">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
               Consistência Catracas
             </span>
-            <div className="w-8 h-8 rounded-full bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full bg-purple-50 dark:bg-slate-800 text-purple-600 dark:text-purple-400 flex items-center justify-center">
               <ClipboardCheck className="w-4 h-4" />
             </div>
           </div>
@@ -379,7 +379,7 @@ export function HomePage() {
             </p>
           </div>
 
-          <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-emerald-950/40">
+          <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800/60">
             <span className="text-emerald-600 dark:text-emerald-400 font-semibold text-[11px] flex items-center gap-1">
               <Check className="w-3 h-3" />
               Auditado
@@ -395,11 +395,11 @@ export function HomePage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         
         {/* Left: Project / Operational Analytics Chart (7 cols in LG) */}
-        <div className="lg:col-span-7 rounded-3xl bg-white dark:bg-[#121A15] border border-slate-200/80 dark:border-emerald-950/60 p-5 sm:p-6 shadow-2xs flex flex-col justify-between">
+        <div className="lg:col-span-7 rounded-3xl bg-white dark:bg-[#0E1420] border border-slate-200/80 dark:border-slate-800/80 p-5 sm:p-6 shadow-2xs flex flex-col justify-between">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-6">
             <div>
               <h2 className="text-base font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-                <BarChart3 className="w-4 h-4 text-[#154D34] dark:text-emerald-400" />
+                <BarChart3 className="w-4 h-4 text-[#164E3A] dark:text-emerald-400" />
                 Análise de Consumo & Saídas
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -408,13 +408,13 @@ export function HomePage() {
             </div>
 
             {/* Timeframe pill selector */}
-            <div className="flex items-center p-1 bg-slate-100 dark:bg-emerald-950/40 rounded-xl text-xs font-medium text-slate-600 dark:text-slate-300 self-start sm:self-auto">
+            <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl text-xs font-medium text-slate-600 dark:text-slate-300 self-start sm:self-auto">
               <button
                 type="button"
                 onClick={() => setTimeframe("7d")}
                 className={cn(
                   "px-2.5 py-1 rounded-lg transition-all",
-                  timeframe === "7d" ? "bg-white dark:bg-emerald-900/60 text-slate-900 dark:text-white font-bold shadow-2xs" : "hover:text-slate-900"
+                  timeframe === "7d" ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white font-bold shadow-2xs" : "hover:text-slate-900"
                 )}
               >
                 7 Dias
@@ -424,7 +424,7 @@ export function HomePage() {
                 onClick={() => setTimeframe("30d")}
                 className={cn(
                   "px-2.5 py-1 rounded-lg transition-all",
-                  timeframe === "30d" ? "bg-white dark:bg-emerald-900/60 text-slate-900 dark:text-white font-bold shadow-2xs" : "hover:text-slate-900"
+                  timeframe === "30d" ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white font-bold shadow-2xs" : "hover:text-slate-900"
                 )}
               >
                 30 Dias
@@ -434,7 +434,7 @@ export function HomePage() {
                 onClick={() => setTimeframe("hoje")}
                 className={cn(
                   "px-2.5 py-1 rounded-lg transition-all",
-                  timeframe === "hoje" ? "bg-white dark:bg-emerald-900/60 text-slate-900 dark:text-white font-bold shadow-2xs" : "hover:text-slate-900"
+                  timeframe === "hoje" ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white font-bold shadow-2xs" : "hover:text-slate-900"
                 )}
               >
                 Hoje
@@ -455,13 +455,13 @@ export function HomePage() {
                     </div>
 
                     {/* Bar Container */}
-                    <div className="w-full max-w-[42px] bg-slate-100 dark:bg-emerald-950/30 rounded-2xl h-36 flex items-end p-1 overflow-hidden">
+                    <div className="w-full max-w-[42px] bg-slate-100 dark:bg-slate-800/60 rounded-2xl h-36 flex items-end p-1 overflow-hidden">
                       <div
                         className={cn(
                           "w-full rounded-xl transition-all duration-500",
                           item.isToday
-                            ? "bg-[#154D34] dark:bg-emerald-500 shadow-xs"
-                            : "bg-slate-300/80 dark:bg-emerald-900/40 group-hover:bg-[#154D34]/70"
+                            ? "bg-[#164E3A] dark:bg-emerald-500 shadow-xs"
+                            : "bg-slate-300/80 dark:bg-slate-700/80 group-hover:bg-[#164E3A]/70"
                         )}
                         style={{ height: `${heightPct}%` }}
                       />
@@ -471,7 +471,7 @@ export function HomePage() {
                     <div className="text-center">
                       <span className={cn(
                         "text-[11px] font-bold block leading-none",
-                        item.isToday ? "text-[#154D34] dark:text-emerald-400 font-extrabold" : "text-slate-600 dark:text-slate-400"
+                        item.isToday ? "text-[#164E3A] dark:text-emerald-400 font-extrabold" : "text-slate-600 dark:text-slate-400"
                       )}>
                         {item.dayName}
                       </span>
@@ -485,9 +485,9 @@ export function HomePage() {
             </div>
           </div>
 
-          <div className="pt-3 border-t border-slate-100 dark:border-emerald-950/40 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
             <span className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#154D34] dark:bg-emerald-500" />
+              <span className="w-2.5 h-2.5 rounded-full bg-[#164E3A] dark:bg-emerald-500" />
               Média diária: 4.850 Litros
             </span>
             <span className="font-semibold text-slate-700 dark:text-slate-300">
@@ -497,7 +497,7 @@ export function HomePage() {
         </div>
 
         {/* Right: Reminders & Operational Tasks (5 cols in LG) */}
-        <div className="lg:col-span-5 rounded-3xl bg-white dark:bg-[#121A15] border border-slate-200/80 dark:border-emerald-950/60 p-5 sm:p-6 shadow-2xs flex flex-col justify-between">
+        <div className="lg:col-span-5 rounded-3xl bg-white dark:bg-[#0E1420] border border-slate-200/80 dark:border-slate-800/80 p-5 sm:p-6 shadow-2xs flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -512,7 +512,7 @@ export function HomePage() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 text-xs text-[#154D34] dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-xl gap-1 font-semibold"
+                className="h-8 text-xs text-[#164E3A] dark:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 rounded-xl gap-1 font-semibold"
                 onClick={() => setShowNewTaskInput(!showNewTaskInput)}
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -531,13 +531,13 @@ export function HomePage() {
                   className="h-9 text-xs rounded-xl"
                   autoFocus
                 />
-                <Button type="submit" size="sm" className="h-9 text-xs bg-[#154D34] text-white rounded-xl px-3">
+                <Button type="submit" size="sm" className="h-9 text-xs bg-[#164E3A] dark:bg-emerald-600 text-white rounded-xl px-3">
                   Salvar
                 </Button>
               </form>
             )}
 
-            {/* Task list items (Donezo interactive checklist style) */}
+            {/* Task list items */}
             <div className="space-y-2.5">
               {tasks.map((task) => (
                 <div
@@ -546,8 +546,8 @@ export function HomePage() {
                   className={cn(
                     "p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 select-none",
                     task.completed
-                      ? "bg-slate-50/80 dark:bg-emerald-950/20 border-slate-200/60 dark:border-emerald-950/40 opacity-70"
-                      : "bg-white dark:bg-[#141D17] border-slate-200/80 dark:border-emerald-950/60 hover:border-emerald-300 dark:hover:border-emerald-700 shadow-2xs"
+                      ? "bg-slate-50/80 dark:bg-slate-900/40 border-slate-200/60 dark:border-slate-800/40 opacity-70"
+                      : "bg-white dark:bg-[#111827] border-slate-200/80 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700 shadow-2xs"
                   )}
                 >
                   <div className="flex items-center gap-3 min-w-0">
@@ -555,7 +555,7 @@ export function HomePage() {
                       className={cn(
                         "w-5 h-5 rounded-full border flex items-center justify-center transition-all shrink-0",
                         task.completed
-                          ? "bg-[#154D34] border-[#154D34] text-white"
+                          ? "bg-[#164E3A] dark:bg-emerald-600 border-transparent text-white"
                           : "border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900"
                       )}
                     >
@@ -594,7 +594,7 @@ export function HomePage() {
             </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-emerald-950/40 flex items-center justify-between text-xs text-slate-500">
+          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-xs text-slate-500">
             <span>{tasks.filter(t => t.completed).length} de {tasks.length} concluídas</span>
             <span className="font-semibold text-emerald-600 dark:text-emerald-400">
               {Math.round((tasks.filter(t => t.completed).length / tasks.length) * 100)}% do dia
@@ -607,12 +607,12 @@ export function HomePage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         
         {/* Left: Escala de Motoristas & Frotas (7 cols in LG) */}
-        <div className="lg:col-span-7 rounded-3xl bg-white dark:bg-[#121A15] border border-slate-200/80 dark:border-emerald-950/60 p-5 sm:p-6 shadow-2xs flex flex-col justify-between">
+        <div className="lg:col-span-7 rounded-3xl bg-white dark:bg-[#0E1420] border border-slate-200/80 dark:border-slate-800/80 p-5 sm:p-6 shadow-2xs flex flex-col justify-between">
           <div>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
               <div>
                 <h2 className="text-base font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-                  <Users className="w-4 h-4 text-[#154D34] dark:text-emerald-400" />
+                  <Users className="w-4 h-4 text-[#164E3A] dark:text-emerald-400" />
                   Escala & Saídas da Garagem
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -626,7 +626,7 @@ export function HomePage() {
                   placeholder="Filtrar carro ou linha..."
                   value={searchSchedule}
                   onChange={(e) => setSearchSchedule(e.target.value)}
-                  className="h-8 text-xs rounded-xl bg-slate-50 dark:bg-emerald-950/30"
+                  className="h-8 text-xs rounded-xl bg-slate-50 dark:bg-slate-800/80"
                 />
               </div>
             </div>
@@ -635,7 +635,7 @@ export function HomePage() {
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="border-b border-slate-100 dark:border-emerald-950/50 text-slate-400 font-semibold text-[11px]">
+                  <tr className="border-b border-slate-100 dark:border-slate-800/60 text-slate-400 font-semibold text-[11px]">
                     <th className="text-left pb-2.5">Escala / Motorista</th>
                     <th className="text-left pb-2.5">Carro Programado</th>
                     <th className="text-left pb-2.5">Linha / Tabela</th>
@@ -643,13 +643,13 @@ export function HomePage() {
                     <th className="text-right pb-2.5">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-emerald-950/30">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/40">
                   {displayedSchedules.map((item, idx) => {
                     const assignedDriver = driverNames[idx % driverNames.length];
                     return (
-                      <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-emerald-950/20 transition-colors">
+                      <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
                         <td className="py-2.5 font-medium text-slate-900 dark:text-white flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 font-bold flex items-center justify-center text-[10px]">
+                          <div className="w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-bold flex items-center justify-center text-[10px]">
                             {assignedDriver.slice(0, 2).toUpperCase()}
                           </div>
                           <span className="truncate max-w-[130px] font-semibold">{assignedDriver}</span>
@@ -664,7 +664,7 @@ export function HomePage() {
                           {item.saidaGaragem || "05:00"}
                         </td>
                         <td className="py-2.5 text-right">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/40">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/40">
                             No Horário
                           </span>
                         </td>
@@ -676,16 +676,16 @@ export function HomePage() {
             </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-emerald-950/40 flex items-center justify-between text-xs">
+          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-xs">
             <span className="text-slate-500">Exibindo 5 saídas prioritárias</span>
-            <Link to="/soltura" className="font-semibold text-[#154D34] dark:text-emerald-400 hover:underline flex items-center gap-1">
+            <Link to="/soltura" className="font-semibold text-[#164E3A] dark:text-emerald-400 hover:underline flex items-center gap-1">
               Ver grade completa <ChevronRight className="w-3.5 h-3.5" />
             </Link>
           </div>
         </div>
 
-        {/* Right: Shift Time Tracker & Progress Gauge (Donezo Time Tracker Style) */}
-        <div className="lg:col-span-5 rounded-3xl bg-white dark:bg-[#121A15] border border-slate-200/80 dark:border-emerald-950/60 p-5 sm:p-6 shadow-2xs flex flex-col justify-between">
+        {/* Right: Shift Time Tracker & Progress Gauge */}
+        <div className="lg:col-span-5 rounded-3xl bg-white dark:bg-[#0E1420] border border-slate-200/80 dark:border-slate-800/80 p-5 sm:p-6 shadow-2xs flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-3">
               <div>
@@ -697,14 +697,14 @@ export function HomePage() {
                 </p>
               </div>
 
-              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200/60">
+              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/40">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 Turno 1 Ativo
               </span>
             </div>
 
-            {/* Time Tracker Stopwatch Card (Matching Donezo bottom right Time Tracker) */}
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-emerald-950/20 border border-slate-200/60 dark:border-emerald-950/40 text-center my-3">
+            {/* Time Tracker Stopwatch Card */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800/80 text-center my-3">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
                 Tempo de Turno Decorrido
               </span>
@@ -716,7 +716,7 @@ export function HomePage() {
                   size="sm"
                   variant="outline"
                   onClick={() => setIsTimerRunning(!isTimerRunning)}
-                  className="rounded-xl text-xs h-8 gap-1.5 px-3 border-slate-200"
+                  className="rounded-xl text-xs h-8 gap-1.5 px-3 border-slate-200 dark:border-slate-700"
                 >
                   {isTimerRunning ? (
                     <>
@@ -734,7 +734,7 @@ export function HomePage() {
                   size="sm"
                   variant="ghost"
                   onClick={() => setShiftSeconds(0)}
-                  className="rounded-xl text-xs h-8 text-slate-500 hover:text-slate-800"
+                  className="rounded-xl text-xs h-8 text-slate-500 hover:text-slate-800 dark:hover:text-white"
                   title="Reiniciar contagem do turno"
                 >
                   <RotateCcw className="w-3 h-3" />
@@ -746,25 +746,25 @@ export function HomePage() {
             <div className="space-y-2 text-xs">
               <div className="flex items-center justify-between">
                 <span className="text-slate-600 dark:text-slate-400">Meta de Soltura Matinal</span>
-                <span className="font-bold text-[#154D34] dark:text-emerald-400">100%</span>
+                <span className="font-bold text-[#164E3A] dark:text-emerald-400">100%</span>
               </div>
-              <div className="w-full bg-slate-100 dark:bg-emerald-950/40 rounded-full h-2 overflow-hidden">
-                <div className="bg-[#154D34] dark:bg-emerald-500 h-2 rounded-full w-full" />
+              <div className="w-full bg-slate-100 dark:bg-slate-800/80 rounded-full h-2 overflow-hidden">
+                <div className="bg-[#164E3A] dark:bg-emerald-500 h-2 rounded-full w-full" />
               </div>
 
               <div className="flex items-center justify-between pt-1">
                 <span className="text-slate-600 dark:text-slate-400">Abastecimento Frotas (T1)</span>
                 <span className="font-bold text-emerald-600">82%</span>
               </div>
-              <div className="w-full bg-slate-100 dark:bg-emerald-950/40 rounded-full h-2 overflow-hidden">
+              <div className="w-full bg-slate-100 dark:bg-slate-800/80 rounded-full h-2 overflow-hidden">
                 <div className="bg-emerald-500 h-2 rounded-full w-[82%]" />
               </div>
             </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-emerald-950/40 flex items-center justify-between text-xs text-slate-500">
+          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-xs text-slate-500">
             <span>Frentista: José Carlos</span>
-            <Link to="/abastecimento-carro" className="text-[#154D34] dark:text-emerald-400 font-semibold hover:underline">
+            <Link to="/abastecimento-carro" className="text-[#164E3A] dark:text-emerald-400 font-semibold hover:underline">
               Pista de Abastecimento →
             </Link>
           </div>
