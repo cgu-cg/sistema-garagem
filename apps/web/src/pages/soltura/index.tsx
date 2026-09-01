@@ -10,16 +10,13 @@ import {
   CheckCircle2, 
   Clock, 
   AlertTriangle, 
-  FileText, 
   Printer, 
   RefreshCw, 
   Wrench, 
   MapPin, 
   Calendar, 
-  ShieldAlert,
   Undo2,
-  Check,
-  Zap
+  Check
 } from "lucide-react";
 import { 
   SolturaItem, 
@@ -344,9 +341,10 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     <div className="space-y-5 animate-in fade-in duration-300 pb-16">
       
       {/* ========================================================= */}
-      {/* CABEÇALHO PRINCIPAL E SELETORES DE GARAGEM / ESCALA */}
+      {/* CABEÇALHO PRINCIPAL E SELETORES (Apenas na Folha de Soltura) */}
       {/* ========================================================= */}
-      <div className="bg-card border rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col gap-4">
+      {viewMode === "FOLHA" && (
+        <div className="bg-card border rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col gap-4">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           
           {/* Título e Identificação Oficial */}
@@ -560,131 +558,45 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         </div>
 
       </div>
+      )}
 
       {/* ========================================================= */}
-      {/* ABAS DE NAVEGAÇÃO DE MODOS E BARRA DE BUSCA */}
+      {/* FILTROS DE STATUS E BARRA DE BUSCA (Apenas na Folha de Soltura) */}
       {/* ========================================================= */}
-      <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-        
-        {/* Abas */}
-        <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-xl border overflow-x-auto">
-          <button
-            type="button"
-            onClick={() => {
-              setViewMode("FOLHA");
-              navigate("/soltura");
-            }}
-            className={cn(
-              "px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0",
-              viewMode === "FOLHA"
-                ? "bg-background text-foreground shadow-2xs border"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <FileText className="w-3.5 h-3.5 text-primary" />
-            Folha de Soltura (Prancheta Digital)
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setViewMode("CARRO_REALIZADO");
-              navigate("/soltura/carro-realizado");
-            }}
-            className={cn(
-              "px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0",
-              viewMode === "CARRO_REALIZADO"
-                ? "bg-blue-600 text-white shadow-2xs"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Zap className="w-3.5 h-3.5 text-blue-400" />
-            Alimentar Carro Realiz. (P)
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setViewMode("CI_MANUTENCAO");
-              navigate("/soltura/ci-manutencao");
-            }}
-            className={cn(
-              "px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0",
-              viewMode === "CI_MANUTENCAO" || viewMode === "CI_BLOQUEIOS"
-                ? "bg-rose-600 text-white shadow-2xs"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <ShieldAlert className="w-3.5 h-3.5 text-rose-300" />
-            Alimentar CI Manutenção ({stats.totalBloqueadosCI})
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setViewMode("CARDS")}
-            className={cn(
-              "px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0",
-              viewMode === "CARDS"
-                ? "bg-background text-foreground shadow-2xs border"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Bus className="w-3.5 h-3.5 text-primary" />
-            Cartões de Pista
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setViewMode("RESERVAS")}
-            className={cn(
-              "px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0",
-              viewMode === "RESERVAS"
-                ? "bg-background text-foreground shadow-2xs border"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <MapPin className="w-3.5 h-3.5 text-blue-500" />
-            Carros Reservas Terminais ({reservasAtivas.length})
-          </button>
-        </div>
-
-        {/* Filtros de Status e Busca */}
-        {viewMode !== "CI_MANUTENCAO" && viewMode !== "CI_BLOQUEIOS" && viewMode !== "RESERVAS" && viewMode !== "CARRO_REALIZADO" && (
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center gap-1 bg-muted/60 p-0.5 rounded-lg border">
-              {(["TODOS", "PENDENTES", "LIBERADOS", "SUBSTITUIDOS"] as FilterStatus[]).map(st => (
-                <button
-                  key={st}
-                  type="button"
-                  onClick={() => setFilterStatus(st)}
-                  className={cn(
-                    "px-2 py-1 rounded text-[11px] font-semibold transition-all",
-                    filterStatus === st
-                      ? "bg-background text-foreground shadow-2xs"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  {st === "TODOS" && `Todos (${stats.total})`}
-                  {st === "PENDENTES" && `Pendentes (${stats.pendentes})`}
-                  {st === "LIBERADOS" && `Liberados (${stats.liberados})`}
-                  {st === "SUBSTITUIDOS" && `Trocados (${stats.substituidos})`}
-                </button>
-              ))}
-            </div>
-
-            <div className="relative w-full sm:w-56">
-              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-              <Input
-                placeholder="Buscar linha, tab, carro..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-8 h-8 text-xs bg-card"
-              />
-            </div>
+      {viewMode === "FOLHA" && (
+        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+          <div className="flex items-center gap-1 bg-muted/60 p-0.5 rounded-lg border">
+            {(["TODOS", "PENDENTES", "LIBERADOS", "SUBSTITUIDOS"] as FilterStatus[]).map(st => (
+              <button
+                key={st}
+                type="button"
+                onClick={() => setFilterStatus(st)}
+                className={cn(
+                  "px-2.5 py-1 rounded text-xs font-semibold transition-all",
+                  filterStatus === st
+                    ? "bg-background text-foreground shadow-2xs font-bold"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {st === "TODOS" && `Todos (${stats.total})`}
+                {st === "PENDENTES" && `Pendentes (${stats.pendentes})`}
+                {st === "LIBERADOS" && `Liberados (${stats.liberados})`}
+                {st === "SUBSTITUIDOS" && `Trocados (${stats.substituidos})`}
+              </button>
+            ))}
           </div>
-        )}
 
-      </div>
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Buscar linha, tab, carro..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-8 h-8 text-xs bg-card"
+            />
+          </div>
+        </div>
+      )}
 
       {/* ========================================================= */}
       {/* VISUALIZAÇÃO 1: FOLHA DE SOLTURA / PRANCHETA DIGITAL */}
@@ -965,30 +877,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
             </div>
           )}
 
-          {/* Rodapé da Folha — Responsáveis e Paginação */}
-          <div className="pt-4 border-t space-y-3">
-            <div className="grid grid-cols-2 gap-4 text-xs text-muted-foreground">
-              <div className="space-y-1">
-                <span className="font-semibold text-foreground block">Responsável pela Aprovação:</span>
-                <div className="border-b border-dashed pb-3 text-[11px]">
-                  {garagem === "VCG" ? "Paulo Vitor" : "Claudio Benites"}
-                </div>
-                <span className="text-[10px]">Data: ___/___/______</span>
-              </div>
-              <div className="space-y-1">
-                <span className="font-semibold text-foreground block">Responsável pela Elaboração:</span>
-                <div className="border-b border-dashed pb-3 text-[11px]">
-                  {garagem === "VCG" ? "André Luiz" : "Reinaldo Iastremski"}
-                </div>
-                <span className="text-[10px]">Data: ___/___/______</span>
-              </div>
-            </div>
 
-            <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono">
-              <span>**** CARROS DE PLANO ESCALADOS NAS LINHAS COM OBSERVAÇÃO, CONFERIR COM A CI ****</span>
-              <span className="font-bold text-foreground">Página 01</span>
-            </div>
-          </div>
 
         </div>
       )}
