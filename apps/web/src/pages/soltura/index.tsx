@@ -353,9 +353,6 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                 <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground mt-1">
                   Controle de Soltura da Frota
                 </h1>
-                <p className="text-xs sm:text-sm text-muted-foreground">
-                  Despacho diário de veículos, controle de motoristas (MOTO) e horários de saída
-                </p>
               </div>
             </div>
 
@@ -468,7 +465,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           {/* ========================================================= */}
           {/* BARRA DE ESTATÍSTICAS E PROGRESSO OPERACIONAL */}
           {/* ========================================================= */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2 border-t">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2">
 
             {/* Card Total */}
             <div className="bg-card p-3 rounded-2xl border shadow-2xs">
