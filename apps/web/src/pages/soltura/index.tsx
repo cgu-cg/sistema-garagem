@@ -4,29 +4,29 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 import { toast } from "sonner";
-import { 
-  Search, 
-  Bus, 
-  CheckCircle2, 
-  Clock, 
-  AlertTriangle, 
-  Printer, 
-  RefreshCw, 
-  Wrench, 
-  MapPin, 
-  Calendar, 
+import {
+  Search,
+  Bus,
+  CheckCircle2,
+  Clock,
+  AlertTriangle,
+  Printer,
+  RefreshCw,
+  Wrench,
+  MapPin,
+  Calendar,
   Undo2,
   Check
 } from "lucide-react";
-import { 
-  SolturaItem, 
-  vcgSegundaSexta, 
-  vcgSabado, 
-  vcgDomingoFeriado, 
-  vcmSegundaSexta, 
-  vcmSabado, 
-  vcmDomingoFeriado, 
-  terminaisReservaVCG, 
+import {
+  SolturaItem,
+  vcgSegundaSexta,
+  vcgSabado,
+  vcgDomingoFeriado,
+  vcmSegundaSexta,
+  vcmSabado,
+  vcmDomingoFeriado,
+  terminaisReservaVCG,
   terminaisReservaVCM,
   BloqueioCarro,
   TerminalReserva,
@@ -68,7 +68,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const [garagem, setGaragem] = useState<GaragemType>("VCG");
   const [escalaTipo, setEscalaTipo] = useState<EscalaTipo>("SEG_SEX");
   const [dataOperacao, setDataOperacao] = useState(() => new Date().toISOString().split("T")[0]);
-  
+
   // Modos de visualização
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     if (location.pathname.includes("/ci-manutencao")) return "CI_MANUTENCAO";
@@ -229,7 +229,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     const substituidos = activeSchedules.filter(s => s.status === "SUBSTITUIDO" || (s.carroRealizado && s.carroRealizado !== s.carroProgramado)).length;
     const pendentes = total - liberados;
     const percentual = total > 0 ? Math.round((liberados / total) * 100) : 0;
-    
+
     // Contar CIs ativos para a garagem selecionada
     const totalBloqueadosCI = ciList.filter(c => (!c.status || c.status === "BLOQUEADO") && (!c.garagem || c.garagem === garagem || c.garagem === "TODAS")).length;
 
@@ -248,7 +248,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       // Filtro de Status
       const isDone = item.status === "LIBERADO" || item.status === "SUBSTITUIDO";
       const isSub = item.status === "SUBSTITUIDO" || (item.carroRealizado && item.carroRealizado !== item.carroProgramado);
-      
+
       if (filterStatus === "PENDENTES" && isDone) return false;
       if (filterStatus === "LIBERADOS" && !isDone) return false;
       if (filterStatus === "SUBSTITUIDOS" && !isSub) return false;
@@ -339,225 +339,214 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
   return (
     <div className="space-y-5 animate-in fade-in duration-300 pb-16">
-      
+
       {/* ========================================================= */}
       {/* CABEÇALHO PRINCIPAL E SELETORES (Apenas na Folha de Soltura) */}
       {/* ========================================================= */}
       {viewMode === "FOLHA" && (
         <div className="bg-card border rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col gap-4">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          
-          {/* Título e Identificação Oficial */}
-          <div className="flex items-start gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-[#164E3A] dark:text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20">
-              <Bus className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[10px] font-mono tracking-wider uppercase px-2 py-0.5 rounded bg-muted text-muted-foreground font-bold">
-                  CGU.REG.OP.0001
-                </span>
-                <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
-                  Consórcio Guaicurus
-                </span>
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+
+            {/* Título e Identificação Oficial */}
+            <div className="flex items-start gap-3.5">
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground mt-1">
+                  Controle de Soltura da Frota
+                </h1>
+                <p className="text-xs sm:text-sm text-muted-foreground">
+                  Despacho diário de veículos, controle de motoristas (MOTO) e horários de saída
+                </p>
               </div>
-              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground mt-1">
-                Controle de Soltura da Frota
-              </h1>
-              <p className="text-xs sm:text-sm text-muted-foreground">
-                Despacho diário de veículos, controle de motoristas (MOTO) e horários de saída
-              </p>
+            </div>
+
+            {/* Seletor de Garagem, Escala, Data e Ação Imprimir */}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
+
+              {/* Linha Superior: Garagem e Escala */}
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Seletor de Garagem */}
+                <div className="flex items-center bg-muted/60 p-1 rounded-full border border-border/80">
+                  <button
+                    type="button"
+                    onClick={() => setGaragem("VCG")}
+                    className={cn(
+                      "px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-2",
+                      garagem === "VCG"
+                        ? "bg-[#164E3A] text-white shadow-xs"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-[#22C55E]" />
+                    VCG
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setGaragem("VCM")}
+                    className={cn(
+                      "px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-2",
+                      garagem === "VCM"
+                        ? "bg-[#164E3A] text-white shadow-xs"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-[#3B82F6]" />
+                    VCM
+                  </button>
+                </div>
+
+                {/* Seletor de Escala */}
+                <div className="flex items-center bg-muted/60 p-1 rounded-full border border-border/80">
+                  <button
+                    type="button"
+                    onClick={() => setEscalaTipo("SEG_SEX")}
+                    className={cn(
+                      "px-3 py-1 rounded-full text-xs transition-all",
+                      escalaTipo === "SEG_SEX"
+                        ? "bg-card text-foreground shadow-2xs font-bold border"
+                        : "text-muted-foreground hover:text-foreground font-medium"
+                    )}
+                  >
+                    Seg-Sex
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setEscalaTipo("SABADO")}
+                    className={cn(
+                      "px-3 py-1 rounded-full text-xs transition-all",
+                      escalaTipo === "SABADO"
+                        ? "bg-card text-foreground shadow-2xs font-bold border"
+                        : "text-muted-foreground hover:text-foreground font-medium"
+                    )}
+                  >
+                    Sábado
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setEscalaTipo("DOM_FER")}
+                    className={cn(
+                      "px-3 py-1 rounded-full text-xs transition-all",
+                      escalaTipo === "DOM_FER"
+                        ? "bg-card text-foreground shadow-2xs font-bold border"
+                        : "text-muted-foreground hover:text-foreground font-medium"
+                    )}
+                  >
+                    Dom/Fer
+                  </button>
+                </div>
+              </div>
+
+              {/* Linha Inferior/Ao lado: Data e Ação Imprimir */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 bg-card border px-3 py-1.5 rounded-xl text-xs shadow-2xs">
+                  <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
+                  <input
+                    type="date"
+                    value={dataOperacao}
+                    onChange={(e) => setDataOperacao(e.target.value)}
+                    className="bg-transparent text-xs font-semibold focus:outline-hidden cursor-pointer"
+                  />
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handlePrint}
+                  className="h-8 px-3 text-xs gap-1.5 rounded-xl border font-semibold shadow-2xs"
+                  title="Imprimir folha de soltura em formato papel A4"
+                >
+                  <Printer className="w-3.5 h-3.5 text-muted-foreground" />
+                  <span>Imprimir A4</span>
+                </Button>
+              </div>
+
             </div>
           </div>
 
-          {/* Seletor de Garagem, Escala, Data e Ação Imprimir */}
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
-            
-            {/* Linha Superior: Garagem e Escala */}
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Seletor de Garagem */}
-              <div className="flex items-center bg-muted/60 p-1 rounded-full border border-border/80">
-                <button
-                  type="button"
-                  onClick={() => setGaragem("VCG")}
-                  className={cn(
-                    "px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-2",
-                    garagem === "VCG"
-                      ? "bg-[#164E3A] text-white shadow-xs"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <span className="w-2 h-2 rounded-full bg-[#22C55E]" />
-                  Viação Campo Grande (VCG)
-                </button>
+          {/* ========================================================= */}
+          {/* BARRA DE ESTATÍSTICAS E PROGRESSO OPERACIONAL */}
+          {/* ========================================================= */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2 border-t">
 
-                <button
-                  type="button"
-                  onClick={() => setGaragem("VCM")}
-                  className={cn(
-                    "px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-2",
-                    garagem === "VCM"
-                      ? "bg-[#164E3A] text-white shadow-xs"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <span className="w-2 h-2 rounded-full bg-[#3B82F6]" />
-                  Viação Cidade Morena (VCM)
-                </button>
-              </div>
-
-              {/* Seletor de Escala */}
-              <div className="flex items-center bg-muted/60 p-1 rounded-full border border-border/80">
-                <button
-                  type="button"
-                  onClick={() => setEscalaTipo("SEG_SEX")}
-                  className={cn(
-                    "px-3 py-1 rounded-full text-xs transition-all",
-                    escalaTipo === "SEG_SEX"
-                      ? "bg-card text-foreground shadow-2xs font-bold border"
-                      : "text-muted-foreground hover:text-foreground font-medium"
-                  )}
-                >
-                  Segunda a Sexta
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setEscalaTipo("SABADO")}
-                  className={cn(
-                    "px-3 py-1 rounded-full text-xs transition-all",
-                    escalaTipo === "SABADO"
-                      ? "bg-card text-foreground shadow-2xs font-bold border"
-                      : "text-muted-foreground hover:text-foreground font-medium"
-                  )}
-                >
-                  Sábado
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setEscalaTipo("DOM_FER")}
-                  className={cn(
-                    "px-3 py-1 rounded-full text-xs transition-all",
-                    escalaTipo === "DOM_FER"
-                      ? "bg-card text-foreground shadow-2xs font-bold border"
-                      : "text-muted-foreground hover:text-foreground font-medium"
-                  )}
-                >
-                  Dom / Feriado
-                </button>
+            {/* Card Total */}
+            <div className="bg-card p-3 rounded-2xl border shadow-2xs">
+              <span className="text-[11px] text-muted-foreground font-medium block">Total Programado</span>
+              <div className="flex items-baseline gap-1 mt-1">
+                <span className="text-xl font-bold text-foreground">{stats.total}</span>
+                <span className="text-[11px] text-muted-foreground">viagens</span>
               </div>
             </div>
 
-            {/* Linha Inferior/Ao lado: Data e Ação Imprimir */}
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1.5 bg-card border px-3 py-1.5 rounded-xl text-xs shadow-2xs">
-                <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
-                <input
-                  type="date"
-                  value={dataOperacao}
-                  onChange={(e) => setDataOperacao(e.target.value)}
-                  className="bg-transparent text-xs font-semibold focus:outline-hidden cursor-pointer"
+            {/* Card Liberados */}
+            <div className="bg-emerald-500/10 p-3 rounded-2xl border border-emerald-500/30">
+              <span className="text-[11px] text-emerald-800 dark:text-emerald-300 font-semibold flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> Liberados
+              </span>
+              <div className="flex items-baseline gap-1 mt-1">
+                <span className="text-xl font-bold text-emerald-700 dark:text-emerald-300">{stats.liberados}</span>
+                <span className="text-[11px] text-emerald-800/80 dark:text-emerald-300/80">carros na rua</span>
+              </div>
+            </div>
+
+            {/* Card Pendentes */}
+            <div className="bg-amber-500/10 p-3 rounded-2xl border border-amber-500/30">
+              <span className="text-[11px] text-amber-800 dark:text-amber-300 font-semibold flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" /> Pendentes
+              </span>
+              <div className="flex items-baseline gap-1 mt-1">
+                <span className="text-xl font-bold text-amber-700 dark:text-amber-300">{stats.pendentes}</span>
+                <span className="text-[11px] text-amber-800/80 dark:text-amber-300/80">na garagem</span>
+              </div>
+            </div>
+
+            {/* Card Substituídos (Trocados) */}
+            <div className="bg-blue-500/10 p-3 rounded-2xl border border-blue-500/30">
+              <span className="text-[11px] text-blue-800 dark:text-blue-300 font-semibold flex items-center gap-1.5">
+                <RefreshCw className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" /> Substituídos
+              </span>
+              <div className="flex items-baseline gap-1 mt-1">
+                <span className="text-xl font-bold text-blue-700 dark:text-blue-300">{stats.substituidos}</span>
+                <span className="text-[11px] text-blue-800/80 dark:text-blue-300/80">trocas</span>
+              </div>
+            </div>
+
+            {/* Card CI Bloqueios */}
+            <div
+              onClick={() => {
+                setViewMode("CI_MANUTENCAO");
+                navigate("/soltura/ci-manutencao");
+              }}
+              className="bg-rose-500/10 p-3 rounded-2xl border border-rose-500/30 cursor-pointer hover:bg-rose-500/15 transition-all"
+              title="Clique para abrir a tela de CI Manutenção"
+            >
+              <span className="text-[11px] text-rose-800 dark:text-rose-300 font-semibold flex items-center gap-1.5">
+                <Wrench className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" /> CI Manutenção
+              </span>
+              <div className="flex items-baseline gap-1 mt-1">
+                <span className="text-xl font-bold text-rose-700 dark:text-rose-300">{stats.totalBloqueadosCI}</span>
+                <span className="text-[11px] text-rose-800/80 dark:text-rose-300/80">bloqueados</span>
+              </div>
+            </div>
+
+            {/* Card Taxa de Soltura */}
+            <div className="bg-card p-3 rounded-2xl border shadow-2xs flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-foreground font-bold">Soltura</span>
+                <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{stats.percentual}%</span>
+              </div>
+              <div className="w-full bg-muted rounded-full h-2 mt-2 overflow-hidden">
+                <div
+                  className="bg-[#164E3A] dark:bg-emerald-500 h-full rounded-full transition-all duration-500"
+                  style={{ width: `${stats.percentual}%` }}
                 />
               </div>
-
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handlePrint}
-                className="h-8 px-3 text-xs gap-1.5 rounded-xl border font-semibold shadow-2xs"
-                title="Imprimir folha de soltura em formato papel A4"
-              >
-                <Printer className="w-3.5 h-3.5 text-muted-foreground" />
-                <span>Imprimir A4</span>
-              </Button>
             </div>
 
-          </div>
-        </div>
-
-        {/* ========================================================= */}
-        {/* BARRA DE ESTATÍSTICAS E PROGRESSO OPERACIONAL */}
-        {/* ========================================================= */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2 border-t">
-          
-          {/* Card Total */}
-          <div className="bg-card p-3 rounded-2xl border shadow-2xs">
-            <span className="text-[11px] text-muted-foreground font-medium block">Total Programado</span>
-            <div className="flex items-baseline gap-1 mt-1">
-              <span className="text-xl font-bold text-foreground">{stats.total}</span>
-              <span className="text-[11px] text-muted-foreground">viagens</span>
-            </div>
-          </div>
-
-          {/* Card Liberados */}
-          <div className="bg-emerald-500/10 p-3 rounded-2xl border border-emerald-500/30">
-            <span className="text-[11px] text-emerald-800 dark:text-emerald-300 font-semibold flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> Liberados
-            </span>
-            <div className="flex items-baseline gap-1 mt-1">
-              <span className="text-xl font-bold text-emerald-700 dark:text-emerald-300">{stats.liberados}</span>
-              <span className="text-[11px] text-emerald-800/80 dark:text-emerald-300/80">carros na rua</span>
-            </div>
-          </div>
-
-          {/* Card Pendentes */}
-          <div className="bg-amber-500/10 p-3 rounded-2xl border border-amber-500/30">
-            <span className="text-[11px] text-amber-800 dark:text-amber-300 font-semibold flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" /> Pendentes
-            </span>
-            <div className="flex items-baseline gap-1 mt-1">
-              <span className="text-xl font-bold text-amber-700 dark:text-amber-300">{stats.pendentes}</span>
-              <span className="text-[11px] text-amber-800/80 dark:text-amber-300/80">na garagem</span>
-            </div>
-          </div>
-
-          {/* Card Substituídos (Trocados) */}
-          <div className="bg-blue-500/10 p-3 rounded-2xl border border-blue-500/30">
-            <span className="text-[11px] text-blue-800 dark:text-blue-300 font-semibold flex items-center gap-1.5">
-              <RefreshCw className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" /> Substituídos
-            </span>
-            <div className="flex items-baseline gap-1 mt-1">
-              <span className="text-xl font-bold text-blue-700 dark:text-blue-300">{stats.substituidos}</span>
-              <span className="text-[11px] text-blue-800/80 dark:text-blue-300/80">trocas</span>
-            </div>
-          </div>
-
-          {/* Card CI Bloqueios */}
-          <div 
-            onClick={() => {
-              setViewMode("CI_MANUTENCAO");
-              navigate("/soltura/ci-manutencao");
-            }}
-            className="bg-rose-500/10 p-3 rounded-2xl border border-rose-500/30 cursor-pointer hover:bg-rose-500/15 transition-all"
-            title="Clique para abrir a tela de CI Manutenção"
-          >
-            <span className="text-[11px] text-rose-800 dark:text-rose-300 font-semibold flex items-center gap-1.5">
-              <Wrench className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" /> CI Manutenção
-            </span>
-            <div className="flex items-baseline gap-1 mt-1">
-              <span className="text-xl font-bold text-rose-700 dark:text-rose-300">{stats.totalBloqueadosCI}</span>
-              <span className="text-[11px] text-rose-800/80 dark:text-rose-300/80">bloqueados</span>
-            </div>
-          </div>
-
-          {/* Card Taxa de Soltura */}
-          <div className="bg-card p-3 rounded-2xl border shadow-2xs flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] text-foreground font-bold">Soltura</span>
-              <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{stats.percentual}%</span>
-            </div>
-            <div className="w-full bg-muted rounded-full h-2 mt-2 overflow-hidden">
-              <div 
-                className="bg-[#164E3A] dark:bg-emerald-500 h-full rounded-full transition-all duration-500"
-                style={{ width: `${stats.percentual}%` }}
-              />
-            </div>
           </div>
 
         </div>
-
-      </div>
       )}
 
       {/* ========================================================= */}
@@ -604,7 +593,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       {/* ========================================================= */}
       {viewMode === "FOLHA" && (
         <div className="bg-card border rounded-2xl p-4 sm:p-5 shadow-xs space-y-4">
-          
+
           {/* Header da Folha de Papel — Exibição de Metadados apenas em Impressão */}
           <div className="hidden print:grid grid-cols-5 gap-2 bg-muted/40 p-2.5 rounded-lg border text-[10px] font-mono text-muted-foreground mb-3">
             <div>
@@ -657,7 +646,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
           {/* Grade de 2 Colunas Lado a Lado (como no papel físico e layout-soltura.PNG) */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            
+
             {/* Coluna 1 */}
             <div className="border rounded-xl overflow-hidden shadow-2xs bg-card">
               <div className="bg-muted/60 px-3.5 py-2 text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between border-b">
@@ -811,8 +800,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                       <span className={cn(
                         "text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase",
                         res.cor === "VERMELHO" ? "bg-rose-500/15 text-rose-600" :
-                        res.cor === "AZUL" ? "bg-blue-500/15 text-blue-600" :
-                        "bg-amber-500/15 text-amber-600"
+                          res.cor === "AZUL" ? "bg-blue-500/15 text-blue-600" :
+                            "bg-amber-500/15 text-amber-600"
                       )}>
                         {res.cor}
                       </span>
@@ -856,10 +845,10 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                       <span className={cn(
                         "text-[10px] font-bold uppercase px-2 py-0.5 rounded-full inline-block",
                         tipo === "VERMELHO" ? "bg-rose-500/15 text-rose-600" :
-                        tipo === "AZUL" ? "bg-blue-500/15 text-blue-600" :
-                        tipo === "MICRO" ? "bg-purple-500/15 text-purple-600" :
-                        tipo === "ARTICULADO" ? "bg-amber-500/15 text-amber-600" :
-                        "bg-gray-500/15 text-gray-600"
+                          tipo === "AZUL" ? "bg-blue-500/15 text-blue-600" :
+                            tipo === "MICRO" ? "bg-purple-500/15 text-purple-600" :
+                              tipo === "ARTICULADO" ? "bg-amber-500/15 text-amber-600" :
+                                "bg-gray-500/15 text-gray-600"
                       )}>
                         {tipo}
                       </span>
@@ -898,8 +887,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                 key={item.id}
                 className={cn(
                   "p-3.5 rounded-xl border transition-all shadow-2xs hover:shadow-md flex flex-col justify-between relative overflow-hidden bg-card",
-                  isDone 
-                    ? "border-emerald-500/30 bg-emerald-500/5" 
+                  isDone
+                    ? "border-emerald-500/30 bg-emerald-500/5"
                     : "hover:border-primary/50"
                 )}
               >
@@ -1057,8 +1046,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                   <span className={cn(
                     "text-[10px] font-bold px-2 py-0.5 rounded-full uppercase",
                     res.cor === "VERMELHO" ? "bg-rose-500/15 text-rose-600 dark:text-rose-400" :
-                    res.cor === "AZUL" ? "bg-blue-500/15 text-blue-600 dark:text-blue-400" :
-                    "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                      res.cor === "AZUL" ? "bg-blue-500/15 text-blue-600 dark:text-blue-400" :
+                        "bg-amber-500/15 text-amber-600 dark:text-amber-400"
                   )}>
                     {res.cor}
                   </span>
