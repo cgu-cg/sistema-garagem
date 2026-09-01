@@ -166,10 +166,34 @@ export function App() {
             }
           />
           <Route
+            path="/soltura/alterar-folha"
+            element={
+              <PermissionRoute to="/soltura" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+                <SolturaPage defaultTab="ALTERAR_FOLHA" />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/soltura/alterar-carro-programado"
+            element={
+              <PermissionRoute to="/soltura" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+                <SolturaPage defaultTab="ALTERAR_CARRO_PROGRAMADO" />
+              </PermissionRoute>
+            }
+          />
+          <Route
             path="/soltura/carro-realizado"
             element={
               <PermissionRoute to="/soltura" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
-                <SolturaPage defaultTab="CARRO_REALIZADO" />
+                <SolturaPage defaultTab="ALTERAR_CARRO_PROGRAMADO" />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/soltura/reservas"
+            element={
+              <PermissionRoute to="/soltura" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+                <SolturaPage defaultTab="RESERVAS" />
               </PermissionRoute>
             }
           />

@@ -765,7 +765,7 @@ export function HomePage() {
           <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-xs text-slate-500">
             <span>Frentista: José Carlos</span>
             <Link to="/abastecimento-carro" className="text-[#164E3A] dark:text-emerald-400 font-semibold hover:underline">
-              Pista de Abastecimento →
+              Abastecimento de Frota →
             </Link>
           </div>
         </div>

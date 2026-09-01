@@ -2,8 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+
 import { toast } from "sonner";
 import { 
   Search, 
@@ -18,7 +17,6 @@ import {
   MapPin, 
   Calendar, 
   ShieldAlert,
-  SlidersHorizontal,
   Undo2,
   Check,
   Zap
@@ -41,12 +39,14 @@ import {
 import { drivers } from "@/data/drivers";
 import { cn } from "@/lib/utils";
 import { CiManutencaoView } from "./CiManutencaoView";
+import { AlterarFolhaView } from "./AlterarFolhaView";
+import { AlterarCarroProgramadoView } from "./AlterarCarroProgramadoView";
 import { CarroRealizadoView } from "./CarroRealizadoView";
 import { getInitialCIBloqueios, checkCarroBloqueado, subscribeCIUpdates } from "./ciManager";
 
 type GaragemType = "VCG" | "VCM";
 type EscalaTipo = "SEG_SEX" | "SABADO" | "DOM_FER";
-export type ViewMode = "FOLHA" | "CARRO_REALIZADO" | "CI_MANUTENCAO" | "CARDS" | "CI_BLOQUEIOS" | "RESERVAS";
+export type ViewMode = "FOLHA" | "CARRO_REALIZADO" | "CI_MANUTENCAO" | "CARDS" | "CI_BLOQUEIOS" | "RESERVAS" | "ALTERAR_FOLHA" | "ALTERAR_CARRO_PROGRAMADO";
 type FilterStatus = "TODOS" | "PENDENTES" | "LIBERADOS" | "SUBSTITUIDOS" | "ATRASADOS";
 
 interface DispatchedRecord {
@@ -118,13 +118,18 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     }
   });
 
-  // Modal de liberação rápida
-  const [selectedItem, setSelectedItem] = useState<SolturaItem | null>(null);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [inputCarroRealizado, setInputCarroRealizado] = useState("");
-  const [inputMotoristaCodigo, setInputMotoristaCodigo] = useState("");
-  const [inputMotoristaNome, setInputMotoristaNome] = useState("");
-  const [inputObs, setInputObs] = useState("");
+  // Rascunhos de digitação na folha antes da liberação
+  const [drafts, setDrafts] = useState<Record<string, { carro?: string; moto?: string }>>({});
+
+  const handleDraftChange = (itemId: string, field: "carro" | "moto", value: string) => {
+    setDrafts(prev => ({
+      ...prev,
+      [itemId]: {
+        ...prev[itemId],
+        [field]: value
+      }
+    }));
+  };
 
   // Recarregar despachos quando trocar garagem, escala ou data
   useEffect(() => {
@@ -139,6 +144,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     } catch {
       setDispatches({});
     }
+    setDrafts({});
   }, [garagem, escalaTipo, dataOperacao]);
 
   // Persistir despachos no localStorage
@@ -153,7 +159,9 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   };
 
   // Base de dados ativa baseada na Garagem e no Dia
-  const baseSchedules = useMemo<SolturaItem[]>(() => {
+  const [customSchedules, setCustomSchedules] = useState<Record<string, SolturaItem[]>>({});
+
+  const defaultSchedules = useMemo<SolturaItem[]>(() => {
     if (garagem === "VCG") {
       if (escalaTipo === "SEG_SEX") return vcgSegundaSexta;
       if (escalaTipo === "SABADO") return vcgSabado;
@@ -164,6 +172,29 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       return vcmDomingoFeriado;
     }
   }, [garagem, escalaTipo]);
+
+  const scheduleKey = `${garagem}_${escalaTipo}`;
+  const baseSchedules = customSchedules[scheduleKey] || defaultSchedules;
+
+  const handleUpdateScheduleField = (itemId: string, field: keyof SolturaItem, value: any) => {
+    setCustomSchedules(prev => {
+      const current = prev[scheduleKey] ? [...prev[scheduleKey]] : [...defaultSchedules];
+      const idx = current.findIndex(s => s.id === itemId);
+      if (idx >= 0) {
+        current[idx] = { ...current[idx], [field]: value };
+      }
+      return { ...prev, [scheduleKey]: current };
+    });
+    toast.success("Alteração salva com sucesso!");
+  };
+
+  const handleAddSchedule = (newItem: SolturaItem) => {
+    setCustomSchedules(prev => {
+      const current = prev[scheduleKey] ? [...prev[scheduleKey]] : [...defaultSchedules];
+      return { ...prev, [scheduleKey]: [...current, newItem] };
+    });
+    toast.success("Novo horário adicionado!");
+  };
 
   // Reservas ativas
   const reservasAtivas = useMemo<TerminalReserva[]>(() => {
@@ -249,70 +280,17 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     };
   }, [filteredSchedules]);
 
-  // Abrir Modal de Despacho
-  const handleOpenDispatch = (item: SolturaItem) => {
-    const currentDispatch = dispatches[item.id];
-    setSelectedItem(item);
-    setInputCarroRealizado(currentDispatch?.carroRealizado || item.carroProgramado || "");
-    setInputMotoristaCodigo(currentDispatch?.motoristaCodigo || item.motoristaCodigo || "");
-    setInputMotoristaNome(currentDispatch?.motoristaNome || item.motoristaNome || "");
-    setInputObs(currentDispatch?.observacoes || item.observacoes || "");
-    setIsDialogOpen(true);
-  };
 
-  // Atualizar código de motorista e sugerir nome
-  const handleMotoristaCodeChange = (code: string) => {
-    setInputMotoristaCodigo(code);
-    const found = drivers.find(d => d.code.toLowerCase() === code.trim().toLowerCase());
-    if (found) {
-      setInputMotoristaNome(found.name);
-    }
-  };
 
-  // Liberar saída no Modal
-  const handleConfirmDispatch = async () => {
-    if (!selectedItem) return;
-    const finalCarro = inputCarroRealizado.trim() || selectedItem.carroProgramado;
-    const finalMotoCode = inputMotoristaCodigo.trim();
+  // Liberação de Saída (acionada unicamente pelo clique no botão 'Liberar')
+  const handleRelease = (item: SolturaItem, customCarro?: string, customMoto?: string) => {
+    const draft = drafts[item.id];
+    const rawCarro = customCarro !== undefined ? customCarro : draft?.carro;
+    const rawMoto = customMoto !== undefined ? customMoto : draft?.moto;
 
-    if (!finalCarro) {
-      toast.error("Informe o prefixo do carro realizado.");
-      return;
-    }
+    const finalCarro = (rawCarro && rawCarro.trim()) ? rawCarro.trim() : (item.carroRealizado || item.carroProgramado);
+    const finalMoto = (rawMoto && rawMoto.trim()) ? rawMoto.trim() : (item.motoristaCodigo || "");
 
-    // Verificar bloqueio no CI
-    const bloqueio = checkBloqueioCI(finalCarro);
-    if (bloqueio) {
-      toast.warning(`Atenção: Carro ${finalCarro} está no CI (${bloqueio.motivo})! Verifique com a manutenção.`, {
-        duration: 5000
-      });
-    }
-
-    const agora = new Date();
-    const horaAtual = `${String(agora.getHours()).padStart(2, "0")}:${String(agora.getMinutes()).padStart(2, "0")}`;
-    const substituido = finalCarro !== selectedItem.carroProgramado;
-
-    const newRecord: DispatchedRecord = {
-      scheduleId: selectedItem.id,
-      carroRealizado: finalCarro,
-      motoristaCodigo: finalMotoCode || "01",
-      motoristaNome: inputMotoristaNome || (finalMotoCode ? `Motorista ${finalMotoCode}` : "Motorista Escalado"),
-      horaLiberacao: horaAtual,
-      observacoes: inputObs,
-      substituido
-    };
-
-    const updated = { ...dispatches, [selectedItem.id]: newRecord };
-    saveDispatches(updated);
-
-    toast.success(`Linha ${selectedItem.linha} Tab ${selectedItem.tabela} liberada com sucesso! Carro: ${finalCarro}`);
-    setIsDialogOpen(false);
-    setSelectedItem(null);
-  };
-
-  // Liberação Rápida Direta (1 clique com carro programado)
-  const handleQuickRelease = (item: SolturaItem) => {
-    const finalCarro = item.carroRealizado || item.carroProgramado;
     const bloqueio = checkBloqueioCI(finalCarro);
     if (bloqueio) {
       toast.warning(`Atenção: Carro ${finalCarro} consta no CI como: ${bloqueio.motivo}!`);
@@ -321,11 +299,18 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     const agora = new Date();
     const horaAtual = `${String(agora.getHours()).padStart(2, "0")}:${String(agora.getMinutes()).padStart(2, "0")}`;
 
+    // Buscar nome do motorista se o código foi informado. NUNCA coloca "01" sozinho!
+    let finalNome = "";
+    if (finalMoto) {
+      const driverObj = drivers.find(d => d.code === finalMoto);
+      finalNome = driverObj ? driverObj.name : `Motorista ${finalMoto}`;
+    }
+
     const newRecord: DispatchedRecord = {
       scheduleId: item.id,
       carroRealizado: finalCarro,
-      motoristaCodigo: item.motoristaCodigo || "01",
-      motoristaNome: item.motoristaNome || "Motorista Escalado",
+      motoristaCodigo: finalMoto,
+      motoristaNome: finalNome,
       horaLiberacao: horaAtual,
       substituido: finalCarro !== item.carroProgramado
     };
@@ -335,47 +320,19 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     toast.success(`Linha ${item.linha} / Tab ${item.tabela} liberada às ${horaAtual}!`);
   };
 
-  // Desfazer liberação
+  // Desfazer liberação (retorna para pendente e limpa o registro)
   const handleUndoDispatch = (itemId: string) => {
     const updated = { ...dispatches };
     delete updated[itemId];
     saveDispatches(updated);
+
+    setDrafts(prev => {
+      const next = { ...prev };
+      delete next[itemId];
+      return next;
+    });
+
     toast.info("Liberação desfeita. Registro retornado para pendente.");
-  };
-
-  // Atualização rápida inline de Carro ou Motorista ao pressionar Enter na célula
-  const handleInlineCommit = (item: SolturaItem, field: "carro" | "motorista", value: string) => {
-    const current = dispatches[item.id];
-    const agora = new Date();
-    const horaAtual = current?.horaLiberacao || `${String(agora.getHours()).padStart(2, "0")}:${String(agora.getMinutes()).padStart(2, "0")}`;
-    
-    let finalCarro = current?.carroRealizado || item.carroProgramado;
-    let finalMoto = current?.motoristaCodigo || "";
-    let finalNome = current?.motoristaNome || "";
-
-    if (field === "carro") {
-      finalCarro = value.trim() || item.carroProgramado;
-      const bloqueio = checkBloqueioCI(finalCarro);
-      if (bloqueio) {
-        toast.warning(`Carro ${finalCarro} em CI: ${bloqueio.motivo}`);
-      }
-    } else {
-      finalMoto = value.trim();
-      const driverObj = drivers.find(d => d.code === finalMoto);
-      finalNome = driverObj ? driverObj.name : (finalMoto ? `Motorista ${finalMoto}` : "");
-    }
-
-    const updated: DispatchedRecord = {
-      scheduleId: item.id,
-      carroRealizado: finalCarro,
-      motoristaCodigo: finalMoto || "01",
-      motoristaNome: finalNome || "Motorista Escalado",
-      horaLiberacao: horaAtual,
-      substituido: finalCarro !== item.carroProgramado
-    };
-
-    saveDispatches({ ...dispatches, [item.id]: updated });
-    toast.success(`Registro atualizado!`);
   };
 
   // Imprimir folha A4
@@ -837,10 +794,9 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                             item={item}
                             index={item.ordem || idx + 1}
                             checkBloqueioCI={checkBloqueioCI}
-                            onOpenDispatch={handleOpenDispatch}
-                            onQuickRelease={handleQuickRelease}
+                            onRelease={handleRelease}
                             onUndoDispatch={handleUndoDispatch}
-                            onInlineCommit={handleInlineCommit}
+                            onDraftChange={handleDraftChange}
                           />
                         </>
                       );
@@ -905,10 +861,9 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                             item={item}
                             index={item.ordem || colunaEsquerda.length + idx + 1}
                             checkBloqueioCI={checkBloqueioCI}
-                            onOpenDispatch={handleOpenDispatch}
-                            onQuickRelease={handleQuickRelease}
+                            onRelease={handleRelease}
                             onUndoDispatch={handleUndoDispatch}
-                            onInlineCommit={handleInlineCommit}
+                            onDraftChange={handleDraftChange}
                           />
                         </>
                       );
@@ -1126,34 +1081,29 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
                 {/* Ações do Card */}
                 <div className="pt-2 border-t flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant={isDone ? "outline" : "default"}
-                    onClick={() => handleOpenDispatch(item)}
-                    className="flex-1 h-8 text-xs font-semibold"
-                  >
-                    {isDone ? "Editar Despacho" : "Liberar Saída"}
-                  </Button>
-
                   {isDone ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleUndoDispatch(item.id)}
-                      className="h-8 px-2 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10"
-                      title="Desfazer liberação"
-                    >
-                      <Undo2 className="w-3.5 h-3.5" />
-                    </Button>
+                    <>
+                      <div className="flex-1 flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 py-1.5 rounded-lg border border-emerald-500/30">
+                        <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        Liberado
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleUndoDispatch(item.id)}
+                        className="h-8 px-2 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10"
+                        title="Desfazer liberação"
+                      >
+                        <Undo2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </>
                   ) : (
                     <Button
                       size="sm"
-                      variant="outline"
-                      onClick={() => handleQuickRelease(item)}
-                      className="h-8 px-2 text-emerald-600 hover:bg-emerald-500/10"
-                      title="Liberação rápida com carro programado"
+                      onClick={() => handleRelease(item)}
+                      className="flex-1 h-8 text-xs font-bold rounded-lg bg-[#164E3A] hover:bg-[#113C2D] text-white shadow-2xs"
                     >
-                      <Check className="w-3.5 h-3.5" />
+                      Liberar Saída
                     </Button>
                   )}
                 </div>
@@ -1250,122 +1200,35 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       )}
 
       {/* ========================================================= */}
-      {/* DIÁLOGO / MODAL DE DESPACHO E LIBERAÇÃO */}
+      {/* VISUALIZAÇÃO: ALTERAR FOLHA DE SOLTURA */}
       {/* ========================================================= */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
-              <Bus className="w-5 h-5 text-primary" />
-              Despacho de Saída • Linha {selectedItem?.linha}
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Confirme o prefixo do veículo e informe a matrícula (MOTO) do motorista escalado.
-            </DialogDescription>
-          </DialogHeader>
+      {viewMode === "ALTERAR_FOLHA" && (
+        <AlterarFolhaView
+          garagem={garagem}
+          escalaTipo={escalaTipo}
+          schedules={baseSchedules}
+          onUpdateField={handleUpdateScheduleField}
+          onAddSchedule={handleAddSchedule}
+          onSelectGaragem={setGaragem}
+          onSelectEscalaTipo={setEscalaTipo}
+        />
+      )}
 
-          {selectedItem && (
-            <div className="space-y-4 pt-2">
-              
-              {/* Informações da Linha */}
-              <div className="grid grid-cols-3 gap-2 bg-muted/50 p-3 rounded-xl border text-center">
-                <div>
-                  <span className="text-[10px] text-muted-foreground uppercase font-semibold">Linha</span>
-                  <p className="font-mono font-bold text-base text-foreground">{selectedItem.linha}</p>
-                </div>
-                <div>
-                  <span className="text-[10px] text-muted-foreground uppercase font-semibold">Tabela</span>
-                  <p className="font-mono font-bold text-base text-foreground">{selectedItem.tabela}</p>
-                </div>
-                <div>
-                  <span className="text-[10px] text-muted-foreground uppercase font-semibold">Saída Garagem</span>
-                  <p className="font-mono font-bold text-base text-primary">{selectedItem.saidaGaragem}</p>
-                </div>
-              </div>
-
-              {/* Campo Carro Realizado */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs font-bold">Carro Realizado (Prefixo)</Label>
-                  <span className="text-[11px] text-muted-foreground">
-                    Programado: <strong className="font-mono text-foreground">{selectedItem.carroProgramado}</strong>
-                  </span>
-                </div>
-                <Input
-                  placeholder="Ex: 4210"
-                  value={inputCarroRealizado}
-                  onChange={(e) => setInputCarroRealizado(e.target.value)}
-                  className="font-mono text-base font-bold tracking-wider"
-                />
-                
-                {/* Alerta de Carro no CI */}
-                {checkBloqueioCI(inputCarroRealizado) && (
-                  <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-xs text-rose-600 dark:text-rose-400 font-semibold flex items-center gap-1.5">
-                    <AlertTriangle className="w-4 h-4 shrink-0" />
-                    <span>Atenção: Carro {inputCarroRealizado} está no CI: {checkBloqueioCI(inputCarroRealizado)?.motivo}!</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Motorista (MOTO) */}
-              <div className="grid grid-cols-3 gap-2">
-                <div className="space-y-1.5 col-span-1">
-                  <Label className="text-xs font-bold">MOTO (Cód)</Label>
-                  <Input
-                    placeholder="Ex: 1012"
-                    value={inputMotoristaCodigo}
-                    onChange={(e) => handleMotoristaCodeChange(e.target.value)}
-                    className="font-mono font-bold text-sm"
-                  />
-                </div>
-                <div className="space-y-1.5 col-span-2">
-                  <Label className="text-xs font-bold">Nome do Motorista</Label>
-                  <Input
-                    placeholder="Nome ou identificação"
-                    value={inputMotoristaNome}
-                    onChange={(e) => setInputMotoristaNome(e.target.value)}
-                    className="text-xs"
-                  />
-                </div>
-              </div>
-
-              {/* Observações */}
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Observações / Motivo da Troca</Label>
-                <Input
-                  placeholder="Ex: Carro reserva utilizado por revisão de mola"
-                  value={inputObs}
-                  onChange={(e) => setInputObs(e.target.value)}
-                  className="text-xs"
-                />
-              </div>
-
-              {/* Botões */}
-              <div className="flex items-center justify-end gap-2 pt-2 border-t">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsDialogOpen(false)}
-                >
-                  Cancelar
-                </Button>
-
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={handleConfirmDispatch}
-                  className="font-bold gap-1.5"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  Confirmar e Liberar Saída
-                </Button>
-              </div>
-
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* ========================================================= */}
+      {/* VISUALIZAÇÃO: ALTERAR CARRO PROGRAMADO */}
+      {/* ========================================================= */}
+      {(viewMode === "ALTERAR_CARRO_PROGRAMADO" || viewMode === "CARRO_REALIZADO") && (
+        <AlterarCarroProgramadoView
+          garagem={garagem}
+          escalaTipo={escalaTipo}
+          schedules={baseSchedules}
+          ciList={ciList}
+          onUpdateField={handleUpdateScheduleField}
+          checkBloqueioCI={checkBloqueioCI}
+          onSelectGaragem={setGaragem}
+          onSelectEscalaTipo={setEscalaTipo}
+        />
+      )}
 
     </div>
   );
@@ -1378,20 +1241,18 @@ interface FolhaTableRowProps {
   item: SolturaItem;
   index: number;
   checkBloqueioCI: (prefixo?: string) => BloqueioCarro | undefined | null;
-  onOpenDispatch: (item: SolturaItem) => void;
-  onQuickRelease: (item: SolturaItem) => void;
+  onRelease: (item: SolturaItem, carro?: string, moto?: string) => void;
   onUndoDispatch: (id: string) => void;
-  onInlineCommit: (item: SolturaItem, field: "carro" | "motorista", value: string) => void;
+  onDraftChange: (itemId: string, field: "carro" | "moto", value: string) => void;
 }
 
 function FolhaTableRow({
   item,
   index,
   checkBloqueioCI,
-  onOpenDispatch,
-  onQuickRelease,
+  onRelease,
   onUndoDispatch,
-  onInlineCommit
+  onDraftChange
 }: FolhaTableRowProps) {
   const isDone = item.status === "LIBERADO" || item.status === "SUBSTITUIDO";
   const isSub = item.status === "SUBSTITUIDO" || (item.carroRealizado && item.carroRealizado !== item.carroProgramado);
@@ -1412,18 +1273,18 @@ function FolhaTableRow({
   return (
     <tr
       className={cn(
-        "transition-colors group",
-        isDone 
-          ? "bg-emerald-500/5 hover:bg-emerald-500/10" 
+        "transition-colors group border-b border-border/50",
+        isDone
+          ? "bg-emerald-500/5 hover:bg-emerald-500/10"
           : index % 2 === 0 ? "bg-muted/20 hover:bg-muted/40" : "bg-card hover:bg-muted/30"
       )}
     >
-      {/* Ordem */}
-      <td className="py-2 px-2 text-center text-muted-foreground text-[11px] font-semibold">
+      {/* 1. Ordem */}
+      <td className="py-2 px-2 text-center text-muted-foreground text-[11px] font-semibold select-none">
         {String(index).padStart(2, "0")}
       </td>
 
-      {/* Linha */}
+      {/* 2. Linha */}
       <td className="py-2 px-2.5 font-bold text-foreground text-xs whitespace-nowrap">
         <div className="flex items-center gap-1">
           {item.linha}
@@ -1439,48 +1300,46 @@ function FolhaTableRow({
         </div>
       </td>
 
-      {/* Tabela */}
+      {/* 3. Tabela */}
       <td className="py-2 px-2 text-center text-xs font-semibold text-muted-foreground">
         {item.tabela}
       </td>
 
-      {/* Carro Programado (com risco vermelho se foi substituído, como no papel) */}
-      <td className="py-2 px-2.5 whitespace-nowrap">
+      {/* 4. Carro Programado */}
+      <td className="py-2 px-2.5 whitespace-nowrap text-center">
         <span className={cn(
-          "font-bold",
+          "font-bold text-xs",
           isSub ? "line-through text-rose-500 font-normal decoration-2" : "text-muted-foreground"
         )}>
           {item.carroProgramado || "—"}
         </span>
       </td>
 
-      {/* Carro Realizado (Input rápido / display) */}
+      {/* 5. Carro Realizado (P) - Placeholder Vazio */}
       <td className="py-1.5 px-2 bg-muted/20 text-center">
         <div className="flex items-center justify-center gap-1">
           <input
             type="text"
-            placeholder={item.carroProgramado || "Carro"}
+            placeholder=""
             value={carroValue}
-            onChange={(e) => setCarroValue(e.target.value)}
-            onBlur={() => {
-              if (carroValue && carroValue !== (item.carroRealizado || item.carroProgramado)) {
-                onInlineCommit(item, "carro", carroValue);
-              }
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                onInlineCommit(item, "carro", carroValue);
-              }
+            disabled={isDone}
+            onChange={(e) => {
+              const val = e.target.value;
+              setCarroValue(val);
+              onDraftChange(item.id, "carro", val);
             }}
             className={cn(
               "w-16 h-7 text-center rounded-md border text-xs font-bold font-mono focus:outline-hidden focus:ring-1 focus:ring-[#164E3A] transition-all",
-              isSub 
-                ? "text-blue-600 dark:text-blue-400 border-blue-500/50 bg-blue-500/10"
-                : "bg-background border-border/80 text-foreground",
-              bloqueio && "border-rose-500 text-rose-600 bg-rose-500/10"
+              isDone
+                ? "bg-transparent border-transparent text-emerald-700 dark:text-emerald-400 cursor-default font-bold"
+                : isSub
+                  ? "text-blue-600 dark:text-blue-400 border-blue-500/50 bg-blue-500/10"
+                  : "bg-background border-border/80 text-foreground",
+              bloqueio && !isDone && "border-rose-500 text-rose-600 bg-rose-500/10"
             )}
+            title={bloqueio ? `Atenção: Carro no CI: ${bloqueio.motivo}` : undefined}
           />
-          {bloqueio && (
+          {bloqueio && !isDone && (
             <span title={`Carro no CI: ${bloqueio.motivo}`} className="cursor-help text-rose-500 shrink-0">
               <AlertTriangle className="w-3.5 h-3.5" />
             </span>
@@ -1488,40 +1347,40 @@ function FolhaTableRow({
         </div>
       </td>
 
-      {/* Motorista (MOTO) */}
+      {/* 6. Motorista (MOTO) - Placeholder Vazio */}
       <td className="py-1.5 px-2 text-center">
         <input
           type="text"
-          placeholder="MOTO"
+          placeholder=""
           value={motoValue}
-          onChange={(e) => setMotoValue(e.target.value)}
-          onBlur={() => {
-            if (motoValue !== item.motoristaCodigo) {
-              onInlineCommit(item, "motorista", motoValue);
-            }
+          disabled={isDone}
+          onChange={(e) => {
+            const val = e.target.value;
+            setMotoValue(val);
+            onDraftChange(item.id, "moto", val);
           }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              onInlineCommit(item, "motorista", motoValue);
-            }
-          }}
-          className="w-16 h-7 text-center rounded-md border border-border/80 bg-background text-xs font-mono font-semibold placeholder:text-muted-foreground/50 focus:outline-hidden focus:ring-1 focus:ring-[#164E3A] transition-all"
-          title={item.motoristaNome || "Código do motorista escalado"}
+          className={cn(
+            "w-16 h-7 text-center rounded-md border text-xs font-mono font-bold focus:outline-hidden transition-all",
+            isDone
+              ? "bg-transparent border-transparent text-foreground cursor-default"
+              : "bg-card border-border/80 text-foreground focus:ring-1 focus:ring-[#164E3A]"
+          )}
+          title={item.motoristaNome ? `Motorista: ${item.motoristaNome}` : "Digite o código MOTO"}
         />
       </td>
 
-      {/* Saída Garagem */}
-      <td className="py-2 px-2 text-center font-bold text-foreground text-xs">
+      {/* 7. Horário Saída Garagem */}
+      <td className="py-1 px-2 text-center font-mono font-bold text-xs text-foreground whitespace-nowrap">
         {item.saidaGaragem}
       </td>
 
-      {/* Início Linha */}
-      <td className="py-2 px-2 text-center text-muted-foreground text-xs">
+      {/* 8. Horário Início Linha / Bairro */}
+      <td className="py-1 px-2 text-center font-mono text-xs text-muted-foreground whitespace-nowrap">
         {item.inicioLinha || item.inicioBairro || "—"}
       </td>
 
-      {/* Ações */}
-      <td className="py-2 px-2.5 text-center whitespace-nowrap">
+      {/* 9. Ações: Liberar Saída ou Desfazer */}
+      <td className="py-1 px-2 text-center">
         {isDone ? (
           <div className="flex items-center justify-center gap-1.5">
             <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
@@ -1537,23 +1396,14 @@ function FolhaTableRow({
             </button>
           </div>
         ) : (
-          <div className="flex items-center justify-center gap-1.5">
+          <div className="flex items-center justify-center">
             <Button
               size="sm"
-              onClick={() => onQuickRelease(item)}
+              onClick={() => onRelease(item, carroValue, motoValue)}
               className="h-6 px-3 text-[11px] font-bold rounded-full bg-[#164E3A] hover:bg-[#113C2D] text-white shadow-2xs transition-colors"
               title="Liberar saída do veículo"
             >
               Liberar
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => onOpenDispatch(item)}
-              className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground rounded-full hover:bg-muted"
-              title="Abrir ajustes e detalhes da soltura"
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
             </Button>
           </div>
         )}

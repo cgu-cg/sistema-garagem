@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,8 +23,11 @@ import {
   ChevronDown,
   ShieldAlert,
   Loader2,
+  TrendingUp,
+  ArrowUpRight,
 } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 // Meses para geração de URL PDF
 const MESES_MAP: Record<number, string> = {
@@ -93,9 +96,10 @@ export function CatracasPage() {
   const [isMockMode, setIsMockMode] = useState(false);
 
   // Estados dos filtros da Consistência
-  const [consistenciaDate, setConsistenciaDate] = useState("2026-08-05");
+  const [consistenciaDate, setConsistenciaDate] = useState("");
   const [consistenciaMinDiff, setConsistenciaMinDiff] = useState(1);
   const [consistenciaLoading, setConsistenciaLoading] = useState(false);
+  const [consistenciaHasSearched, setConsistenciaHasSearched] = useState(false);
   const [consistenciaData, setConsistenciaData] = useState<any[]>([]);
 
   // Estados de detalhes do veículo selecionado
@@ -133,13 +137,20 @@ export function CatracasPage() {
   const [activePdfUrl, setActivePdfUrl] = useState<string>("");
   const [copiedUrl, setCopiedUrl] = useState(false);
 
-  // Carregar dados de consistência inicial
+  // Carregar dados de consistência inicial apenas se houver data informada
   useEffect(() => {
-    handleSearchConsistencia();
+    if (consistenciaDate) {
+      handleSearchConsistencia();
+    }
   }, []);
 
   // Handler de Busca de Consistência
   const handleSearchConsistencia = async () => {
+    if (!consistenciaDate) {
+      toast.warning("Selecione uma data para pesquisar as divergências de catraca.");
+      return;
+    }
+    setConsistenciaHasSearched(true);
     setConsistenciaLoading(true);
     try {
       // Ajustar formato da data para DD/MM/YYYY ou enviar YYYY-MM-DD
@@ -533,7 +544,7 @@ export function CatracasPage() {
     <div className="space-y-6">
       {/* Banner de Modo Simulação */}
       {isMockMode && (
-        <div className="flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-800 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-400">
+        <div className="flex items-center gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-800 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-400">
           <ShieldAlert className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-500" />
           <div className="text-sm">
             <span className="font-semibold">Modo Simulação Ativo:</span> Banco de dados SQL Server não conectado. As informações mostradas abaixo são dados de demonstração salvos localmente.
@@ -541,11 +552,212 @@ export function CatracasPage() {
         </div>
       )}
 
+      {/* PageHeader padrão CGU Garagem */}
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-xl md:text-3xl font-bold tracking-tight pb-3">Conferência de Catracas</h1>
+          <h1 className="text-xl md:text-3xl font-bold tracking-tight text-slate-900 dark:text-white pb-1">Conferência de Catracas</h1>
           <p className="text-muted-foreground text-xs md:text-sm">Auditoria de turnos, WiFi logs, ordens de serviço de manutenção e diários de bordo.</p>
         </div>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={() => {
+              if (activeTab === "consistencia") handleSearchConsistencia();
+              else if (activeTab === "alertas") handleSearchAlerts();
+              else if (activeTab === "backup") handleSearchBackup();
+            }}
+            size="sm"
+            className="bg-[#154D34] hover:bg-[#0E3824] text-white rounded-xl text-xs gap-1.5 shadow-xs font-semibold px-4 h-9"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Atualizar Módulo
+          </Button>
+        </div>
+      </div>
+
+      {/* Bento Grid KPIs Superiores - Padrão Corporativo layout-padrao.webp */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        {/* CARD 1: Hero Featured Verde Floresta (Consistência Diária) */}
+        <div className="rounded-3xl bg-[#154D34] text-white p-5 shadow-sm relative overflow-hidden flex flex-col justify-between min-h-[148px]">
+          <div className="absolute -right-8 -bottom-8 w-32 h-32 bg-emerald-400/10 rounded-full blur-2xl pointer-events-none" />
+          <div className="flex items-center justify-between z-10">
+            <span className="text-xs font-medium text-emerald-200 uppercase tracking-wider">
+              Auditoria de Turnos
+            </span>
+            <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white backdrop-blur-xs">
+              <ClipboardCheck className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="z-10 my-2">
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl sm:text-4xl font-extrabold tracking-tight">
+                {consistenciaData.length}
+              </span>
+              <span className="text-xs text-emerald-200/80 font-medium">
+                {consistenciaData.length === 1 ? "divergência detectada" : "divergências detectadas"}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center justify-between text-xs z-10 pt-1 border-t border-white/10">
+            <span className="inline-flex items-center gap-1 text-emerald-300 font-semibold text-[11px]">
+              <TrendingUp className="w-3 h-3" />
+              {consistenciaDate ? `Data: ${formatDate(consistenciaDate)}` : "Data não selecionada"}
+            </span>
+            <Link to="/catracas/consistencia" className="text-emerald-100 hover:text-white flex items-center gap-0.5 text-[11px] font-medium">
+              Conferir <ChevronRight className="w-3 h-3" />
+            </Link>
+          </div>
+        </div>
+
+        {/* CARD 2: Alertas de Validadores */}
+        <div className="rounded-3xl bg-white dark:bg-[#0E1420] border border-slate-200/80 dark:border-slate-800/80 p-5 shadow-2xs flex flex-col justify-between min-h-[148px]">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+              Alertas de Validador
+            </span>
+            <div className="w-8 h-8 rounded-full bg-amber-50 dark:bg-slate-800 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+              <AlertTriangle className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="my-2">
+            <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+              {datasIncorretas.hIni.length + datasIncorretas.hFim.length + foraFrota.especiais.length + foraFrota.comuns.length} <span className="text-base font-semibold text-slate-500">alertas</span>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+              Datas invertidas e prefixos atípicos
+            </p>
+          </div>
+          <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800/60">
+            <span className="text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1 text-[11px]">
+              <ShieldAlert className="w-3 h-3" />
+              Monitoramento Ativo
+            </span>
+            <Link to="/catracas/alertas" className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-[11px]">
+              Ver alertas →
+            </Link>
+          </div>
+        </div>
+
+        {/* CARD 3: Backup de Coletas */}
+        <div className="rounded-3xl bg-white dark:bg-[#0E1420] border border-slate-200/80 dark:border-slate-800/80 p-5 shadow-2xs flex flex-col justify-between min-h-[148px]">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+              Backup de Coletas
+            </span>
+            <div className="w-8 h-8 rounded-full bg-emerald-50 dark:bg-slate-800 text-[#164E3A] dark:text-emerald-400 flex items-center justify-center">
+              <Database className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="my-2">
+            <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+              {backupData.length} <span className="text-base font-semibold text-slate-500">carros</span>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+              Janela de re-coleta WiFi programada
+            </p>
+          </div>
+          <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800/60">
+            <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1 text-[11px]">
+              <ArrowUpRight className="w-3 h-3" />
+              Sincronizado SQL Server
+            </span>
+            <Link to="/catracas/backup" className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-[11px]">
+              Gerenciar →
+            </Link>
+          </div>
+        </div>
+
+        {/* CARD 4: Diários de Bordo PDF */}
+        <div className="rounded-3xl bg-white dark:bg-[#0E1420] border border-slate-200/80 dark:border-slate-800/80 p-5 shadow-2xs flex flex-col justify-between min-h-[148px]">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+              Diários de Bordo
+            </span>
+            <div className="w-8 h-8 rounded-full bg-emerald-50 dark:bg-slate-800 text-[#164E3A] dark:text-emerald-400 flex items-center justify-center">
+              <FileText className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="my-2">
+            <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+              PDF <span className="text-base font-semibold text-slate-500">Digitalizado</span>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+              Auditoria visual de fichas escaneadas
+            </p>
+          </div>
+          <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800/60">
+            <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1 text-[11px]">
+              <Check className="w-3 h-3" />
+              Servidor Conectado
+            </span>
+            <Link to="/catracas/diario" className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-[11px]">
+              Consultar →
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* Seletor de Abas em Estilo Bento/Pílula */}
+      <div className="flex flex-wrap items-center gap-2 p-1.5 bg-slate-100/90 dark:bg-[#0E1420] rounded-2xl border border-slate-200/80 dark:border-slate-800/80">
+        <Link
+          to="/catracas/consistencia"
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl transition-all",
+            activeTab === "consistencia"
+              ? "bg-[#154D34] text-white shadow-xs"
+              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/40"
+          )}
+        >
+          <ClipboardCheck className="w-3.5 h-3.5" />
+          Consistência Diária
+        </Link>
+        <Link
+          to="/catracas/alertas"
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl transition-all",
+            activeTab === "alertas"
+              ? "bg-[#154D34] text-white shadow-xs"
+              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/40"
+          )}
+        >
+          <AlertTriangle className="w-3.5 h-3.5" />
+          Datas Incorretas & Coletores
+        </Link>
+        <Link
+          to="/catracas/backup"
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl transition-all",
+            activeTab === "backup"
+              ? "bg-[#154D34] text-white shadow-xs"
+              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/40"
+          )}
+        >
+          <Database className="w-3.5 h-3.5" />
+          Backup de Coletas
+        </Link>
+        <Link
+          to="/catracas/diario"
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl transition-all",
+            activeTab === "diario"
+              ? "bg-[#154D34] text-white shadow-xs"
+              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/40"
+          )}
+        >
+          <FileText className="w-3.5 h-3.5" />
+          Diário de Bordo (PDF)
+        </Link>
+        <Link
+          to="/catracas/historico"
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl transition-all",
+            activeTab === "consulta"
+              ? "bg-[#154D34] text-white shadow-xs"
+              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-800/40"
+          )}
+        >
+          <Search className="w-3.5 h-3.5" />
+          Histórico por Veículo
+        </Link>
       </div>
 
       {/* Painel de Ferramentas e Consultas (100% da largura) */}
@@ -553,17 +765,17 @@ export function CatracasPage() {
 
         {/* ABA 1: CONSISTÊNCIA DIÁRIA (fnConsisteCatracaVEICULOS) */}
         {activeTab === "consistencia" && (
-          <Card className="shadow-md">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-xl font-bold flex items-center gap-2">
-                <ClipboardCheck className="h-5 w-5 text-indigo-600" />
+          <Card className="rounded-3xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0E1420] shadow-sm">
+            <CardHeader className="pb-4 border-b border-slate-100 dark:border-slate-800/60">
+              <CardTitle className="text-xl font-bold flex items-center gap-2 text-slate-900 dark:text-white">
+                <ClipboardCheck className="h-5 w-5 text-[#154D34] dark:text-emerald-400" />
                 Diferenças de Catraca por Carro
               </CardTitle>
               <CardDescription>
                 Verifica discrepâncias entre a catraca final do primeiro turno e a inicial do segundo turno.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4 pt-4">
               {/* Filtros */}
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <div className="space-y-2">
@@ -575,7 +787,7 @@ export function CatracasPage() {
                       ref={dateInputRef}
                       value={consistenciaDate}
                       onChange={(e) => setConsistenciaDate(e.target.value)}
-                      className="pl-2 pr-8 cursor-pointer"
+                      className="pl-3 pr-8 cursor-pointer rounded-xl"
                       onClick={() => dateInputRef.current?.showPicker()}
                     />
                   </div>
@@ -588,12 +800,13 @@ export function CatracasPage() {
                     value={consistenciaMinDiff}
                     onChange={(e) => setConsistenciaMinDiff(parseInt(e.target.value) || 1)}
                     min="1"
+                    className="rounded-xl"
                   />
                 </div>
                 <div className="flex items-end">
                   <Button
                     onClick={handleSearchConsistencia}
-                    className="w-full flex items-center gap-2"
+                    className="w-full flex items-center justify-center gap-2 bg-[#154D34] hover:bg-[#0E3824] text-white rounded-xl font-semibold shadow-xs h-10"
                     disabled={consistenciaLoading}
                   >
                     {consistenciaLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
@@ -603,32 +816,40 @@ export function CatracasPage() {
               </div>
 
               {/* Tabela de Resultados */}
-              <div className="rounded-md border overflow-x-auto w-full">
+              <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800/80 overflow-x-auto w-full">
                 <table className="w-full text-sm text-left min-w-[700px] md:min-w-0">
-                  <thead className="bg-muted/80 text-muted-foreground text-xs uppercase font-semibold">
+                  <thead className="bg-slate-50 dark:bg-slate-900/60 text-muted-foreground text-xs uppercase font-semibold">
                     <tr>
-                      <th className="px-3 py-2">Carro</th>
-                      <th className="px-3 py-2">Linha</th>
-                      <th className="px-3 py-2">1º Turno (SV1)</th>
-                      <th className="px-3 py-2">Data SV1</th>
-                      <th className="px-3 py-2">2º Turno (SV2)</th>
-                      <th className="px-3 py-2">Data SV2</th>
-                      <th className="px-3 py-2 text-right">Dif.</th>
-                      <th className="px-3 py-2 text-center">Ações</th>
+                      <th className="px-3 py-2.5">Carro</th>
+                      <th className="px-3 py-2.5">Linha</th>
+                      <th className="px-3 py-2.5">1º Turno (SV1)</th>
+                      <th className="px-3 py-2.5">Data SV1</th>
+                      <th className="px-3 py-2.5">2º Turno (SV2)</th>
+                      <th className="px-3 py-2.5">Data SV2</th>
+                      <th className="px-3 py-2.5 text-right">Dif.</th>
+                      <th className="px-3 py-2.5 text-center">Ações</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y">
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                     {consistenciaLoading ? (
                       <tr>
-                        <td colSpan={8} className="text-center py-8 text-muted-foreground">
-                          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-indigo-600" />
+                        <td colSpan={8} className="text-center py-10 text-muted-foreground">
+                          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-[#154D34] dark:text-emerald-400" />
                           Consultando o banco bilhetagem...
+                        </td>
+                      </tr>
+                    ) : !consistenciaDate && !consistenciaHasSearched ? (
+                      <tr>
+                        <td colSpan={8} className="text-center py-10 text-muted-foreground">
+                          <ClipboardCheck className="h-8 w-8 mx-auto mb-2 text-slate-400 opacity-60" />
+                          <p className="font-semibold text-sm text-slate-700 dark:text-slate-300">Nenhuma data selecionada</p>
+                          <p className="text-xs text-muted-foreground mt-1">Selecione uma data acima e clique em "Pesquisar Inconsistências" para iniciar a conferência.</p>
                         </td>
                       </tr>
                     ) : consistenciaData.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="text-center py-8 text-muted-foreground font-medium">
-                          Nenhuma divergência encontrada para os filtros selecionados.
+                        <td colSpan={8} className="text-center py-10 text-muted-foreground font-medium">
+                          Nenhuma divergência encontrada para os filtros selecionados{consistenciaDate ? ` na data ${formatDate(consistenciaDate)}` : ""}.
                         </td>
                       </tr>
                     ) : (
@@ -636,30 +857,30 @@ export function CatracasPage() {
                         <tr
                           key={row.idCarro}
                           onClick={() => handleSelectCar(row.idCarro, consistenciaDate)}
-                          className={`hover:bg-accent-400 cursor-pointer transition-colors ${selectedCar === row.idCarro ? "bg-indigo-200 dark:bg-indigo-950" : ""
+                          className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors ${selectedCar === row.idCarro ? "bg-emerald-50/80 dark:bg-emerald-950/40 border-l-4 border-l-[#154D34] dark:border-l-emerald-500" : ""
                             }`}
                         >
-                          <td className="px-4 py-1 text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                          <td className="px-4 py-2 text-xs font-bold text-[#154D34] dark:text-emerald-400">
                             {row.idCarro}
                           </td>
-                          <td className="px-4 py-1 text-xs">{row.Linha}</td>
-                          <td className="px-4 py-1 text-xs font-semibold text-foreground">
+                          <td className="px-4 py-2 text-xs">{row.Linha}</td>
+                          <td className="px-4 py-2 text-xs font-semibold text-foreground">
                             {row.catracaFim}
                           </td>
-                          <td className="px-4 py-1 text-xs text-muted-foreground">
+                          <td className="px-4 py-2 text-xs text-muted-foreground">
                             {formatDate(row.datainiSV1)}
                           </td>
-                          <td className="px-4 py-1 text-xs font-semibold text-foreground">
+                          <td className="px-4 py-2 text-xs font-semibold text-foreground">
                             {row.catracaIni}
                           </td>
-                          <td className="px-4 py-1 text-xs text-muted-foreground">
+                          <td className="px-4 py-2 text-xs text-muted-foreground">
                             {formatDate(row.datainiSV2)}
                           </td>
-                          <td className="px-4 py-1 text-xs text-right font-bold text-rose-600 dark:text-rose-400">
+                          <td className="px-4 py-2 text-xs text-right font-bold text-rose-600 dark:text-rose-400">
                             {row.diff}
                           </td>
-                          <td className="px-4 py-1 text-center">
-                            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700">
+                          <td className="px-4 py-2 text-center">
+                            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 font-semibold text-[#154D34] dark:text-emerald-400 hover:text-[#0E3824] dark:hover:text-emerald-300">
                               Inspecionar <ChevronRight className="h-3 w-3" />
                             </Button>
                           </td>
@@ -675,9 +896,9 @@ export function CatracasPage() {
 
         {/* ABA 2: ALERTAS GLOBAIS (Datas incorretas e Fora da frota) */}
         {activeTab === "alertas" && (
-          <Card className="shadow-md">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-xl font-bold flex items-center gap-2">
+          <Card className="rounded-3xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0E1420] shadow-sm">
+            <CardHeader className="pb-4 border-b border-slate-100 dark:border-slate-800/60">
+              <CardTitle className="text-xl font-bold flex items-center gap-2 text-slate-900 dark:text-white">
                 <AlertTriangle className="h-5 w-5 text-rose-600" />
                 ULs com datas incorretas
               </CardTitle>
@@ -685,44 +906,43 @@ export function CatracasPage() {
                 Monitora dados incomuns vindos de validadores ou carros, indicando horários e equipamentos mal configurados.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4 pt-4">
               {/* Configurações dos filtros */}
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3 bg-muted/30 p-3 rounded-lg border">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3 bg-slate-50 dark:bg-slate-900/40 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800/80">
                 <div className="space-y-1">
-                  <Label htmlFor="alertYear" className="text-xs">Ano Referência</Label>
+                  <Label htmlFor="alertYear" className="text-xs font-semibold">Ano Referência</Label>
                   <Input
                     id="alertYear"
                     value={alertYear}
                     onChange={(e) => setAlertYear(e.target.value)}
                     size={4}
-                    className="h-8 text-xs"
+                    className="h-9 text-xs rounded-xl"
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="alertStartDate" className="text-xs">Data Limite Inicial</Label>
+                  <Label htmlFor="alertStartDate" className="text-xs font-semibold">Data Limite Inicial</Label>
                   <Input
                     type="date"
                     id="alertStartDate"
                     value={alertStartDate}
                     onChange={(e) => setAlertStartDate(e.target.value)}
-                    className="h-8 text-xs"
+                    className="h-9 text-xs rounded-xl"
                   />
                 </div>
                 <div className="flex items-end">
                   <Button
                     onClick={handleSearchAlerts}
-                    className="h-8 text-xs w-full gap-1.5"
-                    variant="outline"
+                    className="h-9 text-xs w-full gap-1.5 rounded-xl font-semibold bg-[#154D34] hover:bg-[#0E3824] text-white shadow-xs"
                     disabled={alertLoading}
                   >
-                    {alertLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                    {alertLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                     Recarregar Alertas
                   </Button>
                 </div>
               </div>
 
               {/* Sub-abas de Alertas */}
-              <div className="flex gap-2 border-b border-muted">
+              <div className="flex gap-2 border-b border-slate-200/80 dark:border-slate-800/80">
                 <button
                   onClick={() => setActiveAlertSubTab("datas")}
                   className={`pb-2 text-sm font-semibold border-b-2 px-1 transition-all ${activeAlertSubTab === "datas"
@@ -747,29 +967,29 @@ export function CatracasPage() {
               {activeAlertSubTab === "datas" && (
                 <div className="space-y-6">
                   <div>
-                    <h4 className="text-xs font-semibold text-rose-700 bg-rose-50 dark:bg-rose-950/20 dark:text-rose-400 p-2 rounded mb-2">
+                    <h4 className="text-xs font-semibold text-rose-700 bg-rose-50 dark:bg-rose-950/20 dark:text-rose-400 p-2.5 rounded-xl mb-2">
                       Data Inicial Incorreta (Não contém {alertYear})
                     </h4>
-                    <div className="rounded-md border overflow-x-auto">
+                    <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800/80 overflow-x-auto">
                       <table className="w-full text-xs text-left">
-                        <thead className="bg-muted text-muted-foreground uppercase font-medium">
+                        <thead className="bg-slate-50 dark:bg-slate-900/60 text-muted-foreground uppercase font-semibold">
                           <tr>
-                            <th className="px-3 py-2">Carro</th>
-                            <th className="px-3 py-2">Data Inicial (HIni)</th>
-                            <th className="px-3 py-2">Data Final (HFim)</th>
-                            <th className="px-3 py-2">Catraca Fim</th>
-                            <th className="px-3 py-2">Data Hora UL</th>
+                            <th className="px-3 py-2.5">Carro</th>
+                            <th className="px-3 py-2.5">Data Inicial (HIni)</th>
+                            <th className="px-3 py-2.5">Data Final (HFim)</th>
+                            <th className="px-3 py-2.5">Catraca Fim</th>
+                            <th className="px-3 py-2.5">Data Hora UL</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y">
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                           {datasIncorretas.hIni.length === 0 ? (
                             <tr>
-                              <td colSpan={5} className="text-center py-4 text-muted-foreground">Nenhum veículo com data inicial inconsistente.</td>
+                              <td colSpan={5} className="text-center py-6 text-muted-foreground">Nenhum veículo com data inicial inconsistente.</td>
                             </tr>
                           ) : (
                             datasIncorretas.hIni.map((row, idx) => (
-                              <tr key={idx} className="hover:bg-muted/30">
-                                <td className="px-3 py-2 font-semibold text-indigo-600">{row.idVeiculo}</td>
+                              <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                                <td className="px-3 py-2 font-semibold text-[#154D34] dark:text-emerald-400">{row.idVeiculo}</td>
                                 <td className="px-3 py-2 font-bold text-rose-600">{row.dataHIni}</td>
                                 <td className="px-3 py-2">{row.dataHFim}</td>
                                 <td className="px-3 py-2">{row.catracaFim}</td>
@@ -783,29 +1003,29 @@ export function CatracasPage() {
                   </div>
 
                   <div>
-                    <h4 className="text-xs font-semibold text-rose-700 bg-rose-50 dark:bg-rose-950/20 dark:text-rose-400 p-2 rounded mb-2">
+                    <h4 className="text-xs font-semibold text-rose-700 bg-rose-50 dark:bg-rose-950/20 dark:text-rose-400 p-2.5 rounded-xl mb-2">
                       Data Final Incorreta (Não contém {alertYear})
                     </h4>
-                    <div className="rounded-md border overflow-x-auto">
+                    <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800/80 overflow-x-auto">
                       <table className="w-full text-xs text-left">
-                        <thead className="bg-muted text-muted-foreground uppercase font-medium">
+                        <thead className="bg-slate-50 dark:bg-slate-900/60 text-muted-foreground uppercase font-semibold">
                           <tr>
-                            <th className="px-3 py-2">Carro</th>
-                            <th className="px-3 py-2">Data Inicial (HIni)</th>
-                            <th className="px-3 py-2">Data Final (HFim)</th>
-                            <th className="px-3 py-2">Catraca Fim</th>
-                            <th className="px-3 py-2">Último Batimento</th>
+                            <th className="px-3 py-2.5">Carro</th>
+                            <th className="px-3 py-2.5">Data Inicial (HIni)</th>
+                            <th className="px-3 py-2.5">Data Final (HFim)</th>
+                            <th className="px-3 py-2.5">Catraca Fim</th>
+                            <th className="px-3 py-2.5">Último Batimento</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y">
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                           {datasIncorretas.hFim.length === 0 ? (
                             <tr>
-                              <td colSpan={5} className="text-center py-4 text-muted-foreground">Nenhum veículo com data final inconsistente.</td>
+                              <td colSpan={5} className="text-center py-6 text-muted-foreground">Nenhum veículo com data final inconsistente.</td>
                             </tr>
                           ) : (
                             datasIncorretas.hFim.map((row, idx) => (
-                              <tr key={idx} className="hover:bg-muted/30">
-                                <td className="px-3 py-2 font-semibold text-indigo-600">{row.idVeiculo}</td>
+                              <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                                <td className="px-3 py-2 font-semibold text-[#154D34] dark:text-emerald-400">{row.idVeiculo}</td>
                                 <td className="px-3 py-2">{row.dataHIni}</td>
                                 <td className="px-3 py-2 font-bold text-rose-600">{row.dataHFim}</td>
                                 <td className="px-3 py-2">{row.catracaFim}</td>
@@ -824,29 +1044,29 @@ export function CatracasPage() {
               {activeAlertSubTab === "frota" && (
                 <div className="space-y-6">
                   <div>
-                    <h4 className="text-xs font-semibold text-amber-700 bg-amber-50 dark:bg-amber-950/20 dark:text-amber-400 p-2 rounded mb-2">
+                    <h4 className="text-xs font-semibold text-amber-700 bg-amber-50 dark:bg-amber-950/20 dark:text-amber-400 p-2.5 rounded-xl mb-2">
                       Carros Especiais ou com Prefixos Reservados (ID &gt;= 6999)
                     </h4>
-                    <div className="rounded-md border overflow-x-auto">
+                    <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800/80 overflow-x-auto">
                       <table className="w-full text-xs text-left">
-                        <thead className="bg-muted text-muted-foreground uppercase font-medium">
+                        <thead className="bg-slate-50 dark:bg-slate-900/60 text-muted-foreground uppercase font-semibold">
                           <tr>
-                            <th className="px-3 py-2">Carro</th>
-                            <th className="px-3 py-2">Turno Inicial</th>
-                            <th className="px-3 py-2">Turno Final</th>
-                            <th className="px-3 py-2">Catraca Fim</th>
-                            <th className="px-3 py-2">Data Processamento</th>
+                            <th className="px-3 py-2.5">Carro</th>
+                            <th className="px-3 py-2.5">Turno Inicial</th>
+                            <th className="px-3 py-2.5">Turno Final</th>
+                            <th className="px-3 py-2.5">Catraca Fim</th>
+                            <th className="px-3 py-2.5">Data Processamento</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y">
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                           {foraFrota.especiais.length === 0 ? (
                             <tr>
-                              <td colSpan={5} className="text-center py-4 text-muted-foreground">Nenhum registro encontrado.</td>
+                              <td colSpan={5} className="text-center py-6 text-muted-foreground">Nenhum registro encontrado.</td>
                             </tr>
                           ) : (
                             foraFrota.especiais.map((row, idx) => (
-                              <tr key={idx} className="hover:bg-muted/30">
-                                <td className="px-3 py-2 font-semibold text-indigo-600">{row.idVeiculo}</td>
+                              <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                                <td className="px-3 py-2 font-semibold text-[#154D34] dark:text-emerald-400">{row.idVeiculo}</td>
                                 <td className="px-3 py-2">{row.dataHIni}</td>
                                 <td className="px-3 py-2">{row.dataHFim}</td>
                                 <td className="px-3 py-2 font-semibold">{row.catracaFim}</td>
@@ -860,28 +1080,28 @@ export function CatracasPage() {
                   </div>
 
                   <div>
-                    <h4 className="text-xs font-semibold text-amber-700 bg-amber-50 dark:bg-amber-950/20 dark:text-amber-400 p-2 rounded mb-2">
+                    <h4 className="text-xs font-semibold text-amber-700 bg-amber-50 dark:bg-amber-950/20 dark:text-amber-400 p-2.5 rounded-xl mb-2">
                       Possível Configuração Incorreta de ID do Validador (ID &lt; 6000 fora da frota)
                     </h4>
-                    <div className="rounded-md border overflow-x-auto">
+                    <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800/80 overflow-x-auto">
                       <table className="w-full text-xs text-left">
-                        <thead className="bg-muted text-muted-foreground uppercase font-medium">
+                        <thead className="bg-slate-50 dark:bg-slate-900/60 text-muted-foreground uppercase font-semibold">
                           <tr>
-                            <th className="px-3 py-2">Carro</th>
-                            <th className="px-3 py-2">Turno Inicial</th>
-                            <th className="px-3 py-2">Turno Final</th>
-                            <th className="px-3 py-2">Catraca Fim</th>
-                            <th className="px-3 py-2">Data Processamento</th>
+                            <th className="px-3 py-2.5">Carro</th>
+                            <th className="px-3 py-2.5">Turno Inicial</th>
+                            <th className="px-3 py-2.5">Turno Final</th>
+                            <th className="px-3 py-2.5">Catraca Fim</th>
+                            <th className="px-3 py-2.5">Data Processamento</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y">
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                           {foraFrota.comuns.length === 0 ? (
                             <tr>
-                              <td colSpan={5} className="text-center py-4 text-muted-foreground">Nenhum veículo comum com prefixo desconhecido.</td>
+                              <td colSpan={5} className="text-center py-6 text-muted-foreground">Nenhum veículo comum com prefixo desconhecido.</td>
                             </tr>
                           ) : (
                             foraFrota.comuns.map((row, idx) => (
-                              <tr key={idx} className="hover:bg-muted/30">
+                              <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                                 <td className="px-3 py-2 font-semibold text-amber-600">{row.idVeiculo}</td>
                                 <td className="px-3 py-2">{row.dataHIni}</td>
                                 <td className="px-3 py-2">{row.dataHFim}</td>
@@ -902,30 +1122,31 @@ export function CatracasPage() {
 
         {/* ABA 3: BACKUP DE COLETAS (Veiculos) */}
         {activeTab === "backup" && (
-          <Card className="shadow-md">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-xl font-bold flex items-center gap-2">
-                <Database className="h-5 w-5 text-emerald-600" />
+          <Card className="rounded-3xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0E1420] shadow-sm">
+            <CardHeader className="pb-4 border-b border-slate-100 dark:border-slate-800/60">
+              <CardTitle className="text-xl font-bold flex items-center gap-2 text-slate-900 dark:text-white">
+                <Database className="h-5 w-5 text-[#154D34] dark:text-emerald-400" />
                 Gerenciamento de Coleta de Backup
               </CardTitle>
               <CardDescription>
                 Permite consultar e atualizar as datas inicial e final para coleta de backup de catracas dos veículos selecionados.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex gap-4 items-end">
-                <div className="flex-1 space-y-2">
-                  <Label htmlFor="backupCars">IDs dos Veículos (separados por vírgula)</Label>
+            <CardContent className="space-y-4 pt-4">
+              <div className="flex flex-col md:flex-row gap-4 items-end">
+                <div className="flex-1 w-full space-y-2">
+                  <Label htmlFor="backupCars" className="font-semibold text-xs">IDs dos Veículos (separados por vírgula)</Label>
                   <Input
                     id="backupCars"
                     placeholder="Ex: 1118, 1327, 2701"
                     value={backupCarIds}
                     onChange={(e) => setBackupCarIds(e.target.value)}
+                    className="rounded-xl h-10"
                   />
                 </div>
                 <Button
                   onClick={handleSearchBackup}
-                  className="flex gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                  className="flex items-center justify-center gap-1.5 bg-[#154D34] hover:bg-[#0E3824] text-white rounded-xl font-semibold shadow-xs h-10 px-5"
                   disabled={backupLoading}
                 >
                   {backupLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
@@ -935,26 +1156,26 @@ export function CatracasPage() {
 
               {backupData.length > 0 && (
                 <div className="space-y-4 pt-2">
-                  <div className="rounded-md border">
+                  <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800/80 overflow-x-auto">
                     <table className="w-full text-xs text-left">
-                      <thead className="bg-muted text-muted-foreground uppercase font-medium">
+                      <thead className="bg-slate-50 dark:bg-slate-900/60 text-muted-foreground uppercase font-semibold">
                         <tr>
-                          <th className="px-3 py-2">Carro</th>
-                          <th className="px-3 py-2">Garagem</th>
-                          <th className="px-3 py-2">Início Backup</th>
-                          <th className="px-3 py-2">Fim Backup</th>
-                          <th className="px-3 py-2">Manutenção?</th>
+                          <th className="px-3 py-2.5">Carro</th>
+                          <th className="px-3 py-2.5">Garagem</th>
+                          <th className="px-3 py-2.5">Início Backup</th>
+                          <th className="px-3 py-2.5">Fim Backup</th>
+                          <th className="px-3 py-2.5">Manutenção?</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y">
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                         {backupData.map((row) => (
-                          <tr key={row.idCarro} className="hover:bg-muted/30">
-                            <td className="px-3 py-2 font-semibold">{row.idCarro}</td>
+                          <tr key={row.idCarro} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                            <td className="px-3 py-2 font-semibold text-[#154D34] dark:text-emerald-400">{row.idCarro}</td>
                             <td className="px-3 py-2">{row.garage || "N/A"}</td>
-                            <td className="px-3 py-2 text-indigo-600 font-semibold">{formatDisplayDate(row.coletaBKPIni)}</td>
-                            <td className="px-3 py-2 text-indigo-600 font-semibold">{formatDisplayDate(row.coletaBKPFim)}</td>
+                            <td className="px-3 py-2 text-[#154D34] dark:text-emerald-400 font-semibold">{formatDisplayDate(row.coletaBKPIni)}</td>
+                            <td className="px-3 py-2 text-[#154D34] dark:text-emerald-400 font-semibold">{formatDisplayDate(row.coletaBKPFim)}</td>
                             <td className="px-3 py-2">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${row.emManutencao ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
+                              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${row.emManutencao ? "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
                                 }`}>
                                 {row.emManutencao ? "Sim" : "Não"}
                               </span>
@@ -966,31 +1187,33 @@ export function CatracasPage() {
                   </div>
 
                   {/* Form de Edição em Lote */}
-                  <div className="border p-4 rounded-lg bg-emerald-50/20 dark:bg-emerald-950/5 space-y-4">
-                    <h4 className="text-sm font-semibold text-emerald-800 dark:text-emerald-400">Configurar Nova Faixa de Backup em Lote</h4>
+                  <div className="border border-emerald-200/70 dark:border-emerald-900/40 p-4 rounded-2xl bg-emerald-50/30 dark:bg-emerald-950/10 space-y-4">
+                    <h4 className="text-sm font-semibold text-[#154D34] dark:text-emerald-400">Configurar Nova Faixa de Backup em Lote</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="bkpIni">Data/Hora Início</Label>
+                        <Label htmlFor="bkpIni" className="text-xs font-semibold">Data/Hora Início</Label>
                         <Input
                           type="datetime-local"
                           id="bkpIni"
                           value={coletaBKPIni}
                           onChange={(e) => setColetaBKPIni(e.target.value)}
+                          className="rounded-xl"
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="bkpFim">Data/Hora Fim</Label>
+                        <Label htmlFor="bkpFim" className="text-xs font-semibold">Data/Hora Fim</Label>
                         <Input
                           type="datetime-local"
                           id="bkpFim"
                           value={coletaBKPFim}
                           onChange={(e) => setColetaBKPFim(e.target.value)}
+                          className="rounded-xl"
                         />
                       </div>
                     </div>
                     <Button
                       onClick={handleUpdateBackup}
-                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
+                      className="w-full bg-[#154D34] hover:bg-[#0E3824] text-white rounded-xl font-semibold shadow-xs h-10 gap-2"
                       disabled={updatingBackup}
                     >
                       {updatingBackup ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
@@ -1005,40 +1228,42 @@ export function CatracasPage() {
 
         {/* ABA 4: CONSULTA HISTÓRICO POR CARRO (TotalizadorServico) */}
         {activeTab === "consulta" && (
-          <Card className="shadow-md">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-xl font-bold flex items-center gap-2">
-                <FileText className="h-5 w-5 text-indigo-600" />
+          <Card className="rounded-3xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0E1420] shadow-sm">
+            <CardHeader className="pb-4 border-b border-slate-100 dark:border-slate-800/60">
+              <CardTitle className="text-xl font-bold flex items-center gap-2 text-slate-900 dark:text-white">
+                <FileText className="h-5 w-5 text-[#154D34] dark:text-emerald-400" />
                 Histórico de Serviços por Veículo
               </CardTitle>
               <CardDescription>
                 Pesquisa individual no TotalizadorServico para auditar todos os turnos fechados de um carro específico.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4 pt-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="histCarId">Prefixo do Carro</Label>
+                  <Label htmlFor="histCarId" className="text-xs font-semibold">Prefixo do Carro</Label>
                   <Input
                     id="histCarId"
                     placeholder="Ex: 4251"
                     value={consultaCarId}
                     onChange={(e) => setConsultaCarId(e.target.value)}
+                    className="rounded-xl h-10"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="histDateLimit">Coletados desde (Hora UL)</Label>
+                  <Label htmlFor="histDateLimit" className="text-xs font-semibold">Coletados desde (Hora UL)</Label>
                   <Input
                     type="date"
                     id="histDateLimit"
                     value={consultaDateLimit}
                     onChange={(e) => setConsultaDateLimit(e.target.value)}
+                    className="rounded-xl h-10"
                   />
                 </div>
                 <div className="flex items-end">
                   <Button
                     onClick={handleSearchConsultaCarro}
-                    className="w-full gap-1.5"
+                    className="w-full flex items-center justify-center gap-1.5 bg-[#154D34] hover:bg-[#0E3824] text-white rounded-xl font-semibold shadow-xs h-10"
                     disabled={consultaLoading}
                   >
                     {consultaLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
@@ -1048,26 +1273,26 @@ export function CatracasPage() {
               </div>
 
               {consultaData.length > 0 && (
-                <div className="rounded-md border">
+                <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800/80 overflow-x-auto">
                   <table className="w-full text-xs text-left">
-                    <thead className="bg-muted text-muted-foreground uppercase font-medium">
+                    <thead className="bg-slate-50 dark:bg-slate-900/60 text-muted-foreground uppercase font-semibold">
                       <tr>
-                        <th className="px-3 py-2">HIni</th>
-                        <th className="px-3 py-2">HFim</th>
-                        <th className="px-3 py-2 text-right">Catraca Ini</th>
-                        <th className="px-3 py-2 text-right">Catraca Fim</th>
-                        <th className="px-3 py-2 text-right">Total EDM</th>
-                        <th className="px-3 py-2">Data Transmissão</th>
+                        <th className="px-3 py-2.5">HIni</th>
+                        <th className="px-3 py-2.5">HFim</th>
+                        <th className="px-3 py-2.5 text-right">Catraca Ini</th>
+                        <th className="px-3 py-2.5 text-right">Catraca Fim</th>
+                        <th className="px-3 py-2.5 text-right">Total EDM</th>
+                        <th className="px-3 py-2.5">Data Transmissão</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y">
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                       {consultaData.map((row, idx) => (
-                        <tr key={idx} className="hover:bg-muted/30">
+                        <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                           <td className="px-3 py-2">{row.dataHIni}</td>
                           <td className="px-3 py-2">{row.dataHFim}</td>
                           <td className="px-3 py-2 text-right font-medium">{row.catracaIni}</td>
                           <td className="px-3 py-2 text-right font-medium">{row.catracaFim}</td>
-                          <td className="px-3 py-2 text-right font-bold text-indigo-600">{row.totalEDM}</td>
+                          <td className="px-3 py-2 text-right font-bold text-[#154D34] dark:text-emerald-400">{row.totalEDM}</td>
                           <td className="px-3 py-2 text-muted-foreground text-[10px]">{row.dataHoraUL}</td>
                         </tr>
                       ))}
@@ -1086,24 +1311,24 @@ export function CatracasPage() {
 
           {/* Lado Esquerdo: Detalhes do Veículo (50%) */}
           {selectedCar ? (
-            <Card className="border-indigo-200 dark:border-indigo-900/60 shadow-lg bg-indigo-50/5 dark:bg-slate-900/10">
-              <CardHeader className="border-b pb-3 flex flex-row items-center justify-between">
+            <Card className="rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm bg-white dark:bg-[#0E1420]">
+              <CardHeader className="border-b border-slate-100 dark:border-slate-800/60 pb-3 flex flex-row items-center justify-between">
                 <div>
-                  <CardTitle className="text-lg font-bold text-indigo-800 dark:text-indigo-400">
+                  <CardTitle className="text-lg font-bold text-slate-900 dark:text-white">
                     Detalhes do Veículo: {selectedCar}
                   </CardTitle>
                   <CardDescription>
                     Auditoria detalhada automática executada para a data {selectedDate}.
                   </CardDescription>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => setSelectedCar(null)} className="h-8">
+                <Button variant="ghost" size="sm" onClick={() => setSelectedCar(null)} className="h-8 rounded-xl">
                   Fechar Painel
                 </Button>
               </CardHeader>
               <CardContent className="pt-4 space-y-6">
                 {detailsLoading ? (
                   <div className="text-center py-12 text-muted-foreground">
-                    <Loader2 className="h-8 w-8 animate-spin mx-auto text-indigo-600 mb-2" />
+                    <Loader2 className="h-8 w-8 animate-spin mx-auto text-[#154D34] dark:text-emerald-400 mb-2" />
                     Buscando Logs de WiFi, Erros de Transmissão e Ordens de Serviço...
                   </div>
                 ) : detailsData ? (
@@ -1142,9 +1367,9 @@ export function CatracasPage() {
 
                         {/* WiFi e Eventos */}
                         {/* Ultima Conexão WiFi */}
-                        <Card className="border shadow-none">
-                          <CardHeader className="py-2.5 bg-muted/40 border-b flex flex-row items-center gap-2">
-                            <Wifi className="h-4 w-4 text-indigo-600" />
+                        <Card className="border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-none">
+                          <CardHeader className="py-2.5 bg-slate-50/60 dark:bg-slate-900/40 border-b border-slate-100 dark:border-slate-800/60 flex flex-row items-center gap-2">
+                            <Wifi className="h-4 w-4 text-[#154D34] dark:text-emerald-400" />
                             <h4 className="font-semibold text-sm">Última Comunicação WiFi</h4>
                           </CardHeader>
                           <CardContent className="py-3 text-xs">
@@ -1172,9 +1397,9 @@ export function CatracasPage() {
                         </Card>
 
                         {/* Serviços Registrados */}
-                        <Card className="border shadow-none">
-                          <CardHeader className="py-2.5 bg-muted/40 border-b flex flex-row items-center gap-2">
-                            <FileText className="h-4 w-4 text-indigo-600" />
+                        <Card className="border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-none">
+                          <CardHeader className="py-2.5 bg-slate-50/60 dark:bg-slate-900/40 border-b border-slate-100 dark:border-slate-800/60 flex flex-row items-center gap-2">
+                            <FileText className="h-4 w-4 text-[#154D34] dark:text-emerald-400" />
                             <h4 className="font-semibold text-sm">Serviços Fechados (SAE)</h4>
                           </CardHeader>
                           <CardContent className="py-3 text-xs max-h-52 overflow-y-auto">
@@ -1182,7 +1407,7 @@ export function CatracasPage() {
                               <div className="overflow-x-auto w-full">
                                 <table className="w-full text-left border-collapse min-w-[850px]">
                                   <thead>
-                                    <tr className="text-muted-foreground border-b border-muted text-[10px] uppercase font-semibold">
+                                    <tr className="text-muted-foreground border-b border-slate-200/80 dark:border-slate-800/80 text-[10px] uppercase font-semibold">
                                       <th className="pb-2 font-semibold">Total EDM</th>
                                       <th className="pb-2 font-semibold">Cat. Inicial</th>
                                       <th className="pb-2 font-semibold">Cat. Final</th>
@@ -1195,8 +1420,8 @@ export function CatracasPage() {
                                   </thead>
                                   <tbody>
                                     {detailsData.servicosPeriodo.map((row: any, idx: number) => (
-                                      <tr key={idx} className="border-b last:border-0 border-muted/30 hover:bg-muted/10 font-mono">
-                                        <td className="py-2 font-bold text-indigo-600">{row.totalEDM}</td>
+                                      <tr key={idx} className="border-b last:border-0 border-slate-100 dark:border-slate-800/40 hover:bg-slate-50 dark:hover:bg-slate-800/40 font-mono">
+                                        <td className="py-2 font-bold text-[#154D34] dark:text-emerald-400">{row.totalEDM}</td>
                                         <td className="py-2 text-foreground font-semibold">{row.catracaIni}</td>
                                         <td className="py-2 text-foreground font-semibold">{row.catracaFim}</td>
                                         <td className="py-2 text-muted-foreground font-semibold">{row.linha}</td>
@@ -1216,16 +1441,16 @@ export function CatracasPage() {
                         </Card>
 
                         {/* Histórico de Conexão e Ajustes (Combinado) */}
-                        <Card className="border shadow-none">
-                          <CardHeader className="py-2.5 bg-muted/40 border-b flex flex-row items-center gap-2">
-                            <RefreshCw className="h-4 w-4 text-indigo-600" />
+                        <Card className="border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-none">
+                          <CardHeader className="py-2.5 bg-slate-50/60 dark:bg-slate-900/40 border-b border-slate-100 dark:border-slate-800/60 flex flex-row items-center gap-2">
+                            <RefreshCw className="h-4 w-4 text-[#154D34] dark:text-emerald-400" />
                             <h4 className="font-semibold text-sm">Comunicação e Ajustes de Catraca</h4>
                           </CardHeader>
                           <CardContent className="py-4 text-xs px-3">
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
 
                               {/* 1. Últimas Conexões */}
-                              <div className="flex flex-col bg-slate-50/50 dark:bg-slate-900/40 p-3 rounded-lg border">
+                              <div className="flex flex-col bg-slate-50/50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-200/80 dark:border-slate-800/80">
                                 <div>
                                   <div className="font-semibold text-emerald-700 dark:text-emerald-400 text-xs mb-2 pb-1.5 border-b border-emerald-100/50 dark:border-emerald-900/30 flex items-center gap-1.5">
                                     <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
@@ -1255,7 +1480,7 @@ export function CatracasPage() {
                               </div>
 
                               {/* 2. Ajustes de Catraca */}
-                              <div className="flex flex-col bg-slate-50/50 dark:bg-slate-900/40 p-3 rounded-lg border">
+                              <div className="flex flex-col bg-slate-50/50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-200/80 dark:border-slate-800/80">
                                 <div>
                                   <div className="font-semibold text-amber-700 dark:text-amber-400 text-xs mb-2 pb-1.5 border-b border-amber-100/50 dark:border-amber-900/30 flex items-center gap-1.5">
                                     <span className="h-2 w-2 rounded-full bg-amber-500"></span>
@@ -1276,22 +1501,6 @@ export function CatracasPage() {
                                             </div>
                                           </div>
                                         ))}
-                                        {/*<table className="w-full text-left font-mono text-[11px]">
-                                          <thead>
-                                            <tr className="border-b border-muted/40">
-                                              <th className="text-muted-foreground font-sans text-[10px] pb-1 font-normal">Catraca</th>
-                                              <th className="text-muted-foreground font-sans text-[10px] pb-1 font-normal">Data/Hora</th>
-                                            </tr>
-                                          </thead>
-                                          <tbody>
-                                            {errosEvento.map((err: any, idx: number) => (
-                                              <tr key={idx} className="border-b last:border-0 border-muted/30">
-                                                <td className="py-1 font-semibold text-foreground">{err.catraca}</td>
-                                                <td className="py-1 font-semibold text-foreground">{formatDateTime(err.Datahora)}</td>
-                                              </tr>
-                                            ))}
-                                          </tbody>
-                                        </table>*/}
                                       </div>
                                     ) : (
                                       <div className="text-muted-foreground py-2 text-xs">Nenhum evento de ajuste de catraca registrado.</div>
@@ -1301,10 +1510,10 @@ export function CatracasPage() {
                               </div>
 
                               {/* 3. Primeiras Conexões */}
-                              <div className="flex flex-col bg-slate-50/50 dark:bg-slate-900/40 p-3 rounded-lg border">
+                              <div className="flex flex-col bg-slate-50/50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-200/80 dark:border-slate-800/80">
                                 <div>
-                                  <div className="font-semibold text-indigo-700 dark:text-indigo-400 text-xs mb-2 pb-1.5 border-b border-indigo-100/50 dark:border-indigo-900/30 flex items-center gap-1.5">
-                                    <span className="h-2 w-2 rounded-full bg-indigo-500"></span>
+                                  <div className="font-semibold text-emerald-700 dark:text-emerald-400 text-xs mb-2 pb-1.5 border-b border-emerald-100/50 dark:border-emerald-900/30 flex items-center gap-1.5">
+                                    <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
                                     Primeiras conexões SV2
                                   </div>
                                   <div className="mt-2">
@@ -1335,9 +1544,9 @@ export function CatracasPage() {
                         </Card>
 
                         {/* Ordem de Serviço Bilhetagem */}
-                        <Card className="border shadow-none">
-                          <CardHeader className="py-2.5 bg-muted/40 border-b flex flex-row items-center gap-2">
-                            <Wrench className="h-4 w-4 text-indigo-600" />
+                        <Card className="border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-none">
+                          <CardHeader className="py-2.5 bg-slate-50/60 dark:bg-slate-900/40 border-b border-slate-100 dark:border-slate-800/60 flex flex-row items-center gap-2">
+                            <Wrench className="h-4 w-4 text-[#154D34] dark:text-emerald-400" />
                             <h4 className="font-semibold text-sm">Ordem de Serviço (Bilhetagem)</h4>
                           </CardHeader>
                           <CardContent className="py-3 text-xs">
@@ -1459,10 +1668,10 @@ export function CatracasPage() {
 
           {/* Lado Direito: Visualizador de Diário de Bordo (50%) */}
           <div className="space-y-6">
-            <Card className="shadow-md border-indigo-100 dark:border-indigo-950">
-              <CardHeader className="pb-3 border-b">
-                <CardTitle className="text-xl font-bold flex items-center gap-2 text-indigo-800 dark:text-indigo-400">
-                  <FileText className="h-5 w-5" />
+            <Card className="rounded-3xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0E1420] shadow-sm">
+              <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800/60">
+                <CardTitle className="text-xl font-bold flex items-center gap-2 text-slate-900 dark:text-white">
+                  <FileText className="h-5 w-5 text-[#154D34] dark:text-emerald-400" />
                   Consulta de Diário de Bordo (PDF)
                 </CardTitle>
                 <CardDescription>
@@ -1472,10 +1681,10 @@ export function CatracasPage() {
               <CardContent className="pt-4 space-y-4">
 
                 {/* Informação Fixa do Veículo Selecionado */}
-                <div className="grid grid-cols-2 gap-4 bg-muted/40 p-3 rounded-lg border text-xs">
+                <div className="grid grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-200/80 dark:border-slate-800/80 text-xs">
                   <div>
                     <span className="text-muted-foreground block font-medium">Veículo Selecionado:</span>
-                    <span className="font-bold text-indigo-700 dark:text-indigo-400 text-sm">{pdfCarId || "Nenhum"}</span>
+                    <span className="font-bold text-[#154D34] dark:text-emerald-400 text-sm">{pdfCarId || "Nenhum"}</span>
                   </div>
                   <div>
                     <span className="text-muted-foreground block font-medium">Data de Referência:</span>
@@ -1493,7 +1702,7 @@ export function CatracasPage() {
                     <div className="flex items-center justify-between">
                       <Label className="text-xs font-semibold text-muted-foreground">Selecione o Diário para Visualizar no Split Screen:</Label>
                       {loadingDiarios && (
-                        <span className="flex items-center gap-1 text-[11px] text-indigo-600 dark:text-indigo-400">
+                        <span className="flex items-center gap-1 text-[11px] text-[#154D34] dark:text-emerald-400">
                           <Loader2 className="h-3 w-3 animate-spin" /> Verificando arquivos no servidor...
                         </span>
                       )}
@@ -1503,13 +1712,13 @@ export function CatracasPage() {
                         <button
                           key={idx}
                           onClick={() => setActivePdfUrl(day.url)}
-                          className={`flex items-center justify-between text-left p-3 rounded-lg border transition-all text-xs ${activePdfUrl === day.url
-                            ? "bg-indigo-600 border-indigo-700 text-white font-semibold shadow-sm"
+                          className={`flex items-center justify-between text-left p-3 rounded-xl border transition-all text-xs ${activePdfUrl === day.url
+                            ? "bg-[#154D34] border-[#154D34] text-white font-semibold shadow-xs"
                             : "bg-background hover:bg-muted border-muted text-foreground"
                             }`}
                         >
                           <span className="flex items-center gap-2">
-                            <Calendar className="h-4 w-4 text-indigo-500" />
+                            <Calendar className={`h-4 w-4 ${activePdfUrl === day.url ? "text-emerald-300" : "text-[#154D34] dark:text-emerald-400"}`} />
                             <span>{day.label}</span>
                           </span>
                           <ArrowRight className="h-4 w-4" />
@@ -1522,8 +1731,8 @@ export function CatracasPage() {
                 {/* Container do Iframe PDF */}
                 {activePdfUrl ? (
                   <div className="space-y-2">
-                    <div className="flex flex-wrap gap-2 justify-between items-center text-xs text-muted-foreground p-1 border-b">
-                      <span className="font-semibold text-indigo-700 dark:text-indigo-400 truncate max-w-[200px]" title={activePdfUrl}>
+                    <div className="flex flex-wrap gap-2 justify-between items-center text-xs text-muted-foreground p-1 border-b border-slate-100 dark:border-slate-800/60">
+                      <span className="font-semibold text-[#154D34] dark:text-emerald-400 truncate max-w-[200px]" title={activePdfUrl}>
                         Carro {pdfCarId} | PDF
                       </span>
                       <div className="flex gap-2">
@@ -1540,7 +1749,7 @@ export function CatracasPage() {
                           href={activePdfUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="flex items-center gap-1 hover:text-indigo-600 transition-colors font-medium"
+                          className="flex items-center gap-1 hover:text-[#154D34] dark:hover:text-emerald-400 transition-colors font-medium"
                         >
                           Nova Aba <ExternalLink className="h-3.5 w-3.5" />
                         </a>
@@ -1548,7 +1757,7 @@ export function CatracasPage() {
                     </div>
 
                     {/* Iframe */}
-                    <div className="relative rounded-lg border overflow-hidden bg-muted/20 h-[600px] flex items-center justify-center">
+                    <div className="relative rounded-2xl border border-slate-200/80 dark:border-slate-800/80 overflow-hidden bg-muted/20 h-[600px] flex items-center justify-center">
                       <iframe
                         src={activePdfUrl}
                         className="w-full h-full"
@@ -1556,13 +1765,13 @@ export function CatracasPage() {
                       />
 
                       {/* Alerta de erro de carregamento local/HTTP se aplicável */}
-                      <div className="absolute bottom-2 left-2 right-2 bg-black/80 text-white text-[10px] p-2 rounded flex justify-between items-center">
+                      <div className="absolute bottom-2 left-2 right-2 bg-black/80 text-white text-[10px] p-2 rounded-xl flex justify-between items-center">
                         <span>Caso o PDF não carregue por restrições do navegador, clique em "Nova Aba".</span>
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed rounded-lg bg-muted/10">
+                  <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl bg-slate-50/50 dark:bg-slate-900/20">
                     <FileText className="h-12 w-12 text-muted-foreground/45 mb-3" />
                     <p className="text-sm font-semibold text-muted-foreground">Nenhum Diário Selecionado</p>
                     <p className="text-xs text-muted-foreground/80 max-w-[250px] text-center mt-1">
@@ -1579,10 +1788,10 @@ export function CatracasPage() {
       {/* ABA 5: CONSULTA DE DIÁRIO DE BORDO (PDF) STANDALONE */}
       {activeTab === "diario" && (
         <div className="space-y-6">
-          <Card className="shadow-md border-indigo-100 dark:border-indigo-950">
-            <CardHeader className="pb-3 border-b">
-              <CardTitle className="text-xl font-bold flex items-center gap-2 text-indigo-800 dark:text-indigo-400">
-                <FileText className="h-5 w-5" />
+          <Card className="rounded-3xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0E1420] shadow-sm">
+            <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800/60">
+              <CardTitle className="text-xl font-bold flex items-center gap-2 text-slate-900 dark:text-white">
+                <FileText className="h-5 w-5 text-[#154D34] dark:text-emerald-400" />
                 Consulta de Diário de Bordo (PDF)
               </CardTitle>
               <CardDescription>
@@ -1592,38 +1801,38 @@ export function CatracasPage() {
             <CardContent className="pt-4 space-y-4">
 
               {/* Form Manual de Busca */}
-              <form onSubmit={handleManualPdfGeneration} className="grid grid-cols-3 gap-3 bg-muted/30 p-3 rounded-lg border">
+              <form onSubmit={handleManualPdfGeneration} className="grid grid-cols-3 gap-3 bg-slate-50 dark:bg-slate-900/40 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800/80">
                 <div className="col-span-1">
-                  <Label htmlFor="pdfCar" className="text-xs">Número do Carro</Label>
+                  <Label htmlFor="pdfCar" className="text-xs font-semibold">Número do Carro</Label>
                   <Input
                     id="pdfCar"
                     placeholder="Ex: 1118"
                     value={pdfCarId}
                     onChange={(e) => setPdfCarId(e.target.value)}
-                    className="h-8 text-xs"
+                    className="h-9 text-xs rounded-xl"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="pdfIni" className="text-xs">Data Inicial</Label>
+                  <Label htmlFor="pdfIni" className="text-xs font-semibold">Data Inicial</Label>
                   <Input
                     type="date"
                     id="pdfIni"
                     value={pdfDateIni}
                     onChange={(e) => setPdfDateIni(e.target.value)}
-                    className="h-8 text-xs"
+                    className="h-9 text-xs rounded-xl"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="pdfFim" className="text-xs">Data Final</Label>
+                  <Label htmlFor="pdfFim" className="text-xs font-semibold">Data Final</Label>
                   <Input
                     type="date"
                     id="pdfFim"
                     value={pdfDateFim}
                     onChange={(e) => setPdfDateFim(e.target.value)}
-                    className="h-8 text-xs"
+                    className="h-9 text-xs rounded-xl"
                   />
                 </div>
-                <Button type="submit" className="col-span-2 h-8 text-xs font-semibold gap-1" variant="secondary">
+                <Button type="submit" className="col-span-3 h-10 text-xs font-semibold gap-1.5 bg-[#154D34] hover:bg-[#0E3824] text-white rounded-xl shadow-xs">
                   Gerar Link(s) do Diário
                 </Button>
               </form>
@@ -1634,7 +1843,7 @@ export function CatracasPage() {
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-semibold text-muted-foreground">Selecione o Diário para Visualizar:</Label>
                     {loadingDiarios && (
-                      <span className="flex items-center gap-1 text-[11px] text-indigo-600 dark:text-indigo-400">
+                      <span className="flex items-center gap-1 text-[11px] text-[#154D34] dark:text-emerald-400">
                         <Loader2 className="h-3 w-3 animate-spin" /> Verificando arquivos no servidor...
                       </span>
                     )}
@@ -1644,13 +1853,13 @@ export function CatracasPage() {
                       <button
                         key={idx}
                         onClick={() => setActivePdfUrl(day.url)}
-                        className={`flex items-center justify-between text-left p-3 rounded-lg border transition-all text-xs ${activePdfUrl === day.url
-                          ? "bg-indigo-600 border-indigo-700 text-white font-semibold shadow-md"
+                        className={`flex items-center justify-between text-left p-3 rounded-xl border transition-all text-xs ${activePdfUrl === day.url
+                          ? "bg-[#154D34] border-[#154D34] text-white font-semibold shadow-xs"
                           : "bg-background hover:bg-muted border-muted text-foreground"
                           }`}
                       >
                         <span className="flex items-center gap-2">
-                          <Calendar className="h-4 w-4 text-indigo-500" />
+                          <Calendar className={`h-4 w-4 ${activePdfUrl === day.url ? "text-emerald-300" : "text-[#154D34] dark:text-emerald-400"}`} />
                           <span>{day.label}</span>
                         </span>
                         <ArrowRight className="h-4 w-4" />
@@ -1663,8 +1872,8 @@ export function CatracasPage() {
               {/* Container do Iframe PDF */}
               {activePdfUrl ? (
                 <div className="space-y-2">
-                  <div className="flex flex-wrap gap-2 justify-between items-center text-xs text-muted-foreground p-1 border-b">
-                    <span className="font-semibold text-indigo-700 dark:text-indigo-400 truncate max-w-[200px]" title={activePdfUrl}>
+                  <div className="flex flex-wrap gap-2 justify-between items-center text-xs text-muted-foreground p-1 border-b border-slate-100 dark:border-slate-800/60">
+                    <span className="font-semibold text-[#154D34] dark:text-emerald-400 truncate max-w-[200px]" title={activePdfUrl}>
                       Carro {pdfCarId} | PDF
                     </span>
                     <div className="flex gap-2">
@@ -1681,7 +1890,7 @@ export function CatracasPage() {
                         href={activePdfUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="flex items-center gap-1 hover:text-indigo-600 transition-colors font-medium"
+                        className="flex items-center gap-1 hover:text-[#154D34] dark:hover:text-emerald-400 transition-colors font-medium"
                       >
                         Nova Aba <ExternalLink className="h-3.5 w-3.5" />
                       </a>
@@ -1689,7 +1898,7 @@ export function CatracasPage() {
                   </div>
 
                   {/* Iframe */}
-                  <div className="relative rounded-lg border overflow-hidden bg-muted/20 h-[600px] flex items-center justify-center">
+                  <div className="relative rounded-2xl border border-slate-200/80 dark:border-slate-800/80 overflow-hidden bg-muted/20 h-[600px] flex items-center justify-center">
                     <iframe
                       src={activePdfUrl}
                       className="w-full h-full"
@@ -1697,13 +1906,13 @@ export function CatracasPage() {
                     />
 
                     {/* Alerta de erro de carregamento local/HTTP se aplicável */}
-                    <div className="absolute bottom-2 left-2 right-2 bg-black/80 text-white text-[10px] p-2 rounded flex justify-between items-center">
+                    <div className="absolute bottom-2 left-2 right-2 bg-black/80 text-white text-[10px] p-2 rounded-xl flex justify-between items-center">
                       <span>Caso o PDF não carregue por restrições do navegador, clique em "Nova Aba".</span>
                     </div>
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed rounded-lg bg-muted/10">
+                <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl bg-slate-50/50 dark:bg-slate-900/20">
                   <FileText className="h-12 w-12 text-muted-foreground/45 mb-3" />
                   <p className="text-sm font-semibold text-muted-foreground">Nenhum Diário Selecionado</p>
                   <p className="text-xs text-muted-foreground/80 max-w-[250px] text-center mt-1">
@@ -1715,6 +1924,6 @@ export function CatracasPage() {
           </Card>
         </div>
       )}
-    </div >
+    </div>
   );
 }

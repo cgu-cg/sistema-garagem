@@ -15,7 +15,10 @@ import {
   Save, 
   ShieldAlert, 
   Sparkles,
-  Zap
+  Zap,
+  PlusCircle,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +43,7 @@ interface CarroRealizadoViewProps {
   dispatches: Record<string, DispatchedRecord>;
   onSaveDispatch: (newDispatches: Record<string, DispatchedRecord>) => void;
   ciList: BloqueioCarro[];
+  onAddSchedule?: (newItem: SolturaItem) => void;
 }
 
 export function CarroRealizadoView({
@@ -52,7 +56,8 @@ export function CarroRealizadoView({
   schedules,
   dispatches,
   onSaveDispatch,
-  ciList
+  ciList,
+  onAddSchedule
 }: CarroRealizadoViewProps) {
   
   // Estado do Formulário de Lançamento Individual
@@ -63,6 +68,32 @@ export function CarroRealizadoView({
   const [inputHoraSaida, setInputHoraSaida] = useState("");
   const [inputMotivoSubstituicao, setInputMotivoSubstituicao] = useState("");
   const [inputObs, setInputObs] = useState("");
+
+  // Estado do Card de Cadastro de Carros Programados
+  const [isCadastroExpanded, setIsCadastroExpanded] = useState(true);
+  const [newLinha, setNewLinha] = useState("");
+  const [newTabela, setNewTabela] = useState("");
+  const [newCarroProgramado, setNewCarroProgramado] = useState("");
+  const [newSaidaGaragem, setNewSaidaGaragem] = useState("");
+  const [newInicioLinha, setNewInicioLinha] = useState("");
+  const [newMotoCodigo, setNewMotoCodigo] = useState("");
+  const [newMotoNome, setNewMotoNome] = useState("");
+  const [newTipo, setNewTipo] = useState<"REGULAR" | "VCM" | "FRETAMENTO" | "EXTRA">("REGULAR");
+  const [newObs, setNewObs] = useState("");
+
+  const handleNewMotoCodeChange = (code: string) => {
+    setNewMotoCodigo(code);
+    const found = drivers.find(d => d.code.toLowerCase() === code.trim().toLowerCase());
+    if (found) {
+      setNewMotoNome(found.name);
+    }
+  };
+
+  // Alerta de Bloqueio CI para o novo carro programado
+  const newBloqueioCI = useMemo(() => {
+    if (!newCarroProgramado.trim()) return null;
+    return checkCarroBloqueado(newCarroProgramado.trim(), ciList);
+  }, [newCarroProgramado, ciList]);
 
   // Filtros da Grade Rápida
   const [gridFilter, setGridFilter] = useState<"TODOS" | "PENDENTES" | "SUBSTITUIDOS">("TODOS");
@@ -255,6 +286,66 @@ export function CarroRealizadoView({
     toast.success(`${count} viagem(ns) preenchida(s) com o Carro Programado!`);
   };
 
+  // Salvar cadastro de novo carro programado
+  const handleCreateSchedule = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newLinha.trim()) {
+      toast.error("Informe a Linha do carro programado.");
+      return;
+    }
+    if (!newTabela.trim()) {
+      toast.error("Informe a Tabela da viagem.");
+      return;
+    }
+    if (!newCarroProgramado.trim()) {
+      toast.error("Informe o prefixo do Carro Programado.");
+      return;
+    }
+    if (!newSaidaGaragem.trim()) {
+      toast.error("Informe o horário de saída da garagem.");
+      return;
+    }
+
+    if (newBloqueioCI) {
+      toast.warning(`Atenção: Carro ${newCarroProgramado} consta no CI como: ${newBloqueioCI.motivo}!`, {
+        duration: 5000
+      });
+    }
+
+    const newItem: SolturaItem = {
+      id: `custom-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      ordem: schedules.length + 1,
+      linha: newLinha.trim(),
+      tabela: newTabela.trim(),
+      carroProgramado: newCarroProgramado.trim(),
+      saidaGaragem: newSaidaGaragem.trim(),
+      inicioLinha: newInicioLinha.trim() || undefined,
+      inicioBairro: newInicioLinha.trim() || undefined,
+      motoristaCodigo: newMotoCodigo.trim() || undefined,
+      motoristaNome: newMotoNome.trim() || undefined,
+      tipo: newTipo,
+      observacoes: newObs.trim() || undefined,
+      status: "PENDENTE"
+    };
+
+    if (onAddSchedule) {
+      onAddSchedule(newItem);
+    } else {
+      toast.success(`Carro ${newItem.carroProgramado} programado com sucesso para a Linha ${newItem.linha}!`);
+    }
+
+    // Resetar formulário
+    setNewLinha("");
+    setNewTabela("");
+    setNewCarroProgramado("");
+    setNewSaidaGaragem("");
+    setNewInicioLinha("");
+    setNewMotoCodigo("");
+    setNewMotoNome("");
+    setNewObs("");
+    setNewTipo("REGULAR");
+  };
+
   // Itens filtrados para a grade
   const filteredGridItems = useMemo(() => {
     return mergedItems.filter(item => {
@@ -428,6 +519,222 @@ export function CarroRealizadoView({
             <span className="text-xs text-amber-700/70 dark:text-amber-300/70">aguardando</span>
           </div>
         </div>
+      </div>
+
+      {/* ========================================================= */}
+      {/* CADASTRO DE CARROS PROGRAMADOS NO PADRÃO FOLHA DE SOLTURA */}
+      {/* ========================================================= */}
+      <div className="bg-card border-2 border-emerald-500/30 dark:border-emerald-500/20 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3.5">
+        <div className="flex items-center justify-between pb-2.5 border-b border-border/80">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-[#164E3A] dark:text-emerald-400 flex items-center justify-center border border-emerald-500/20">
+              <PlusCircle className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm sm:text-base font-bold text-foreground">
+                  Cadastrar Carro Programado na Escala
+                </h2>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 uppercase">
+                  {garagem} • {escalaTipo === "SEG_SEX" ? "Seg a Sex" : escalaTipo === "SABADO" ? "Sábado" : "Dom/Fer"}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Insira novas viagens programadas diretamente na escala operacional seguindo o mesmo padrão da folha de soltura.
+              </p>
+            </div>
+          </div>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setIsCadastroExpanded(!isCadastroExpanded)}
+            className="text-xs text-muted-foreground gap-1 hover:text-foreground"
+          >
+            {isCadastroExpanded ? (
+              <>
+                <ChevronUp className="w-4 h-4" /> Recolher
+              </>
+            ) : (
+              <>
+                <ChevronDown className="w-4 h-4" /> Expandir
+              </>
+            )}
+          </Button>
+        </div>
+
+        {isCadastroExpanded && (
+          <div className="space-y-3 animate-in fade-in duration-200">
+            {/* Tabela de Inserção Rápida no Padrão Folha de Soltura */}
+            <div className="border border-border/80 rounded-xl overflow-hidden shadow-2xs bg-background">
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left border-collapse">
+                  <thead className="bg-[#164E3A] text-white font-bold text-[11px] uppercase tracking-wider">
+                    <tr>
+                      <th className="py-2.5 px-2 text-center w-12">Nº</th>
+                      <th className="py-2.5 px-2.5 w-32">Linha</th>
+                      <th className="py-2.5 px-2 text-center w-16">Tab</th>
+                      <th className="py-2.5 px-2.5 text-center w-28">Carro Prog.</th>
+                      <th className="py-2.5 px-2.5 text-center w-24">Saída Gar.</th>
+                      <th className="py-2.5 px-2.5 text-center w-24">Início Linha</th>
+                      <th className="py-2.5 px-2 text-center w-20">MOTO</th>
+                      <th className="py-2.5 px-2.5 w-44">Motorista Escalado</th>
+                      <th className="py-2.5 px-2 w-28">Tipo</th>
+                      <th className="py-2.5 px-3 text-center w-32">Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="bg-muted/10 hover:bg-muted/20 transition-colors">
+                      {/* Nº Previsto */}
+                      <td className="py-2 px-2 text-center font-mono font-bold text-muted-foreground text-xs">
+                        {String(schedules.length + 1).padStart(2, "0")}
+                      </td>
+
+                      {/* Linha */}
+                      <td className="py-2 px-2">
+                        <input
+                          type="text"
+                          placeholder="Ex: 302/051"
+                          value={newLinha}
+                          onChange={(e) => setNewLinha(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleCreateSchedule(e);
+                          }}
+                          className="w-full h-8 px-2 rounded-md border border-border/80 bg-background text-xs font-bold focus:outline-hidden focus:ring-1 focus:ring-[#164E3A]"
+                          required
+                        />
+                      </td>
+
+                      {/* Tabela */}
+                      <td className="py-2 px-1.5 text-center">
+                        <input
+                          type="text"
+                          placeholder="1/1"
+                          value={newTabela}
+                          onChange={(e) => setNewTabela(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleCreateSchedule(e);
+                          }}
+                          className="w-full h-8 px-1.5 text-center rounded-md border border-border/80 bg-background text-xs font-mono font-bold focus:outline-hidden focus:ring-1 focus:ring-[#164E3A]"
+                          required
+                        />
+                      </td>
+
+                      {/* Carro Programado */}
+                      <td className="py-2 px-2 text-center">
+                        <div className="relative">
+                          <input
+                            type="text"
+                            placeholder="Ex: 4210"
+                            value={newCarroProgramado}
+                            onChange={(e) => setNewCarroProgramado(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleCreateSchedule(e);
+                            }}
+                            className={cn(
+                              "w-full h-8 px-2 text-center rounded-md border text-xs font-mono font-bold focus:outline-hidden focus:ring-1 focus:ring-[#164E3A]",
+                              newBloqueioCI 
+                                ? "border-rose-500 bg-rose-500/10 text-rose-600" 
+                                : "border-border/80 bg-background"
+                            )}
+                            required
+                          />
+                        </div>
+                      </td>
+
+                      {/* Saída Garagem */}
+                      <td className="py-2 px-2 text-center">
+                        <input
+                          type="time"
+                          value={newSaidaGaragem}
+                          onChange={(e) => setNewSaidaGaragem(e.target.value)}
+                          className="w-full h-8 px-1.5 text-center rounded-md border border-border/80 bg-background text-xs font-mono font-bold focus:outline-hidden focus:ring-1 focus:ring-[#164E3A]"
+                          required
+                        />
+                      </td>
+
+                      {/* Início Linha */}
+                      <td className="py-2 px-2 text-center">
+                        <input
+                          type="time"
+                          value={newInicioLinha}
+                          onChange={(e) => setNewInicioLinha(e.target.value)}
+                          className="w-full h-8 px-1.5 text-center rounded-md border border-border/80 bg-background text-xs font-mono focus:outline-hidden focus:ring-1 focus:ring-[#164E3A]"
+                        />
+                      </td>
+
+                      {/* MOTO */}
+                      <td className="py-2 px-1.5 text-center">
+                        <input
+                          type="text"
+                          placeholder="MOTO"
+                          value={newMotoCodigo}
+                          onChange={(e) => handleNewMotoCodeChange(e.target.value)}
+                          className="w-full h-8 px-1 text-center rounded-md border border-border/80 bg-background text-xs font-mono placeholder:text-muted-foreground/50 focus:outline-hidden focus:ring-1 focus:ring-[#164E3A]"
+                        />
+                      </td>
+
+                      {/* Nome do Motorista */}
+                      <td className="py-2 px-2">
+                        <input
+                          type="text"
+                          placeholder="Nome do motorista..."
+                          value={newMotoNome}
+                          onChange={(e) => setNewMotoNome(e.target.value)}
+                          className="w-full h-8 px-2 rounded-md border border-border/80 bg-background text-xs focus:outline-hidden focus:ring-1 focus:ring-[#164E3A]"
+                        />
+                      </td>
+
+                      {/* Tipo */}
+                      <td className="py-2 px-1.5">
+                        <select
+                          value={newTipo}
+                          onChange={(e) => setNewTipo(e.target.value as any)}
+                          className="w-full h-8 px-1.5 rounded-md border border-border/80 bg-background text-xs font-semibold focus:outline-hidden"
+                        >
+                          <option value="REGULAR">Regular</option>
+                          <option value="VCM">VCM</option>
+                          <option value="FRETAMENTO">Frete</option>
+                          <option value="EXTRA">Extra</option>
+                        </select>
+                      </td>
+
+                      {/* Ação */}
+                      <td className="py-2 px-2.5 text-center whitespace-nowrap">
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={handleCreateSchedule}
+                          className="h-8 px-3 text-xs font-bold rounded-full bg-[#164E3A] hover:bg-[#113C2D] text-white shadow-2xs gap-1 transition-colors"
+                          title="Adicionar viagem programada à escala"
+                        >
+                          <PlusCircle className="w-3.5 h-3.5" />
+                          <span>Adicionar</span>
+                        </Button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Alerta de Carro Retido no CI (se digitado) */}
+            {newBloqueioCI && (
+              <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 flex items-center justify-between gap-2 text-rose-800 dark:text-rose-300 text-xs">
+                <div className="flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>
+                    <strong>ALERTA DE BLOQUEIO:</strong> Carro {newBloqueioCI.prefixo} está retido no CI por: <strong>{newBloqueioCI.motivo}</strong> ({newBloqueioCI.responsavel || "Oficina"}).
+                  </span>
+                </div>
+                <span className="text-[10px] uppercase font-bold text-rose-600 bg-rose-200/60 dark:bg-rose-900/60 px-2 py-0.5 rounded-full">
+                  Carro em Manutenção
+                </span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ========================================================= */}

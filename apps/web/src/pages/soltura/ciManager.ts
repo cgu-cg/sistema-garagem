@@ -1,34 +1,35 @@
-import { BloqueioCarro, ciCarrosBloqueados } from "@/data/solturaData";
+import { BloqueioCarro } from "@/data/solturaData";
 
-const STORAGE_KEY = "soltura_ci_bloqueios_v1";
+const STORAGE_KEY = "soltura_ci_bloqueios_v2";
 
 export function getInitialCIBloqueios(): BloqueioCarro[] {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+    // Também verificar v2 e v1 anterior caso o usuário tenha adicionado algum carro real
+    const savedV2 = localStorage.getItem(STORAGE_KEY);
+    if (savedV2) {
+      const parsed = JSON.parse(savedV2);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(item => !item.id?.startsWith("ci-seed-"));
+      }
+    }
+
+    const savedV1 = localStorage.getItem("soltura_ci_bloqueios_v1");
+    if (savedV1) {
+      const parsed = JSON.parse(savedV1);
+      if (Array.isArray(parsed)) {
+        const userAddedOnly = parsed.filter(item => !item.id?.startsWith("ci-seed-"));
+        if (userAddedOnly.length > 0) {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(userAddedOnly));
+          return userAddedOnly;
+        }
       }
     }
   } catch (e) {
     console.error("Erro ao ler CIs do localStorage:", e);
   }
 
-  // Inicializar a partir dos dados preexistentes
-  return ciCarrosBloqueados.map((item, index) => ({
-    id: `ci-seed-${index + 1}-${item.prefixo}`,
-    prefixo: item.prefixo,
-    garagem: item.prefixo.startsWith("1") ? "VCM" : "VCG",
-    tipo: item.tipo,
-    motivo: item.motivo,
-    data: item.data || "26/08/2026",
-    hora: "06:30",
-    gravidade: item.motivo.toLowerCase().includes("motor") || item.motivo.toLowerCase().includes("freio") || item.motivo.toLowerCase().includes("cambio") ? "ALTA" : "MEDIA",
-    responsavel: "Oficina Central",
-    status: "BLOQUEADO",
-    os: `OS-${202600 + index}`
-  }));
+  // Lista inicial limpa: sem carros fictícios, apenas os que forem cadastrados
+  return [];
 }
 
 export function saveCIBloqueiosToStorage(list: BloqueioCarro[]): void {

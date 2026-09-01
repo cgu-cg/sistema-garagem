@@ -31,6 +31,8 @@ import {
   Filter,
   WifiOff,
   CloudUpload,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { useAuth } from "@/stores/auth";
 import { cn } from "@/lib/utils";
@@ -84,6 +86,38 @@ export function AbastecimentoPage() {
   // Filter state
   const [filterDate, setFilterDate] = useState("");
   const [filterGaragem, setFilterGaragem] = useState<string>("");
+
+  // Pagination state (padrão 10 registros por página)
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  const totalRecords = records.length;
+  const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
+
+  // Ajusta a página atual caso exceda o total de páginas (ex: após filtragem)
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
+
+  const startIndex = (currentPage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalRecords);
+  const currentRecords = records.slice(startIndex, endIndex);
+
+  const getPageNumbers = () => {
+    const pages: (number | string)[] = [];
+    if (totalPages <= 5) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else if (currentPage <= 3) {
+      pages.push(1, 2, 3, 4, "...", totalPages);
+    } else if (currentPage >= totalPages - 2) {
+      pages.push(1, "...", totalPages - 3, totalPages - 2, totalPages - 1, totalPages);
+    } else {
+      pages.push(1, "...", currentPage - 1, currentPage, currentPage + 1, "...", totalPages);
+    }
+    return pages;
+  };
 
   const load = async () => {
     setListLoading(true);
@@ -659,7 +693,7 @@ export function AbastecimentoPage() {
                 </Select>
               </div>
             )}
-            <Button onClick={load} disabled={listLoading} className="gap-1.5 w-full sm:w-auto">
+            <Button onClick={() => { setCurrentPage(1); load(); }} disabled={listLoading} className="gap-1.5 w-full sm:w-auto">
               <RefreshCw className={`h-4 w-4 ${listLoading ? "animate-spin" : ""}`} />
               Filtrar
             </Button>
@@ -668,21 +702,25 @@ export function AbastecimentoPage() {
       </Card>
 
       {/* Records list */}
-      <Card className="border-border/80 shadow-md">
+      <Card className="border border-border/80 shadow-sm rounded-2xl bg-card overflow-hidden">
         <CardHeader className="flex flex-row items-center justify-between border-b pb-4 bg-muted/10">
-          <CardTitle className="text-lg font-semibold flex items-center gap-2">
-            <Clock className="h-5 w-5 text-primary" />
-            Registros
-            <span className="text-sm font-normal text-muted-foreground">
-              ({records.length} {records.length === 1 ? "registro" : "registros"})
+          <CardTitle className="text-base md:text-lg font-bold flex items-center gap-2.5">
+            <Clock className="h-5 w-5 text-[#164E3A] dark:text-emerald-400" />
+            Histórico de Leituras
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-[#164E3A] dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60">
+              {records.length} {records.length === 1 ? "registro" : "registros"}
             </span>
           </CardTitle>
           <Button
             variant="ghost"
             size="icon"
-            onClick={load}
+            onClick={() => {
+              setCurrentPage(1);
+              load();
+            }}
             disabled={listLoading}
-            className="h-8 w-8"
+            className="h-8 w-8 rounded-full"
+            title="Atualizar lista"
           >
             <RefreshCw className={`h-4 w-4 ${listLoading ? "animate-spin" : ""}`} />
           </Button>
@@ -690,7 +728,7 @@ export function AbastecimentoPage() {
         <CardContent className="p-0">
           {listLoading ? (
             <div className="p-8 text-center text-muted-foreground flex flex-col items-center justify-center gap-2">
-              <RefreshCw className="h-6 w-6 animate-spin text-primary" />
+              <RefreshCw className="h-6 w-6 animate-spin text-[#164E3A] dark:text-emerald-400" />
               Carregando leituras...
             </div>
           ) : records.length === 0 ? (
@@ -698,109 +736,199 @@ export function AbastecimentoPage() {
               Nenhum registro encontrado para o período selecionado
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm border-collapse">
-                <thead>
-                  <tr className="border-b bg-muted/20 text-muted-foreground font-medium text-xs uppercase tracking-wider">
-                    <th className="p-4 font-semibold">Litros T1</th>
-                    <th className="p-4 font-semibold">Foto T1</th>
-                    <th className="p-4 font-semibold">Litros T2</th>
-                    <th className="p-4 font-semibold">Foto T2</th>
-                    {(user?.role === "ADMIN" || user?.garagem === "VCM") && (
-                      <>
-                        <th className="p-4 font-semibold">Litros T3</th>
-                        <th className="p-4 font-semibold">Foto T3</th>
-                      </>
-                    )}
-                    <th className="p-4 font-semibold">Data e Hora</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {records.map((r) => (
-                    <tr key={r.pendingId || r.id} className={`transition-colors ${r.pendingId ? "bg-amber-500/5 hover:bg-amber-500/10" : "hover:bg-muted/10"}`}>
-                      <td className="p-4 font-mono font-semibold text-foreground">
-                        {Number(r.litersT1).toFixed(2)}L
-                      </td>
-                      <td className="p-4">
-                        <div
-                          className="relative h-10 w-10 border rounded bg-muted/40 cursor-pointer overflow-hidden group"
-                          onClick={() => setActivePhotoView(r.fotoT1)}
-                        >
-                          <img src={r.fotoT1} className="h-full w-full object-cover" />
-                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center">
-                            <Eye className="h-3 w-3 text-white" />
-                          </div>
-                        </div>
-                      </td>
-                      <td className="p-4 font-mono font-semibold text-foreground">
-                        {Number(r.litersT2).toFixed(2)}L
-                      </td>
-                      <td className="p-4">
-                        <div
-                          className="relative h-10 w-10 border rounded bg-muted/40 cursor-pointer overflow-hidden group"
-                          onClick={() => setActivePhotoView(r.fotoT2)}
-                        >
-                          <img src={r.fotoT2} className="h-full w-full object-cover" />
-                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center">
-                            <Eye className="h-3 w-3 text-white" />
-                          </div>
-                        </div>
-                      </td>
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm border-collapse">
+                  <thead>
+                    <tr className="border-b bg-muted/20 text-muted-foreground font-semibold text-xs uppercase tracking-wider">
+                      <th className="p-4">Litros T1</th>
+                      <th className="p-4">Foto T1</th>
+                      <th className="p-4">Litros T2</th>
+                      <th className="p-4">Foto T2</th>
                       {(user?.role === "ADMIN" || user?.garagem === "VCM") && (
                         <>
-                          <td className="p-4 font-mono font-semibold">
-                            {r.litersT3 ? `${Number(r.litersT3).toFixed(2)}L` : "-"}
-                          </td>
-                          <td className="p-4">
-                            {r.fotoT3 ? (
-                              <div
-                                className="relative h-10 w-10 border rounded border-rose-200/50 bg-rose-50/10 cursor-pointer overflow-hidden group"
-                                onClick={() => setActivePhotoView(r.fotoT3!)}
-                              >
-                                <img src={r.fotoT3} className="h-full w-full object-cover" />
-                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center">
-                                  <Eye className="h-3 w-3 text-white" />
-                                </div>
-                              </div>
-                            ) : (
-                              <span className="text-muted-foreground text-xs">-</span>
-                            )}
-                          </td>
+                          <th className="p-4">Litros T3</th>
+                          <th className="p-4">Foto T3</th>
                         </>
                       )}
-                      <td className="p-4">
-                        <div className="flex flex-col">
-                          <span className="font-mono text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
-                            {new Date(r.createdAt).toLocaleDateString("pt-BR")} {new Date(r.createdAt).toLocaleTimeString("pt-BR")}
-                            {r.pendingId && (
-                              <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-amber-600 dark:text-amber-400">
-                                Pendente
-                              </span>
-                            )}
-                          </span>
-                          <div className="flex items-center justify-between mt-0.5 gap-2">
-                            <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                              <User className="h-3 w-3" />
-                              {r.user.name}
-                            </span>
-                            {r.pendingId && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-5 w-5 text-destructive hover:bg-destructive/10"
-                                onClick={() => handleDeletePending(r.pendingId!)}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      </td>
+                      <th className="p-4">Data e Hora</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {currentRecords.map((r) => (
+                      <tr key={r.pendingId || r.id} className={`transition-colors ${r.pendingId ? "bg-amber-500/5 hover:bg-amber-500/10" : "hover:bg-muted/10"}`}>
+                        <td className="p-4 font-mono font-semibold text-foreground">
+                          {Number(r.litersT1).toFixed(2)}L
+                        </td>
+                        <td className="p-4">
+                          <div
+                            className="relative h-10 w-10 border rounded bg-muted/40 cursor-pointer overflow-hidden group"
+                            onClick={() => setActivePhotoView(r.fotoT1)}
+                          >
+                            <img src={r.fotoT1} className="h-full w-full object-cover" />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center">
+                              <Eye className="h-3 w-3 text-white" />
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-4 font-mono font-semibold text-foreground">
+                          {Number(r.litersT2).toFixed(2)}L
+                        </td>
+                        <td className="p-4">
+                          <div
+                            className="relative h-10 w-10 border rounded bg-muted/40 cursor-pointer overflow-hidden group"
+                            onClick={() => setActivePhotoView(r.fotoT2)}
+                          >
+                            <img src={r.fotoT2} className="h-full w-full object-cover" />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center">
+                              <Eye className="h-3 w-3 text-white" />
+                            </div>
+                          </div>
+                        </td>
+                        {(user?.role === "ADMIN" || user?.garagem === "VCM") && (
+                          <>
+                            <td className="p-4 font-mono font-semibold">
+                              {r.litersT3 ? `${Number(r.litersT3).toFixed(2)}L` : "-"}
+                            </td>
+                            <td className="p-4">
+                              {r.fotoT3 ? (
+                                <div
+                                  className="relative h-10 w-10 border rounded border-rose-200/50 bg-rose-50/10 cursor-pointer overflow-hidden group"
+                                  onClick={() => setActivePhotoView(r.fotoT3!)}
+                                >
+                                  <img src={r.fotoT3} className="h-full w-full object-cover" />
+                                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center">
+                                    <Eye className="h-3 w-3 text-white" />
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground text-xs">-</span>
+                              )}
+                            </td>
+                          </>
+                        )}
+                        <td className="p-4">
+                          <div className="flex flex-col">
+                            <span className="font-mono text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
+                              {new Date(r.createdAt).toLocaleDateString("pt-BR")} {new Date(r.createdAt).toLocaleTimeString("pt-BR")}
+                              {r.pendingId && (
+                                <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-amber-600 dark:text-amber-400">
+                                  Pendente
+                                </span>
+                              )}
+                            </span>
+                            <div className="flex items-center justify-between mt-0.5 gap-2">
+                              <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                <User className="h-3 w-3" />
+                                {r.user.name}
+                              </span>
+                              {r.pendingId && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-5 w-5 text-destructive hover:bg-destructive/10"
+                                  onClick={() => handleDeletePending(r.pendingId!)}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Paginação Estilo Donezo / Layout Padrão */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3.5 border-t border-border/80 bg-muted/5">
+                <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                  <span>
+                    Mostrando <strong className="font-semibold text-foreground">{totalRecords === 0 ? 0 : startIndex + 1}</strong> a{" "}
+                    <strong className="font-semibold text-foreground">{endIndex}</strong> de{" "}
+                    <strong className="font-semibold text-foreground">{totalRecords}</strong> registros
+                  </span>
+                  <span className="hidden sm:inline text-border">|</span>
+                  <div className="flex items-center gap-1.5">
+                    <span>Exibir</span>
+                    <Select
+                      value={String(pageSize)}
+                      onValueChange={(val) => {
+                        setPageSize(Number(val));
+                        setCurrentPage(1);
+                      }}
+                    >
+                      <SelectTrigger className="h-7 w-[95px] text-xs rounded-full bg-background border-border/80 shadow-none font-medium">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="10">10 / pág</SelectItem>
+                        <SelectItem value="25">25 / pág</SelectItem>
+                        <SelectItem value="50">50 / pág</SelectItem>
+                        <SelectItem value="100">100 / pág</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {totalPages > 1 && (
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      className="h-8 rounded-full px-3 text-xs font-medium gap-1 border-border/80 bg-background hover:bg-accent disabled:opacity-40"
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">Anterior</span>
+                    </Button>
+
+                    <div className="flex items-center gap-1">
+                      {getPageNumbers().map((item, index) => {
+                        if (item === "...") {
+                          return (
+                            <span key={`dots-${index}`} className="px-2 text-xs text-muted-foreground">
+                              ...
+                            </span>
+                          );
+                        }
+                        const pageNumber = item as number;
+                        const isActive = pageNumber === currentPage;
+                        return (
+                          <Button
+                            key={`page-${pageNumber}`}
+                            size="sm"
+                            variant={isActive ? "default" : "outline"}
+                            onClick={() => setCurrentPage(pageNumber)}
+                            className={cn(
+                              "h-8 w-8 p-0 rounded-full text-xs font-medium transition-colors",
+                              isActive
+                                ? "bg-[#164E3A] hover:bg-[#113C2D] text-white shadow-sm dark:bg-emerald-600 dark:hover:bg-emerald-700 font-bold"
+                                : "border-border/80 bg-background hover:bg-accent text-foreground"
+                            )}
+                          >
+                            {pageNumber}
+                          </Button>
+                        );
+                      })}
+                    </div>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                      className="h-8 rounded-full px-3 text-xs font-medium gap-1 border-border/80 bg-background hover:bg-accent disabled:opacity-40"
+                    >
+                      <span className="hidden sm:inline">Próximo</span>
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
