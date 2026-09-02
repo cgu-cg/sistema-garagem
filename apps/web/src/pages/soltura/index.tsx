@@ -20,7 +20,9 @@ import {
   Undo2,
   Check,
   FileSpreadsheet,
-  Plus
+  Plus,
+  Bus,
+  Tag
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -67,13 +69,17 @@ export const TERMINAIS_PADRAO = [
   "Term. Nova Bahia"
 ];
 
-export const TIPOS_RESERVA: Array<{ value: "VERMELHO" | "AZUL" | "CORINGA" | "MICRO" | "ARTICULADO"; label: string }> = [
-  { value: "VERMELHO", label: "Vermelho" },
-  { value: "AZUL", label: "Azul" },
-  { value: "CORINGA", label: "Coringa" },
-  { value: "MICRO", label: "Micro" },
-  { value: "ARTICULADO", label: "Articulado" }
-];
+export const TIPOS_RESERVA: Array<{
+  value: "VERMELHO" | "AZUL" | "CORINGA" | "MICRO" | "ARTICULADO";
+  label: string;
+  dotColor: string;
+}> = [
+    { value: "VERMELHO", label: "Vermelho", dotColor: "bg-rose-500" },
+    { value: "AZUL", label: "Azul", dotColor: "bg-sky-500" },
+    { value: "CORINGA", label: "Coringa", dotColor: "bg-amber-500" },
+    { value: "MICRO", label: "Micro", dotColor: "bg-purple-500" },
+    { value: "ARTICULADO", label: "Articulado", dotColor: "bg-orange-500" }
+  ];
 
 interface DispatchedRecord {
   scheduleId: string;
@@ -1124,7 +1130,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           {/* ========================================================= */}
           {(reservasTerminais.length > 0 || penduradosAtivos.length > 0 || viewMode === "FOLHA") && (
             <div className="print-page-break space-y-4 pt-1">
-              
+
               {/* Cabeçalho Oficial da Segunda Folha A4 */}
               <div className="hidden print:block border border-neutral-700 p-2 mb-2 bg-white text-black font-sans">
                 <div className="flex items-center justify-between border-b border-neutral-500 pb-1">
@@ -1194,10 +1200,10 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                               className={cn(
                                 "px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition-all group select-none shadow-2xs",
                                 car.tipo === "VERMELHO" ? "border border-rose-500/50 text-rose-700 dark:text-rose-400 bg-rose-500/10 print:border-rose-600 print:text-rose-700" :
-                                car.tipo === "AZUL" ? "border border-sky-500/50 text-sky-700 dark:text-sky-400 bg-sky-500/10 print:border-sky-600 print:text-sky-700" :
-                                car.tipo === "CORINGA" ? "border border-amber-500/50 text-amber-700 dark:text-amber-400 bg-amber-500/10 print:border-amber-600 print:text-amber-700" :
-                                car.tipo === "MICRO" ? "border border-purple-500/50 text-purple-700 dark:text-purple-400 bg-purple-500/10 print:border-purple-600 print:text-purple-700" :
-                                "border border-orange-500/50 text-orange-700 dark:text-orange-400 bg-orange-500/10 print:border-orange-600 print:text-orange-700"
+                                  car.tipo === "AZUL" ? "border border-sky-500/50 text-sky-700 dark:text-sky-400 bg-sky-500/10 print:border-sky-600 print:text-sky-700" :
+                                    car.tipo === "CORINGA" ? "border border-amber-500/50 text-amber-700 dark:text-amber-400 bg-amber-500/10 print:border-amber-600 print:text-amber-700" :
+                                      car.tipo === "MICRO" ? "border border-purple-500/50 text-purple-700 dark:text-purple-400 bg-purple-500/10 print:border-purple-600 print:text-purple-700" :
+                                        "border border-orange-500/50 text-orange-700 dark:text-orange-400 bg-orange-500/10 print:border-orange-600 print:text-orange-700"
                               )}
                               title={`Carro ${car.carro} • Tipo: ${car.tipo}`}
                             >
@@ -1514,51 +1520,91 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       {/* POPUP MODAL: ADICIONAR NA RESERVA DO TERMINAL (Design System) */}
       {/* ========================================================= */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="max-w-[310px] sm:max-w-[330px] rounded-2xl border border-border bg-card text-card-foreground p-5 shadow-2xl">
-          <DialogHeader className="space-y-1 text-center">
-            <DialogTitle className="text-xs sm:text-sm font-bold text-foreground leading-tight">
-              Adicionar na reserva
-              <br />
-              do
-              <br />
-              <span className="text-[#164E3A] dark:text-emerald-400 font-extrabold">({selectedTerminal})</span>
-            </DialogTitle>
+        <DialogContent className="max-w-[340px] sm:max-w-[360px] rounded-3xl border border-border bg-card text-card-foreground p-6 shadow-2xl">
+          <DialogHeader className="space-y-2 text-center pb-1">
+            <div>
+              <DialogTitle className="text-lg font-bold text-foreground">
+                Adicionar Carro Reserva
+              </DialogTitle>
+              <p className="text-sm font-bold text-[#164E3A] dark:text-emerald-400 mt-0.5">
+                {selectedTerminal}
+              </p>
+            </div>
           </DialogHeader>
 
-          <form onSubmit={handleAddReserva} className="space-y-3 pt-2">
-            <div>
-              <input
-                type="text"
-                placeholder="carro"
-                value={inputCarro}
-                onChange={(e) => setInputCarro(e.target.value)}
-                className="w-full h-10 px-3 rounded-xl border border-input bg-background text-center text-sm font-bold font-mono text-foreground placeholder:text-muted-foreground focus:outline-hidden focus:ring-2 focus:ring-[#164E3A]/40 dark:focus:ring-emerald-400/40 transition-all shadow-2xs"
-                autoFocus
-              />
+          <form onSubmit={handleAddReserva} className="space-y-4 pt-1">
+            {/* Campo 1: Prefixo do Veículo */}
+            <div className="space-y-1.5 text-left">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <Bus className="w-3.5 h-3.5 text-[#164E3A] dark:text-emerald-400" />
+                Prefixo do Carro
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Ex: 1045, 2012..."
+                  value={inputCarro}
+                  onChange={(e) => setInputCarro(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  className="w-full h-11 px-3.5 rounded-xl border border-input bg-background text-sm font-bold font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-hidden focus:ring-2 focus:ring-[#164E3A]/40 dark:focus:ring-emerald-400/40 transition-all shadow-2xs"
+                  autoFocus
+                />
+                {inputCarro && (
+                  <button
+                    type="button"
+                    onClick={() => setInputCarro("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-sm font-bold cursor-pointer"
+                    title="Limpar prefixo"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
             </div>
 
-            <div>
-              <select
-                value={selectedTipo}
-                onChange={(e) => setSelectedTipo(e.target.value as any)}
-                className="w-full h-10 px-3 rounded-xl border border-input bg-background text-center text-xs font-semibold text-foreground focus:outline-hidden focus:ring-2 focus:ring-[#164E3A]/40 dark:focus:ring-emerald-400/40 transition-all cursor-pointer shadow-2xs"
-              >
-                <option value="" disabled>selecione tipo</option>
-                {TIPOS_RESERVA.map(t => (
-                  <option key={t.value} value={t.value} className="bg-card text-foreground">
-                    {t.label}
-                  </option>
-                ))}
-              </select>
+            {/* Campo 2: Tipo de Veículo (Seleção direta por Badges) */}
+            <div className="space-y-2 text-left">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <Tag className="w-3.5 h-3.5 text-[#164E3A] dark:text-emerald-400" />
+                Tipo de Veículo
+              </label>
+
+              {/* Grade de Badges de Seleção Direta */}
+              <div className="grid grid-cols-3 gap-2">
+                {TIPOS_RESERVA.map(t => {
+                  const isSelected = selectedTipo === t.value;
+                  return (
+                    <button
+                      key={t.value}
+                      type="button"
+                      onClick={() => setSelectedTipo(t.value)}
+                      className={cn(
+                        "h-10 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer border shadow-2xs select-none",
+                        isSelected
+                          ? t.value === "VERMELHO" ? "border-rose-500 bg-rose-500/15 text-rose-700 dark:text-rose-300 ring-2 ring-rose-500/30 scale-102" :
+                            t.value === "AZUL" ? "border-sky-500 bg-sky-500/15 text-sky-700 dark:text-sky-300 ring-2 ring-sky-500/30 scale-102" :
+                              t.value === "CORINGA" ? "border-amber-500 bg-amber-500/15 text-amber-700 dark:text-amber-300 ring-2 ring-amber-500/30 scale-102" :
+                                t.value === "MICRO" ? "border-purple-500 bg-purple-500/15 text-purple-700 dark:text-purple-300 ring-2 ring-purple-500/30 scale-102" :
+                                  "border-orange-500 bg-orange-500/15 text-orange-700 dark:text-orange-300 ring-2 ring-orange-500/30 scale-102"
+                          : "border-border/70 bg-background text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                      )}
+                    >
+                      <span className={cn("w-2 h-2 rounded-full shrink-0", t.dotColor)} />
+                      <span>{t.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            <div className="pt-1">
+            {/* Botão de Envio */}
+            <div className="pt-2">
               <button
                 type="submit"
                 disabled={isSubmittingReserva}
-                className="w-full h-10 rounded-xl bg-[#164E3A] hover:bg-[#113C2D] dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white font-bold text-xs uppercase tracking-wider shadow-md transition-all active:scale-98 disabled:opacity-50 cursor-pointer"
+                className="w-full h-11 rounded-xl bg-[#164E3A] hover:bg-[#113C2D] dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white font-bold text-xs uppercase tracking-wider shadow-md transition-all active:scale-98 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
               >
-                {isSubmittingReserva ? "adicionando..." : "adicionar"}
+                <Plus className="w-4 h-4" />
+                {isSubmittingReserva ? "adicionando..." : "adicionar na reserva"}
               </button>
             </div>
           </form>
