@@ -36,9 +36,7 @@ import {
   terminaisReservaVCG,
   terminaisReservaVCM,
   BloqueioCarro,
-  TerminalReserva,
-  CarroPendurado,
-  carrosPendurados
+  TerminalReserva
 } from "@/data/solturaData";
 import { drivers } from "@/data/drivers";
 import { cn } from "@/lib/utils";
@@ -341,10 +339,13 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     return garagem === "VCG" ? terminaisReservaVCG : terminaisReservaVCM;
   }, [garagem]);
 
-  // Pendurados (carros em alto consumo/bloqueados na CI) filtrados por garagem
-  const penduradosAtivos = useMemo<CarroPendurado[]>(() => {
-    return carrosPendurados.filter(p => p.garagem === garagem);
-  }, [garagem]);
+  // Pendurados / Bloqueados na CI ativos filtrados pela garagem atual
+  const penduradosAtivos = useMemo<BloqueioCarro[]>(() => {
+    return ciList.filter(c =>
+      (!c.status || c.status === "BLOQUEADO" || c.status === "EM_MANUTENCAO" || c.status === "AGUARDANDO_PECA") &&
+      (!c.garagem || c.garagem === garagem || c.garagem === "TODAS")
+    );
+  }, [ciList, garagem]);
 
   // Mapear itens mesclando programação base + despachos realizados
   const activeSchedules = useMemo(() => {
@@ -1175,10 +1176,10 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                     return (
                       <div
                         key={termNome}
-                        className="rounded-xl border border-border/70 bg-muted/30 hover:bg-muted/50 dark:bg-card/90 dark:border-border/60 p-3.5 flex flex-col justify-between min-h-[115px] transition-all print:border-neutral-400 print:bg-white shadow-2xs"
+                        className="rounded-xl border border-border/70 bg-muted/30 hover:bg-muted/50 dark:bg-card/90 dark:border-border/60 p-3 flex flex-col gap-2 transition-all print:border-neutral-400 print:bg-white shadow-2xs"
                       >
                         {/* Header do Card */}
-                        <div className="flex items-center justify-between gap-2 pb-2 border-b border-border/40">
+                        <div className="flex items-center justify-between gap-2">
                           <span className="text-xs font-bold text-foreground tracking-tight print:text-black">
                             {termNome}
                           </span>
@@ -1193,7 +1194,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                         </div>
 
                         {/* Tags dos Carros Alocados */}
-                        <div className="flex flex-wrap gap-1.5 pt-2">
+                        <div className="flex flex-wrap gap-1.5">
                           {carrosDoTerminal.map(car => (
                             <div
                               key={car.id}
@@ -1219,7 +1220,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                             </div>
                           ))}
                           {carrosDoTerminal.length === 0 && (
-                            <span className="text-[11px] text-muted-foreground italic py-1 print:text-neutral-400">
+                            <span className="text-[11px] text-muted-foreground/70 italic print:text-neutral-400">
                               Sem carros
                             </span>
                           )}
@@ -1230,39 +1231,35 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                 </div>
               </div>
 
-              {/* SEÇÃO: PENDURADOS (carros alto consumo / bloqueados CI) */}
+              {/* SEÇÃO: PENDURADOS (carros bloqueados CI) */}
               {penduradosAtivos.length > 0 && (
-                <div className="border rounded-xl p-3 bg-rose-500/5 space-y-2 print:bg-white print:border-neutral-500">
-                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-300 flex items-center gap-1.5 print:text-black">
-                    <AlertTriangle className="w-3.5 h-3.5 text-rose-500 print:text-black" />
-                    Pendurados — Carros Alto Consumo / Bloqueados
-                  </h3>
-                  <div className="flex flex-wrap gap-3">
-                    {(["VERMELHO", "AZUL", "MICRO", "ARTICULADO", "CINZA"] as const).map(tipo => {
-                      const lista = penduradosAtivos.filter(p => p.tipo === tipo);
-                      if (lista.length === 0) return null;
-                      return (
-                        <div key={tipo} className="space-y-1">
-                          <span className={cn(
-                            "text-[10px] font-bold uppercase px-2 py-0.5 rounded-full inline-block",
-                            tipo === "VERMELHO" ? "bg-rose-500/15 text-rose-600" :
-                              tipo === "AZUL" ? "bg-blue-500/15 text-blue-600" :
-                                tipo === "MICRO" ? "bg-purple-500/15 text-purple-600" :
-                                  tipo === "ARTICULADO" ? "bg-amber-500/15 text-amber-600" :
-                                    "bg-gray-500/15 text-gray-600"
-                          )}>
-                            {tipo}
+                <div className="border border-rose-500/30 rounded-2xl p-4 bg-rose-500/5 text-card-foreground shadow-2xs space-y-2.5 print:bg-white print:border-neutral-500 print:p-2">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-rose-700 dark:text-rose-400 flex items-center gap-1.5 print:text-black">
+                      <AlertTriangle className="w-3.5 h-3.5 text-rose-500 print:text-black" />
+                      PENDURADOS — CARROS ALTO CONSUMO / BLOQUEADOS
+                    </h3>
+                    <span className="text-[10px] text-muted-foreground font-mono">
+                      {penduradosAtivos.length} {penduradosAtivos.length === 1 ? "carro" : "carros"}
+                    </span>
+                  </div>
+
+                  {/* Exibição direta dos carros (sem o texto 'VERMELHO' em cima) */}
+                  <div className="flex flex-wrap gap-2 pt-0.5">
+                    {penduradosAtivos.map(ci => (
+                      <div
+                        key={ci.id || ci.prefixo}
+                        className="px-3 py-1.5 rounded-xl border border-rose-500/50 bg-rose-500/10 text-rose-700 dark:text-rose-400 font-mono font-bold text-xs flex items-center gap-1.5 shadow-2xs select-none print:border-neutral-400 print:text-black"
+                        title={`Carro ${ci.prefixo}${ci.motivo ? ` • Motivo: ${ci.motivo}` : ""}`}
+                      >
+                        <span>{ci.prefixo}</span>
+                        {ci.motivo && (
+                          <span className="text-[10px] text-muted-foreground font-sans font-normal opacity-80 max-w-[140px] truncate hidden sm:inline">
+                            • {ci.motivo}
                           </span>
-                          <div className="flex flex-wrap gap-1">
-                            {lista.map(p => (
-                              <span key={p.prefixo} className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-muted border text-foreground font-semibold print:text-black print:border-neutral-400">
-                                {p.prefixo}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
