@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useLocation, Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -52,6 +52,48 @@ const EMPRESAS_MAP: Record<string, { pasta: string; sigla: string }> = {
   "3": { pasta: "3-JTU", sigla: "JTU" },
   "4": { pasta: "4-VCG", sigla: "VCG" },
 };
+
+// Helper para cálculo dos filtros padrão de alertas (Ano atual e Dia 01 do mês anterior)
+export function getDefaultAlertFilters(now = new Date()) {
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1; // 1 a 12
+
+  let targetMonth: number;
+  let targetYear = currentYear;
+
+  if (currentMonth === 1) {
+    // Janeiro: mês anterior é Dezembro do ano passado
+    targetMonth = 12;
+    targetYear = currentYear - 1;
+  } else if (currentMonth === 12) {
+    // Dezembro: mês anterior é Novembro (ou atual Dezembro)
+    targetMonth = 11;
+    targetYear = currentYear;
+  } else {
+    // Demais meses (ex: Mês 09 -> Mês 08)
+    targetMonth = currentMonth - 1;
+    targetYear = currentYear;
+  }
+
+  const mm = String(targetMonth).padStart(2, "0");
+  const allowedYears = Array.from(new Set([currentYear.toString(), targetYear.toString()]));
+  return {
+    year: currentYear.toString(),
+    startDateISO: `${targetYear}-${mm}-01`,
+    startDateBR: `01/${mm}/${targetYear}`,
+    allowedYears,
+  };
+}
+
+export function formatDateBR(dateStr: string): string {
+  if (!dateStr) return "";
+  const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    const [, yyyy, mm, dd] = match;
+    return `${dd}/${mm}/${yyyy}`;
+  }
+  return dateStr;
+}
 
 export function CatracasPage() {
   const location = useLocation();
@@ -109,11 +151,43 @@ export function CatracasPage() {
   const [detailsData, setDetailsData] = useState<any | null>(null);
 
   // Estados dos Alertas Globais (Datas Incorretas e Fora da Frota)
-  const [alertYear, setAlertYear] = useState("2026");
-  const [alertStartDate, setAlertStartDate] = useState("2026-06-01");
+  const defaultAlerts = useMemo(() => getDefaultAlertFilters(), []);
+  const [alertYear, setAlertYear] = useState(defaultAlerts.year);
+  const [alertStartDate, setAlertStartDate] = useState(defaultAlerts.startDateISO);
   const [alertLoading, setAlertLoading] = useState(false);
+  const [alertLoaded, setAlertLoaded] = useState(false);
   const [datasIncorretas, setDatasIncorretas] = useState<{ hIni: any[]; hFim: any[] }>({ hIni: [], hFim: [] });
   const [foraFrota, setForaFrota] = useState<{ especiais: any[]; comuns: any[] }>({ especiais: [], comuns: [] });
+
+  // Conjunto de ULs com datas erradas vindas de TotalizadorServico
+  const ulsComDatasErradas = useMemo(() => {
+    const map = new Map<string, any>();
+    (datasIncorretas.hIni || []).forEach((row) => {
+      const key = `${row.idVeiculo ?? ""}_${row.catracaFim ?? ""}_${row.dataHoraUL ?? ""}_${row.totalEDM ?? ""}`;
+      map.set(key, { ...row, tipoErro: "dataHIni" });
+    });
+    (datasIncorretas.hFim || []).forEach((row) => {
+      const key = `${row.idVeiculo ?? ""}_${row.catracaFim ?? ""}_${row.dataHoraUL ?? ""}_${row.totalEDM ?? ""}`;
+      if (map.has(key)) {
+        map.set(key, { ...map.get(key), tipoErro: "ambos" });
+      } else {
+        map.set(key, { ...row, tipoErro: "dataHFim" });
+      }
+    });
+    return map;
+  }, [datasIncorretas]);
+
+  // Quantidade de carros únicos com prefixo incorreto (fora da frota cadastrada)
+  const totalPrefixosIncorretos = useMemo(() => {
+    const setCarros = new Set<number>();
+    (foraFrota.especiais || []).forEach((r) => {
+      if (r.idVeiculo !== undefined && r.idVeiculo !== null) setCarros.add(r.idVeiculo);
+    });
+    (foraFrota.comuns || []).forEach((r) => {
+      if (r.idVeiculo !== undefined && r.idVeiculo !== null) setCarros.add(r.idVeiculo);
+    });
+    return setCarros.size;
+  }, [foraFrota]);
 
   // Estados de Backup de Coleta
   const [backupCarIds, setBackupCarIds] = useState("1118, 1327, 2701");
@@ -137,11 +211,29 @@ export function CatracasPage() {
   const [activePdfUrl, setActivePdfUrl] = useState<string>("");
   const [copiedUrl, setCopiedUrl] = useState(false);
 
-  // Carregar dados de consistência inicial apenas se houver data informada
+  // Carregar dados de consistência inicial e alertas no primeiro print da página
   useEffect(() => {
     if (consistenciaDate) {
       handleSearchConsistencia();
     }
+    // Carrega alertas imediatamente no primeiro print
+    handleSearchAlerts({
+      startDate: defaultAlerts.startDateISO,
+      year: defaultAlerts.year,
+      silent: true,
+    });
+    // Carrega carros com coleta ativa (coletaBKPIni IS NOT NULL) no primeiro print
+    setBackupLoading(true);
+    api.getBackupStatus()
+      .then((res) => {
+        setBackupData(res.data || []);
+      })
+      .catch((err) => {
+        console.warn("Erro ao buscar coletas ativas iniciais:", err);
+      })
+      .finally(() => {
+        setBackupLoading(false);
+      });
   }, []);
 
   // Handler de Busca de Consistência
@@ -226,12 +318,14 @@ export function CatracasPage() {
   };
 
   // Busca de Alertas Globais (Datas incorretas e Fora da Frota)
-  const handleSearchAlerts = async () => {
+  const handleSearchAlerts = async (options?: { startDate?: string; year?: string; silent?: boolean }) => {
     setAlertLoading(true);
     try {
+      const sDate = options?.startDate || alertStartDate;
+      const yr = options?.year || alertYear;
       const [resDatas, resFrota] = await Promise.all([
-        api.getDatasIncorretas({ startDate: alertStartDate, year: alertYear }),
-        api.getVeiculosForaFrota({ startDate: alertStartDate }),
+        api.getDatasIncorretas({ startDate: sDate, year: yr }),
+        api.getVeiculosForaFrota({ startDate: sDate }),
       ]);
 
       setDatasIncorretas({
@@ -245,11 +339,16 @@ export function CatracasPage() {
       });
 
       setIsMockMode(resDatas.isMock || resFrota.isMock);
-      toast.success("Alertas atualizados");
+      if (!options?.silent) {
+        toast.success("Alertas de validador atualizados");
+      }
     } catch (error: any) {
-      toast.error("Erro ao buscar alertas: " + error.message);
+      if (!options?.silent) {
+        toast.error("Erro ao buscar alertas: " + error.message);
+      }
     } finally {
       setAlertLoading(false);
+      setAlertLoaded(true);
     }
   };
 
@@ -257,19 +356,17 @@ export function CatracasPage() {
   const handleSearchBackup = async () => {
     setBackupLoading(true);
     try {
-      const ids = backupCarIds
-        .split(",")
-        .map((id) => parseInt(id.trim(), 10))
-        .filter((id) => !isNaN(id));
+      const ids = backupCarIds.trim()
+        ? backupCarIds
+            .split(",")
+            .map((id) => parseInt(id.trim(), 10))
+            .filter((id) => !isNaN(id))
+        : undefined;
 
-      if (ids.length === 0) {
-        toast.error("Insira pelo menos um ID de veículo válido");
-        return;
-      }
-
-      const response = await api.getBackupStatus(ids);
+      const response = await api.getBackupStatus(ids && ids.length > 0 ? ids : undefined);
       setBackupData(response.data || []);
       setIsMockMode(response.isMock);
+      toast.success(ids && ids.length > 0 ? "Status de backup atualizado" : "Coletas ativas carregadas");
     } catch (error: any) {
       toast.error("Erro ao consultar backup: " + error.message);
     } finally {
@@ -575,7 +672,7 @@ export function CatracasPage() {
       </div>
 
       {/* Bento Grid KPIs Superiores - Padrão Corporativo layout-padrao.webp */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5">
         {/* CARD 1: Hero Featured Verde Floresta (Consistência Diária) */}
         <div className="rounded-3xl bg-[#154D34] text-white p-5 shadow-sm relative overflow-hidden flex flex-col justify-between min-h-[148px]">
           <div className="absolute -right-8 -bottom-8 w-32 h-32 bg-emerald-400/10 rounded-full blur-2xl pointer-events-none" />
@@ -608,7 +705,7 @@ export function CatracasPage() {
           </div>
         </div>
 
-        {/* CARD 2: Alertas de Validadores */}
+        {/* CARD 2: Alertas de Validadores - Quantidade de ULs com datas erradas */}
         <div className="rounded-3xl bg-white dark:bg-[#0E1420] border border-slate-200/80 dark:border-slate-800/80 p-5 shadow-2xs flex flex-col justify-between min-h-[148px]">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
@@ -619,19 +716,38 @@ export function CatracasPage() {
             </div>
           </div>
           <div className="my-2">
-            <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-              {datasIncorretas.hIni.length + datasIncorretas.hFim.length + foraFrota.especiais.length + foraFrota.comuns.length} <span className="text-base font-semibold text-slate-500">alertas</span>
-            </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-              Datas invertidas e prefixos atípicos
-            </p>
+            {alertLoading && !alertLoaded ? (
+              <div className="flex items-center gap-2 py-2">
+                <Loader2 className="w-5 h-5 animate-spin text-amber-600 dark:text-amber-400" />
+                <span className="text-xs text-slate-400">Verificando ULs...</span>
+              </div>
+            ) : (
+              <>
+                <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-baseline gap-1.5">
+                  <span className={ulsComDatasErradas.size > 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}>
+                    {ulsComDatasErradas.size}
+                  </span>
+                  <span className="text-base font-semibold text-slate-500">
+                    {ulsComDatasErradas.size === 1 ? "UL com data errada" : "ULs com datas erradas"}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  {(() => {
+                    const startYearMatch = alertStartDate?.match(/(\d{4})/);
+                    const startYear = startYearMatch ? startYearMatch[1] : alertYear;
+                    const yearsLabel = startYear && startYear !== alertYear ? `${alertYear}/${startYear}` : alertYear;
+                    return `Fora de ${yearsLabel} • Desde ${formatDateBR(alertStartDate)}`;
+                  })()}
+                </p>
+              </>
+            )}
           </div>
           <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800/60">
             <span className="text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1 text-[11px]">
               <ShieldAlert className="w-3 h-3" />
-              Monitoramento Ativo
+              {alertLoading ? "Consultando..." : "TotalizadorServico"}
             </span>
-            <Link to="/catracas/alertas" className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-[11px]">
+            <Link to="/catracas/alertas" className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-[11px] flex items-center gap-0.5 font-medium">
               Ver alertas →
             </Link>
           </div>
@@ -648,25 +764,82 @@ export function CatracasPage() {
             </div>
           </div>
           <div className="my-2">
-            <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-              {backupData.length} <span className="text-base font-semibold text-slate-500">carros</span>
-            </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-              Janela de re-coleta WiFi programada
-            </p>
+            {backupLoading ? (
+              <div className="flex items-center gap-2 py-2">
+                <Loader2 className="w-5 h-5 animate-spin text-emerald-600 dark:text-emerald-400" />
+                <span className="text-xs text-slate-400">Consultando...</span>
+              </div>
+            ) : (
+              <>
+                <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-baseline gap-1.5">
+                  <span className={backupData.length > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-slate-900 dark:text-white"}>
+                    {backupData.length}
+                  </span>
+                  <span className="text-base font-semibold text-slate-500">
+                    {backupData.length === 1 ? "carro" : "carros"}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Carros com coleta programada
+                </p>
+              </>
+            )}
           </div>
           <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800/60">
             <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1 text-[11px]">
               <ArrowUpRight className="w-3 h-3" />
               Sincronizado SQL Server
             </span>
-            <Link to="/catracas/backup" className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-[11px]">
+            <Link to="/catracas/backup" className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-[11px] flex items-center gap-0.5 font-medium">
               Gerenciar →
             </Link>
           </div>
         </div>
 
-        {/* CARD 4: Diários de Bordo PDF */}
+        {/* CARD 4: Prefixos Incorretos (Entre Backup de Coletas e Diários de Bordo) */}
+        <div className="rounded-3xl bg-white dark:bg-[#0E1420] border border-slate-200/80 dark:border-slate-800/80 p-5 shadow-2xs flex flex-col justify-between min-h-[148px]">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+              Prefixos Incorretos
+            </span>
+            <div className="w-8 h-8 rounded-full bg-rose-50 dark:bg-slate-800 text-rose-600 dark:text-rose-400 flex items-center justify-center">
+              <ShieldAlert className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="my-2">
+            {alertLoading && !alertLoaded ? (
+              <div className="flex items-center gap-2 py-2">
+                <Loader2 className="w-5 h-5 animate-spin text-rose-600 dark:text-rose-400" />
+                <span className="text-xs text-slate-400">Verificando prefixos...</span>
+              </div>
+            ) : (
+              <>
+                <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-baseline gap-1.5">
+                  <span className={totalPrefixosIncorretos > 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}>
+                    {totalPrefixosIncorretos}
+                  </span>
+                  <span className="text-base font-semibold text-slate-500">
+                    {totalPrefixosIncorretos === 1 ? "carro" : "carros"}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Veículos fora da frota cadastrada
+                </p>
+              </>
+            )}
+          </div>
+          <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800/60">
+            <span className="text-rose-600 dark:text-rose-400 font-semibold flex items-center gap-1 text-[11px]">
+              <AlertTriangle className="w-3 h-3" />
+              idLinha ≠ 888
+            </span>
+            <Link to="/catracas/alertas" className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-[11px] flex items-center gap-0.5 font-medium">
+              Ver carros →
+            </Link>
+          </div>
+        </div>
+
+        {/* CARD 5: Diários de Bordo PDF */}
         <div className="rounded-3xl bg-white dark:bg-[#0E1420] border border-slate-200/80 dark:border-slate-800/80 p-5 shadow-2xs flex flex-col justify-between min-h-[148px]">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
@@ -689,7 +862,7 @@ export function CatracasPage() {
               <Check className="w-3 h-3" />
               Servidor Conectado
             </span>
-            <Link to="/catracas/diario" className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-[11px]">
+            <Link to="/catracas/diario" className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-[11px] flex items-center gap-0.5 font-medium">
               Consultar →
             </Link>
           </div>
@@ -931,7 +1104,7 @@ export function CatracasPage() {
                 </div>
                 <div className="flex items-end">
                   <Button
-                    onClick={handleSearchAlerts}
+                    onClick={() => handleSearchAlerts()}
                     className="h-9 text-xs w-full gap-1.5 rounded-xl font-semibold bg-[#154D34] hover:bg-[#0E3824] text-white shadow-xs"
                     disabled={alertLoading}
                   >
@@ -950,7 +1123,7 @@ export function CatracasPage() {
                     : "border-transparent text-muted-foreground hover:text-foreground"
                     }`}
                 >
-                  Datas Incorretas ({datasIncorretas.hIni.length + datasIncorretas.hFim.length})
+                  ULs com Datas Incorretas ({ulsComDatasErradas.size})
                 </button>
                 <button
                   onClick={() => setActiveAlertSubTab("frota")}

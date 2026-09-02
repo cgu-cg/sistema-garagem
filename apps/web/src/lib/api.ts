@@ -149,8 +149,9 @@ export const api = {
     if (params.startDate) query.set("startDate", params.startDate);
     return request(`/catracas/veiculo-servicos?${query.toString()}`);
   },
-  getBackupStatus: (ids: number[]) => {
-    return request(`/catracas/backup?ids=${ids.join(",")}`);
+  getBackupStatus: (ids?: number[]) => {
+    const qs = ids && ids.length > 0 ? `?ids=${ids.join(",")}` : "";
+    return request(`/catracas/backup${qs}`);
   },
   updateBackupStatus: (data: { ids: number[]; coletaBKPIni: string; coletaBKPFim: string }) => {
     return request("/catracas/backup/update", {
@@ -195,5 +196,20 @@ export const api = {
     request(`/controle-operacional/${id}`, { method: "DELETE" }),
   updateControleOperacional: (id: number, data: any) =>
     request(`/controle-operacional/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+
+  // Reservas de Terminais
+  listReservasTerminais: (params?: { garagem?: string; date?: string; terminal?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.garagem) query.set("garagem", params.garagem);
+    if (params?.date) query.set("date", params.date);
+    if (params?.terminal) query.set("terminal", params.terminal);
+    const qs = query.toString();
+    return request(`/solturas/reservas-terminais${qs ? `?${qs}` : ""}`);
+  },
+  createReservaTerminal: (data: { carro: string; tipo: string; terminal: string; garagem?: string }) =>
+    request("/solturas/reservas-terminais", { method: "POST", body: JSON.stringify(data) }),
+  deleteReservaTerminal: (id: number) =>
+    request(`/solturas/reservas-terminais/${id}`, { method: "DELETE" }),
 };
+
 

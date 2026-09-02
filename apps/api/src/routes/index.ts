@@ -11,6 +11,7 @@ import {
   startSessionSchema,
   finishSessionSchema,
   createAbastecimentoCarroItemSchema,
+  createReservaTerminalSchema,
 } from "../utils/schemas";
 
 import * as authController from "../controllers/auth";
@@ -20,6 +21,7 @@ import * as busesController from "../controllers/buses";
 import * as abastecimentoController from "../controllers/abastecimento";
 import * as abastecimentoCarroController from "../controllers/abastecimentoCarro";
 import * as solturaController from "../controllers/soltura";
+import * as reservasTerminaisController from "../controllers/reservasTerminais";
 import * as catracasController from "../controllers/catracas";
 import * as controleOperacionalController from "../controllers/controleOperacional";
 
@@ -60,6 +62,9 @@ router.get("/abastecimento-carro/sessions/:id", authenticate, authorize("ADMIN",
 // Soltura
 router.get("/solturas", authenticate, authorize("ADMIN", "soltura"), solturaController.list);
 router.post("/solturas", authenticate, authorize("ADMIN", "soltura"), validate(createSolturaSchema), solturaController.create);
+router.get("/solturas/reservas-terminais", authenticate, authorize("ADMIN", "soltura", "COLABORADOR"), reservasTerminaisController.list);
+router.post("/solturas/reservas-terminais", authenticate, authorize("ADMIN", "soltura"), validate(createReservaTerminalSchema), reservasTerminaisController.create);
+router.delete("/solturas/reservas-terminais/:id", authenticate, authorize("ADMIN", "soltura"), reservasTerminaisController.remove);
 
 // Catracas
 router.get("/catracas/consistencia", authenticate, catracasController.getConsistenciaCatraca);

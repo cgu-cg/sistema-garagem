@@ -1,6 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
-  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+  provider        = "prisma-client-js"
+  binaryTargets   = ["native", "linux-musl-openssl-3.0.x"]
   previewFeatures = ["driverAdapters"]
 }
 
@@ -10,34 +10,35 @@ datasource db {
 }
 
 model User {
-  id        Int       @id @default(autoincrement())
+  id        Int      @id @default(autoincrement())
   name      String
-  email     String    @unique
+  email     String   @unique
   password  String
-  role      String    @default("COLABORADOR")
-  garagem   String?   @map("garagem")
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
+  role      String   @default("COLABORADOR")
+  garagem   String?  @map("garagem")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  abastecimentos              Abastecimento[]
-  solturas                    Soltura[]
-  controlesOperacionais       ControleOperacional[]
-  abastecimentoCarroSessions  AbastecimentoCarroSession[]
-  groups                      Group[]
+  abastecimentos             Abastecimento[]
+  solturas                   Soltura[]
+  controlesOperacionais      ControleOperacional[]
+  abastecimentoCarroSessions AbastecimentoCarroSession[]
+  groups                     Group[]
+  reservasTerminais          ReservaTerminal[]
 
   @@map("users")
 }
 
 model Bus {
-  id        Int       @id @default(autoincrement())
-  plate     String    @unique @map("placa")
-  prefix    String    @map("prefixo")
-  model     String    @map("modelo")
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
+  id        Int      @id @default(autoincrement())
+  plate     String   @unique @map("placa")
+  prefix    String   @map("prefixo")
+  model     String   @map("modelo")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  solturasRealizadas   Soltura[]       @relation("RealizedBuses")
-  solturasProgramadas  Soltura[]       @relation("ProgrammedBuses")
+  solturasRealizadas  Soltura[] @relation("RealizedBuses")
+  solturasProgramadas Soltura[] @relation("ProgrammedBuses")
 
   @@map("buses")
 }
@@ -60,18 +61,18 @@ model Abastecimento {
 }
 
 model Soltura {
-  id              Int       @id @default(autoincrement())
-  busId           Int       @map("bus_id")
-  programmedBusId Int?      @map("programmed_bus_id")
+  id              Int      @id @default(autoincrement())
+  busId           Int      @map("bus_id")
+  programmedBusId Int?     @map("programmed_bus_id")
   linha           String
   tabela          String
-  driverCode      String    @map("driver_code")
-  driverName      String    @map("motorista")
-  saidaGaragem    String    @map("saida_garagem")
-  inicioLinha     String    @map("inicio_linha")
-  notes           String?   @map("observacoes")
-  userId          Int       @map("user_id")
-  createdAt       DateTime  @default(now()) @map("created_at")
+  driverCode      String   @map("driver_code")
+  driverName      String   @map("motorista")
+  saidaGaragem    String   @map("saida_garagem")
+  inicioLinha     String   @map("inicio_linha")
+  notes           String?  @map("observacoes")
+  userId          Int      @map("user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
 
   bus           Bus  @relation("RealizedBuses", fields: [busId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   programmedBus Bus? @relation("ProgrammedBuses", fields: [programmedBusId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -109,50 +110,66 @@ model Group {
 }
 
 model AbastecimentoCarroSession {
-  id              Int       @id @default(autoincrement())
-  matricula       String    @map("matricula")
-  dthIniAbastec   DateTime  @default(now()) @map("dth_ini_abastec")
-  dthFimAbastec   DateTime? @map("dth_fim_abastec")
-  status          String    @default("EM_ANDAMENTO") @map("status") // "EM_ANDAMENTO" | "FINALIZADO"
-  garagem         String?   @map("garagem")
-  
-  // Leituras iniciais das bombas (Suporta até 6 bombas)
-  b1Ini           Decimal?  @map("b1_ini")
-  b2Ini           Decimal?  @map("b2_ini")
-  b3Ini           Decimal?  @map("b3_ini")
-  b4Ini           Decimal?  @map("b4_ini")
-  b5Ini           Decimal?  @map("b5_ini")
-  b6Ini           Decimal?  @map("b6_ini")
-  
-  // Leituras finais das bombas
-  b1Fim           Decimal?  @map("b1_fim")
-  b2Fim           Decimal?  @map("b2_fim")
-  b3Fim           Decimal?  @map("b3_fim")
-  b4Fim           Decimal?  @map("b4_fim")
-  b5Fim           Decimal?  @map("b5_fim")
-  b6Fim           Decimal?  @map("b6_fim")
-  
-  userId          Int       @map("user_id")
-  createdAt       DateTime  @default(now()) @map("created_at")
+  id            Int       @id @default(autoincrement())
+  matricula     String    @map("matricula")
+  dthIniAbastec DateTime  @default(now()) @map("dth_ini_abastec")
+  dthFimAbastec DateTime? @map("dth_fim_abastec")
+  status        String    @default("EM_ANDAMENTO") @map("status") // "EM_ANDAMENTO" | "FINALIZADO"
+  garagem       String?   @map("garagem")
 
-  user            User      @relation(fields: [userId], references: [id])
-  items           AbastecimentoCarroItem[]
+  // Leituras iniciais das bombas (Suporta até 6 bombas)
+  b1Ini Decimal? @map("b1_ini")
+  b2Ini Decimal? @map("b2_ini")
+  b3Ini Decimal? @map("b3_ini")
+  b4Ini Decimal? @map("b4_ini")
+  b5Ini Decimal? @map("b5_ini")
+  b6Ini Decimal? @map("b6_ini")
+
+  // Leituras finais das bombas
+  b1Fim Decimal? @map("b1_fim")
+  b2Fim Decimal? @map("b2_fim")
+  b3Fim Decimal? @map("b3_fim")
+  b4Fim Decimal? @map("b4_fim")
+  b5Fim Decimal? @map("b5_fim")
+  b6Fim Decimal? @map("b6_fim")
+
+  userId    Int      @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user  User                     @relation(fields: [userId], references: [id])
+  items AbastecimentoCarroItem[]
 
   @@map("abastecimento_carro_sessions")
 }
 
 model AbastecimentoCarroItem {
-  id               Int       @id @default(autoincrement())
-  sessionId        Int       @map("session_id")
-  carro            String    @map("carro")
-  liters           Decimal   @map("litros")
-  bomba            String    @map("bomba") // e.g. "B.01", "B.02"
-  foto             String    @map("foto")
-  matricula        String    @map("matricula")
-  garagem          String?   @map("garagem")
-  dataHora         DateTime  @default(now()) @map("data_hora")
+  id        Int      @id @default(autoincrement())
+  sessionId Int      @map("session_id")
+  carro     String   @map("carro")
+  liters    Decimal  @map("litros")
+  bomba     String   @map("bomba") // e.g. "B.01", "B.02"
+  foto      String   @map("foto")
+  matricula String   @map("matricula")
+  garagem   String?  @map("garagem")
+  dataHora  DateTime @default(now()) @map("data_hora")
 
-  session          AbastecimentoCarroSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  session AbastecimentoCarroSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@map("abastecimento_carro_items")
+}
+
+model ReservaTerminal {
+  id        Int      @id @default(autoincrement())
+  carro     String   @map("carro")
+  tipo      String   @map("tipo") // "VERMELHO" | "AZUL" | "CORINGA" | "MICRO" | "ARTICULADO"
+  terminal  String   @map("terminal")
+  dataHora  DateTime @default(now()) @map("datahora")
+  garagem   String?  @default("VCG") @map("garagem")
+  userId    Int?     @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([garagem, terminal])
+  @@map("reservas_terminais")
 }

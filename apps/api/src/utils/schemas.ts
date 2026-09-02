@@ -63,11 +63,17 @@ export const foraFrotaQuerySchema = z.object({
 });
 
 export const backupStatusQuerySchema = z.object({
-  ids: z.string().min(1, "IDs de carros obrigatórios").transform((v) =>
-    v.split(",")
-      .map((id) => parseInt(id.trim(), 10))
-      .filter((id) => !isNaN(id))
-  ),
+  ids: z
+    .string()
+    .optional()
+    .transform((v) =>
+      v
+        ? v
+            .split(",")
+            .map((id) => parseInt(id.trim(), 10))
+            .filter((id) => !isNaN(id))
+        : undefined
+    ),
 });
 
 export const updateBackupSchema = z.object({
@@ -108,4 +114,12 @@ export const createAbastecimentoCarroItemSchema = z.object({
   bomba: z.string().min(1, "Bomba é obrigatória"),
   foto: z.string().min(1, "Foto é obrigatória"),
 });
+
+export const createReservaTerminalSchema = z.object({
+  carro: z.string().min(1, "Carro é obrigatório"),
+  tipo: z.enum(["VERMELHO", "AZUL", "CORINGA", "MICRO", "ARTICULADO"]),
+  terminal: z.string().min(1, "Terminal é obrigatório"),
+  garagem: z.string().optional(),
+});
+
 

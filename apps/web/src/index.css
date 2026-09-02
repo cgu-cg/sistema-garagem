@@ -103,88 +103,98 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 /* ESTILOS DE IMPRESSÃO A4 - FOLHA SOLTURA  */
 /* ========================================= */
 @media print {
-  /* Reset de page */
+  /* Configuração da folha A4 Paisagem (Landscape) */
   @page {
     size: A4 landscape;
-    margin: 8mm;
+    margin: 5mm 6mm;
   }
 
-  /* Esconder tudo que não é a folha */
-  body {
-    background: white !important;
-    color: black !important;
-    font-size: 9pt !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+  /* Reset global para impressão preto/branco/tons de cinza com alta nitidez */
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 8pt !important;
+    line-height: 1.2 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
-  /* Esconder sidebar, navbar, KPIs, abas, barra de busca, etc. */
+  /* Ocultar elementos estruturais de tela */
   nav, aside, header, footer,
-  [data-sidebar], [data-print-hide],
-  .space-y-5 > div:first-child, /* Card de cabeçalho principal */
-  .space-y-5 > div:nth-child(2) /* Abas e filtros */ {
+  [data-sidebar], [data-print-hide], .no-print {
     display: none !important;
   }
 
-  /* Remover sombras, bordas arredondadas e backgrounds decorativos */
-  .shadow-xs, .shadow-sm, .shadow-md, .shadow-2xs {
+  /* Ocultar sombras e arredondamentos desnecessários em papel */
+  .shadow-xs, .shadow-sm, .shadow-md, .shadow-2xs, .shadow-lg {
     box-shadow: none !important;
   }
 
   .rounded-2xl, .rounded-xl, .rounded-lg {
-    border-radius: 2px !important;
+    border-radius: 0px !important;
   }
 
-  /* Tabelas ocupam 100% */
+  /* Divisão perfeita das duas colunas lado a lado no A4 */
+  .folha-print-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 4mm !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Tabelas nítidas de alta densidade para caber os 30 horários */
   table {
     width: 100% !important;
     border-collapse: collapse !important;
-    font-size: 8pt !important;
+    font-size: 7.5pt !important;
   }
 
-  th, td {
-    border: 0.5pt solid #ccc !important;
-    padding: 2px 4px !important;
+  th {
+    background-color: #f1f5f9 !important;
+    color: #000000 !important;
+    border: 1px solid #64748b !important;
+    padding: 2px 3px !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    font-size: 6.8pt !important;
   }
 
-  /* Inputs viram texto simples */
-  input[type="text"] {
-    border: none !important;
-    background: transparent !important;
-    padding: 0 !important;
-    font-weight: bold !important;
-    box-shadow: none !important;
+  td {
+    border: 0.5px solid #94a3b8 !important;
+    padding: 1.5px 3px !important;
+    color: #000000 !important;
+    height: 17px !important;
   }
 
-  /* Botões de ação (Liberar, desfazer) invisíveis */
-  button, .btn, [role="button"] {
+  /* Linhas zebradas suaves no papel */
+  tbody tr:nth-child(even) {
+    background-color: #f8fafc !important;
+  }
+
+  /* Esconder botões e inputs nativos na impressão */
+  button, .btn, [role="button"], input {
     display: none !important;
   }
 
-  /* Mas manter badges e spans clicáveis */
-  span[class*="rounded-full"],
-  span[class*="rounded"] {
-    display: inline-flex !important;
+  /* Exibir textos específicos para impressão */
+  .print-only {
+    display: block !important;
   }
 
-  /* Grid de 2 colunas lado a lado */
-  .xl\:grid-cols-2 {
-    grid-template-columns: 1fr 1fr !important;
-    gap: 8px !important;
+  .print-inline {
+    display: inline-block !important;
   }
 
-  /* Garantir que os cards de reserva/pendurado imprimam */
-  .bg-muted\/20, .bg-rose-500\/5 {
-    background: #f9f9f9 !important;
+  /* Evitar quebras de página indesejadas */
+  .avoid-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
 
-  /* Forçar quebra de página entre seções grandes */
-  .space-y-4 > .grid {
-    page-break-inside: avoid;
-  }
-
-  /* Esconder a coluna Ações na impressão */
-  th:last-child, td:last-child {
-    display: none !important;
+  /* Forçar quebra de página A4 para a segunda folha */
+  .print-page-break,
+  .print\:break-before-page {
+    break-before: page !important;
+    page-break-before: always !important;
   }
 }

@@ -111,20 +111,24 @@ export async function queryConsistenciaCatraca(dateStr: string, minDiff: number)
 }
 
 // 2. Datas Incorretas (TotalizadorServico ts WHERE dataHIni NOT LIKE '%ano%' AND dataHoraUL >= 'startDate')
-export async function queryDatasIncorretas(startDateStr: string, yearStr: string) {
+export async function queryDatasIncorretas(startDateStr: string, yearStr: string, allowedYears?: string[]) {
   const pool = await getPool();
   if (pool) {
     try {
+      const years = allowedYears && allowedYears.length > 0 ? allowedYears : [yearStr];
+      const whereHIni = years.map((y) => `dataHIni NOT LIKE '%${y}%'`).join(" AND ");
+      const whereHFim = years.map((y) => `dataHFim NOT LIKE '%${y}%'`).join(" AND ");
+
       const q1 = `
         SELECT totalEDM, catracaIni, catracaFim, idVeiculo, dataHIni, dataHFim, dataHoraUL 
         FROM TotalizadorServico ts 
-        WHERE dataHIni NOT LIKE '%${yearStr}%' AND dataHoraUL >= @startDate 
+        WHERE ${whereHIni} AND dataHoraUL >= @startDate 
         ORDER BY ts.catracaFim
       `;
       const q2 = `
         SELECT totalEDM, catracaIni, catracaFim, idVeiculo, dataHIni, dataHFim, dataHoraUL 
         FROM TotalizadorServico ts 
-        WHERE dataHFim NOT LIKE '%${yearStr}%' AND dataHoraUL >= @startDate 
+        WHERE ${whereHFim} AND dataHoraUL >= @startDate 
         ORDER BY ts.catracaFim
       `;
       const [res1, res2] = await Promise.all([
@@ -165,6 +169,7 @@ export async function queryVeiculosForaFrota(startDateStr: string, fleetIds: num
         SELECT totalEDM, catracaIni, catracaFim, idVeiculo, dataHIni, dataHFim, dataHoraUL 
         FROM TotalizadorServico ts 
         WHERE dataHoraUL >= @startDate 
+        AND idLinha <> '888'
         AND idVeiculo NOT IN (${fleetIds.join(",")}) 
         AND idVeiculo >= 6999 
         ORDER BY ts.dataHFim, ts.idVeiculo
@@ -173,6 +178,7 @@ export async function queryVeiculosForaFrota(startDateStr: string, fleetIds: num
         SELECT totalEDM, catracaIni, catracaFim, idVeiculo, dataHIni, dataHFim, dataHoraUL 
         FROM TotalizadorServico ts 
         WHERE dataHoraUL >= @startDate 
+        AND idLinha <> '888'
         AND idVeiculo NOT IN (${fleetIds.join(",")}) 
         AND idVeiculo < 6000 
         ORDER BY ts.dataHFim, ts.idVeiculo
@@ -238,15 +244,20 @@ export async function queryVeiculoServicos(idVeiculo: number, startDateStr: stri
   ];
 }
 
-// 5. Verificar se os carros estão em Backup
-export async function queryBackupStatus(ids: number[]) {
+// 5. Verificar se os carros estão em Backup (se ids informado filtra, senão traz WHERE coletaBKPIni IS NOT NULL)
+export async function queryBackupStatus(ids?: number[]) {
   const pool = await getPool();
   if (pool) {
     try {
+      const hasSpecificIds = ids && ids.length > 0;
+      const whereClause = hasSpecificIds
+        ? `WHERE idCarro IN (${ids.join(",")})`
+        : `WHERE coletaBKPIni IS NOT NULL`;
+
       const result = await pool.request().query(`
-        SELECT garagem as garage, coletaBKPIni, coletaBKPFim, emManutencao, idCarro 
+        SELECT garagem as garage, coletaBKPIni, coletaBKPFim, emManutencao, * 
         FROM Veiculos 
-        WHERE idCarro IN (${ids.join(",")}) 
+        ${whereClause} 
         ORDER BY idCarro
       `);
       return result.recordset;
@@ -255,11 +266,12 @@ export async function queryBackupStatus(ids: number[]) {
     }
   }
 
-  return ids.map((id, index) => ({
+  const mockIds = ids && ids.length > 0 ? ids : [1118, 1327, 2701];
+  return mockIds.map((id, index) => ({
     idCarro: id,
     garage: index % 2 === 0 ? "VCG" : "VCM",
-    coletaBKPIni: "01/01/2026",
-    coletaBKPFim: "15/01/2026",
+    coletaBKPIni: "2026-08-01 03:00:00",
+    coletaBKPFim: "2026-08-07 02:59:59",
     emManutencao: 0,
   }));
 }

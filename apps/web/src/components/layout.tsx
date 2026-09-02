@@ -19,7 +19,10 @@ import {
   ChevronDown,
   Search,
   Bell,
-  Calendar
+  Calendar,
+  Wrench,
+  FileSpreadsheet,
+  CalendarClock
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -79,23 +82,47 @@ const navItems: NavItem[] = [
         roles: ["ADMIN", "soltura", "COLABORADOR"]
       },
       {
-        to: "/soltura/alterar-folha",
-        label: "Alterar Folha de Soltura",
+        to: "/soltura/historico",
+        label: "Histórico de Soltura",
         roles: ["ADMIN", "soltura", "COLABORADOR"]
-      },
+      }
+    ]
+  },
+  {
+    to: "/manutencao",
+    label: "Manutenção",
+    icon: Wrench,
+    roles: ["ADMIN", "soltura", "COLABORADOR"],
+    children: [
       {
-        to: "/soltura/alterar-carro-programado",
-        label: "Alterar Carro Programado",
-        roles: ["ADMIN", "soltura", "COLABORADOR"]
-      },
-      {
-        to: "/soltura/ci-manutencao",
+        to: "/manutencao/ci-manutencao",
         label: "CI Manutenção",
         roles: ["ADMIN", "soltura", "COLABORADOR"]
-      },
+      }
+    ]
+  },
+  {
+    to: "/soltura-adm",
+    label: "Soltura ADM",
+    icon: FileSpreadsheet,
+    roles: ["ADMIN", "soltura", "COLABORADOR"],
+    children: [
       {
-        to: "/soltura/reservas",
-        label: "Reservas Terminais",
+        to: "/soltura-adm/alterar-folha",
+        label: "Alterar Folha de Soltura",
+        roles: ["ADMIN", "soltura", "COLABORADOR"]
+      }
+    ]
+  },
+  {
+    to: "/escala-carros",
+    label: "Escala Carros",
+    icon: CalendarClock,
+    roles: ["ADMIN", "soltura", "COLABORADOR"],
+    children: [
+      {
+        to: "/escala-carros/alterar-carro-programado",
+        label: "Alterar Carro Programado",
         roles: ["ADMIN", "soltura", "COLABORADOR"]
       }
     ]
@@ -122,8 +149,10 @@ export function Layout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [openSubMenus, setOpenSubMenus] = useState<Record<string, boolean>>({
-    "/catracas": true,
     "/soltura": true,
+    "/manutencao": true,
+    "/soltura-adm": true,
+    "/escala-carros": true,
   });
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
@@ -179,7 +208,12 @@ export function Layout() {
     if (user?.role === "ADMIN") return true;
 
     if (user?.groups && user.groups.length > 0) {
-      const normalizedTo = to.startsWith("/catracas") ? "/catracas" : to.startsWith("/soltura") ? "/soltura" : to;
+      const normalizedTo = to.startsWith("/catracas") ? "/catracas" 
+        : to.startsWith("/soltura") ? "/soltura" 
+        : to.startsWith("/manutencao") ? "/soltura"
+        : to.startsWith("/soltura-adm") ? "/soltura"
+        : to.startsWith("/escala-carros") ? "/soltura"
+        : to;
       return user.groups.some(g => {
         const perms = Array.isArray(g.permissions) ? g.permissions : [];
         return perms.some(p => {
@@ -217,11 +251,10 @@ export function Layout() {
     if (location.pathname.startsWith("/catracas")) return "Conferência Catracas";
     if (location.pathname.startsWith("/abastecimento-carro")) return "Abastecimento por Carro";
     if (location.pathname.startsWith("/abastecimento")) return "Leitura de Tanques";
-    if (location.pathname.startsWith("/soltura/alterar-folha")) return "Soltura - Alterar Folha de Soltura";
-    if (location.pathname.startsWith("/soltura/alterar-carro-programado")) return "Soltura - Alterar Carro Programado";
-    if (location.pathname.startsWith("/soltura/ci-manutencao")) return "Soltura - CI Manutenção";
-    if (location.pathname.startsWith("/soltura/reservas")) return "Soltura - Reservas Terminais";
-    if (location.pathname.startsWith("/soltura/carro-realizado")) return "Soltura - Alterar Carro Programado";
+    if (location.pathname.startsWith("/manutencao") || location.pathname.startsWith("/soltura/ci-manutencao")) return "Manutenção - CI Manutenção";
+    if (location.pathname.startsWith("/soltura-adm") || location.pathname.startsWith("/soltura/alterar-folha")) return "Soltura ADM - Alterar Folha de Soltura";
+    if (location.pathname.startsWith("/escala-carros") || location.pathname.startsWith("/soltura/alterar-carro-programado") || location.pathname.startsWith("/soltura/carro-realizado")) return "Escala Carros - Alterar Carro Programado";
+    if (location.pathname.startsWith("/soltura/historico")) return "Soltura - Histórico de Soltura";
     if (location.pathname.startsWith("/soltura")) return "Soltura - Folha de Soltura";
     if (location.pathname.startsWith("/controle-operacional")) return "Controle Operacional";
     if (location.pathname.startsWith("/admin/usuarios")) return "Usuários";
@@ -322,8 +355,12 @@ export function Layout() {
         <nav className="flex-1 overflow-y-auto p-3 space-y-1.5">
           {visibleNav.map((item) => {
             const Icon = item.icon;
-            const isParentActive = item.to !== "/home" && location.pathname.startsWith(item.to);
-            const active = location.pathname === item.to || (item.to === "/catracas" && isParentActive);
+            const isParentActive = item.to !== "/home" && (
+              location.pathname === item.to || 
+              location.pathname.startsWith(item.to + "/") ||
+              (!!item.children && item.children.some(c => location.pathname === c.to || location.pathname.startsWith(c.to + "/")))
+            );
+            const active = location.pathname === item.to || isParentActive;
             const hasChildren = !!item.children && item.children.length > 0;
             const isOpen = openSubMenus[item.to] ?? isParentActive;
 
@@ -467,8 +504,12 @@ export function Layout() {
         )}>
           {visibleNav.map((item) => {
             const Icon = item.icon;
-            const isParentActive = item.to !== "/home" && location.pathname.startsWith(item.to);
-            const active = location.pathname === item.to || (item.to === "/catracas" && isParentActive);
+            const isParentActive = item.to !== "/home" && (
+              location.pathname === item.to || 
+              location.pathname.startsWith(item.to + "/") ||
+              (!!item.children && item.children.some(c => location.pathname === c.to || location.pathname.startsWith(c.to + "/")))
+            );
+            const active = location.pathname === item.to || isParentActive;
             const hasChildren = !sidebarCollapsed && !!item.children && item.children.length > 0;
             const isOpen = openSubMenus[item.to] ?? isParentActive;
 
@@ -480,10 +521,11 @@ export function Layout() {
             };
 
             if (sidebarCollapsed) {
+              const targetRoute = item.children && item.children.length > 0 ? item.children[0].to : item.to;
               return (
                 <Link
                   key={item.to}
-                  to={item.to}
+                  to={targetRoute}
                   className={cn(
                     "w-10 h-10 flex items-center justify-center rounded-xl transition-all group shrink-0",
                     active

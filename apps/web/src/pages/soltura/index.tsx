@@ -1,12 +1,14 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useAuth } from "@/stores/auth";
+import { api } from "@/lib/api";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 import { toast } from "sonner";
 import {
   Search,
-  Bus,
   CheckCircle2,
   Clock,
   AlertTriangle,
@@ -16,8 +18,11 @@ import {
   MapPin,
   Calendar,
   Undo2,
-  Check
+  Check,
+  FileSpreadsheet,
+  Plus
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import {
   SolturaItem,
   vcgSegundaSexta,
@@ -43,8 +48,32 @@ import { getInitialCIBloqueios, checkCarroBloqueado, subscribeCIUpdates } from "
 
 type GaragemType = "VCG" | "VCM";
 type EscalaTipo = "SEG_SEX" | "SABADO" | "DOM_FER";
-export type ViewMode = "FOLHA" | "CARRO_REALIZADO" | "CI_MANUTENCAO" | "CARDS" | "CI_BLOQUEIOS" | "RESERVAS" | "ALTERAR_FOLHA" | "ALTERAR_CARRO_PROGRAMADO";
+export type ViewMode = "FOLHA" | "HISTORICO" | "CARRO_REALIZADO" | "CI_MANUTENCAO" | "CARDS" | "CI_BLOQUEIOS" | "RESERVAS" | "ALTERAR_FOLHA" | "ALTERAR_CARRO_PROGRAMADO";
 type FilterStatus = "TODOS" | "PENDENTES" | "LIBERADOS" | "SUBSTITUIDOS" | "ATRASADOS";
+
+export interface ReservaTerminalItem {
+  id: number;
+  carro: string;
+  tipo: "VERMELHO" | "AZUL" | "CORINGA" | "MICRO" | "ARTICULADO";
+  terminal: string;
+  dataHora: string;
+  garagem?: string;
+}
+
+export const TERMINAIS_PADRAO = [
+  "Term. Bandeirantes",
+  "Term. Júlio de Castilho",
+  "Term. General Osório",
+  "Term. Nova Bahia"
+];
+
+export const TIPOS_RESERVA: Array<{ value: "VERMELHO" | "AZUL" | "CORINGA" | "MICRO" | "ARTICULADO"; label: string }> = [
+  { value: "VERMELHO", label: "Vermelho" },
+  { value: "AZUL", label: "Azul" },
+  { value: "CORINGA", label: "Coringa" },
+  { value: "MICRO", label: "Micro" },
+  { value: "ARTICULADO", label: "Articulado" }
+];
 
 interface DispatchedRecord {
   scheduleId: string;
@@ -63,34 +92,74 @@ interface SolturaPageProps {
 export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "ADMIN";
+
+  // Determinar empresa permitida:
+  // Se for ADMIN, permite alternar livremente.
+  // Se for colaborador (ex: soltura_vcg@teste.com ou soltura_vcm@teste.com), fixa na sua respectiva empresa.
+  const userGaragem: GaragemType = useMemo(() => {
+    if (user?.garagem === "VCM" || user?.email?.toLowerCase().includes("vcm")) return "VCM";
+    return "VCG";
+  }, [user]);
 
   // Garagem e tipo de escala
-  const [garagem, setGaragem] = useState<GaragemType>("VCG");
+  const [garagem, setGaragem] = useState<GaragemType>(() => {
+    if (user && user.role !== "ADMIN") {
+      return (user.garagem === "VCM" || user.email?.toLowerCase().includes("vcm")) ? "VCM" : "VCG";
+    }
+    return "VCG";
+  });
+
+  // Garantir que perfis não-admin sempre fiquem fixos em sua própria garagem
+  useEffect(() => {
+    if (!isAdmin) {
+      setGaragem(userGaragem);
+    }
+  }, [isAdmin, userGaragem]);
+
   const [escalaTipo, setEscalaTipo] = useState<EscalaTipo>("SEG_SEX");
   const [dataOperacao, setDataOperacao] = useState(() => new Date().toISOString().split("T")[0]);
 
   // Modos de visualização
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
-    if (location.pathname.includes("/ci-manutencao")) return "CI_MANUTENCAO";
+    if (location.pathname.includes("/historico")) return "HISTORICO";
+    if (location.pathname.includes("/ci-manutencao") || location.pathname.includes("/manutencao")) return "CI_MANUTENCAO";
     if (location.pathname.includes("/carro-realizado")) return "CARRO_REALIZADO";
+    if (location.pathname.includes("/alterar-folha") || location.pathname.includes("/soltura-adm")) return "ALTERAR_FOLHA";
+    if (location.pathname.includes("/alterar-carro-programado") || location.pathname.includes("/escala-carros")) return "ALTERAR_CARRO_PROGRAMADO";
+    if (location.pathname.includes("/reservas")) return "RESERVAS";
     return defaultTab || "FOLHA";
   });
 
   // Atualizar viewMode baseado na URL quando a rota mudar
   useEffect(() => {
-    if (location.pathname.endsWith("/ci-manutencao")) {
+    if (location.pathname.endsWith("/historico")) {
+      setViewMode("HISTORICO");
+    } else if (location.pathname.includes("/ci-manutencao") || location.pathname.includes("/manutencao")) {
       setViewMode("CI_MANUTENCAO");
     } else if (location.pathname.endsWith("/carro-realizado")) {
       setViewMode("CARRO_REALIZADO");
+    } else if (location.pathname.includes("/alterar-folha") || location.pathname.includes("/soltura-adm")) {
+      setViewMode("ALTERAR_FOLHA");
+    } else if (location.pathname.includes("/alterar-carro-programado") || location.pathname.includes("/escala-carros")) {
+      setViewMode("ALTERAR_CARRO_PROGRAMADO");
+    } else if (location.pathname.endsWith("/reservas")) {
+      setViewMode("RESERVAS");
     } else if (location.pathname.endsWith("/soltura") && !defaultTab) {
-      // Manter se for CARDS ou RESERVAS, caso contrário FOLHA
-      if (viewMode === "CI_MANUTENCAO" || viewMode === "CARRO_REALIZADO") {
-        setViewMode("FOLHA");
-      }
+      setViewMode("FOLHA");
     } else if (defaultTab) {
       setViewMode(defaultTab);
     }
   }, [location.pathname, defaultTab]);
+
+  // Na Folha de Soltura do dia corrente, a data é sempre a data de hoje
+  useEffect(() => {
+    if (viewMode === "FOLHA") {
+      const hoje = new Date().toISOString().split("T")[0];
+      setDataOperacao(hoje);
+    }
+  }, [viewMode]);
 
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("TODOS");
   const [searchQuery, setSearchQuery] = useState("");
@@ -193,7 +262,75 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     toast.success("Novo horário adicionado!");
   };
 
-  // Reservas ativas
+  // Reservas de terminais persistidas no banco de dados
+  const [reservasTerminais, setReservasTerminais] = useState<ReservaTerminalItem[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedTerminal, setSelectedTerminal] = useState<string>("");
+  const [inputCarro, setInputCarro] = useState("");
+  const [selectedTipo, setSelectedTipo] = useState<"VERMELHO" | "AZUL" | "CORINGA" | "MICRO" | "ARTICULADO">("VERMELHO");
+  const [isSubmittingReserva, setIsSubmittingReserva] = useState(false);
+
+  const loadReservas = useCallback(async () => {
+    try {
+      const data = await api.listReservasTerminais({
+        garagem,
+        date: dataOperacao
+      });
+      setReservasTerminais(data || []);
+    } catch (err) {
+      console.error("Erro ao carregar reservas de terminais:", err);
+    }
+  }, [garagem, dataOperacao]);
+
+  useEffect(() => {
+    loadReservas();
+  }, [loadReservas]);
+
+  const handleOpenAddModal = (terminal: string) => {
+    setSelectedTerminal(terminal);
+    setInputCarro("");
+    setSelectedTipo("VERMELHO");
+    setIsModalOpen(true);
+  };
+
+  const handleAddReserva = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!inputCarro.trim()) {
+      toast.error("Por favor, informe o prefixo do carro.");
+      return;
+    }
+    try {
+      setIsSubmittingReserva(true);
+      const created = await api.createReservaTerminal({
+        carro: inputCarro.trim(),
+        tipo: selectedTipo,
+        terminal: selectedTerminal,
+        garagem: garagem,
+      });
+      setReservasTerminais(prev => [...prev, created]);
+      toast.success(`Carro ${inputCarro.trim()} adicionado à reserva do ${selectedTerminal}!`);
+      setIsModalOpen(false);
+      setInputCarro("");
+    } catch (err) {
+      console.error("Erro ao adicionar reserva:", err);
+      toast.error("Erro ao salvar reserva no banco.");
+    } finally {
+      setIsSubmittingReserva(false);
+    }
+  };
+
+  const handleRemoveReserva = async (id: number, carro: string) => {
+    try {
+      await api.deleteReservaTerminal(id);
+      setReservasTerminais(prev => prev.filter(r => r.id !== id));
+      toast.success(`Carro ${carro} removido da reserva.`);
+    } catch (err) {
+      console.error("Erro ao remover reserva:", err);
+      toast.error("Erro ao remover reserva.");
+    }
+  };
+
+  // Reservas ativas (legado/fallback)
   const reservasAtivas = useMemo<TerminalReserva[]>(() => {
     return garagem === "VCG" ? terminaisReservaVCG : terminaisReservaVCM;
   }, [garagem]);
@@ -337,60 +474,236 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     window.print();
   };
 
+  // Exportar dados completos da soltura estruturados em Excel para Power BI
+  const handleExportExcelBI = () => {
+    try {
+      // 1. Tabela Fato: Viagens e Despachos da Folha
+      const rowsFato = activeSchedules.map((item, index) => {
+        const isSub = item.carroRealizado && item.carroRealizado !== item.carroProgramado;
+        const finalCarro = item.carroRealizado || item.carroProgramado;
+        const bloqueio = checkBloqueioCI(finalCarro);
+
+        const dataParts = dataOperacao.split("-");
+        const ano = Number(dataParts[0]) || 2026;
+        const mes = Number(dataParts[1]) || 1;
+        const dia = Number(dataParts[2]) || 1;
+
+        // Determinar dia da semana
+        const dateObj = new Date(ano, mes - 1, dia);
+        const diasSemana = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
+        const diaSemana = diasSemana[dateObj.getDay()] || "";
+
+        return {
+          ID_Registro: `${dataOperacao}_${garagem}_${item.id}`,
+          Data_Operacao: dataOperacao,
+          Ano: ano,
+          Mes: mes,
+          Dia: dia,
+          Dia_Semana: diaSemana,
+          Garagem_Codigo: garagem,
+          Garagem_Nome: garagem === "VCG" ? "Viação Campo Grande" : "Viação Cidade Morena",
+          Escala_Codigo: escalaTipo,
+          Escala_Descricao: escalaTipo === "SEG_SEX" ? "Segunda a Sexta" : escalaTipo === "SABADO" ? "Sábado" : "Domingo/Feriado",
+          Ordem_Saida: item.ordem || index + 1,
+          Tipo_Servico: item.tipo || "REGULAR",
+          Linha: item.linha,
+          Tabela: item.tabela,
+          Carro_Programado: item.carroProgramado || "",
+          Carro_Realizado: finalCarro || "",
+          Substituicao_Flag: isSub ? 1 : 0,
+          Substituicao_Status: isSub ? "Substituído" : "Programado",
+          Motorista_Codigo: item.motoristaCodigo || "",
+          Motorista_Nome: item.motoristaNome || "",
+          Horario_Saida_Garagem: item.saidaGaragem || "",
+          Horario_Inicio_Linha: item.inicioLinha || item.inicioBairro || "",
+          Horario_Liberacao_Real: item.horaLiberacao || "",
+          Status_Soltura: item.status || "PENDENTE",
+          Carro_Bloqueado_CI_Flag: bloqueio ? 1 : 0,
+          Motivo_Bloqueio_CI: bloqueio ? bloqueio.motivo : "",
+          Observacoes: item.observacoes || ""
+        };
+      });
+
+      // 2. Dimensão: Carros Bloqueados na CI
+      const rowsCI = ciList.map(ci => ({
+        Prefixo_Carro: ci.prefixo,
+        Garagem: ci.garagem,
+        Motivo_Bloqueio: ci.motivo,
+        Responsavel_Oficina: ci.responsavel || "Oficina",
+        Data_Entrada: ci.data || "",
+        Previsao_Saida: ci.previsao || "",
+        Status: "BLOQUEADO"
+      }));
+
+      // 3. Tabela de Métricas / KPIs Consolidados
+      const rowsKPI = [
+        { Indicador: "Data da Operação", Valor: dataOperacao },
+        { Indicador: "Garagem", Valor: garagem },
+        { Indicador: "Escala", Valor: escalaTipo },
+        { Indicador: "Total de Viagens Programadas", Valor: stats.total },
+        { Indicador: "Carros Liberados", Valor: stats.liberados },
+        { Indicador: "Carros Pendentes de Saída", Valor: stats.pendentes },
+        { Indicador: "Substituições / Trocas de Carro", Valor: stats.substituidos },
+        { Indicador: "Taxa de Soltura (%)", Valor: `${stats.percentual}%` },
+        { Indicador: "Carros Bloqueados no CI", Valor: stats.totalBloqueadosCI }
+      ];
+
+      const workbook = XLSX.utils.book_new();
+
+      // Montar e estilizar larguras da folha fato
+      const wsFato = XLSX.utils.json_to_sheet(rowsFato);
+      wsFato["!cols"] = [
+        { wch: 22 }, // ID_Registro
+        { wch: 14 }, // Data_Operacao
+        { wch: 8 },  // Ano
+        { wch: 6 },  // Mes
+        { wch: 6 },  // Dia
+        { wch: 14 }, // Dia_Semana
+        { wch: 16 }, // Garagem_Codigo
+        { wch: 24 }, // Garagem_Nome
+        { wch: 14 }, // Escala_Codigo
+        { wch: 18 }, // Escala_Descricao
+        { wch: 12 }, // Ordem_Saida
+        { wch: 14 }, // Tipo_Servico
+        { wch: 10 }, // Linha
+        { wch: 10 }, // Tabela
+        { wch: 18 }, // Carro_Programado
+        { wch: 18 }, // Carro_Realizado
+        { wch: 18 }, // Substituicao_Flag
+        { wch: 20 }, // Substituicao_Status
+        { wch: 18 }, // Motorista_Codigo
+        { wch: 24 }, // Motorista_Nome
+        { wch: 22 }, // Horario_Saida_Garagem
+        { wch: 20 }, // Horario_Inicio_Linha
+        { wch: 22 }, // Horario_Liberacao_Real
+        { wch: 16 }, // Status_Soltura
+        { wch: 22 }, // Carro_Bloqueado_CI_Flag
+        { wch: 30 }, // Motivo_Bloqueio_CI
+        { wch: 35 }  // Observacoes
+      ];
+      XLSX.utils.book_append_sheet(workbook, wsFato, "Fato_Soltura");
+
+      // Montar folha de CI
+      const wsCI = XLSX.utils.json_to_sheet(rowsCI);
+      wsCI["!cols"] = [
+        { wch: 16 }, // Prefixo_Carro
+        { wch: 12 }, // Garagem
+        { wch: 30 }, // Motivo_Bloqueio
+        { wch: 22 }, // Responsavel_Oficina
+        { wch: 14 }, // Data_Entrada
+        { wch: 14 }, // Previsao_Saida
+        { wch: 14 }  // Status
+      ];
+      XLSX.utils.book_append_sheet(workbook, wsCI, "Dim_CI_Bloqueios");
+
+      // Montar folha de KPIs
+      const wsKPI = XLSX.utils.json_to_sheet(rowsKPI);
+      wsKPI["!cols"] = [
+        { wch: 35 },
+        { wch: 20 }
+      ];
+      XLSX.utils.book_append_sheet(workbook, wsKPI, "Resumo_Metricas");
+
+      // 4. Dimensão: Reservas de Terminais Cadastradas
+      const rowsReservas = reservasTerminais.map(res => ({
+        ID_Reserva: res.id,
+        Terminal: res.terminal,
+        Prefixo_Carro: res.carro,
+        Tipo: res.tipo,
+        Garagem: res.garagem || garagem,
+        Data_Hora: res.dataHora
+      }));
+      const wsReservas = XLSX.utils.json_to_sheet(rowsReservas);
+      wsReservas["!cols"] = [
+        { wch: 12 },
+        { wch: 25 },
+        { wch: 16 },
+        { wch: 16 },
+        { wch: 12 },
+        { wch: 22 }
+      ];
+      XLSX.utils.book_append_sheet(workbook, wsReservas, "Dim_Reservas_Terminais");
+
+      // Nome do arquivo padronizado
+      const fileName = `Soltura_${garagem}_${escalaTipo}_${dataOperacao}.xlsx`;
+      XLSX.writeFile(workbook, fileName);
+
+      toast.success("Planilha Excel gerada com sucesso! Arquivo estruturado pronto para o Power BI.");
+    } catch (err: any) {
+      console.error("Erro ao exportar Excel:", err);
+      toast.error(`Falha na exportação: ${err?.message || "Erro desconhecido"}`);
+    }
+  };
+
   return (
     <div className="space-y-5 animate-in fade-in duration-300 pb-16">
 
       {/* ========================================================= */}
-      {/* CABEÇALHO PRINCIPAL E SELETORES (Apenas na Folha de Soltura) */}
+      {/* CABEÇALHO PRINCIPAL E SELETORES (Folha de Soltura e Histórico) */}
       {/* ========================================================= */}
-      {viewMode === "FOLHA" && (
-        <div className="bg-card border rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col gap-4">
+      {(viewMode === "FOLHA" || viewMode === "HISTORICO") && (
+        <div className="bg-card border rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col gap-4 print:hidden">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
 
             {/* Título e Identificação Oficial */}
             <div className="flex items-start gap-3.5">
               <div>
                 <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground mt-1">
-                  Controle de Soltura da Frota
+                  {viewMode === "HISTORICO" ? "Histórico de Soltura da Frota" : "Controle de Soltura da Frota"}
                 </h1>
+                {viewMode === "HISTORICO" && (
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Modo de consulta e auditoria de despachos operacionais por data
+                  </p>
+                )}
               </div>
             </div>
 
-            {/* Seletor de Garagem, Escala, Data e Ação Imprimir */}
+            {/* Seletor de Garagem, Escala, Data e Ações */}
             <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
 
               {/* Linha Superior: Garagem e Escala */}
               <div className="flex flex-wrap items-center gap-2">
-                {/* Seletor de Garagem */}
-                <div className="flex items-center bg-muted/60 p-1 rounded-full border border-border/80">
-                  <button
-                    type="button"
-                    onClick={() => setGaragem("VCG")}
-                    className={cn(
-                      "px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-2",
-                      garagem === "VCG"
-                        ? "bg-[#164E3A] text-white shadow-xs"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    <span className="w-2 h-2 rounded-full bg-[#22C55E]" />
-                    VCG
-                  </button>
+                {/* Seletor de Garagem: Exclusivo para ADMIN; outros perfis visualizam apenas sua respectiva empresa */}
+                {isAdmin ? (
+                  <div className="flex items-center bg-muted/60 p-1 rounded-full border border-border/80">
+                    <button
+                      type="button"
+                      onClick={() => setGaragem("VCG")}
+                      className={cn(
+                        "px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-2",
+                        garagem === "VCG"
+                          ? "bg-[#164E3A] text-white shadow-xs"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <span className="w-2 h-2 rounded-full bg-[#22C55E]" />
+                      VCG
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setGaragem("VCM")}
-                    className={cn(
-                      "px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-2",
-                      garagem === "VCM"
-                        ? "bg-[#164E3A] text-white shadow-xs"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    <span className="w-2 h-2 rounded-full bg-[#3B82F6]" />
-                    VCM
-                  </button>
-                </div>
+                    <button
+                      type="button"
+                      onClick={() => setGaragem("VCM")}
+                      className={cn(
+                        "px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-2",
+                        garagem === "VCM"
+                          ? "bg-[#164E3A] text-white shadow-xs"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <span className="w-2 h-2 rounded-full bg-[#3B82F6]" />
+                      VCM
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-border/80 bg-muted/40 text-xs font-bold text-foreground select-none">
+                    <span className={cn(
+                      "w-2.5 h-2.5 rounded-full",
+                      garagem === "VCM" ? "bg-[#3B82F6]" : "bg-[#22C55E]"
+                    )} />
+                    <span>{garagem === "VCM" ? "VCM" : "VCG"}</span>
+                  </div>
+                )}
 
                 {/* Seletor de Escala */}
                 <div className="flex items-center bg-muted/60 p-1 rounded-full border border-border/80">
@@ -435,27 +748,41 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                 </div>
               </div>
 
-              {/* Linha Inferior/Ao lado: Data e Ação Imprimir */}
+              {/* Linha Inferior/Ao lado: Data (apenas no Histórico) e Ações Imprimir / Excel */}
               <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1.5 bg-card border px-3 py-1.5 rounded-xl text-xs shadow-2xs">
-                  <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
-                  <input
-                    type="date"
-                    value={dataOperacao}
-                    onChange={(e) => setDataOperacao(e.target.value)}
-                    className="bg-transparent text-xs font-semibold focus:outline-hidden cursor-pointer"
-                  />
-                </div>
+                {viewMode === "HISTORICO" && (
+                  /* No Histórico: Seletor de data ativo para busca */
+                  <div className="flex items-center gap-1.5 bg-card border px-3 py-1.5 rounded-xl text-xs shadow-2xs" title="Filtrar data do histórico">
+                    <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
+                    <input
+                      type="date"
+                      value={dataOperacao}
+                      onChange={(e) => setDataOperacao(e.target.value)}
+                      className="bg-transparent text-xs font-semibold focus:outline-hidden cursor-pointer text-foreground"
+                    />
+                  </div>
+                )}
 
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={handlePrint}
-                  className="h-8 px-3 text-xs gap-1.5 rounded-xl border font-semibold shadow-2xs"
+                  className="h-8 px-3 text-xs gap-1.5 rounded-xl border font-semibold shadow-2xs hover:bg-muted/80 transition-all"
                   title="Imprimir folha de soltura em formato papel A4"
                 >
                   <Printer className="w-3.5 h-3.5 text-muted-foreground" />
                   <span>Imprimir A4</span>
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportExcelBI}
+                  className="h-8 px-3 text-xs gap-1.5 rounded-xl border font-semibold shadow-2xs bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20 transition-all"
+                  title="Exportar dados estruturados para Excel e Power BI"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>Exportar Excel (BI)</span>
                 </Button>
               </div>
 
@@ -463,94 +790,96 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           </div>
 
           {/* ========================================================= */}
-          {/* BARRA DE ESTATÍSTICAS E PROGRESSO OPERACIONAL */}
+          {/* BARRA DE ESTATÍSTICAS E PROGRESSO OPERACIONAL (Apenas na Folha de Soltura) */}
           {/* ========================================================= */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2">
+          {viewMode === "FOLHA" && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2">
 
-            {/* Card Total */}
-            <div className="bg-card p-3 rounded-2xl border shadow-2xs">
-              <span className="text-[11px] text-muted-foreground font-medium block">Total Programado</span>
-              <div className="flex items-baseline gap-1 mt-1">
-                <span className="text-xl font-bold text-foreground">{stats.total}</span>
-                <span className="text-[11px] text-muted-foreground">viagens</span>
+              {/* Card Total */}
+              <div className="bg-card p-3 rounded-2xl border shadow-2xs">
+                <span className="text-[11px] text-muted-foreground font-medium block">Total Programado</span>
+                <div className="flex items-baseline gap-1 mt-1">
+                  <span className="text-xl font-bold text-foreground">{stats.total}</span>
+                  <span className="text-[11px] text-muted-foreground">viagens</span>
+                </div>
               </div>
+
+              {/* Card Liberados */}
+              <div className="bg-emerald-500/10 p-3 rounded-2xl border border-emerald-500/30">
+                <span className="text-[11px] text-emerald-800 dark:text-emerald-300 font-semibold flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> Liberados
+                </span>
+                <div className="flex items-baseline gap-1 mt-1">
+                  <span className="text-xl font-bold text-emerald-700 dark:text-emerald-300">{stats.liberados}</span>
+                  <span className="text-[11px] text-emerald-800/80 dark:text-emerald-300/80">carros na rua</span>
+                </div>
+              </div>
+
+              {/* Card Pendentes */}
+              <div className="bg-amber-500/10 p-3 rounded-2xl border border-amber-500/30">
+                <span className="text-[11px] text-amber-800 dark:text-amber-300 font-semibold flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" /> Pendentes
+                </span>
+                <div className="flex items-baseline gap-1 mt-1">
+                  <span className="text-xl font-bold text-amber-700 dark:text-amber-300">{stats.pendentes}</span>
+                  <span className="text-[11px] text-amber-800/80 dark:text-amber-300/80">na garagem</span>
+                </div>
+              </div>
+
+              {/* Card Substituídos (Trocados) */}
+              <div className="bg-blue-500/10 p-3 rounded-2xl border border-blue-500/30">
+                <span className="text-[11px] text-blue-800 dark:text-blue-300 font-semibold flex items-center gap-1.5">
+                  <RefreshCw className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" /> Substituídos
+                </span>
+                <div className="flex items-baseline gap-1 mt-1">
+                  <span className="text-xl font-bold text-blue-700 dark:text-blue-300">{stats.substituidos}</span>
+                  <span className="text-[11px] text-blue-800/80 dark:text-blue-300/80">trocas</span>
+                </div>
+              </div>
+
+              {/* Card CI Bloqueios */}
+              <div
+                onClick={() => {
+                  setViewMode("CI_MANUTENCAO");
+                  navigate("/soltura/ci-manutencao");
+                }}
+                className="bg-rose-500/10 p-3 rounded-2xl border border-rose-500/30 cursor-pointer hover:bg-rose-500/15 transition-all"
+                title="Clique para abrir a tela de CI Manutenção"
+              >
+                <span className="text-[11px] text-rose-800 dark:text-rose-300 font-semibold flex items-center gap-1.5">
+                  <Wrench className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" /> CI Manutenção
+                </span>
+                <div className="flex items-baseline gap-1 mt-1">
+                  <span className="text-xl font-bold text-rose-700 dark:text-rose-300">{stats.totalBloqueadosCI}</span>
+                  <span className="text-[11px] text-rose-800/80 dark:text-rose-300/80">bloqueados</span>
+                </div>
+              </div>
+
+              {/* Card Taxa de Soltura */}
+              <div className="bg-card p-3 rounded-2xl border shadow-2xs flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-foreground font-bold">Soltura</span>
+                  <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{stats.percentual}%</span>
+                </div>
+                <div className="w-full bg-muted rounded-full h-2 mt-2 overflow-hidden">
+                  <div
+                    className="bg-[#164E3A] dark:bg-emerald-500 h-full rounded-full transition-all duration-500"
+                    style={{ width: `${stats.percentual}%` }}
+                  />
+                </div>
+              </div>
+
             </div>
-
-            {/* Card Liberados */}
-            <div className="bg-emerald-500/10 p-3 rounded-2xl border border-emerald-500/30">
-              <span className="text-[11px] text-emerald-800 dark:text-emerald-300 font-semibold flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> Liberados
-              </span>
-              <div className="flex items-baseline gap-1 mt-1">
-                <span className="text-xl font-bold text-emerald-700 dark:text-emerald-300">{stats.liberados}</span>
-                <span className="text-[11px] text-emerald-800/80 dark:text-emerald-300/80">carros na rua</span>
-              </div>
-            </div>
-
-            {/* Card Pendentes */}
-            <div className="bg-amber-500/10 p-3 rounded-2xl border border-amber-500/30">
-              <span className="text-[11px] text-amber-800 dark:text-amber-300 font-semibold flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" /> Pendentes
-              </span>
-              <div className="flex items-baseline gap-1 mt-1">
-                <span className="text-xl font-bold text-amber-700 dark:text-amber-300">{stats.pendentes}</span>
-                <span className="text-[11px] text-amber-800/80 dark:text-amber-300/80">na garagem</span>
-              </div>
-            </div>
-
-            {/* Card Substituídos (Trocados) */}
-            <div className="bg-blue-500/10 p-3 rounded-2xl border border-blue-500/30">
-              <span className="text-[11px] text-blue-800 dark:text-blue-300 font-semibold flex items-center gap-1.5">
-                <RefreshCw className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" /> Substituídos
-              </span>
-              <div className="flex items-baseline gap-1 mt-1">
-                <span className="text-xl font-bold text-blue-700 dark:text-blue-300">{stats.substituidos}</span>
-                <span className="text-[11px] text-blue-800/80 dark:text-blue-300/80">trocas</span>
-              </div>
-            </div>
-
-            {/* Card CI Bloqueios */}
-            <div
-              onClick={() => {
-                setViewMode("CI_MANUTENCAO");
-                navigate("/soltura/ci-manutencao");
-              }}
-              className="bg-rose-500/10 p-3 rounded-2xl border border-rose-500/30 cursor-pointer hover:bg-rose-500/15 transition-all"
-              title="Clique para abrir a tela de CI Manutenção"
-            >
-              <span className="text-[11px] text-rose-800 dark:text-rose-300 font-semibold flex items-center gap-1.5">
-                <Wrench className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" /> CI Manutenção
-              </span>
-              <div className="flex items-baseline gap-1 mt-1">
-                <span className="text-xl font-bold text-rose-700 dark:text-rose-300">{stats.totalBloqueadosCI}</span>
-                <span className="text-[11px] text-rose-800/80 dark:text-rose-300/80">bloqueados</span>
-              </div>
-            </div>
-
-            {/* Card Taxa de Soltura */}
-            <div className="bg-card p-3 rounded-2xl border shadow-2xs flex flex-col justify-between">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] text-foreground font-bold">Soltura</span>
-                <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{stats.percentual}%</span>
-              </div>
-              <div className="w-full bg-muted rounded-full h-2 mt-2 overflow-hidden">
-                <div
-                  className="bg-[#164E3A] dark:bg-emerald-500 h-full rounded-full transition-all duration-500"
-                  style={{ width: `${stats.percentual}%` }}
-                />
-              </div>
-            </div>
-
-          </div>
+          )}
 
         </div>
       )}
 
       {/* ========================================================= */}
-      {/* FILTROS DE STATUS E BARRA DE BUSCA (Apenas na Folha de Soltura) */}
+      {/* FILTROS DE STATUS E BARRA DE BUSCA (Folha de Soltura e Histórico) */}
       {/* ========================================================= */}
-      {viewMode === "FOLHA" && (
-        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+      {(viewMode === "FOLHA" || viewMode === "HISTORICO") && (
+        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between print:hidden">
           <div className="flex items-center gap-1 bg-muted/60 p-0.5 rounded-lg border">
             {(["TODOS", "PENDENTES", "LIBERADOS", "SUBSTITUIDOS"] as FilterStatus[]).map(st => (
               <button
@@ -585,38 +914,40 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       )}
 
       {/* ========================================================= */}
-      {/* VISUALIZAÇÃO 1: FOLHA DE SOLTURA / PRANCHETA DIGITAL */}
+      {/* VISUALIZAÇÃO 1: FOLHA DE SOLTURA / PRANCHETA DIGITAL / HISTÓRICO */}
       {/* Idêntico às fotos dos formulários de papel e layout-soltura.PNG */}
       {/* ========================================================= */}
-      {viewMode === "FOLHA" && (
-        <div className="bg-card border rounded-2xl p-4 sm:p-5 shadow-xs space-y-4">
+      {(viewMode === "FOLHA" || viewMode === "HISTORICO") && (
+        <div className="bg-card border rounded-2xl p-4 sm:p-5 shadow-xs space-y-4 print:border-none print:p-0 print:shadow-none print:space-y-1">
 
-          {/* Header da Folha de Papel — Exibição de Metadados apenas em Impressão */}
-          <div className="hidden print:grid grid-cols-5 gap-2 bg-muted/40 p-2.5 rounded-lg border text-[10px] font-mono text-muted-foreground mb-3">
-            <div>
-              <span className="uppercase font-semibold block">Data da Criação</span>
-              <span className="text-foreground font-bold text-xs">01/07/2025</span>
+          {/* Header Oficial da Folha de Papel A4 — Exibição e Alinhamento Perfeito em Impressão */}
+          <div className="hidden print:block border border-neutral-700 p-2 mb-1.5 bg-white text-black font-sans">
+            <div className="flex items-center justify-between border-b border-neutral-500 pb-1">
+              <div>
+                <span className="text-[10pt] font-black uppercase tracking-wider block text-black">
+                  CONSÓRCIO GUAICURUS • {garagem === "VCG" ? "VIAÇÃO CAMPO GRANDE (VCG)" : "VIAÇÃO CIDADE MORENA (VCM)"}
+                </span>
+                <span className="text-[8.5pt] font-bold text-neutral-800 block">
+                  HORÁRIO DE SAÍDA DE VEÍCULOS • {escalaTipo === "SEG_SEX" ? "SEGUNDA A SEXTA" : escalaTipo === "SABADO" ? "SÁBADO" : "DOMINGO / FERIADO"} • {dataOperacao.split("-").reverse().join("/")}
+                </span>
+              </div>
+              <div className="text-right font-mono text-[7pt] leading-tight text-neutral-900 border border-neutral-400 px-2 py-1 bg-neutral-50 rounded">
+                <div><strong>REGISTRO:</strong> {garagem === "VCG" ? "CGU.REG.OP.0001" : "VCM.REG.TR.0017"}</div>
+                <div><strong>REVISÃO:</strong> 01 (01/07/2025)</div>
+                <div><strong>EMISSÃO:</strong> {dataOperacao.split("-").reverse().join("/")}</div>
+              </div>
             </div>
-            <div>
-              <span className="uppercase font-semibold block">Revisão nº</span>
-              <span className="text-foreground font-bold text-xs">1</span>
-            </div>
-            <div>
-              <span className="uppercase font-semibold block">Data da Revisão</span>
-              <span className="text-foreground font-bold text-xs">01/07/2025</span>
-            </div>
-            <div>
-              <span className="uppercase font-semibold block">Data da Informação</span>
-              <span className="text-foreground font-bold text-xs">{dataOperacao.split("-").reverse().join("/")}</span>
-            </div>
-            <div>
-              <span className="uppercase font-semibold block">Número</span>
-              <span className="text-foreground font-bold text-xs">{garagem === "VCG" ? "CGU.REG.OP.0001" : "VCM.REG.TR.0017"}</span>
+            <div className="flex items-center justify-between text-[7pt] pt-1 text-neutral-800 font-mono">
+              <span><strong>PROGRAMADOS:</strong> {stats.total} VEÍCULOS</span>
+              <span><strong>LIBERADOS:</strong> {stats.liberados}</span>
+              <span><strong>SUBSTITUIÇÕES:</strong> {stats.substituidos}</span>
+              <span><strong>PENDENTES:</strong> {stats.pendentes}</span>
+              <span><strong>TAXA DE SOLTURA:</strong> {stats.percentual}%</span>
             </div>
           </div>
 
           {/* Cabeçalho da Folha em Tela (fiel a layout-soltura.PNG) */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 print:hidden">
             <div>
               <div className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider font-semibold">
                 CONSÓRCIO GUAICURUS • GARAGEM {garagem === "VCG" ? "VIAÇÃO CAMPO GRANDE" : "VIAÇÃO CIDADE MORENA"}
@@ -642,7 +973,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           </div>
 
           {/* Grade de 2 Colunas Lado a Lado (como no papel físico e layout-soltura.PNG) */}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 folha-print-grid">
 
             {/* Coluna 1 */}
             <div className="border rounded-xl overflow-hidden shadow-2xs bg-card">
@@ -664,7 +995,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                       <th className="py-2.5 px-2.5 text-center">MOTO</th>
                       <th className="py-2.5 px-2 text-center font-bold text-foreground">Saída Gar.</th>
                       <th className="py-2.5 px-2 text-center text-muted-foreground">Início Linha</th>
-                      <th className="py-2.5 px-2.5 text-center">Ações</th>
+                      <th className="py-2.5 px-2.5 text-center print:hidden">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60 font-mono">
@@ -695,6 +1026,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                             onRelease={handleRelease}
                             onUndoDispatch={handleUndoDispatch}
                             onDraftChange={handleDraftChange}
+                            isReadOnly={viewMode === "HISTORICO"}
                           />
                         </>
                       );
@@ -731,7 +1063,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                       <th className="py-2.5 px-2.5 text-center">MOTO</th>
                       <th className="py-2.5 px-2 text-center font-bold text-foreground">Saída Gar.</th>
                       <th className="py-2.5 px-2 text-center text-muted-foreground">Início Linha</th>
-                      <th className="py-2.5 px-2.5 text-center">Ações</th>
+                      <th className="py-2.5 px-2.5 text-center print:hidden">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60 font-mono">
@@ -762,6 +1094,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                             onRelease={handleRelease}
                             onUndoDispatch={handleUndoDispatch}
                             onDraftChange={handleDraftChange}
+                            isReadOnly={viewMode === "HISTORICO"}
                           />
                         </>
                       );
@@ -780,90 +1113,162 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
           </div>
 
+          {/* Rodapé Oficial da Impressão A4 - Página 1 */}
+          <div className="hidden print:flex items-center justify-between text-[7pt] text-neutral-600 border-t border-neutral-400 pt-1 mt-1 font-mono">
+            <span>Sistema Garagem CGU • Folha de Soltura Operacional ({garagem}) • Impresso em: {new Date().toLocaleDateString("pt-BR")} às {new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+            <span className="font-bold">Página 01 / 02</span>
+          </div>
+
           {/* ========================================================= */}
-          {/* SEÇÃO: RESERVAS DE TERMINAIS (como no rodapé do papel) */}
+          {/* SEGUNDA FOLHA A4 NA IMPRESSÃO: RESERVAS E VEÍCULOS NO CI */}
           {/* ========================================================= */}
-          {reservasAtivas.length > 0 && (
-            <div className="border rounded-xl p-3 bg-muted/20 space-y-2">
-              <h3 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                <MapPin className="w-3.5 h-3.5 text-primary" />
-                Reserva Terminal
-              </h3>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {reservasAtivas.map((res, idx) => (
-                  <div key={idx} className="p-2.5 rounded-lg border bg-card text-xs space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-foreground text-[11px]">{res.terminal}</span>
-                      <span className={cn(
-                        "text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase",
-                        res.cor === "VERMELHO" ? "bg-rose-500/15 text-rose-600" :
-                          res.cor === "AZUL" ? "bg-blue-500/15 text-blue-600" :
-                            "bg-amber-500/15 text-amber-600"
-                      )}>
-                        {res.cor}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between font-mono text-[11px]">
-                      <span className="text-muted-foreground">Carro 1:</span>
-                      <span className="font-bold text-primary">{res.carro1 || "—"}</span>
-                    </div>
-                    {res.carro2 && (
-                      <div className="flex items-center justify-between font-mono text-[11px]">
-                        <span className="text-muted-foreground">Carro 2:</span>
-                        <span className="font-bold text-primary">{res.carro2}</span>
-                      </div>
-                    )}
-                    {res.horario && (
-                      <div className="text-[10px] text-muted-foreground font-mono">
-                        Horário: {res.horario}
-                      </div>
-                    )}
+          {(reservasTerminais.length > 0 || penduradosAtivos.length > 0 || viewMode === "FOLHA") && (
+            <div className="print-page-break space-y-4 pt-1">
+              
+              {/* Cabeçalho Oficial da Segunda Folha A4 */}
+              <div className="hidden print:block border border-neutral-700 p-2 mb-2 bg-white text-black font-sans">
+                <div className="flex items-center justify-between border-b border-neutral-500 pb-1">
+                  <div>
+                    <span className="text-[10pt] font-black uppercase tracking-wider block text-black">
+                      CONSÓRCIO GUAICURUS • {garagem === "VCG" ? "VIAÇÃO CAMPO GRANDE (VCG)" : "VIAÇÃO CIDADE MORENA (VCM)"}
+                    </span>
+                    <span className="text-[8.5pt] font-bold text-neutral-800 block">
+                      ANEXO OPERACIONAL • QUADRO DE CARROS RESERVAS E VEÍCULOS NO CI / PENDURADOS • {dataOperacao.split("-").reverse().join("/")}
+                    </span>
                   </div>
-                ))}
+                  <div className="text-right font-mono text-[7pt] leading-tight text-neutral-900 border border-neutral-400 px-2 py-1 bg-neutral-50 rounded">
+                    <div><strong>DOCUMENTO:</strong> {garagem === "VCG" ? "CGU.REG.OP.0001-ANX" : "VCM.REG.TR.0017-ANX"}</div>
+                    <div><strong>EMISSÃO:</strong> {dataOperacao.split("-").reverse().join("/")}</div>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-[7pt] pt-1 text-neutral-800 font-mono">
+                  <span><strong>TERMINAIS COM RESERVA:</strong> {reservasTerminais.length}</span>
+                  <span><strong>CARROS NO CI / PENDURADOS:</strong> {penduradosAtivos.length}</span>
+                  <span><strong>FINALIDADE:</strong> APOIO OPERACIONAL E MANUTENÇÃO</span>
+                </div>
               </div>
-            </div>
-          )}
 
-          {/* ========================================================= */}
-          {/* SEÇÃO: PENDURADOS (carros alto consumo / bloqueados CI) */}
-          {/* ========================================================= */}
-          {penduradosAtivos.length > 0 && (
-            <div className="border rounded-xl p-3 bg-rose-500/5 space-y-2">
-              <h3 className="text-[11px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
-                <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
-                Pendurados — Carros Alto Consumo / Bloqueados
-              </h3>
-              <div className="flex flex-wrap gap-3">
-                {(["VERMELHO", "AZUL", "MICRO", "ARTICULADO", "CINZA"] as const).map(tipo => {
-                  const lista = penduradosAtivos.filter(p => p.tipo === tipo);
-                  if (lista.length === 0) return null;
-                  return (
-                    <div key={tipo} className="space-y-1">
-                      <span className={cn(
-                        "text-[10px] font-bold uppercase px-2 py-0.5 rounded-full inline-block",
-                        tipo === "VERMELHO" ? "bg-rose-500/15 text-rose-600" :
-                          tipo === "AZUL" ? "bg-blue-500/15 text-blue-600" :
-                            tipo === "MICRO" ? "bg-purple-500/15 text-purple-600" :
-                              tipo === "ARTICULADO" ? "bg-amber-500/15 text-amber-600" :
-                                "bg-gray-500/15 text-gray-600"
-                      )}>
-                        {tipo}
-                      </span>
-                      <div className="flex flex-wrap gap-1">
-                        {lista.map(p => (
-                          <span key={p.prefixo} className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-muted border text-foreground font-semibold">
-                            {p.prefixo}
+              {/* ========================================================= */}
+              {/* SEÇÃO: RESERVA TERMINAL (Adaptável ao Tema Light e Dark) */}
+              {/* ========================================================= */}
+              <div className="rounded-2xl border border-border/80 bg-card text-card-foreground p-4 sm:p-5 shadow-xs space-y-3 print:bg-white print:border-neutral-500 print:p-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-foreground flex items-center gap-1.5 print:text-black">
+                    <MapPin className="w-3.5 h-3.5 text-[#164E3A] dark:text-emerald-400 print:text-black" />
+                    RESERVA TERMINAL
+                  </h3>
+                  <span className="text-[10px] text-muted-foreground font-mono hidden print:inline">
+                    Garagem {garagem}
+                  </span>
+                </div>
+
+                {/* Grid dos 4 Terminais */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {TERMINAIS_PADRAO.map(termNome => {
+                    const carrosDoTerminal = reservasTerminais.filter(r => r.terminal === termNome);
+                    return (
+                      <div
+                        key={termNome}
+                        className="rounded-xl border border-border/70 bg-muted/30 hover:bg-muted/50 dark:bg-card/90 dark:border-border/60 p-3.5 flex flex-col justify-between min-h-[115px] transition-all print:border-neutral-400 print:bg-white shadow-2xs"
+                      >
+                        {/* Header do Card */}
+                        <div className="flex items-center justify-between gap-2 pb-2 border-b border-border/40">
+                          <span className="text-xs font-bold text-foreground tracking-tight print:text-black">
+                            {termNome}
                           </span>
-                        ))}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenAddModal(termNome)}
+                            className="print:hidden w-6 h-6 rounded-md border border-emerald-600/40 dark:border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 flex items-center justify-center transition-colors cursor-pointer shrink-0 shadow-2xs"
+                            title={`Adicionar carro na reserva do ${termNome}`}
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {/* Tags dos Carros Alocados */}
+                        <div className="flex flex-wrap gap-1.5 pt-2">
+                          {carrosDoTerminal.map(car => (
+                            <div
+                              key={car.id}
+                              className={cn(
+                                "px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition-all group select-none shadow-2xs",
+                                car.tipo === "VERMELHO" ? "border border-rose-500/50 text-rose-700 dark:text-rose-400 bg-rose-500/10 print:border-rose-600 print:text-rose-700" :
+                                car.tipo === "AZUL" ? "border border-sky-500/50 text-sky-700 dark:text-sky-400 bg-sky-500/10 print:border-sky-600 print:text-sky-700" :
+                                car.tipo === "CORINGA" ? "border border-amber-500/50 text-amber-700 dark:text-amber-400 bg-amber-500/10 print:border-amber-600 print:text-amber-700" :
+                                car.tipo === "MICRO" ? "border border-purple-500/50 text-purple-700 dark:text-purple-400 bg-purple-500/10 print:border-purple-600 print:text-purple-700" :
+                                "border border-orange-500/50 text-orange-700 dark:text-orange-400 bg-orange-500/10 print:border-orange-600 print:text-orange-700"
+                              )}
+                              title={`Carro ${car.carro} • Tipo: ${car.tipo}`}
+                            >
+                              <span>{car.carro}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveReserva(car.id, car.carro)}
+                                className="print:hidden text-muted-foreground hover:text-rose-600 dark:hover:text-rose-400 transition-colors opacity-60 group-hover:opacity-100 cursor-pointer text-[13px] leading-none"
+                                title="Remover carro da reserva"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                          {carrosDoTerminal.length === 0 && (
+                            <span className="text-[11px] text-muted-foreground italic py-1 print:text-neutral-400">
+                              Sem carros
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
+
+              {/* SEÇÃO: PENDURADOS (carros alto consumo / bloqueados CI) */}
+              {penduradosAtivos.length > 0 && (
+                <div className="border rounded-xl p-3 bg-rose-500/5 space-y-2 print:bg-white print:border-neutral-500">
+                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-300 flex items-center gap-1.5 print:text-black">
+                    <AlertTriangle className="w-3.5 h-3.5 text-rose-500 print:text-black" />
+                    Pendurados — Carros Alto Consumo / Bloqueados
+                  </h3>
+                  <div className="flex flex-wrap gap-3">
+                    {(["VERMELHO", "AZUL", "MICRO", "ARTICULADO", "CINZA"] as const).map(tipo => {
+                      const lista = penduradosAtivos.filter(p => p.tipo === tipo);
+                      if (lista.length === 0) return null;
+                      return (
+                        <div key={tipo} className="space-y-1">
+                          <span className={cn(
+                            "text-[10px] font-bold uppercase px-2 py-0.5 rounded-full inline-block",
+                            tipo === "VERMELHO" ? "bg-rose-500/15 text-rose-600" :
+                              tipo === "AZUL" ? "bg-blue-500/15 text-blue-600" :
+                                tipo === "MICRO" ? "bg-purple-500/15 text-purple-600" :
+                                  tipo === "ARTICULADO" ? "bg-amber-500/15 text-amber-600" :
+                                    "bg-gray-500/15 text-gray-600"
+                          )}>
+                            {tipo}
+                          </span>
+                          <div className="flex flex-wrap gap-1">
+                            {lista.map(p => (
+                              <span key={p.prefixo} className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-muted border text-foreground font-semibold print:text-black print:border-neutral-400">
+                                {p.prefixo}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Rodapé Oficial da Impressão A4 - Página 2 */}
+              <div className="hidden print:flex items-center justify-between text-[7pt] text-neutral-600 border-t border-neutral-400 pt-1 mt-2 font-mono">
+                <span>Sistema Garagem CGU • Anexo Operacional de Apoio e CI ({garagem}) • Impresso em: {new Date().toLocaleDateString("pt-BR")} às {new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+                <span className="font-bold">Página 02 / 02</span>
+              </div>
+
             </div>
           )}
-
-
 
         </div>
       )}
@@ -1084,7 +1489,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           schedules={baseSchedules}
           onUpdateField={handleUpdateScheduleField}
           onAddSchedule={handleAddSchedule}
-          onSelectGaragem={setGaragem}
+          onSelectGaragem={isAdmin ? setGaragem : undefined}
           onSelectEscalaTipo={setEscalaTipo}
         />
       )}
@@ -1100,10 +1505,65 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           ciList={ciList}
           onUpdateField={handleUpdateScheduleField}
           checkBloqueioCI={checkBloqueioCI}
-          onSelectGaragem={setGaragem}
+          onSelectGaragem={isAdmin ? setGaragem : undefined}
           onSelectEscalaTipo={setEscalaTipo}
         />
       )}
+
+      {/* ========================================================= */}
+      {/* POPUP MODAL: ADICIONAR NA RESERVA DO TERMINAL (Design System) */}
+      {/* ========================================================= */}
+      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <DialogContent className="max-w-[310px] sm:max-w-[330px] rounded-2xl border border-border bg-card text-card-foreground p-5 shadow-2xl">
+          <DialogHeader className="space-y-1 text-center">
+            <DialogTitle className="text-xs sm:text-sm font-bold text-foreground leading-tight">
+              Adicionar na reserva
+              <br />
+              do
+              <br />
+              <span className="text-[#164E3A] dark:text-emerald-400 font-extrabold">({selectedTerminal})</span>
+            </DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleAddReserva} className="space-y-3 pt-2">
+            <div>
+              <input
+                type="text"
+                placeholder="carro"
+                value={inputCarro}
+                onChange={(e) => setInputCarro(e.target.value)}
+                className="w-full h-10 px-3 rounded-xl border border-input bg-background text-center text-sm font-bold font-mono text-foreground placeholder:text-muted-foreground focus:outline-hidden focus:ring-2 focus:ring-[#164E3A]/40 dark:focus:ring-emerald-400/40 transition-all shadow-2xs"
+                autoFocus
+              />
+            </div>
+
+            <div>
+              <select
+                value={selectedTipo}
+                onChange={(e) => setSelectedTipo(e.target.value as any)}
+                className="w-full h-10 px-3 rounded-xl border border-input bg-background text-center text-xs font-semibold text-foreground focus:outline-hidden focus:ring-2 focus:ring-[#164E3A]/40 dark:focus:ring-emerald-400/40 transition-all cursor-pointer shadow-2xs"
+              >
+                <option value="" disabled>selecione tipo</option>
+                {TIPOS_RESERVA.map(t => (
+                  <option key={t.value} value={t.value} className="bg-card text-foreground">
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="pt-1">
+              <button
+                type="submit"
+                disabled={isSubmittingReserva}
+                className="w-full h-10 rounded-xl bg-[#164E3A] hover:bg-[#113C2D] dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white font-bold text-xs uppercase tracking-wider shadow-md transition-all active:scale-98 disabled:opacity-50 cursor-pointer"
+              >
+                {isSubmittingReserva ? "adicionando..." : "adicionar"}
+              </button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );
@@ -1119,6 +1579,7 @@ interface FolhaTableRowProps {
   onRelease: (item: SolturaItem, carro?: string, moto?: string) => void;
   onUndoDispatch: (id: string) => void;
   onDraftChange: (itemId: string, field: "carro" | "moto", value: string) => void;
+  isReadOnly?: boolean;
 }
 
 function FolhaTableRow({
@@ -1127,12 +1588,11 @@ function FolhaTableRow({
   checkBloqueioCI,
   onRelease,
   onUndoDispatch,
-  onDraftChange
+  onDraftChange,
+  isReadOnly = false
 }: FolhaTableRowProps) {
   const isDone = item.status === "LIBERADO" || item.status === "SUBSTITUIDO";
   const isSub = item.status === "SUBSTITUIDO" || (item.carroRealizado && item.carroRealizado !== item.carroProgramado);
-  const finalCarro = item.carroRealizado || item.carroProgramado;
-  const bloqueio = checkBloqueioCI(finalCarro);
 
   const [carroValue, setCarroValue] = useState(item.carroRealizado || "");
   const [motoValue, setMotoValue] = useState(item.motoristaCodigo || "");
@@ -1144,6 +1604,12 @@ function FolhaTableRow({
   useEffect(() => {
     setMotoValue(item.motoristaCodigo || "");
   }, [item.motoristaCodigo]);
+
+  // Alertas de CI verificados separadamente:
+  // 1. Carro Programado: alerta se o programado estiver no CI
+  const bloqueioProg = checkBloqueioCI(item.carroProgramado);
+  // 2. Carro Realizado: alerta APENAS se o carro preenchido estiver no CI
+  const bloqueioRealiz = carroValue.trim() ? checkBloqueioCI(carroValue.trim()) : null;
 
   return (
     <tr
@@ -1180,24 +1646,35 @@ function FolhaTableRow({
         {item.tabela}
       </td>
 
-      {/* 4. Carro Programado */}
+      {/* 4. Carro Programado - Destaca com alerta caso o carro programado esteja na CI */}
       <td className="py-2 px-2.5 whitespace-nowrap text-center">
-        <span className={cn(
-          "font-bold text-xs",
-          isSub ? "line-through text-rose-500 font-normal decoration-2" : "text-muted-foreground"
-        )}>
-          {item.carroProgramado || "—"}
-        </span>
+        <div className="flex items-center justify-center gap-1">
+          <span className={cn(
+            "font-bold text-xs",
+            bloqueioProg && "text-rose-600 dark:text-rose-400 font-extrabold",
+            isSub ? "line-through text-rose-500 font-normal decoration-2" : !bloqueioProg && "text-muted-foreground"
+          )}>
+            {item.carroProgramado || "—"}
+          </span>
+          {bloqueioProg && (
+            <span title={`Carro Programado no CI: ${bloqueioProg.motivo}`} className="cursor-help text-rose-500 shrink-0">
+              <AlertTriangle className="w-3.5 h-3.5" />
+            </span>
+          )}
+        </div>
       </td>
 
-      {/* 5. Carro Realizado (P) - Placeholder Vazio */}
+      {/* 5. Carro Realizado (P) - Só alerta SE o carro digitado/realizado estiver na CI */}
       <td className="py-1.5 px-2 bg-muted/20 text-center">
-        <div className="flex items-center justify-center gap-1">
+        <span className="hidden print:inline font-mono font-bold text-[8pt] text-black">
+          {carroValue || item.carroProgramado}
+        </span>
+        <div className="print:hidden flex items-center justify-center gap-1">
           <input
             type="text"
             placeholder=""
             value={carroValue}
-            disabled={isDone}
+            disabled={isDone || isReadOnly}
             onChange={(e) => {
               const val = e.target.value;
               setCarroValue(val);
@@ -1205,17 +1682,17 @@ function FolhaTableRow({
             }}
             className={cn(
               "w-16 h-7 text-center rounded-md border text-xs font-bold font-mono focus:outline-hidden focus:ring-1 focus:ring-[#164E3A] transition-all",
-              isDone
+              (isDone || isReadOnly)
                 ? "bg-transparent border-transparent text-emerald-700 dark:text-emerald-400 cursor-default font-bold"
                 : isSub
                   ? "text-blue-600 dark:text-blue-400 border-blue-500/50 bg-blue-500/10"
                   : "bg-background border-border/80 text-foreground",
-              bloqueio && !isDone && "border-rose-500 text-rose-600 bg-rose-500/10"
+              bloqueioRealiz && !isDone && "border-rose-500 text-rose-600 bg-rose-500/10 font-bold"
             )}
-            title={bloqueio ? `Atenção: Carro no CI: ${bloqueio.motivo}` : undefined}
+            title={bloqueioRealiz ? `Atenção: Carro Realizado no CI: ${bloqueioRealiz.motivo}` : undefined}
           />
-          {bloqueio && !isDone && (
-            <span title={`Carro no CI: ${bloqueio.motivo}`} className="cursor-help text-rose-500 shrink-0">
+          {bloqueioRealiz && !isDone && (
+            <span title={`Carro Realizado no CI: ${bloqueioRealiz.motivo}`} className="cursor-help text-rose-500 shrink-0">
               <AlertTriangle className="w-3.5 h-3.5" />
             </span>
           )}
@@ -1224,19 +1701,22 @@ function FolhaTableRow({
 
       {/* 6. Motorista (MOTO) - Placeholder Vazio */}
       <td className="py-1.5 px-2 text-center">
+        <span className="hidden print:inline font-mono font-bold text-[8pt] text-black">
+          {motoValue || "—"}
+        </span>
         <input
           type="text"
           placeholder=""
           value={motoValue}
-          disabled={isDone}
+          disabled={isDone || isReadOnly}
           onChange={(e) => {
             const val = e.target.value;
             setMotoValue(val);
             onDraftChange(item.id, "moto", val);
           }}
           className={cn(
-            "w-16 h-7 text-center rounded-md border text-xs font-mono font-bold focus:outline-hidden transition-all",
-            isDone
+            "print:hidden w-16 h-7 text-center rounded-md border text-xs font-mono font-bold focus:outline-hidden transition-all",
+            (isDone || isReadOnly)
               ? "bg-transparent border-transparent text-foreground cursor-default"
               : "bg-card border-border/80 text-foreground focus:ring-1 focus:ring-[#164E3A]"
           )}
@@ -1254,9 +1734,21 @@ function FolhaTableRow({
         {item.inicioLinha || item.inicioBairro || "—"}
       </td>
 
-      {/* 9. Ações: Liberar Saída ou Desfazer */}
-      <td className="py-1 px-2 text-center">
-        {isDone ? (
+      {/* 9. Ações: Liberar Saída ou Desfazer / Somente Consulta no Histórico */}
+      <td className="py-1 px-2 text-center print:hidden">
+        {isReadOnly ? (
+          <div className="flex items-center justify-center">
+            {isDone ? (
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" /> Liberado
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border">
+                Pendente
+              </span>
+            )}
+          </div>
+        ) : isDone ? (
           <div className="flex items-center justify-center gap-1.5">
             <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
               <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" /> Liberado

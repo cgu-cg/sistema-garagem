@@ -67,24 +67,79 @@ export async function getConsistenciaCatraca(req: Request, res: Response) {
   }
 }
 
+// Função para calcular parâmetros padrão de alertas (ano atual e dia 01 do mês anterior)
+export function calculateDefaultAlertParams(now = new Date()) {
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1; // 1 a 12
+
+  let targetMonth: number;
+  let targetYear = currentYear;
+
+  if (currentMonth === 1) {
+    // Janeiro: mês anterior é Dezembro do ano passado
+    targetMonth = 12;
+    targetYear = currentYear - 1;
+  } else if (currentMonth === 12) {
+    // Dezembro: mês anterior é Novembro (ou atual Dezembro)
+    targetMonth = 11;
+    targetYear = currentYear;
+  } else {
+    // Demais meses: mês anterior no dia 01 (ex: mês 09 -> 01/08/AAAA)
+    targetMonth = currentMonth - 1;
+    targetYear = currentYear;
+  }
+
+  const mm = String(targetMonth).padStart(2, "0");
+  const startDateBR = `01/${mm}/${targetYear}`;
+  const startDateISO = `${targetYear}-${mm}-01`;
+
+  // Anos válidos permitidos (evita falsos positivos quando o período de consulta cruza a virada de ano)
+  const allowedYears = Array.from(new Set([currentYear.toString(), targetYear.toString()]));
+
+  return {
+    year: currentYear.toString(),
+    startDateBR,
+    startDateISO,
+    allowedYears,
+  };
+}
+
+export function normalizeToDateBR(dateStr: string): string {
+  const isoMatch = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    const [, yyyy, mm, dd] = isoMatch;
+    return `${dd}/${mm}/${yyyy}`;
+  }
+  return dateStr;
+}
+
 // 2. GET /api/catracas/datas-incorretas
 export async function getDatasIncorretas(req: Request, res: Response) {
   try {
     const parsed = datasIncorretasQuerySchema.parse(req.query);
-    const defaultYear = new Date().getFullYear().toString();
-    
-    // Default: 1 mes atrás
-    const d = new Date();
-    d.setMonth(d.getMonth() - 2); // default dataHoraUL >= '01/06/2026' ou 2 meses atrás
-    const defaultStartDate = d.toISOString().split("T")[0];
+    const defaults = calculateDefaultAlertParams();
 
-    const startDate = parsed.startDate || defaultStartDate;
-    const year = parsed.year || defaultYear;
+    // Se o cliente enviar startDate em formato YYYY-MM-DD, normaliza para DD/MM/YYYY
+    const rawStartDate = parsed.startDate || defaults.startDateBR;
+    const startDate = normalizeToDateBR(rawStartDate);
+    const year = parsed.year || defaults.year;
 
-    const data = await mssqlService.queryDatasIncorretas(startDate, year);
+    // Detectar ano da data inicial para permitir virada de ano caso seja diferente
+    const startYearMatch = startDate.match(/(\d{4})/);
+    const startYear = startYearMatch ? startYearMatch[1] : year;
+    const allowedYears = Array.from(new Set([year, startYear]));
+
+    const data = await mssqlService.queryDatasIncorretas(startDate, year, allowedYears);
     res.json({
       isMock: mssqlService.isMockMode(),
       data,
+      meta: {
+        year,
+        startDate,
+        allowedYears,
+        totalHIni: data?.dataHIniInvalido?.length || 0,
+        totalHFim: data?.dataHFimInvalido?.length || 0,
+      },
     });
   } catch (error: any) {
     res.status(400).json({ error: error.message || "Erro de validação" });
@@ -95,12 +150,10 @@ export async function getDatasIncorretas(req: Request, res: Response) {
 export async function getVeiculosForaFrota(req: Request, res: Response) {
   try {
     const parsed = foraFrotaQuerySchema.parse(req.query);
-    
-    // Default: 1 mês atrás
-    const d = new Date();
-    d.setMonth(d.getMonth() - 1);
-    const defaultStartDate = d.toISOString().split("T")[0];
-    const startDate = parsed.startDate || defaultStartDate;
+    const defaults = calculateDefaultAlertParams();
+
+    const rawStartDate = parsed.startDate || defaults.startDateBR;
+    const startDate = normalizeToDateBR(rawStartDate);
 
     const fleetIds = await getCompleteFleetIds();
     const data = await mssqlService.queryVeiculosForaFrota(startDate, fleetIds);
@@ -108,6 +161,11 @@ export async function getVeiculosForaFrota(req: Request, res: Response) {
     res.json({
       isMock: mssqlService.isMockMode(),
       data,
+      meta: {
+        startDate,
+        totalEspeciais: data?.carrosEspeciais?.length || 0,
+        totalComuns: data?.carrosComuns?.length || 0,
+      },
     });
   } catch (error: any) {
     res.status(400).json({ error: error.message || "Erro de validação" });

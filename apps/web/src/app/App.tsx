@@ -35,7 +35,12 @@ function PermissionRoute({ to, fallbackRoles, children }: { to: string; fallback
   if (user.role === "ADMIN") return <>{children}</>;
 
   if (user.groups && user.groups.length > 0) {
-    const normalizedTo = to.startsWith("/catracas") ? "/catracas" : to.startsWith("/soltura") ? "/soltura" : to;
+    const normalizedTo = to.startsWith("/catracas") ? "/catracas" 
+      : to.startsWith("/soltura") ? "/soltura" 
+      : to.startsWith("/manutencao") ? "/soltura"
+      : to.startsWith("/soltura-adm") ? "/soltura"
+      : to.startsWith("/escala-carros") ? "/soltura"
+      : to;
     const hasPerm = user.groups.some(g => {
       const perms = Array.isArray(g.permissions) ? g.permissions : [];
       return perms.some(p => {
@@ -158,6 +163,14 @@ export function App() {
             }
           />
           <Route
+            path="/soltura/historico"
+            element={
+              <PermissionRoute to="/soltura" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+                <SolturaPage defaultTab="HISTORICO" />
+              </PermissionRoute>
+            }
+          />
+          <Route
             path="/soltura/ci-manutencao"
             element={
               <PermissionRoute to="/soltura" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
@@ -191,9 +204,59 @@ export function App() {
           />
           <Route
             path="/soltura/reservas"
+            element={<Navigate to="/soltura" replace />}
+          />
+
+          {/* Módulo Manutenção */}
+          <Route
+            path="/manutencao"
             element={
-              <PermissionRoute to="/soltura" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
-                <SolturaPage defaultTab="RESERVAS" />
+              <PermissionRoute to="/manutencao" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+                <SolturaPage defaultTab="CI_MANUTENCAO" />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/manutencao/ci-manutencao"
+            element={
+              <PermissionRoute to="/manutencao" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+                <SolturaPage defaultTab="CI_MANUTENCAO" />
+              </PermissionRoute>
+            }
+          />
+
+          {/* Módulo Soltura ADM */}
+          <Route
+            path="/soltura-adm"
+            element={
+              <PermissionRoute to="/soltura-adm" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+                <SolturaPage defaultTab="ALTERAR_FOLHA" />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/soltura-adm/alterar-folha"
+            element={
+              <PermissionRoute to="/soltura-adm" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+                <SolturaPage defaultTab="ALTERAR_FOLHA" />
+              </PermissionRoute>
+            }
+          />
+
+          {/* Módulo Escala Carros */}
+          <Route
+            path="/escala-carros"
+            element={
+              <PermissionRoute to="/escala-carros" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+                <SolturaPage defaultTab="ALTERAR_CARRO_PROGRAMADO" />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/escala-carros/alterar-carro-programado"
+            element={
+              <PermissionRoute to="/escala-carros" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+                <SolturaPage defaultTab="ALTERAR_CARRO_PROGRAMADO" />
               </PermissionRoute>
             }
           />
