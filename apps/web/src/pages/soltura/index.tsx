@@ -247,6 +247,19 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const baseSchedules = customSchedules[scheduleKey] || defaultSchedules;
 
   const handleUpdateScheduleField = (itemId: string, field: keyof SolturaItem, value: any) => {
+    // Regra: Bloquear duplicidade de carro programado na mesma escala
+    if (field === "carroProgramado" && value) {
+      const cleanVal = String(value).trim();
+      if (cleanVal) {
+        const current = customSchedules[scheduleKey] ? [...customSchedules[scheduleKey]] : [...defaultSchedules];
+        const duplicate = current.find(s => s.id !== itemId && s.carroProgramado?.trim() === cleanVal);
+        if (duplicate) {
+          toast.error(`O carro ${cleanVal} já está programado na Linha ${duplicate.linha} (Tab ${duplicate.tabela})! Não é permitido o mesmo carro programado.`);
+          return;
+        }
+      }
+    }
+
     setCustomSchedules(prev => {
       const current = prev[scheduleKey] ? [...prev[scheduleKey]] : [...defaultSchedules];
       const idx = current.findIndex(s => s.id === itemId);
@@ -259,6 +272,17 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   };
 
   const handleAddSchedule = (newItem: SolturaItem) => {
+    // Regra: Bloquear duplicidade de carro programado ao adicionar
+    if (newItem.carroProgramado && newItem.carroProgramado.trim()) {
+      const cleanVal = newItem.carroProgramado.trim();
+      const current = customSchedules[scheduleKey] ? [...customSchedules[scheduleKey]] : [...defaultSchedules];
+      const duplicate = current.find(s => s.carroProgramado?.trim() === cleanVal);
+      if (duplicate) {
+        toast.error(`O carro ${cleanVal} já está programado na Linha ${duplicate.linha} (Tab ${duplicate.tabela})! Não é permitido o mesmo carro programado.`);
+        return;
+      }
+    }
+
     setCustomSchedules(prev => {
       const current = prev[scheduleKey] ? [...prev[scheduleKey]] : [...defaultSchedules];
       return { ...prev, [scheduleKey]: [...current, newItem] };
@@ -299,20 +323,33 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
   const handleAddReserva = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!inputCarro.trim()) {
+    const cleanCarro = inputCarro.trim();
+    if (!cleanCarro) {
       toast.error("Por favor, informe o prefixo do carro.");
       return;
     }
     try {
       setIsSubmittingReserva(true);
       const created = await api.createReservaTerminal({
-        carro: inputCarro.trim(),
+        carro: cleanCarro,
         tipo: selectedTipo,
         terminal: selectedTerminal,
         garagem: garagem,
       });
       setReservasTerminais(prev => [...prev, created]);
-      toast.success(`Carro ${inputCarro.trim()} adicionado à reserva do ${selectedTerminal}!`);
+
+      // Verificar se o carro já consta na lista de soltura
+      const conflitoSoltura = activeSchedules.find(s => 
+        s.carroProgramado?.trim() === cleanCarro ||
+        (s.carroRealizado && s.carroRealizado.trim() === cleanCarro)
+      );
+
+      if (conflitoSoltura) {
+        toast.warning(`Atenção: Carro ${cleanCarro} adicionado na reserva, porém já consta na Folha de Soltura (Linha ${conflitoSoltura.linha} • Tab ${conflitoSoltura.tabela})!`);
+      } else {
+        toast.success(`Carro ${cleanCarro} adicionado à reserva do ${selectedTerminal}!`);
+      }
+
       setIsModalOpen(false);
       setInputCarro("");
     } catch (err) {
@@ -458,6 +495,18 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
     const updated = { ...dispatches, [item.id]: newRecord };
     saveDispatches(updated);
+
+    // Se o carro liberado estiver em Reserva de Terminal, consumir e remover da reserva
+    const reservaEncontrada = reservasTerminais.find(r => r.carro.trim() === finalCarro.trim());
+    if (reservaEncontrada) {
+      api.deleteReservaTerminal(reservaEncontrada.id).then(() => {
+        setReservasTerminais(prev => prev.filter(r => r.id !== reservaEncontrada.id));
+        toast.info(`Carro ${finalCarro} consumido e liberado da reserva do ${reservaEncontrada.terminal}.`);
+      }).catch(err => {
+        console.error("Erro ao remover carro da reserva ao liberar:", err);
+      });
+    }
+
     toast.success(`Linha ${item.linha} / Tab ${item.tabela} liberada às ${horaAtual}!`);
   };
 
@@ -1029,6 +1078,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                             key={item.id}
                             item={item}
                             index={item.ordem || idx + 1}
+                            reservasTerminais={reservasTerminais}
                             checkBloqueioCI={checkBloqueioCI}
                             onRelease={handleRelease}
                             onUndoDispatch={handleUndoDispatch}
@@ -1068,8 +1118,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                       <th className="py-2.5 px-2.5 text-center">Carro Prog.</th>
                       <th className="py-2.5 px-2.5 bg-primary/5 text-primary font-bold text-center">Carro Realiz. (P)</th>
                       <th className="py-2.5 px-2.5 text-center">MOTO</th>
-                      <th className="py-2.5 px-2 text-center font-bold text-foreground">Saída Gar.</th>
-                      <th className="py-2.5 px-2 text-center text-muted-foreground">Início Linha</th>
+                      <th className="py-2.5 px-2.5 text-center font-bold text-foreground">Saída Gar.</th>
+                      <th className="py-2.5 px-2.5 text-center text-muted-foreground">Início Linha</th>
                       <th className="py-2.5 px-2.5 text-center print:hidden">Ações</th>
                     </tr>
                   </thead>
@@ -1097,6 +1147,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                             key={item.id}
                             item={item}
                             index={item.ordem || colunaEsquerda.length + idx + 1}
+                            reservasTerminais={reservasTerminais}
                             checkBloqueioCI={checkBloqueioCI}
                             onRelease={handleRelease}
                             onUndoDispatch={handleUndoDispatch}
@@ -1195,30 +1246,45 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
                         {/* Tags dos Carros Alocados */}
                         <div className="flex flex-wrap gap-1.5">
-                          {carrosDoTerminal.map(car => (
-                            <div
-                              key={car.id}
-                              className={cn(
-                                "px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition-all group select-none shadow-2xs",
-                                car.tipo === "VERMELHO" ? "border border-rose-500/50 text-rose-700 dark:text-rose-400 bg-rose-500/10 print:border-rose-600 print:text-rose-700" :
-                                  car.tipo === "AZUL" ? "border border-sky-500/50 text-sky-700 dark:text-sky-400 bg-sky-500/10 print:border-sky-600 print:text-sky-700" :
-                                    car.tipo === "CORINGA" ? "border border-amber-500/50 text-amber-700 dark:text-amber-400 bg-amber-500/10 print:border-amber-600 print:text-amber-700" :
-                                      car.tipo === "MICRO" ? "border border-purple-500/50 text-purple-700 dark:text-purple-400 bg-purple-500/10 print:border-purple-600 print:text-purple-700" :
-                                        "border border-orange-500/50 text-orange-700 dark:text-orange-400 bg-orange-500/10 print:border-orange-600 print:text-orange-700"
-                              )}
-                              title={`Carro ${car.carro} • Tipo: ${car.tipo}`}
-                            >
-                              <span>{car.carro}</span>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveReserva(car.id, car.carro)}
-                                className="print:hidden text-muted-foreground hover:text-rose-600 dark:hover:text-rose-400 transition-colors opacity-60 group-hover:opacity-100 cursor-pointer text-[13px] leading-none"
-                                title="Remover carro da reserva"
+                          {carrosDoTerminal.map(car => {
+                            const conflitoSoltura = activeSchedules.find(s =>
+                              s.carroProgramado?.trim() === car.carro.trim() ||
+                              (s.carroRealizado && s.carroRealizado.trim() === car.carro.trim())
+                            );
+                            return (
+                              <div
+                                key={car.id}
+                                className={cn(
+                                  "px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition-all group select-none shadow-2xs",
+                                  conflitoSoltura
+                                    ? "border-2 border-rose-600 text-rose-700 dark:text-rose-300 bg-rose-500/20 ring-1 ring-rose-500/50 print:border-rose-600 print:text-rose-700 font-black"
+                                    : car.tipo === "VERMELHO" ? "border border-rose-500/50 text-rose-700 dark:text-rose-400 bg-rose-500/10 print:border-rose-600 print:text-rose-700" :
+                                      car.tipo === "AZUL" ? "border border-sky-500/50 text-sky-700 dark:text-sky-400 bg-sky-500/10 print:border-sky-600 print:text-sky-700" :
+                                        car.tipo === "CORINGA" ? "border border-amber-500/50 text-amber-700 dark:text-amber-400 bg-amber-500/10 print:border-amber-600 print:text-amber-700" :
+                                          car.tipo === "MICRO" ? "border border-purple-500/50 text-purple-700 dark:text-purple-400 bg-purple-500/10 print:border-purple-600 print:text-purple-700" :
+                                            "border border-orange-500/50 text-orange-700 dark:text-orange-400 bg-orange-500/10 print:border-orange-600 print:text-orange-700"
+                                )}
+                                title={
+                                  conflitoSoltura
+                                    ? `Atenção: Carro ${car.carro} já consta na Folha de Soltura (Linha ${conflitoSoltura.linha} • Tab ${conflitoSoltura.tabela})!`
+                                    : `Carro ${car.carro} • Tipo: ${car.tipo}`
+                                }
                               >
-                                ×
-                              </button>
-                            </div>
-                          ))}
+                                {conflitoSoltura && (
+                                  <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
+                                )}
+                                <span>{car.carro}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveReserva(car.id, car.carro)}
+                                  className="print:hidden text-muted-foreground hover:text-rose-600 dark:hover:text-rose-400 transition-colors opacity-60 group-hover:opacity-100 cursor-pointer text-[13px] leading-none"
+                                  title="Remover carro da reserva"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            );
+                          })}
                           {carrosDoTerminal.length === 0 && (
                             <span className="text-[11px] text-muted-foreground/70 italic print:text-neutral-400">
                               Sem carros
@@ -1618,6 +1684,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 interface FolhaTableRowProps {
   item: SolturaItem;
   index: number;
+  reservasTerminais?: ReservaTerminalItem[];
   checkBloqueioCI: (prefixo?: string) => BloqueioCarro | undefined | null;
   onRelease: (item: SolturaItem, carro?: string, moto?: string) => void;
   onUndoDispatch: (id: string) => void;
@@ -1628,6 +1695,7 @@ interface FolhaTableRowProps {
 function FolhaTableRow({
   item,
   index,
+  reservasTerminais = [],
   checkBloqueioCI,
   onRelease,
   onUndoDispatch,
@@ -1653,6 +1721,10 @@ function FolhaTableRow({
   const bloqueioProg = checkBloqueioCI(item.carroProgramado);
   // 2. Carro Realizado: alerta APENAS se o carro preenchido estiver no CI
   const bloqueioRealiz = carroValue.trim() ? checkBloqueioCI(carroValue.trim()) : null;
+
+  // Alerta de Reserva de Terminal:
+  const reservaProg = reservasTerminais.find(r => r.carro.trim() === item.carroProgramado?.trim());
+  const reservaRealiz = carroValue.trim() ? reservasTerminais.find(r => r.carro.trim() === carroValue.trim()) : null;
 
   return (
     <tr
@@ -1689,25 +1761,29 @@ function FolhaTableRow({
         {item.tabela}
       </td>
 
-      {/* 4. Carro Programado - Destaca com alerta caso o carro programado esteja na CI */}
+      {/* 4. Carro Programado - Destaca com alerta caso o carro programado esteja na CI ou na Reserva */}
       <td className="py-2 px-2.5 whitespace-nowrap text-center">
         <div className="flex items-center justify-center gap-1">
           <span className={cn(
             "font-bold text-xs",
-            bloqueioProg && "text-rose-600 dark:text-rose-400 font-extrabold",
-            isSub ? "line-through text-rose-500 font-normal decoration-2" : !bloqueioProg && "text-muted-foreground"
+            (bloqueioProg || reservaProg) && "text-rose-600 dark:text-rose-400 font-extrabold",
+            isSub ? "line-through text-rose-500 font-normal decoration-2" : (!bloqueioProg && !reservaProg) && "text-muted-foreground"
           )}>
             {item.carroProgramado || "—"}
           </span>
-          {bloqueioProg && (
+          {bloqueioProg ? (
             <span title={`Carro Programado no CI: ${bloqueioProg.motivo}`} className="cursor-help text-rose-500 shrink-0">
               <AlertTriangle className="w-3.5 h-3.5" />
             </span>
-          )}
+          ) : reservaProg ? (
+            <span title={`Atenção: Carro ${item.carroProgramado} alocado na reserva do ${reservaProg.terminal}!`} className="cursor-help text-rose-500 shrink-0">
+              <AlertTriangle className="w-3.5 h-3.5" />
+            </span>
+          ) : null}
         </div>
       </td>
 
-      {/* 5. Carro Realizado (P) - Só alerta SE o carro digitado/realizado estiver na CI */}
+      {/* 5. Carro Realizado (P) - Alerta SE o carro digitado/realizado estiver na CI ou Reserva */}
       <td className="py-1.5 px-2 bg-muted/20 text-center">
         <span className="hidden print:inline font-mono font-bold text-[8pt] text-black">
           {carroValue || item.carroProgramado}
@@ -1730,12 +1806,25 @@ function FolhaTableRow({
                 : isSub
                   ? "text-blue-600 dark:text-blue-400 border-blue-500/50 bg-blue-500/10"
                   : "bg-background border-border/80 text-foreground",
-              bloqueioRealiz && !isDone && "border-rose-500 text-rose-600 bg-rose-500/10 font-bold"
+              (bloqueioRealiz || reservaRealiz) && !isDone && "border-rose-500 text-rose-600 bg-rose-500/10 font-bold"
             )}
-            title={bloqueioRealiz ? `Atenção: Carro Realizado no CI: ${bloqueioRealiz.motivo}` : undefined}
+            title={
+              bloqueioRealiz
+                ? `Atenção: Carro Realizado no CI: ${bloqueioRealiz.motivo}`
+                : reservaRealiz && !isDone
+                  ? `Atenção: Carro ${carroValue} alocado na reserva do ${reservaRealiz.terminal} (será consumido da reserva ao liberar)`
+                  : undefined
+            }
           />
-          {bloqueioRealiz && !isDone && (
-            <span title={`Carro Realizado no CI: ${bloqueioRealiz.motivo}`} className="cursor-help text-rose-500 shrink-0">
+          {(bloqueioRealiz || (reservaRealiz && !isDone)) && (
+            <span
+              title={
+                bloqueioRealiz
+                  ? `Carro Realizado no CI: ${bloqueioRealiz.motivo}`
+                  : `Carro na reserva do ${reservaRealiz?.terminal}`
+              }
+              className="cursor-help text-rose-500 shrink-0"
+            >
               <AlertTriangle className="w-3.5 h-3.5" />
             </span>
           )}

@@ -136,6 +136,7 @@ export function AlterarCarroProgramadoView({
                     key={item.id}
                     item={item}
                     index={item.ordem || idx + 1}
+                    schedules={schedules}
                     checkBloqueioCI={checkBloqueioCI}
                     onUpdateField={onUpdateField}
                   />
@@ -180,6 +181,7 @@ export function AlterarCarroProgramadoView({
                     key={item.id}
                     item={item}
                     index={item.ordem || colunaEsquerda.length + idx + 1}
+                    schedules={schedules}
                     checkBloqueioCI={checkBloqueioCI}
                     onUpdateField={onUpdateField}
                   />
@@ -205,6 +207,7 @@ export function AlterarCarroProgramadoView({
 interface AlterarCarroProgramadoTableRowProps {
   item: SolturaItem;
   index: number;
+  schedules: SolturaItem[];
   checkBloqueioCI: (prefixo: string) => BloqueioCarro | null | undefined;
   onUpdateField: (itemId: string, field: keyof SolturaItem, value: any) => void;
 }
@@ -212,16 +215,26 @@ interface AlterarCarroProgramadoTableRowProps {
 function AlterarCarroProgramadoTableRow({
   item,
   index,
+  schedules,
   checkBloqueioCI,
   onUpdateField
 }: AlterarCarroProgramadoTableRowProps) {
   const [carroProg, setCarroProg] = useState(item.carroProgramado || "");
   const bloqueio = checkBloqueioCI(carroProg);
 
+  // Validação em tempo real de duplicidade de carro programado
+  const duplicado = schedules.find(s => s.id !== item.id && s.carroProgramado?.trim() === carroProg.trim() && carroProg.trim() !== "");
+
   const handleAlterar = () => {
     const finalVal = carroProg.trim();
     if (!finalVal) {
       toast.error("Informe o prefixo do Carro Programado.");
+      return;
+    }
+
+    // Regra: Bloquear duplicidade de carro programado
+    if (duplicado) {
+      toast.error(`O carro ${finalVal} já está programado na Linha ${duplicado.linha} (Tab ${duplicado.tabela})! Não é permitido o mesmo carro programado.`);
       return;
     }
 
@@ -253,7 +266,7 @@ function AlterarCarroProgramadoTableRow({
         {item.tabela}
       </td>
 
-      {/* Carro Programado (Editável com validação CI em tempo real) */}
+      {/* Carro Programado (Editável com validação de duplicidade e CI) */}
       <td className="py-1 px-1.5 bg-blue-500/5 text-center">
         <div className="flex items-center justify-center gap-1">
           <input
@@ -263,17 +276,29 @@ function AlterarCarroProgramadoTableRow({
             placeholder="Carro..."
             className={cn(
               "w-20 h-7 text-center rounded-md border text-xs font-mono font-bold focus:outline-hidden focus:ring-1 focus:ring-blue-600 transition-all",
-              bloqueio
-                ? "border-rose-500 text-rose-600 bg-rose-500/10 font-black"
-                : "border-border/80 bg-background text-foreground"
+              duplicado
+                ? "border-rose-600 text-rose-700 bg-rose-500/20 ring-1 ring-rose-500 font-black"
+                : bloqueio
+                  ? "border-rose-500 text-rose-600 bg-rose-500/10 font-black"
+                  : "border-border/80 bg-background text-foreground"
             )}
-            title="Digite para alterar o Carro Programado e clique em Alterar ao lado"
+            title={
+              duplicado
+                ? `Atenção: Carro ${carroProg} já está programado na Linha ${duplicado.linha} (Tab ${duplicado.tabela})!`
+                : bloqueio
+                  ? `Carro no CI: ${bloqueio.motivo}`
+                  : "Digite para alterar o Carro Programado e clique em Alterar ao lado"
+            }
           />
-          {bloqueio && (
+          {duplicado ? (
+            <span title={`Carro Duplicado! Já programado na Linha ${duplicado.linha} (Tab ${duplicado.tabela})`} className="cursor-help text-rose-600 shrink-0 font-bold animate-pulse">
+              <AlertTriangle className="w-3.5 h-3.5" />
+            </span>
+          ) : bloqueio ? (
             <span title={`Carro no CI: ${bloqueio.motivo}`} className="cursor-help text-rose-500 shrink-0">
               <AlertTriangle className="w-3.5 h-3.5" />
             </span>
-          )}
+          ) : null}
         </div>
       </td>
 
