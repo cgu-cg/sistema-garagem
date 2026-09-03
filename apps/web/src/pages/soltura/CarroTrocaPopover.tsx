@@ -3,7 +3,7 @@ import { SolturaItem } from "@/data/solturaData";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { History, Pencil, X, Check, ArrowRight } from "lucide-react";
+import { Pencil, X, Check, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 
 export interface TrocaCarroItem {
@@ -18,13 +18,15 @@ interface CarroTrocaPopoverProps {
   carroAtual: string;
   historicoTrocas?: TrocaCarroItem[];
   onTrocarCarro: (item: SolturaItem, novoCarro: string, motivo: string) => void;
+  checkBloqueioCI?: (prefixo?: string) => any;
+  onPenduradoAlert?: (prefixo: string, motivo?: string) => void;
+  getOutraLinhaComCarroRealiz?: (carro: string, currentItemId: string) => SolturaItem | undefined | null;
   isReadOnly?: boolean;
 }
 
 const MOTIVOS_DISPONIVEIS = [
   "Adicionado equivocadamente",
-  "Defeito Garagem",
-  "Defeito Rua (SOS)"
+  "Defeito Garagem"
 ] as const;
 
 export function CarroTrocaPopover({
@@ -32,6 +34,9 @@ export function CarroTrocaPopover({
   carroAtual,
   historicoTrocas = [],
   onTrocarCarro,
+  checkBloqueioCI,
+  onPenduradoAlert,
+  getOutraLinhaComCarroRealiz,
   isReadOnly = false
 }: CarroTrocaPopoverProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -40,18 +45,13 @@ export function CarroTrocaPopover({
   const [motivo, setMotivo] = useState<string>("Adicionado equivocadamente");
 
   const totalTrocas = historicoTrocas.length;
+  const isAlterado = totalTrocas > 0;
 
   const handleOpenAlterar = (e: React.MouseEvent) => {
     e.stopPropagation();
     setActiveTab("ALTERAR");
     setNovoCarro("");
     setMotivo("Adicionado equivocadamente");
-    setIsOpen(true);
-  };
-
-  const handleOpenHistorico = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setActiveTab("HISTORICO");
     setIsOpen(true);
   };
 
@@ -67,6 +67,25 @@ export function CarroTrocaPopover({
       return;
     }
 
+    // Se estiver bloqueado / pendurado no CI
+    if (checkBloqueioCI) {
+      const bloqueio = checkBloqueioCI(cleanCarro);
+      if (bloqueio) {
+        onPenduradoAlert?.(cleanCarro, bloqueio.motivo);
+        setIsOpen(false);
+        return;
+      }
+    }
+
+    // Só poder adicionar se NÃO estiver sendo utilizado em nenhum outro campo de carro realiz
+    if (getOutraLinhaComCarroRealiz) {
+      const outraLinha = getOutraLinhaComCarroRealiz(cleanCarro, item.id);
+      if (outraLinha) {
+        toast.error(`Carro ${cleanCarro} já está sendo utilizado na Linha ${outraLinha.linha} / Tab ${outraLinha.tabela}!`);
+        return;
+      }
+    }
+
     onTrocarCarro(item, cleanCarro, motivo);
     setIsOpen(false);
     setNovoCarro("");
@@ -74,7 +93,10 @@ export function CarroTrocaPopover({
 
   if (isReadOnly) {
     return (
-      <span className="font-mono font-bold text-xs text-foreground">
+      <span className={cn(
+        "font-mono font-bold text-xs",
+        isAlterado ? "text-blue-600 dark:text-blue-400" : "text-neutral-900 dark:text-white"
+      )}>
         {carroAtual || "—"}
       </span>
     );
@@ -89,28 +111,24 @@ export function CarroTrocaPopover({
             type="button"
             onClick={handleOpenAlterar}
             className={cn(
-              "font-mono font-bold text-xs px-2 py-0.5 rounded-md transition-all cursor-pointer select-none",
-              "text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30",
-              "flex items-center gap-1 shadow-2xs group-hover:ring-1 group-hover:ring-emerald-500/40"
+              "font-mono font-bold text-xs px-2.5 py-0.5 rounded-md transition-all cursor-pointer select-none flex items-center gap-1 shadow-2xs",
+              isAlterado
+                ? "text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/40 group-hover:ring-1 group-hover:ring-blue-500/40"
+                : "text-neutral-900 dark:text-white bg-neutral-100/90 dark:bg-neutral-800/80 hover:bg-neutral-200 dark:hover:bg-neutral-700/80 border border-neutral-300 dark:border-neutral-700 group-hover:ring-1 group-hover:ring-neutral-400/40"
             )}
-            title="Clique para alterar o carro ou ver histórico de trocas"
+            title={
+              isAlterado
+                ? `Carro alterado/substituído (${totalTrocas} troca(s)). Clique para alterar ou ver histórico.`
+                : "Carro realizado. Clique para alterar ou ver histórico."
+            }
           >
             <span>{carroAtual || "—"}</span>
-            <Pencil className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100 transition-opacity" />
+            <Pencil className={cn(
+              "w-2.5 h-2.5 opacity-70 group-hover:opacity-100 transition-opacity",
+              isAlterado ? "text-blue-500 dark:text-blue-400" : "text-muted-foreground group-hover:text-foreground dark:group-hover:text-white"
+            )} />
           </button>
         </PopoverTrigger>
-
-        {/* Indicador e atalho para Histórico de Trocas se houver trocas */}
-        {totalTrocas > 0 && (
-          <button
-            type="button"
-            onClick={handleOpenHistorico}
-            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
-            title={`Ver histórico de ${totalTrocas} troca(s) realizada(s)`}
-          >
-            <History className="w-3 h-3 text-blue-600 dark:text-blue-400" />
-          </button>
-        )}
       </div>
 
       {/* Conteúdo do Card Suspenso Ancorado (Seguindo Prints 2 e 3) */}
@@ -178,7 +196,25 @@ export function CarroTrocaPopover({
                 autoFocus
                 placeholder="novo carro"
                 value={novoCarro}
-                onChange={(e) => setNovoCarro(e.target.value.replace(/\D/g, ""))}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, "");
+                  setNovoCarro(val);
+                  if (val.length >= 4) {
+                    if (checkBloqueioCI) {
+                      const bloqueio = checkBloqueioCI(val);
+                      if (bloqueio) {
+                        onPenduradoAlert?.(val, bloqueio.motivo);
+                        return;
+                      }
+                    }
+                    if (getOutraLinhaComCarroRealiz) {
+                      const outraLinha = getOutraLinhaComCarroRealiz(val, item.id);
+                      if (outraLinha) {
+                        toast.error(`Carro ${val} já está sendo utilizado na Linha ${outraLinha.linha} / Tab ${outraLinha.tabela}!`);
+                      }
+                    }
+                  }
+                }}
                 className="w-full h-9 px-3 rounded-xl border border-border/80 bg-background text-sm font-mono font-bold text-foreground placeholder:text-muted-foreground placeholder:font-normal focus:outline-hidden focus:ring-2 focus:ring-[#164E3A] transition-all shadow-2xs"
               />
             </div>
@@ -271,16 +307,30 @@ export function CarroTrocaPopover({
                 </div>
               ))}
 
-              {/* Linha do Carro Atual (Exatamente como no print 3: "3205 - Carro Atual") */}
-              <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs">
-                <div className="flex items-center gap-1.5 font-mono font-bold text-emerald-700 dark:text-emerald-400">
+              {/* Linha do Carro Atual */}
+              <div className={cn(
+                "flex items-center justify-between gap-2 p-2 rounded-xl border text-xs transition-colors",
+                isAlterado
+                  ? "bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-300"
+                  : "bg-muted/50 border-border/80 text-neutral-900 dark:text-white"
+              )}>
+                <div className={cn(
+                  "flex items-center gap-1.5 font-mono font-bold",
+                  isAlterado ? "text-blue-700 dark:text-blue-400" : "text-neutral-900 dark:text-white"
+                )}>
                   <span>{carroAtual}</span>
                   <span className="text-muted-foreground font-sans font-normal">—</span>
-                  <span className="font-sans font-semibold text-emerald-700 dark:text-emerald-300">
+                  <span className={cn(
+                    "font-sans font-semibold",
+                    isAlterado ? "text-blue-700 dark:text-blue-300" : "text-foreground dark:text-white"
+                  )}>
                     Carro Atual
                   </span>
                 </div>
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className={cn(
+                  "w-2 h-2 rounded-full",
+                  isAlterado ? "bg-blue-500 animate-pulse" : "bg-neutral-400"
+                )} />
               </div>
             </div>
 

@@ -422,11 +422,40 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     return { total, liberados, substituidos, pendentes, percentual, totalBloqueadosCI };
   }, [activeSchedules, ciList, garagem]);
 
+  // Estado para animar e pulsar o carro bloqueado na seção de pendurados
+  const [pulsingCarro, setPulsingCarro] = useState<string | null>(null);
+
   // Função para verificar se o carro está em CI Bloqueado
-  const checkBloqueioCI = (prefixo?: string) => {
+  const checkBloqueioCI = useCallback((prefixo?: string) => {
     if (!prefixo) return null;
     return checkCarroBloqueado(prefixo, ciList);
-  };
+  }, [ciList]);
+
+  // Alerta sonner + scroll suave + efeito pulsante no carro pendurado
+  const triggerPenduradoAlert = useCallback((prefixo: string, motivo?: string) => {
+    const cleanPrefixo = prefixo.trim();
+    if (!cleanPrefixo) return;
+
+    toast.error(`O carro ${cleanPrefixo} está Pendurado / Bloqueado!`, {
+      description: motivo ? `Motivo: ${motivo}` : "Consulte a seção de Pendurados / Bloqueados abaixo.",
+      duration: 5000
+    });
+
+    setPulsingCarro(cleanPrefixo);
+
+    setTimeout(() => {
+      const elCarro = document.getElementById(`pendurado-${cleanPrefixo}`);
+      const secao = document.getElementById("secao-pendurados");
+      const target = elCarro || secao;
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 150);
+
+    setTimeout(() => {
+      setPulsingCarro(prev => (prev === cleanPrefixo ? null : prev));
+    }, 5000);
+  }, []);
 
   // Filtro de pesquisa e status
   const filteredSchedules = useMemo(() => {
@@ -463,7 +492,20 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     };
   }, [filteredSchedules]);
 
+  // Verifica se o carro já está sendo utilizado no campo Carro Realiz. de OUTRA linha
+  // O carro que foi substituído fica liberado para ser utilizado por outra linha!
+  const getOutraLinhaComCarroRealiz = useCallback((carro: string, currentItemId: string) => {
+    const clean = carro.trim();
+    if (!clean) return null;
 
+    return activeSchedules.find(s => {
+      if (s.id === currentItemId) return false;
+      const disp = dispatches[s.id];
+      const draft = drafts[s.id];
+      const realizAtual = (disp?.carroRealizado || s.carroRealizado || draft?.carro || "").trim();
+      return realizAtual === clean;
+    });
+  }, [activeSchedules, dispatches, drafts]);
 
   // Liberação de Saída (acionada unicamente pelo clique no botão 'Liberar')
   const handleRelease = (item: SolturaItem, customCarro?: string, customMoto?: string) => {
@@ -488,7 +530,15 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
     const bloqueio = checkBloqueioCI(finalCarro);
     if (bloqueio) {
-      toast.warning(`Atenção: Carro ${finalCarro} consta no CI como: ${bloqueio.motivo}!`);
+      triggerPenduradoAlert(finalCarro, bloqueio.motivo);
+      return;
+    }
+
+    // Só poder adicionar se não estiver sendo utilizado em nenhum outro campo de carro realiz
+    const conflitoOutraLinha = getOutraLinhaComCarroRealiz(finalCarro, item.id);
+    if (conflitoOutraLinha) {
+      toast.error(`Carro ${finalCarro} já está sendo utilizado na Linha ${conflitoOutraLinha.linha} / Tab ${conflitoOutraLinha.tabela}!`);
+      return;
     }
 
     const agora = new Date();
@@ -513,8 +563,15 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     const updated = { ...dispatches, [item.id]: newRecord };
     saveDispatches(updated);
 
-    // Se o carro liberado estiver em Reserva de Terminal, consumir e remover da reserva
-    const reservaEncontrada = reservasTerminais.find(r => r.carro.trim() === finalCarro.trim());
+    // Limpar rascunho
+    setDrafts(prev => {
+      const next = { ...prev };
+      delete next[item.id];
+      return next;
+    });
+
+    // Se o carro liberado coincidir com algum carro da Reserva de Terminal, consumir e remover da reserva
+    const reservaEncontrada = reservasTerminais.find(r => r.carro.trim() === finalCarro);
     if (reservaEncontrada) {
       api.deleteReservaTerminal(reservaEncontrada.id).then(() => {
         setReservasTerminais(prev => prev.filter(r => r.id !== reservaEncontrada.id));
@@ -532,6 +589,13 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     const cleanNovo = novoCarro.trim();
     if (!cleanNovo) {
       toast.error("Informe o prefixo do novo carro.");
+      return;
+    }
+
+    // Só poder adicionar se não estiver sendo utilizado em nenhum outro campo de carro realiz
+    const conflitoOutraLinha = getOutraLinhaComCarroRealiz(cleanNovo, item.id);
+    if (conflitoOutraLinha) {
+      toast.error(`Carro ${cleanNovo} já está sendo utilizado na Linha ${conflitoOutraLinha.linha} / Tab ${conflitoOutraLinha.tabela}!`);
       return;
     }
 
@@ -1067,16 +1131,16 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
             </div>
             <div className="flex items-center gap-3 text-xs text-muted-foreground font-medium flex-wrap">
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#22C55E]" />
-                Carro Liberado
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                Pendurado / Bloqueados
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-[#3B82F6]" />
-                Carro Trocado / Substituto
+                Trocado / Substituto
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-[#F59E0B]" />
-                Saída Pendente
+                Reforço
               </span>
             </div>
           </div>
@@ -1136,6 +1200,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                             onRelease={handleRelease}
                             onDraftChange={handleDraftChange}
                             onTrocarCarro={handleTrocarCarro}
+                            onPenduradoAlert={triggerPenduradoAlert}
+                            getOutraLinhaComCarroRealiz={getOutraLinhaComCarroRealiz}
                             historicoTrocas={dispatches[item.id]?.historicoTrocas || []}
                             isReadOnly={viewMode === "HISTORICO"}
                           />
@@ -1206,6 +1272,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                             onRelease={handleRelease}
                             onDraftChange={handleDraftChange}
                             onTrocarCarro={handleTrocarCarro}
+                            onPenduradoAlert={triggerPenduradoAlert}
+                            getOutraLinhaComCarroRealiz={getOutraLinhaComCarroRealiz}
                             historicoTrocas={dispatches[item.id]?.historicoTrocas || []}
                             isReadOnly={viewMode === "HISTORICO"}
                           />
@@ -1339,7 +1407,15 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
               {/* SEÇÃO: PENDURADOS (carros bloqueados CI) */}
               {penduradosAtivos.length > 0 && (
-                <div className="border border-rose-500/30 rounded-2xl p-4 bg-rose-500/5 text-card-foreground shadow-2xs space-y-2.5 print:bg-white print:border-neutral-500 print:p-2">
+                <div
+                  id="secao-pendurados"
+                  className={cn(
+                    "border rounded-2xl p-4 transition-all duration-500 shadow-2xs space-y-2.5 print:bg-white print:border-neutral-500 print:p-2",
+                    pulsingCarro
+                      ? "border-rose-500 bg-rose-500/15 ring-2 ring-rose-500/40 shadow-lg"
+                      : "border-rose-500/30 bg-rose-500/5 text-card-foreground"
+                  )}
+                >
                   <div className="flex items-center justify-between">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-rose-700 dark:text-rose-400 flex items-center gap-1.5 print:text-black">
                       <AlertTriangle className="w-3.5 h-3.5 text-rose-500 print:text-black" />
@@ -1352,20 +1428,32 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
                   {/* Exibição direta dos carros (sem o texto 'VERMELHO' em cima) */}
                   <div className="flex flex-wrap gap-2 pt-0.5">
-                    {penduradosAtivos.map(ci => (
-                      <div
-                        key={ci.id || ci.prefixo}
-                        className="px-3 py-1.5 rounded-xl border border-rose-500/50 bg-rose-500/10 text-rose-700 dark:text-rose-400 font-mono font-bold text-xs flex items-center gap-1.5 shadow-2xs select-none print:border-neutral-400 print:text-black"
-                        title={`Carro ${ci.prefixo}${ci.motivo ? ` • Motivo: ${ci.motivo}` : ""}`}
-                      >
-                        <span>{ci.prefixo}</span>
-                        {ci.motivo && (
-                          <span className="text-[10px] text-muted-foreground font-sans font-normal opacity-80 max-w-[140px] truncate hidden sm:inline">
-                            • {ci.motivo}
-                          </span>
-                        )}
-                      </div>
-                    ))}
+                    {penduradosAtivos.map(ci => {
+                      const isPulsing = pulsingCarro === ci.prefixo;
+                      return (
+                        <div
+                          id={`pendurado-${ci.prefixo}`}
+                          key={ci.id || ci.prefixo}
+                          className={cn(
+                            "px-3 py-1.5 rounded-xl border font-mono font-bold text-xs flex items-center gap-1.5 shadow-2xs select-none transition-all duration-300 print:border-neutral-400 print:text-black",
+                            isPulsing
+                              ? "border-rose-600 bg-rose-600 text-white ring-4 ring-rose-500/50 scale-110 animate-bounce shadow-xl font-black z-20"
+                              : "border-rose-500/50 bg-rose-500/10 text-rose-700 dark:text-rose-400"
+                          )}
+                          title={`Carro ${ci.prefixo}${ci.motivo ? ` • Motivo: ${ci.motivo}` : ""}`}
+                        >
+                          <span>{ci.prefixo}</span>
+                          {ci.motivo && (
+                            <span className={cn(
+                              "text-[10px] font-sans font-normal max-w-[150px] truncate hidden sm:inline",
+                              isPulsing ? "text-white opacity-95" : "text-muted-foreground opacity-80"
+                            )}>
+                              • {ci.motivo}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1417,7 +1505,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
                     {isDone ? (
                       <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                        <CheckCircle2 className="w-3 h-3" /> Liberado
+                        Liberado
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
@@ -1718,6 +1806,8 @@ interface FolhaTableRowProps {
   onRelease: (item: SolturaItem, carro?: string, moto?: string) => void;
   onDraftChange: (itemId: string, field: "carro" | "moto", value: string) => void;
   onTrocarCarro?: (item: SolturaItem, novoCarro: string, motivo: string) => void;
+  onPenduradoAlert?: (prefixo: string, motivo?: string) => void;
+  getOutraLinhaComCarroRealiz?: (carro: string, currentItemId: string) => SolturaItem | undefined | null;
   historicoTrocas?: TrocaCarroItem[];
   isReadOnly?: boolean;
 }
@@ -1730,6 +1820,8 @@ function FolhaTableRow({
   onRelease,
   onDraftChange,
   onTrocarCarro,
+  onPenduradoAlert,
+  getOutraLinhaComCarroRealiz,
   historicoTrocas = [],
   isReadOnly = false
 }: FolhaTableRowProps) {
@@ -1749,6 +1841,35 @@ function FolhaTableRow({
 
   // Apenas permitir liberar se Carro Realizado e MOTO estiverem completados
   const isLiberarHabilitado = Boolean(carroValue.trim() && motoValue.trim());
+
+  // Atalho: pressionar Enter com Carro Realizado e MOTO preenchidos já libera a saída
+  const handleKeyDownCarro = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (carroValue.trim() && motoValue.trim()) {
+        onRelease(item, carroValue, motoValue);
+      } else if (!motoValue.trim()) {
+        const motoInput = document.getElementById(`moto-input-${item.id}`);
+        if (motoInput) {
+          motoInput.focus();
+        }
+      }
+    }
+  };
+
+  const handleKeyDownMoto = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (carroValue.trim() && motoValue.trim()) {
+        onRelease(item, carroValue, motoValue);
+      } else if (!carroValue.trim()) {
+        const carroInput = document.getElementById(`carro-input-${item.id}`);
+        if (carroInput) {
+          carroInput.focus();
+        }
+      }
+    }
+  };
 
   // Alertas de CI verificados separadamente:
   // 1. Carro Programado: alerta se o programado estiver no CI
@@ -1829,27 +1950,63 @@ function FolhaTableRow({
               carroAtual={carroValue || item.carroRealizado || item.carroProgramado || "---"}
               historicoTrocas={historicoTrocas}
               onTrocarCarro={onTrocarCarro || (() => { })}
+              checkBloqueioCI={checkBloqueioCI}
+              onPenduradoAlert={onPenduradoAlert}
+              getOutraLinhaComCarroRealiz={getOutraLinhaComCarroRealiz}
               isReadOnly={isReadOnly}
             />
           ) : (
             <>
               <input
+                id={`carro-input-${item.id}`}
                 type="text"
                 placeholder=""
                 value={carroValue}
                 disabled={isReadOnly}
+                onKeyDown={handleKeyDownCarro}
                 onChange={(e) => {
                   const val = e.target.value;
                   setCarroValue(val);
                   onDraftChange(item.id, "carro", val);
+
+                  const cleanVal = val.trim();
+                  if (cleanVal.length >= 4) {
+                    const bloqueio = checkBloqueioCI(cleanVal);
+                    if (bloqueio) {
+                      onPenduradoAlert?.(cleanVal, bloqueio.motivo);
+                      return;
+                    }
+                    if (getOutraLinhaComCarroRealiz) {
+                      const outraLinha = getOutraLinhaComCarroRealiz(cleanVal, item.id);
+                      if (outraLinha) {
+                        toast.error(`Carro ${cleanVal} já está sendo utilizado na Linha ${outraLinha.linha} / Tab ${outraLinha.tabela}!`);
+                      }
+                    }
+                  }
+                }}
+                onBlur={() => {
+                  const cleanVal = carroValue.trim();
+                  if (cleanVal) {
+                    const bloqueio = checkBloqueioCI(cleanVal);
+                    if (bloqueio) {
+                      onPenduradoAlert?.(cleanVal, bloqueio.motivo);
+                      return;
+                    }
+                    if (getOutraLinhaComCarroRealiz) {
+                      const outraLinha = getOutraLinhaComCarroRealiz(cleanVal, item.id);
+                      if (outraLinha) {
+                        toast.error(`Carro ${cleanVal} já está sendo utilizado na Linha ${outraLinha.linha} / Tab ${outraLinha.tabela}!`);
+                      }
+                    }
+                  }
                 }}
                 className={cn(
                   "w-16 h-7 text-center rounded-md border text-xs font-bold font-mono focus:outline-hidden focus:ring-1 focus:ring-[#164E3A] transition-all",
                   isReadOnly
-                    ? "bg-transparent border-transparent text-emerald-700 dark:text-emerald-400 cursor-default font-bold"
+                    ? "bg-transparent border-transparent text-foreground dark:text-white cursor-default font-bold"
                     : isSub
                       ? "text-blue-600 dark:text-blue-400 border-blue-500/50 bg-blue-500/10"
-                      : "bg-background border-border/80 text-foreground",
+                      : "bg-background border-border/80 text-foreground dark:text-white",
                   (bloqueioRealiz || reservaRealiz) && "border-rose-500 text-rose-600 bg-rose-500/10 font-bold"
                 )}
                 title={
@@ -1883,10 +2040,12 @@ function FolhaTableRow({
           {motoValue || "—"}
         </span>
         <input
+          id={`moto-input-${item.id}`}
           type="text"
           placeholder=""
           value={motoValue}
           disabled={isDone || isReadOnly}
+          onKeyDown={handleKeyDownMoto}
           onChange={(e) => {
             const val = e.target.value;
             setMotoValue(val);
@@ -1912,46 +2071,49 @@ function FolhaTableRow({
         {item.inicioLinha || item.inicioBairro || "—"}
       </td>
 
-      {/* 9. Ações: Liberar Saída (Sem botão de voltar após liberado) */}
+      {/* 9. Ações: Liberar Saída (Apenas ícone de certo, sem texto) */}
       <td className="py-1 px-2 text-center print:hidden">
         {isReadOnly ? (
           <div className="flex items-center justify-center">
             {isDone ? (
-              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-                <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" /> Liberado
+              <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground border">
-                Pendente
+              <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-muted text-muted-foreground/30 border border-border/40 opacity-30">
+                <Check className="w-4 h-4" />
               </span>
             )}
           </div>
         ) : isDone ? (
           <div className="flex items-center justify-center">
-            <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 shadow-2xs">
-              <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" /> Liberado
+            <span
+              className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 shadow-2xs"
+              title="Saída liberada"
+            >
+              <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
             </span>
           </div>
         ) : (
           <div className="flex items-center justify-center">
-            <Button
-              size="sm"
+            <button
+              type="button"
               disabled={!isLiberarHabilitado}
               onClick={() => onRelease(item, carroValue, motoValue)}
               className={cn(
-                "h-6 px-3 text-[11px] font-bold rounded-full shadow-2xs transition-all",
+                "w-7 h-7 rounded-full flex items-center justify-center transition-all shadow-2xs select-none",
                 isLiberarHabilitado
-                  ? "bg-[#164E3A] hover:bg-[#113C2D] text-white cursor-pointer shadow-xs"
-                  : "bg-muted text-muted-foreground/40 border border-border/40 cursor-not-allowed opacity-40 shadow-none hover:bg-muted"
+                  ? "bg-[#164E3A] hover:bg-[#113C2D] text-white cursor-pointer shadow-xs hover:scale-105 active:scale-95"
+                  : "bg-muted text-muted-foreground/30 border border-border/40 cursor-not-allowed opacity-30 shadow-none"
               )}
               title={
                 isLiberarHabilitado
-                  ? "Liberar saída do veículo"
+                  ? "Liberar saída do veículo (ou pressione Enter)"
                   : "Preencha o Carro Realizado e o MOTO para liberar"
               }
             >
-              Liberar
-            </Button>
+              <Check className="w-4 h-4" />
+            </button>
           </div>
         )}
       </td>
