@@ -21,7 +21,10 @@ import {
   FileSpreadsheet,
   Plus,
   Bus,
-  Tag
+  Tag,
+  SlidersHorizontal,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -169,6 +172,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("TODOS");
   const [searchQuery, setSearchQuery] = useState("");
+  const [isListaEstendida, setIsListaEstendida] = useState(false);
 
   // Base de CIs Bloqueados sincronizada e persistida
   const [ciList, setCiList] = useState<BloqueioCarro[]>(() => getInitialCIBloqueios());
@@ -507,6 +511,20 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     });
   }, [activeSchedules, dispatches, drafts]);
 
+  // Busca se já existe outra linha utilizando o mesmo código MOTO (motorista) ATIVO
+  const getOutraLinhaComMoto = useCallback((moto: string, currentItemId: string) => {
+    const clean = moto.trim();
+    if (!clean) return null;
+
+    return activeSchedules.find(s => {
+      if (s.id === currentItemId) return false;
+      const disp = dispatches[s.id];
+      const draft = drafts[s.id];
+      const motoAtual = (disp?.motoristaCodigo || s.motoristaCodigo || draft?.moto || "").trim();
+      return motoAtual.toLowerCase() === clean.toLowerCase();
+    });
+  }, [activeSchedules, dispatches, drafts]);
+
   // Liberação de Saída (acionada unicamente pelo clique no botão 'Liberar')
   const handleRelease = (item: SolturaItem, customCarro?: string, customMoto?: string) => {
     const draft = drafts[item.id];
@@ -538,6 +556,13 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     const conflitoOutraLinha = getOutraLinhaComCarroRealiz(finalCarro, item.id);
     if (conflitoOutraLinha) {
       toast.error(`Carro ${finalCarro} já está sendo utilizado na Linha ${conflitoOutraLinha.linha} / Tab ${conflitoOutraLinha.tabela}!`);
+      return;
+    }
+
+    // Não poder repetir o código MOTO em mais de uma linha ativa
+    const conflitoMoto = getOutraLinhaComMoto(finalMoto, item.id);
+    if (conflitoMoto) {
+      toast.error(`Motorista (MOTO ${finalMoto}) já está escalado na Linha ${conflitoMoto.linha} / Tab ${conflitoMoto.tabela}!`);
       return;
     }
 
@@ -807,6 +832,154 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       toast.error(`Falha na exportação: ${err?.message || "Erro desconhecido"}`);
     }
   };
+
+  // Renderização reutilizável do Card de Pendurados (para Painel Lateral Fixo e Impressão A4)
+  const renderCardPendurados = (isPrint: boolean = false) => (
+    <div
+      id="secao-pendurados"
+      className={cn(
+        "rounded-2xl p-4 sm:p-5 transition-all duration-500 shadow-xs flex flex-col justify-between",
+        isPrint ? "print:bg-white print:border-neutral-500 print:p-2" : "border",
+        pulsingCarro
+          ? "border-2 border-rose-500 bg-rose-500/15 ring-2 ring-rose-500/40 shadow-lg"
+          : "border-rose-500/30 bg-rose-500/5 text-card-foreground"
+      )}
+    >
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-rose-700 dark:text-rose-400 flex items-center gap-1.5 print:text-black">
+            <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0 print:text-black" />
+            PENDURADOS / BLOQUEADOS
+          </h3>
+          <span className="text-[10px] text-muted-foreground font-mono">
+            {penduradosAtivos.length} {penduradosAtivos.length === 1 ? "carro" : "carros"}
+          </span>
+        </div>
+
+        <div className="flex flex-wrap gap-2 pt-0.5">
+          {penduradosAtivos.map(ci => {
+            const isPulsing = pulsingCarro === ci.prefixo;
+            return (
+              <div
+                id={`pendurado-${ci.prefixo}`}
+                key={ci.id || ci.prefixo}
+                className="relative group inline-block"
+              >
+                <div
+                  className={cn(
+                    "px-3 py-1 rounded-lg border font-mono font-bold text-xs flex items-center justify-center gap-1 shadow-2xs select-none transition-all duration-300 cursor-pointer print:border-neutral-400 print:text-black",
+                    isPulsing
+                      ? "border-rose-600 bg-rose-600 text-white ring-4 ring-rose-500/50 scale-110 animate-bounce shadow-xl font-black z-20"
+                      : "border-rose-500/50 bg-rose-500/10 text-rose-700 dark:text-rose-400 hover:bg-rose-500/20 hover:border-rose-500"
+                  )}
+                  title={`Carro ${ci.prefixo}${ci.motivo ? ` • Defeito: ${ci.motivo}` : ""}`}
+                >
+                  <span>{ci.prefixo}</span>
+                </div>
+
+                {ci.motivo && !isPrint && (
+                  <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:flex flex-col items-center z-30 transition-all duration-200">
+                    <div className="bg-neutral-900 text-white text-[11px] font-sans font-medium px-2.5 py-1 rounded-lg shadow-xl whitespace-nowrap border border-neutral-700/80">
+                      {ci.motivo}
+                    </div>
+                    <div className="w-2 h-2 -mt-1 rotate-45 bg-neutral-900 border-r border-b border-neutral-700/80"></div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {penduradosAtivos.length === 0 && (
+            <span className="text-[11px] text-muted-foreground/70 italic print:text-neutral-500">
+              Nenhum carro bloqueado ou na CI no momento.
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  // Renderização reutilizável do Card de Reserva Terminal (para Painel Lateral Fixo e Impressão A4)
+  const renderCardReservaTerminal = (isPrint: boolean = false) => (
+    <div className={cn(
+      "rounded-2xl border border-border/80 bg-card text-card-foreground p-4 sm:p-5 shadow-xs space-y-3",
+      isPrint ? "print:bg-white print:border-neutral-500 print:p-2" : ""
+    )}>
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-foreground flex items-center gap-1.5 print:text-black">
+          <MapPin className="w-3.5 h-3.5 text-[#164E3A] dark:text-emerald-400 print:text-black" />
+          RESERVA TERMINAL
+        </h3>
+        <span className="text-[10px] text-muted-foreground font-mono">
+          Garagem {garagem}
+        </span>
+      </div>
+
+      <div className={cn(
+        "gap-2.5",
+        isPrint ? "grid grid-cols-4" : "grid grid-cols-1 sm:grid-cols-2"
+      )}>
+        {TERMINAIS_PADRAO.map(termNome => {
+          const carrosDoTerminal = reservasTerminais.filter(r => r.terminal === termNome);
+          return (
+            <div
+              key={termNome}
+              className="rounded-xl border border-border/70 bg-muted/30 hover:bg-muted/50 dark:bg-card/90 dark:border-border/60 p-2.5 flex flex-col gap-2 transition-all shadow-2xs print:border-neutral-400 print:bg-white"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-foreground tracking-tight print:text-black">
+                  {termNome}
+                </span>
+                {!isPrint && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenAddModal(termNome)}
+                    className="w-6 h-6 rounded-md border border-emerald-600/40 dark:border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 flex items-center justify-center transition-colors cursor-pointer shrink-0 shadow-2xs"
+                    title={`Adicionar carro na reserva do ${termNome}`}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-wrap gap-1.5">
+                {carrosDoTerminal.map(car => (
+                  <div
+                    key={car.id}
+                    className={cn(
+                      "px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition-all group select-none shadow-2xs",
+                      car.tipo === "VERMELHO" ? "border border-rose-500/50 text-rose-700 dark:text-rose-400 bg-rose-500/10 print:border-rose-600 print:text-rose-700" :
+                        car.tipo === "AZUL" ? "border border-sky-500/50 text-sky-700 dark:text-sky-400 bg-sky-500/10 print:border-sky-600 print:text-sky-700" :
+                          car.tipo === "CORINGA" ? "border border-amber-500/50 text-amber-700 dark:text-amber-400 bg-amber-500/10 print:border-amber-600 print:text-amber-700" :
+                            car.tipo === "MICRO" ? "border border-purple-500/50 text-purple-700 dark:text-purple-400 bg-purple-500/10 print:border-purple-600 print:text-purple-700" :
+                              "border border-orange-500/50 text-orange-700 dark:text-orange-400 bg-orange-500/10 print:border-orange-600 print:text-orange-700"
+                    )}
+                    title={`Carro ${car.carro} • Tipo: ${car.tipo}`}
+                  >
+                    <span>{car.carro}</span>
+                    {!isPrint && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveReserva(car.id, car.carro)}
+                        className="text-muted-foreground hover:text-rose-600 dark:hover:text-rose-400 transition-colors opacity-60 group-hover:opacity-100 cursor-pointer text-[13px] leading-none"
+                        title="Remover carro da reserva"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {carrosDoTerminal.length === 0 && (
+                  <span className="text-[11px] text-muted-foreground/70 italic print:text-neutral-400">
+                    Sem carros
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-5 animate-in fade-in duration-300 pb-16">
@@ -1120,7 +1293,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           </div>
 
           {/* Cabeçalho da Folha em Tela (fiel a layout-soltura.PNG) */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 print:hidden">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1 print:hidden">
             <div>
               <div className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider font-semibold">
                 CONSÓRCIO GUAICURUS • GARAGEM {garagem === "VCG" ? "VIAÇÃO CAMPO GRANDE" : "VIAÇÃO CIDADE MORENA"}
@@ -1145,36 +1318,85 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
             </div>
           </div>
 
-          {/* Grade de 2 Colunas Lado a Lado (como no papel físico e layout-soltura.PNG) */}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 folha-print-grid">
+          {/* Barra de Pesquisa de Linha (como no novo layout) */}
+          <div className="flex items-center gap-2 pb-2 print:hidden">
+            <div className="relative w-full max-w-xs sm:max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Pesquisar uma linha..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 pr-8 h-9 text-xs bg-muted/40 hover:bg-muted/60 focus:bg-background rounded-xl border border-border/80 focus:border-[#164E3A] focus:ring-1 focus:ring-[#164E3A] transition-all"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs p-0.5 rounded cursor-pointer"
+                  title="Limpar pesquisa"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              className={cn(
+                "h-9 w-9 rounded-xl border border-border/80 bg-muted/40 hover:bg-muted/70 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0 shadow-2xs",
+                searchQuery && "text-[#164E3A] dark:text-emerald-400 border-[#164E3A]/40 bg-[#164E3A]/10 font-bold"
+              )}
+              title={searchQuery ? `Filtro ativo: ${searchQuery}` : "Filtrar por linha"}
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+            </button>
+          </div>
 
-            {/* Coluna 1 */}
-            <div className="border rounded-xl overflow-hidden shadow-2xs bg-card">
-              <div className="bg-muted/60 px-3.5 py-2 text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between border-b">
-                <span className="text-foreground">
-                  COLUNA 01 (ORDENS 01 A {String(colunaEsquerda.length).padStart(2, "0")})
+          {/* ========================================================= */}
+          {/* NOVO LAYOUT EM TELA: TABELA COM 20 ITENS + SCROLL (ESQ) E PAINEL FIXO (DIR) */}
+          {/* ========================================================= */}
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start print:hidden">
+
+            {/* 1. LADO ESQUERDO: TABELA ÚNICA DE HORÁRIOS (fixo no topo da tela com scroll) */}
+            <div className="xl:col-span-8 2xl:col-span-8 border rounded-2xl overflow-hidden shadow-2xs bg-card border-border/80 sticky top-4 self-start z-10">
+              <div className="bg-muted/60 px-4 py-2.5 text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between border-b">
+                <span className="text-foreground flex items-center gap-2">
+                  Horário de Saída de Veículos
+                  {searchQuery && (
+                    <span className="text-[11px] font-normal text-muted-foreground lowercase">
+                      (filtrando "{searchQuery}")
+                    </span>
+                  )}
                 </span>
-                <span className="font-semibold">{colunaEsquerda.length} HORÁRIOS</span>
+                <span className="font-mono font-semibold text-foreground">
+                  {filteredSchedules.length} {filteredSchedules.length === 1 ? "HORÁRIO" : "HORÁRIOS"}
+                </span>
               </div>
-              <div className="overflow-x-auto">
+
+              {/* Tabela com rolagem vertical suave calibrada para 10 itens visíveis ou estendida */}
+              <div
+                className={cn(
+                  "overflow-y-auto transition-all duration-300 scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/40",
+                  isListaEstendida ? "max-h-none" : "max-h-[415px]"
+                )}
+              >
                 <table className="w-full text-xs text-left border-collapse">
-                  <thead>
-                    <tr className="bg-muted/40 text-muted-foreground border-b text-[11px] font-semibold">
+                  <thead className="sticky top-0 z-10 bg-card/95 backdrop-blur-xs shadow-2xs">
+                    <tr className="bg-muted/60 text-muted-foreground border-b text-[11px] font-semibold">
                       <th className="py-2.5 px-2.5 w-12 text-center">Nº</th>
                       <th className="py-2.5 px-2.5 font-bold text-foreground">Linha</th>
                       <th className="py-2.5 px-2 text-center">Tab</th>
                       <th className="py-2.5 px-2.5 text-center">Carro Prog.</th>
                       <th className="py-2.5 px-2.5 bg-primary/5 text-primary font-bold text-center">Carro Realiz.</th>
                       <th className="py-2.5 px-2.5 text-center">MOTO</th>
-                      <th className="py-2.5 px-2 text-center font-bold text-foreground">Saída Gar.</th>
-                      <th className="py-2.5 px-2 text-center text-muted-foreground">Início Linha</th>
-                      <th className="py-2.5 px-2.5 text-center print:hidden">Ações</th>
+                      <th className="py-2.5 px-2.5 text-center font-bold text-foreground">Saída Gar.</th>
+                      <th className="py-2.5 px-2.5 text-center text-muted-foreground">Início Linha</th>
+                      <th className="py-2.5 px-2.5 text-center">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60 font-mono">
-                    {colunaEsquerda.map((item, idx) => {
-                      const isFirstVCM = item.tipo === "VCM" && (idx === 0 || colunaEsquerda[idx - 1]?.tipo !== "VCM");
-                      const isFirstFrete = item.tipo === "FRETAMENTO" && (idx === 0 || colunaEsquerda[idx - 1]?.tipo !== "FRETAMENTO");
+                    {filteredSchedules.map((item, idx) => {
+                      const isFirstVCM = item.tipo === "VCM" && (idx === 0 || filteredSchedules[idx - 1]?.tipo !== "VCM");
+                      const isFirstFrete = item.tipo === "FRETAMENTO" && (idx === 0 || filteredSchedules[idx - 1]?.tipo !== "FRETAMENTO");
                       return (
                         <>
                           {isFirstVCM && (
@@ -1202,112 +1424,161 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                             onTrocarCarro={handleTrocarCarro}
                             onPenduradoAlert={triggerPenduradoAlert}
                             getOutraLinhaComCarroRealiz={getOutraLinhaComCarroRealiz}
+                            getOutraLinhaComMoto={getOutraLinhaComMoto}
                             historicoTrocas={dispatches[item.id]?.historicoTrocas || []}
                             isReadOnly={viewMode === "HISTORICO"}
                           />
                         </>
                       );
                     })}
-                    {colunaEsquerda.length === 0 && (
+                    {filteredSchedules.length === 0 && (
                       <tr>
-                        <td colSpan={9} className="py-8 text-center text-muted-foreground font-sans">
-                          Nenhum registro encontrado para este filtro.
+                        <td colSpan={9} className="py-12 text-center text-muted-foreground font-sans">
+                          Nenhum registro encontrado para a busca "{searchQuery}".
                         </td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
+
+              {/* Rodapé com botão para estender ou recolher toda a lista */}
+              <div className="p-2.5 border-t bg-muted/25 flex items-center justify-center">
+                <button
+                  type="button"
+                  onClick={() => setIsListaEstendida(!isListaEstendida)}
+                  className="w-full py-2 px-4 rounded-xl border border-border/80 bg-card hover:bg-muted/50 text-xs font-semibold text-foreground flex items-center justify-center gap-2 transition-all shadow-2xs hover:shadow-xs cursor-pointer group"
+                >
+                  {isListaEstendida ? (
+                    <>
+                      <ChevronUp className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                      <span>Recolher lista (mostrar 10 linhas)</span>
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="w-4 h-4 text-[#164E3A] dark:text-emerald-400 group-hover:translate-y-0.5 transition-transform" />
+                      <span>Estender toda a lista (mostrar todos os {filteredSchedules.length} horários)</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
 
-            {/* Coluna 2 */}
-            <div className="border rounded-xl overflow-hidden shadow-2xs bg-card">
-              <div className="bg-muted/60 px-3.5 py-2 text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between border-b">
-                <span className="text-foreground">
-                  COLUNA 02 (ORDENS {String(colunaEsquerda.length + 1).padStart(2, "0")} A {String(filteredSchedules.length).padStart(2, "0")})
-                </span>
-                <span className="font-semibold">{colunaDireita.length} HORÁRIOS</span>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs text-left border-collapse">
-                  <thead>
-                    <tr className="bg-muted/40 text-muted-foreground border-b text-[11px] font-semibold">
-                      <th className="py-2.5 px-2.5 w-12 text-center">Nº</th>
-                      <th className="py-2.5 px-2.5 font-bold text-foreground">Linha</th>
-                      <th className="py-2.5 px-2 text-center">Tab</th>
-                      <th className="py-2.5 px-2.5 text-center">Carro Prog.</th>
-                      <th className="py-2.5 px-2.5 bg-primary/5 text-primary font-bold text-center">Carro Realiz.</th>
-                      <th className="py-2.5 px-2.5 text-center">MOTO</th>
-                      <th className="py-2.5 px-2.5 text-center font-bold text-foreground">Saída Gar.</th>
-                      <th className="py-2.5 px-2.5 text-center text-muted-foreground">Início Linha</th>
-                      <th className="py-2.5 px-2.5 text-center print:hidden">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/60 font-mono">
-                    {colunaDireita.map((item, idx) => {
-                      const isFirstVCM = item.tipo === "VCM" && (idx === 0 || colunaDireita[idx - 1]?.tipo !== "VCM");
-                      const isFirstFrete = item.tipo === "FRETAMENTO" && (idx === 0 || colunaDireita[idx - 1]?.tipo !== "FRETAMENTO");
-                      return (
-                        <>
-                          {isFirstVCM && (
-                            <tr key={`sep-vcm-${item.id}`}>
-                              <td colSpan={9} className="py-1.5 px-3 bg-blue-500/10 text-[10px] font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300 border-y border-blue-500/30">
-                                Motoristas VCM que saem da VCG
-                              </td>
-                            </tr>
-                          )}
-                          {isFirstFrete && (
-                            <tr key={`sep-frete-${item.id}`}>
-                              <td colSpan={9} className="py-1.5 px-3 bg-amber-500/10 text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300 border-y border-amber-500/30">
-                                Especial Fretamento
-                              </td>
-                            </tr>
-                          )}
-                          <FolhaTableRow
-                            key={item.id}
-                            item={item}
-                            index={item.ordem || colunaEsquerda.length + idx + 1}
-                            reservasTerminais={reservasTerminais}
-                            checkBloqueioCI={checkBloqueioCI}
-                            onRelease={handleRelease}
-                            onDraftChange={handleDraftChange}
-                            onTrocarCarro={handleTrocarCarro}
-                            onPenduradoAlert={triggerPenduradoAlert}
-                            getOutraLinhaComCarroRealiz={getOutraLinhaComCarroRealiz}
-                            historicoTrocas={dispatches[item.id]?.historicoTrocas || []}
-                            isReadOnly={viewMode === "HISTORICO"}
-                          />
-                        </>
-                      );
-                    })}
-                    {colunaDireita.length === 0 && (
-                      <tr>
-                        <td colSpan={9} className="py-8 text-center text-muted-foreground font-sans">
-                          Nenhum registro nesta coluna.
-                        </td>
+            {/* 2. LADO DIREITO: COMPONENTE FIXO COM PENDURADOS E RESERVA TERMINAL */}
+            <div className="xl:col-span-4 2xl:col-span-4 xl:sticky xl:top-4 self-start space-y-4">
+              {renderCardPendurados(false)}
+              {renderCardReservaTerminal(false)}
+            </div>
+
+          </div>
+
+          {/* ========================================================= */}
+          {/* IMPRESSÃO A4: DUAS COLUNAS CONFORME FORMULÁRIO OFICIAL */}
+          {/* ========================================================= */}
+          <div className="hidden print:block space-y-4">
+
+            {/* Grade de 2 Colunas Lado a Lado para o papel A4 */}
+            <div className="grid grid-cols-2 gap-4 folha-print-grid">
+              {/* Coluna 1 */}
+              <div className="border rounded-xl overflow-hidden bg-card">
+                <div className="bg-muted/60 px-3.5 py-2 text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between border-b">
+                  <span className="text-foreground">
+                    COLUNA 01 (ORDENS 01 A {String(colunaEsquerda.length).padStart(2, "0")})
+                  </span>
+                  <span className="font-semibold">{colunaEsquerda.length} HORÁRIOS</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left border-collapse">
+                    <thead>
+                      <tr className="bg-muted/40 text-muted-foreground border-b text-[11px] font-semibold">
+                        <th className="py-2 px-2 w-10 text-center">Nº</th>
+                        <th className="py-2 px-2 font-bold text-foreground">Linha</th>
+                        <th className="py-2 px-1 text-center">Tab</th>
+                        <th className="py-2 px-2 text-center">Carro Prog.</th>
+                        <th className="py-2 px-2 text-center">Carro Realiz.</th>
+                        <th className="py-2 px-2 text-center">MOTO</th>
+                        <th className="py-2 px-2 text-center font-bold text-foreground">Saída Gar.</th>
+                        <th className="py-2 px-2 text-center text-muted-foreground">Início Linha</th>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-border/60 font-mono">
+                      {colunaEsquerda.map((item, idx) => (
+                        <FolhaTableRow
+                          key={item.id}
+                          item={item}
+                          index={item.ordem || idx + 1}
+                          reservasTerminais={reservasTerminais}
+                          checkBloqueioCI={checkBloqueioCI}
+                          onRelease={handleRelease}
+                          onDraftChange={handleDraftChange}
+                          onTrocarCarro={handleTrocarCarro}
+                          onPenduradoAlert={triggerPenduradoAlert}
+                          getOutraLinhaComCarroRealiz={getOutraLinhaComCarroRealiz}
+                          getOutraLinhaComMoto={getOutraLinhaComMoto}
+                          historicoTrocas={dispatches[item.id]?.historicoTrocas || []}
+                          isReadOnly={true}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Coluna 2 */}
+              <div className="border rounded-xl overflow-hidden bg-card">
+                <div className="bg-muted/60 px-3.5 py-2 text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between border-b">
+                  <span className="text-foreground">
+                    COLUNA 02 (ORDENS {String(colunaEsquerda.length + 1).padStart(2, "0")} A {String(filteredSchedules.length).padStart(2, "0")})
+                  </span>
+                  <span className="font-semibold">{colunaDireita.length} HORÁRIOS</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left border-collapse">
+                    <thead>
+                      <tr className="bg-muted/40 text-muted-foreground border-b text-[11px] font-semibold">
+                        <th className="py-2 px-2 w-10 text-center">Nº</th>
+                        <th className="py-2 px-2 font-bold text-foreground">Linha</th>
+                        <th className="py-2 px-1 text-center">Tab</th>
+                        <th className="py-2 px-2 text-center">Carro Prog.</th>
+                        <th className="py-2 px-2 text-center">Carro Realiz.</th>
+                        <th className="py-2 px-2 text-center">MOTO</th>
+                        <th className="py-2 px-2 text-center font-bold text-foreground">Saída Gar.</th>
+                        <th className="py-2 px-2 text-center text-muted-foreground">Início Linha</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/60 font-mono">
+                      {colunaDireita.map((item, idx) => (
+                        <FolhaTableRow
+                          key={item.id}
+                          item={item}
+                          index={item.ordem || colunaEsquerda.length + idx + 1}
+                          reservasTerminais={reservasTerminais}
+                          checkBloqueioCI={checkBloqueioCI}
+                          onRelease={handleRelease}
+                          onDraftChange={handleDraftChange}
+                          onTrocarCarro={handleTrocarCarro}
+                          onPenduradoAlert={triggerPenduradoAlert}
+                          getOutraLinhaComCarroRealiz={getOutraLinhaComCarroRealiz}
+                          getOutraLinhaComMoto={getOutraLinhaComMoto}
+                          historicoTrocas={dispatches[item.id]?.historicoTrocas || []}
+                          isReadOnly={true}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
 
-          </div>
+            {/* Rodapé Oficial da Impressão A4 - Página 1 */}
+            <div className="flex items-center justify-between text-[7pt] text-neutral-600 border-t border-neutral-400 pt-1 mt-1 font-mono">
+              <span>Sistema Garagem CGU • Folha de Soltura Operacional ({garagem}) • Impresso em: {new Date().toLocaleDateString("pt-BR")} às {new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+              <span className="font-bold">Página 01 / 02</span>
+            </div>
 
-          {/* Rodapé Oficial da Impressão A4 - Página 1 */}
-          <div className="hidden print:flex items-center justify-between text-[7pt] text-neutral-600 border-t border-neutral-400 pt-1 mt-1 font-mono">
-            <span>Sistema Garagem CGU • Folha de Soltura Operacional ({garagem}) • Impresso em: {new Date().toLocaleDateString("pt-BR")} às {new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
-            <span className="font-bold">Página 01 / 02</span>
-          </div>
-
-          {/* ========================================================= */}
-          {/* SEGUNDA FOLHA A4 NA IMPRESSÃO: RESERVAS E VEÍCULOS NO CI */}
-          {/* ========================================================= */}
-          {(reservasTerminais.length > 0 || penduradosAtivos.length > 0 || viewMode === "FOLHA") && (
+            {/* SEGUNDA FOLHA A4 NA IMPRESSÃO: RESERVAS E VEÍCULOS NO CI */}
             <div className="print-page-break space-y-4 pt-1">
-
-              {/* Cabeçalho Oficial da Segunda Folha A4 */}
-              <div className="hidden print:block border border-neutral-700 p-2 mb-2 bg-white text-black font-sans">
+              <div className="border border-neutral-700 p-2 mb-2 bg-white text-black font-sans">
                 <div className="flex items-center justify-between border-b border-neutral-500 pb-1">
                   <div>
                     <span className="text-[10pt] font-black uppercase tracking-wider block text-black">
@@ -1329,156 +1600,23 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                 </div>
               </div>
 
-              {/* ========================================================= */}
-              {/* SEÇÃO LADO A LADO: PENDURADOS (30%) E RESERVA TERMINAL (70%) */}
-              {/* ========================================================= */}
-              <div className="grid grid-cols-1 lg:grid-cols-10 gap-4 items-stretch print:grid-cols-10">
-
-                {/* 1. LADO ESQUERDO: PENDURADOS (30% da largura - col-span-3 de 10) */}
-                <div
-                  id="secao-pendurados"
-                  className={cn(
-                    "lg:col-span-3 rounded-2xl p-4 sm:p-5 transition-all duration-500 shadow-xs flex flex-col justify-between print:bg-white print:border-neutral-500 print:p-2",
-                    pulsingCarro
-                      ? "border-2 border-rose-500 bg-rose-500/15 ring-2 ring-rose-500/40 shadow-lg"
-                      : "border border-rose-500/30 bg-rose-500/5 text-card-foreground"
-                  )}
-                >
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-rose-700 dark:text-rose-400 flex items-center gap-1.5 print:text-black">
-                        <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0 print:text-black" />
-                        PENDURADOS/BLOQUEADOS
-                      </h3>
-                    </div>
-
-                    {/* Exibição dos carros pendurados: apenas o número do carro, defeito no hover */}
-                    <div className="flex flex-wrap gap-2 pt-0.5">
-                      {penduradosAtivos.map(ci => {
-                        const isPulsing = pulsingCarro === ci.prefixo;
-                        return (
-                          <div
-                            id={`pendurado-${ci.prefixo}`}
-                            key={ci.id || ci.prefixo}
-                            className="relative group inline-block"
-                          >
-                            <div
-                              className={cn(
-                                "px-3 py-1 rounded-lg border font-mono font-bold text-xs flex items-center justify-center gap-1 shadow-2xs select-none transition-all duration-300 cursor-pointer print:border-neutral-400 print:text-black",
-                                isPulsing
-                                  ? "border-rose-600 bg-rose-600 text-white ring-4 ring-rose-500/50 scale-110 animate-bounce shadow-xl font-black z-20"
-                                  : "border-rose-500/50 bg-rose-500/10 text-rose-700 dark:text-rose-400 hover:bg-rose-500/20 hover:border-rose-500"
-                              )}
-                              title={`Carro ${ci.prefixo}${ci.motivo ? ` • Defeito: ${ci.motivo}` : ""}`}
-                            >
-                              <span>{ci.prefixo}</span>
-                            </div>
-
-                            {/* Tooltip moderno com o defeito que surge suavemente ao passar o mouse */}
-                            {ci.motivo && (
-                              <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:flex flex-col items-center z-30 transition-all duration-200">
-                                <div className="bg-neutral-900 text-white text-[11px] font-sans font-medium px-2.5 py-1 rounded-lg shadow-xl whitespace-nowrap border border-neutral-700/80">
-                                  {ci.motivo}
-                                </div>
-                                <div className="w-2 h-2 -mt-1 rotate-45 bg-neutral-900 border-r border-b border-neutral-700/80"></div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                      {penduradosAtivos.length === 0 && (
-                        <span className="text-[11px] text-muted-foreground/70 italic">
-                          Nenhum carro bloqueado ou na CI no momento.
-                        </span>
-                      )}
-                    </div>
-                  </div>
+              <div className="grid grid-cols-10 gap-4 items-stretch">
+                <div className="col-span-3">
+                  {renderCardPendurados(true)}
                 </div>
-
-                {/* 2. LADO DIREITO: RESERVA TERMINAL (70% da largura - col-span-7 de 10) */}
-                <div className="lg:col-span-7 rounded-2xl border border-border/80 bg-card text-card-foreground p-4 sm:p-5 shadow-xs space-y-3 print:bg-white print:border-neutral-500 print:p-2">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-foreground flex items-center gap-1.5 print:text-black">
-                      <MapPin className="w-3.5 h-3.5 text-[#164E3A] dark:text-emerald-400 print:text-black" />
-                      RESERVA TERMINAL
-                    </h3>
-                    <span className="text-[10px] text-muted-foreground font-mono hidden print:inline">
-                      Garagem {garagem}
-                    </span>
-                  </div>
-
-                  {/* Grid dos 4 Terminais (4 colunas aproveitando os 70% de largura) */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-                    {TERMINAIS_PADRAO.map(termNome => {
-                      const carrosDoTerminal = reservasTerminais.filter(r => r.terminal === termNome);
-                      return (
-                        <div
-                          key={termNome}
-                          className="rounded-xl border border-border/70 bg-muted/30 hover:bg-muted/50 dark:bg-card/90 dark:border-border/60 p-2.5 flex flex-col gap-2 transition-all print:border-neutral-400 print:bg-white shadow-2xs"
-                        >
-                          {/* Header do Card */}
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-bold text-foreground tracking-tight print:text-black">
-                              {termNome}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenAddModal(termNome)}
-                              className="print:hidden w-6 h-6 rounded-md border border-emerald-600/40 dark:border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 flex items-center justify-center transition-colors cursor-pointer shrink-0 shadow-2xs"
-                              title={`Adicionar carro na reserva do ${termNome}`}
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-
-                          {/* Tags dos Carros Alocados */}
-                          <div className="flex flex-wrap gap-1.5">
-                            {carrosDoTerminal.map(car => (
-                              <div
-                                key={car.id}
-                                className={cn(
-                                  "px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition-all group select-none shadow-2xs",
-                                  car.tipo === "VERMELHO" ? "border border-rose-500/50 text-rose-700 dark:text-rose-400 bg-rose-500/10 print:border-rose-600 print:text-rose-700" :
-                                    car.tipo === "AZUL" ? "border border-sky-500/50 text-sky-700 dark:text-sky-400 bg-sky-500/10 print:border-sky-600 print:text-sky-700" :
-                                      car.tipo === "CORINGA" ? "border border-amber-500/50 text-amber-700 dark:text-amber-400 bg-amber-500/10 print:border-amber-600 print:text-amber-700" :
-                                        car.tipo === "MICRO" ? "border border-purple-500/50 text-purple-700 dark:text-purple-400 bg-purple-500/10 print:border-purple-600 print:text-purple-700" :
-                                          "border border-orange-500/50 text-orange-700 dark:text-orange-400 bg-orange-500/10 print:border-orange-600 print:text-orange-700"
-                                )}
-                                title={`Carro ${car.carro} • Tipo: ${car.tipo}`}
-                              >
-                                <span>{car.carro}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveReserva(car.id, car.carro)}
-                                  className="print:hidden text-muted-foreground hover:text-rose-600 dark:hover:text-rose-400 transition-colors opacity-60 group-hover:opacity-100 cursor-pointer text-[13px] leading-none"
-                                  title="Remover carro da reserva"
-                                >
-                                  ×
-                                </button>
-                              </div>
-                            ))}
-                            {carrosDoTerminal.length === 0 && (
-                              <span className="text-[11px] text-muted-foreground/70 italic print:text-neutral-400">
-                                Sem carros
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                <div className="col-span-7">
+                  {renderCardReservaTerminal(true)}
                 </div>
-
               </div>
 
               {/* Rodapé Oficial da Impressão A4 - Página 2 */}
-              <div className="hidden print:flex items-center justify-between text-[7pt] text-neutral-600 border-t border-neutral-400 pt-1 mt-2 font-mono">
+              <div className="flex items-center justify-between text-[7pt] text-neutral-600 border-t border-neutral-400 pt-1 mt-2 font-mono">
                 <span>Sistema Garagem CGU • Anexo Operacional de Apoio e CI ({garagem}) • Impresso em: {new Date().toLocaleDateString("pt-BR")} às {new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
                 <span className="font-bold">Página 02 / 02</span>
               </div>
-
             </div>
-          )}
+
+          </div>
 
         </div>
       )}
@@ -1821,6 +1959,7 @@ interface FolhaTableRowProps {
   onTrocarCarro?: (item: SolturaItem, novoCarro: string, motivo: string) => void;
   onPenduradoAlert?: (prefixo: string, motivo?: string) => void;
   getOutraLinhaComCarroRealiz?: (carro: string, currentItemId: string) => SolturaItem | undefined | null;
+  getOutraLinhaComMoto?: (moto: string, currentItemId: string) => SolturaItem | undefined | null;
   historicoTrocas?: TrocaCarroItem[];
   isReadOnly?: boolean;
 }
@@ -1835,6 +1974,7 @@ function FolhaTableRow({
   onTrocarCarro,
   onPenduradoAlert,
   getOutraLinhaComCarroRealiz,
+  getOutraLinhaComMoto,
   historicoTrocas = [],
   isReadOnly = false
 }: FolhaTableRowProps) {
@@ -1852,14 +1992,21 @@ function FolhaTableRow({
     setMotoValue(item.motoristaCodigo || "");
   }, [item.motoristaCodigo]);
 
-  // Apenas permitir liberar se Carro Realizado e MOTO estiverem completados
-  const isLiberarHabilitado = Boolean(carroValue.trim() && motoValue.trim());
+  // Alerta de motorista repetido em outra linha ativa
+  const conflitoMoto = motoValue.trim() && getOutraLinhaComMoto ? getOutraLinhaComMoto(motoValue.trim(), item.id) : null;
+
+  // Apenas permitir liberar se Carro Realizado e MOTO estiverem completados e sem conflito de motorista
+  const isLiberarHabilitado = Boolean(carroValue.trim() && motoValue.trim() && !conflitoMoto);
 
   // Atalho: pressionar Enter com Carro Realizado e MOTO preenchidos já libera a saída
   const handleKeyDownCarro = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
       if (carroValue.trim() && motoValue.trim()) {
+        if (conflitoMoto) {
+          toast.error(`Motorista (MOTO ${motoValue.trim()}) já está escalado na Linha ${conflitoMoto.linha} / Tab ${conflitoMoto.tabela}!`);
+          return;
+        }
         onRelease(item, carroValue, motoValue);
       } else if (!motoValue.trim()) {
         const motoInput = document.getElementById(`moto-input-${item.id}`);
@@ -1874,6 +2021,10 @@ function FolhaTableRow({
     if (e.key === "Enter") {
       e.preventDefault();
       if (carroValue.trim() && motoValue.trim()) {
+        if (conflitoMoto) {
+          toast.error(`Motorista (MOTO ${motoValue.trim()}) já está escalado na Linha ${conflitoMoto.linha} / Tab ${conflitoMoto.tabela}!`);
+          return;
+        }
         onRelease(item, carroValue, motoValue);
       } else if (!carroValue.trim()) {
         const carroInput = document.getElementById(`carro-input-${item.id}`);
@@ -2063,14 +2214,36 @@ function FolhaTableRow({
             const val = e.target.value;
             setMotoValue(val);
             onDraftChange(item.id, "moto", val);
+
+            const cleanVal = val.trim();
+            if (cleanVal.length >= 2 && getOutraLinhaComMoto) {
+              const outraLinha = getOutraLinhaComMoto(cleanVal, item.id);
+              if (outraLinha) {
+                toast.error(`Motorista (MOTO ${cleanVal}) já está escalado na Linha ${outraLinha.linha} / Tab ${outraLinha.tabela}!`);
+              }
+            }
+          }}
+          onBlur={() => {
+            const cleanVal = motoValue.trim();
+            if (cleanVal && getOutraLinhaComMoto) {
+              const outraLinha = getOutraLinhaComMoto(cleanVal, item.id);
+              if (outraLinha) {
+                toast.error(`Motorista (MOTO ${cleanVal}) já está escalado na Linha ${outraLinha.linha} / Tab ${outraLinha.tabela}!`);
+              }
+            }
           }}
           className={cn(
             "print:hidden w-16 h-7 text-center rounded-md border text-xs font-mono font-bold focus:outline-hidden transition-all",
             (isDone || isReadOnly)
               ? "bg-transparent border-transparent text-foreground cursor-default"
-              : "bg-card border-border/80 text-foreground focus:ring-1 focus:ring-[#164E3A]"
+              : "bg-card border-border/80 text-foreground focus:ring-1 focus:ring-[#164E3A]",
+            conflitoMoto && "border-rose-500 text-rose-600 bg-rose-500/10 font-bold focus:ring-rose-500"
           )}
-          title={item.motoristaNome ? `Motorista: ${item.motoristaNome}` : "Digite o código MOTO"}
+          title={
+            conflitoMoto
+              ? `Atenção: Motorista já escalado na Linha ${conflitoMoto.linha} / Tab ${conflitoMoto.tabela}!`
+              : item.motoristaNome ? `Motorista: ${item.motoristaNome}` : "Digite o código MOTO"
+          }
         />
       </td>
 

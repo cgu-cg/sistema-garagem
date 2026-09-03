@@ -202,8 +202,8 @@ export function CarroRealizadoView({
     const newRecord: DispatchedRecord = {
       scheduleId: currentItem.id,
       carroRealizado: finalCarro,
-      motoristaCodigo: inputMotoCodigo.trim() || "01",
-      motoristaNome: inputMotoNome.trim() || (inputMotoCodigo ? `Motorista ${inputMotoCodigo}` : "Motorista Escalado"),
+      motoristaCodigo: inputMotoCodigo.trim(),
+      motoristaNome: inputMotoNome.trim() || (inputMotoCodigo ? `Motorista ${inputMotoCodigo}` : ""),
       horaLiberacao: horaFinal,
       observacoes: obsFinal,
       substituido
@@ -250,8 +250,8 @@ export function CarroRealizadoView({
     const updatedRecord: DispatchedRecord = {
       scheduleId: item.id,
       carroRealizado: carro,
-      motoristaCodigo: moto || "01",
-      motoristaNome: nome || "Motorista Escalado",
+      motoristaCodigo: moto,
+      motoristaNome: nome,
       horaLiberacao: hora,
       substituido: carro !== item.carroProgramado
     };
