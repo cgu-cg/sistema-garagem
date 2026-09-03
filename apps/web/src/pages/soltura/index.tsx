@@ -17,7 +17,6 @@ import {
   Wrench,
   MapPin,
   Calendar,
-  Undo2,
   Check,
   FileSpreadsheet,
   Plus,
@@ -79,7 +78,9 @@ export const TIPOS_RESERVA: Array<{
     { value: "ARTICULADO", label: "Articulado", dotColor: "bg-orange-500" }
   ];
 
-interface DispatchedRecord {
+import { CarroTrocaPopover, TrocaCarroItem } from "./CarroTrocaPopover";
+
+export interface DispatchedRecord {
   scheduleId: string;
   carroRealizado: string;
   motoristaCodigo: string;
@@ -87,6 +88,7 @@ interface DispatchedRecord {
   horaLiberacao: string;
   observacoes?: string;
   substituido: boolean;
+  historicoTrocas?: TrocaCarroItem[];
 }
 
 interface SolturaPageProps {
@@ -466,8 +468,20 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     const rawCarro = customCarro !== undefined ? customCarro : draft?.carro;
     const rawMoto = customMoto !== undefined ? customMoto : draft?.moto;
 
-    const finalCarro = (rawCarro && rawCarro.trim()) ? rawCarro.trim() : (item.carroRealizado || item.carroProgramado);
-    const finalMoto = (rawMoto && rawMoto.trim()) ? rawMoto.trim() : (item.motoristaCodigo || "");
+    const finalCarro = (rawCarro || "").trim();
+    const finalMoto = (rawMoto || "").trim();
+
+    // Apenas liberar se o campo de carro Realiz e moto esteja completado
+    if (!finalCarro || !finalMoto) {
+      if (!finalCarro && !finalMoto) {
+        toast.error(`Preencha o Carro Realizado e o MOTO para liberar a Linha ${item.linha} / Tab ${item.tabela}.`);
+      } else if (!finalCarro) {
+        toast.error(`Preencha o Carro Realizado para liberar a Linha ${item.linha} / Tab ${item.tabela}.`);
+      } else {
+        toast.error(`Preencha o código MOTO para liberar a Linha ${item.linha} / Tab ${item.tabela}.`);
+      }
+      return;
+    }
 
     const bloqueio = checkBloqueioCI(finalCarro);
     if (bloqueio) {
@@ -510,19 +524,55 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     toast.success(`Linha ${item.linha} / Tab ${item.tabela} liberada às ${horaAtual}!`);
   };
 
-  // Desfazer liberação (retorna para pendente e limpa o registro)
-  const handleUndoDispatch = (itemId: string) => {
-    const updated = { ...dispatches };
-    delete updated[itemId];
+  // Alteração de carro com motivo e registro de histórico de trocas (Prints 2 e 3)
+  const handleTrocarCarro = (item: SolturaItem, novoCarro: string, motivo: string) => {
+    const cleanNovo = novoCarro.trim();
+    if (!cleanNovo) {
+      toast.error("Informe o prefixo do novo carro.");
+      return;
+    }
+
+    const agora = new Date();
+    const dataHoraFormatada = `${String(agora.getHours()).padStart(2, "0")}:${String(agora.getMinutes()).padStart(2, "0")}`;
+
+    const currentDisp = dispatches[item.id];
+    const carroAnterior = currentDisp?.carroRealizado || item.carroRealizado || item.carroProgramado || "---";
+
+    const novaTroca: TrocaCarroItem = {
+      carroAnterior,
+      novoCarro: cleanNovo,
+      motivo,
+      dataHora: `${new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} ${dataHoraFormatada}`
+    };
+
+    const historicoAtual = currentDisp?.historicoTrocas || [];
+    const novoHistorico = [...historicoAtual, novaTroca];
+
+    // Se o novo carro estiver em Reserva Terminal, remover da reserva
+    const reservaEncontrada = reservasTerminais.find(r => r.carro.trim() === cleanNovo);
+    if (reservaEncontrada) {
+      api.deleteReservaTerminal(reservaEncontrada.id).then(() => {
+        setReservasTerminais(prev => prev.filter(r => r.id !== reservaEncontrada.id));
+        toast.info(`Carro ${cleanNovo} consumido e liberado da reserva do ${reservaEncontrada.terminal}.`);
+      }).catch(err => {
+        console.error("Erro ao remover da reserva:", err);
+      });
+    }
+
+    const newRecord: DispatchedRecord = {
+      scheduleId: item.id,
+      carroRealizado: cleanNovo,
+      motoristaCodigo: currentDisp?.motoristaCodigo || item.motoristaCodigo || "",
+      motoristaNome: currentDisp?.motoristaNome || item.motoristaNome || "",
+      horaLiberacao: currentDisp?.horaLiberacao || dataHoraFormatada,
+      substituido: cleanNovo !== item.carroProgramado,
+      historicoTrocas: novoHistorico
+    };
+
+    const updated = { ...dispatches, [item.id]: newRecord };
     saveDispatches(updated);
 
-    setDrafts(prev => {
-      const next = { ...prev };
-      delete next[itemId];
-      return next;
-    });
-
-    toast.info("Liberação desfeita. Registro retornado para pendente.");
+    toast.success(`Carro da Linha ${item.linha} alterado para ${cleanNovo}!`);
   };
 
   // Imprimir folha A4
@@ -1081,8 +1131,9 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                             reservasTerminais={reservasTerminais}
                             checkBloqueioCI={checkBloqueioCI}
                             onRelease={handleRelease}
-                            onUndoDispatch={handleUndoDispatch}
                             onDraftChange={handleDraftChange}
+                            onTrocarCarro={handleTrocarCarro}
+                            historicoTrocas={dispatches[item.id]?.historicoTrocas || []}
                             isReadOnly={viewMode === "HISTORICO"}
                           />
                         </>
@@ -1150,8 +1201,9 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                             reservasTerminais={reservasTerminais}
                             checkBloqueioCI={checkBloqueioCI}
                             onRelease={handleRelease}
-                            onUndoDispatch={handleUndoDispatch}
                             onDraftChange={handleDraftChange}
+                            onTrocarCarro={handleTrocarCarro}
+                            historicoTrocas={dispatches[item.id]?.historicoTrocas || []}
                             isReadOnly={viewMode === "HISTORICO"}
                           />
                         </>
@@ -1431,21 +1483,10 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                 {/* Ações do Card */}
                 <div className="pt-2 border-t flex items-center gap-2">
                   {isDone ? (
-                    <>
-                      <div className="flex-1 flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 py-1.5 rounded-lg border border-emerald-500/30">
-                        <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                        Liberado
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleUndoDispatch(item.id)}
-                        className="h-8 px-2 text-rose-500 hover:text-rose-600 hover:bg-rose-500/10"
-                        title="Desfazer liberação"
-                      >
-                        <Undo2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </>
+                    <div className="flex-1 flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 py-1.5 rounded-lg border border-emerald-500/30">
+                      <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                      Liberado
+                    </div>
                   ) : (
                     <Button
                       size="sm"
@@ -1687,8 +1728,9 @@ interface FolhaTableRowProps {
   reservasTerminais?: ReservaTerminalItem[];
   checkBloqueioCI: (prefixo?: string) => BloqueioCarro | undefined | null;
   onRelease: (item: SolturaItem, carro?: string, moto?: string) => void;
-  onUndoDispatch: (id: string) => void;
   onDraftChange: (itemId: string, field: "carro" | "moto", value: string) => void;
+  onTrocarCarro?: (item: SolturaItem, novoCarro: string, motivo: string) => void;
+  historicoTrocas?: TrocaCarroItem[];
   isReadOnly?: boolean;
 }
 
@@ -1698,8 +1740,9 @@ function FolhaTableRow({
   reservasTerminais = [],
   checkBloqueioCI,
   onRelease,
-  onUndoDispatch,
   onDraftChange,
+  onTrocarCarro,
+  historicoTrocas = [],
   isReadOnly = false
 }: FolhaTableRowProps) {
   const isDone = item.status === "LIBERADO" || item.status === "SUBSTITUIDO";
@@ -1715,6 +1758,9 @@ function FolhaTableRow({
   useEffect(() => {
     setMotoValue(item.motoristaCodigo || "");
   }, [item.motoristaCodigo]);
+
+  // Apenas permitir liberar se Carro Realizado e MOTO estiverem completados
+  const isLiberarHabilitado = Boolean(carroValue.trim() && motoValue.trim());
 
   // Alertas de CI verificados separadamente:
   // 1. Carro Programado: alerta se o programado estiver no CI
@@ -1783,50 +1829,62 @@ function FolhaTableRow({
         </div>
       </td>
 
-      {/* 5. Carro Realizado (P) - Alerta SE o carro digitado/realizado estiver na CI ou Reserva */}
-      <td className="py-1.5 px-2 bg-muted/20 text-center">
+      {/* 5. Carro Realizado (P) - Com suporte a popover de Alteração e Histórico de Trocas (Prints 2 e 3) */}
+      <td className="py-1.5 px-2 bg-muted/20 text-center relative">
         <span className="hidden print:inline font-mono font-bold text-[8pt] text-black">
           {carroValue || item.carroProgramado}
         </span>
         <div className="print:hidden flex items-center justify-center gap-1">
-          <input
-            type="text"
-            placeholder=""
-            value={carroValue}
-            disabled={isDone || isReadOnly}
-            onChange={(e) => {
-              const val = e.target.value;
-              setCarroValue(val);
-              onDraftChange(item.id, "carro", val);
-            }}
-            className={cn(
-              "w-16 h-7 text-center rounded-md border text-xs font-bold font-mono focus:outline-hidden focus:ring-1 focus:ring-[#164E3A] transition-all",
-              (isDone || isReadOnly)
-                ? "bg-transparent border-transparent text-emerald-700 dark:text-emerald-400 cursor-default font-bold"
-                : isSub
-                  ? "text-blue-600 dark:text-blue-400 border-blue-500/50 bg-blue-500/10"
-                  : "bg-background border-border/80 text-foreground",
-              (bloqueioRealiz || reservaRealiz) && !isDone && "border-rose-500 text-rose-600 bg-rose-500/10 font-bold"
-            )}
-            title={
-              bloqueioRealiz
-                ? `Atenção: Carro Realizado no CI: ${bloqueioRealiz.motivo}`
-                : reservaRealiz && !isDone
-                  ? `Atenção: Carro ${carroValue} alocado na reserva do ${reservaRealiz.terminal} (será consumido da reserva ao liberar)`
-                  : undefined
-            }
-          />
-          {(bloqueioRealiz || (reservaRealiz && !isDone)) && (
-            <span
-              title={
-                bloqueioRealiz
-                  ? `Carro Realizado no CI: ${bloqueioRealiz.motivo}`
-                  : `Carro na reserva do ${reservaRealiz?.terminal}`
-              }
-              className="cursor-help text-rose-500 shrink-0"
-            >
-              <AlertTriangle className="w-3.5 h-3.5" />
-            </span>
+          {isDone ? (
+            <CarroTrocaPopover
+              item={item}
+              carroAtual={carroValue || item.carroRealizado || item.carroProgramado || "---"}
+              historicoTrocas={historicoTrocas}
+              onTrocarCarro={onTrocarCarro || (() => {})}
+              isReadOnly={isReadOnly}
+            />
+          ) : (
+            <>
+              <input
+                type="text"
+                placeholder=""
+                value={carroValue}
+                disabled={isReadOnly}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setCarroValue(val);
+                  onDraftChange(item.id, "carro", val);
+                }}
+                className={cn(
+                  "w-16 h-7 text-center rounded-md border text-xs font-bold font-mono focus:outline-hidden focus:ring-1 focus:ring-[#164E3A] transition-all",
+                  isReadOnly
+                    ? "bg-transparent border-transparent text-emerald-700 dark:text-emerald-400 cursor-default font-bold"
+                    : isSub
+                      ? "text-blue-600 dark:text-blue-400 border-blue-500/50 bg-blue-500/10"
+                      : "bg-background border-border/80 text-foreground",
+                  (bloqueioRealiz || reservaRealiz) && "border-rose-500 text-rose-600 bg-rose-500/10 font-bold"
+                )}
+                title={
+                  bloqueioRealiz
+                    ? `Atenção: Carro Realizado no CI: ${bloqueioRealiz.motivo}`
+                    : reservaRealiz
+                      ? `Atenção: Carro ${carroValue} alocado na reserva do ${reservaRealiz.terminal} (será consumido da reserva ao liberar)`
+                      : undefined
+                }
+              />
+              {(bloqueioRealiz || reservaRealiz) && (
+                <span
+                  title={
+                    bloqueioRealiz
+                      ? `Carro Realizado no CI: ${bloqueioRealiz.motivo}`
+                      : `Carro na reserva do ${reservaRealiz?.terminal}`
+                  }
+                  className="cursor-help text-rose-500 shrink-0"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                </span>
+              )}
+            </>
           )}
         </div>
       </td>
@@ -1866,7 +1924,7 @@ function FolhaTableRow({
         {item.inicioLinha || item.inicioBairro || "—"}
       </td>
 
-      {/* 9. Ações: Liberar Saída ou Desfazer / Somente Consulta no Histórico */}
+      {/* 9. Ações: Liberar Saída (Sem botão de voltar após liberado) */}
       <td className="py-1 px-2 text-center print:hidden">
         {isReadOnly ? (
           <div className="flex items-center justify-center">
@@ -1881,26 +1939,28 @@ function FolhaTableRow({
             )}
           </div>
         ) : isDone ? (
-          <div className="flex items-center justify-center gap-1.5">
-            <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+          <div className="flex items-center justify-center">
+            <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 shadow-2xs">
               <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" /> Liberado
             </span>
-            <button
-              type="button"
-              onClick={() => onUndoDispatch(item.id)}
-              className="p-1 rounded-full text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 transition-colors"
-              title="Desfazer liberação"
-            >
-              <Undo2 className="w-3.5 h-3.5" />
-            </button>
           </div>
         ) : (
           <div className="flex items-center justify-center">
             <Button
               size="sm"
+              disabled={!isLiberarHabilitado}
               onClick={() => onRelease(item, carroValue, motoValue)}
-              className="h-6 px-3 text-[11px] font-bold rounded-full bg-[#164E3A] hover:bg-[#113C2D] text-white shadow-2xs transition-colors"
-              title="Liberar saída do veículo"
+              className={cn(
+                "h-6 px-3 text-[11px] font-bold rounded-full shadow-2xs transition-all",
+                isLiberarHabilitado
+                  ? "bg-[#164E3A] hover:bg-[#113C2D] text-white cursor-pointer shadow-xs"
+                  : "bg-muted text-muted-foreground/40 border border-border/40 cursor-not-allowed opacity-40 shadow-none hover:bg-muted"
+              )}
+              title={
+                isLiberarHabilitado
+                  ? "Liberar saída do veículo"
+                  : "Preencha o Carro Realizado e o MOTO para liberar"
+              }
             >
               Liberar
             </Button>

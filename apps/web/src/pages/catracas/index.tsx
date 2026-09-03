@@ -358,9 +358,9 @@ export function CatracasPage() {
     try {
       const ids = backupCarIds.trim()
         ? backupCarIds
-            .split(",")
-            .map((id) => parseInt(id.trim(), 10))
-            .filter((id) => !isNaN(id))
+          .split(",")
+          .map((id) => parseInt(id.trim(), 10))
+          .filter((id) => !isNaN(id))
         : undefined;
 
       const response = await api.getBackupStatus(ids && ids.length > 0 ? ids : undefined);
@@ -709,7 +709,7 @@ export function CatracasPage() {
         <div className="rounded-3xl bg-white dark:bg-[#0E1420] border border-slate-200/80 dark:border-slate-800/80 p-5 shadow-2xs flex flex-col justify-between min-h-[148px]">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Alertas de Validador
+              UL - Data hora Errada
             </span>
             <div className="w-8 h-8 rounded-full bg-amber-50 dark:bg-slate-800 text-amber-600 dark:text-amber-400 flex items-center justify-center">
               <AlertTriangle className="w-4 h-4" />
@@ -728,7 +728,7 @@ export function CatracasPage() {
                     {ulsComDatasErradas.size}
                   </span>
                   <span className="text-base font-semibold text-slate-500">
-                    {ulsComDatasErradas.size === 1 ? "UL com data errada" : "ULs com datas erradas"}
+                    {ulsComDatasErradas.size === 1 ? "UL" : "ULs"}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
@@ -776,7 +776,7 @@ export function CatracasPage() {
                     {backupData.length}
                   </span>
                   <span className="text-base font-semibold text-slate-500">
-                    {backupData.length === 1 ? "carro" : "carros"}
+                    {backupData.length === 1 ? "Carro" : "Carros"}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
@@ -819,7 +819,7 @@ export function CatracasPage() {
                     {totalPrefixosIncorretos}
                   </span>
                   <span className="text-base font-semibold text-slate-500">
-                    {totalPrefixosIncorretos === 1 ? "carro" : "carros"}
+                    {totalPrefixosIncorretos === 1 ? "Carro" : "Carros"}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
@@ -834,7 +834,7 @@ export function CatracasPage() {
               idLinha ≠ 888
             </span>
             <Link to="/catracas/alertas" className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-[11px] flex items-center gap-0.5 font-medium">
-              Ver carros →
+              Ver Carros →
             </Link>
           </div>
         </div>
