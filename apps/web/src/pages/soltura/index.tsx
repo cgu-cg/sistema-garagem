@@ -341,7 +341,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       setReservasTerminais(prev => [...prev, created]);
 
       // Verificar se o carro já consta na lista de soltura
-      const conflitoSoltura = activeSchedules.find(s => 
+      const conflitoSoltura = activeSchedules.find(s =>
         s.carroProgramado?.trim() === cleanCarro ||
         (s.carroRealizado && s.carroRealizado.trim() === cleanCarro)
       );
@@ -986,16 +986,16 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       {/* ========================================================= */}
       {(viewMode === "FOLHA" || viewMode === "HISTORICO") && (
         <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between print:hidden">
-          <div className="flex items-center gap-1 bg-muted/60 p-0.5 rounded-lg border">
+          <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-full border border-border/80">
             {(["TODOS", "PENDENTES", "LIBERADOS", "SUBSTITUIDOS"] as FilterStatus[]).map(st => (
               <button
                 key={st}
                 type="button"
                 onClick={() => setFilterStatus(st)}
                 className={cn(
-                  "px-2.5 py-1 rounded text-xs font-semibold transition-all",
+                  "px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer",
                   filterStatus === st
-                    ? "bg-background text-foreground shadow-2xs font-bold"
+                    ? "bg-card text-foreground shadow-xs font-bold border border-border/50"
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
@@ -1013,7 +1013,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
               placeholder="Buscar linha, tab, carro..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 h-8 text-xs bg-card"
+              className="pl-8 h-8 text-xs bg-card rounded-full"
             />
           </div>
         </div>
@@ -1093,11 +1093,11 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                 <table className="w-full text-xs text-left border-collapse">
                   <thead>
                     <tr className="bg-muted/40 text-muted-foreground border-b text-[11px] font-semibold">
-                      <th className="py-2.5 px-2.5 w-12 text-center">Nº / Ord</th>
+                      <th className="py-2.5 px-2.5 w-12 text-center">Nº</th>
                       <th className="py-2.5 px-2.5 font-bold text-foreground">Linha</th>
                       <th className="py-2.5 px-2 text-center">Tab</th>
                       <th className="py-2.5 px-2.5 text-center">Carro Prog.</th>
-                      <th className="py-2.5 px-2.5 bg-primary/5 text-primary font-bold text-center">Carro Realiz. (P)</th>
+                      <th className="py-2.5 px-2.5 bg-primary/5 text-primary font-bold text-center">Carro Realiz.</th>
                       <th className="py-2.5 px-2.5 text-center">MOTO</th>
                       <th className="py-2.5 px-2 text-center font-bold text-foreground">Saída Gar.</th>
                       <th className="py-2.5 px-2 text-center text-muted-foreground">Início Linha</th>
@@ -1163,11 +1163,11 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                 <table className="w-full text-xs text-left border-collapse">
                   <thead>
                     <tr className="bg-muted/40 text-muted-foreground border-b text-[11px] font-semibold">
-                      <th className="py-2.5 px-2.5 w-12 text-center">Nº / Ord</th>
+                      <th className="py-2.5 px-2.5 w-12 text-center">Nº</th>
                       <th className="py-2.5 px-2.5 font-bold text-foreground">Linha</th>
                       <th className="py-2.5 px-2 text-center">Tab</th>
                       <th className="py-2.5 px-2.5 text-center">Carro Prog.</th>
-                      <th className="py-2.5 px-2.5 bg-primary/5 text-primary font-bold text-center">Carro Realiz. (P)</th>
+                      <th className="py-2.5 px-2.5 bg-primary/5 text-primary font-bold text-center">Carro Realiz.</th>
                       <th className="py-2.5 px-2.5 text-center">MOTO</th>
                       <th className="py-2.5 px-2.5 text-center font-bold text-foreground">Saída Gar.</th>
                       <th className="py-2.5 px-2.5 text-center text-muted-foreground">Início Linha</th>
@@ -1505,7 +1505,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       )}
 
       {/* ========================================================= */}
-      {/* VISUALIZAÇÃO: FORMULÁRIO PARA ALIMENTAR CARRO REALIZ. (P) */}
+      {/* VISUALIZAÇÃO: FORMULÁRIO PARA ALIMENTAR CARRO REALIZ. */}
       {/* ========================================================= */}
       {viewMode === "CARRO_REALIZADO" && (
         <CarroRealizadoView
@@ -1840,7 +1840,7 @@ function FolhaTableRow({
               item={item}
               carroAtual={carroValue || item.carroRealizado || item.carroProgramado || "---"}
               historicoTrocas={historicoTrocas}
-              onTrocarCarro={onTrocarCarro || (() => {})}
+              onTrocarCarro={onTrocarCarro || (() => { })}
               isReadOnly={isReadOnly}
             />
           ) : (

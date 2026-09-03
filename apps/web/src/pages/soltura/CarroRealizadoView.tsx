@@ -6,14 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { 
-  Bus, 
-  CheckCircle2, 
-  Clock, 
-  Search, 
-  RefreshCw, 
-  Save, 
-  ShieldAlert, 
+import {
+  Bus,
+  CheckCircle2,
+  Clock,
+  Search,
+  RefreshCw,
+  Save,
+  ShieldAlert,
   Sparkles,
   Zap,
   PlusCircle,
@@ -59,7 +59,7 @@ export function CarroRealizadoView({
   ciList,
   onAddSchedule
 }: CarroRealizadoViewProps) {
-  
+
   // Estado do Formulário de Lançamento Individual
   const [selectedScheduleId, setSelectedScheduleId] = useState<string>("");
   const [inputCarroRealizado, setInputCarroRealizado] = useState("");
@@ -134,11 +134,11 @@ export function CarroRealizadoView({
   const handleSelectSchedule = (item: typeof mergedItems[0]) => {
     setSelectedScheduleId(item.id);
     const disp = dispatches[item.id];
-    
+
     setInputCarroRealizado(disp?.carroRealizado || item.carroProgramado || "");
     setInputMotoCodigo(disp?.motoristaCodigo || item.motoristaCodigo || "");
     setInputMotoNome(disp?.motoristaNome || item.motoristaNome || "");
-    
+
     const agora = new Date();
     const horaAtual = `${String(agora.getHours()).padStart(2, "0")}:${String(agora.getMinutes()).padStart(2, "0")}`;
     setInputHoraSaida(disp?.horaLiberacao || horaAtual);
@@ -381,7 +381,7 @@ export function CarroRealizadoView({
 
   return (
     <div className="space-y-6">
-      
+
       {/* ========================================================= */}
       {/* CABEÇALHO DO SUBMENU CARRO REALIZADO */}
       {/* ========================================================= */}
@@ -393,14 +393,14 @@ export function CarroRealizadoView({
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[11px] font-mono uppercase px-2 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 font-bold">
-                CAMPO: CARRO REALIZ. (P)
+                CAMPO: CARRO REALIZ.
               </span>
               <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
                 Lançamento & Substituição
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground mt-1">
-              Alimentar Carro Realizado (P) da Soltura
+              Alimentar Carro Realizado da Soltura
             </h1>
             <p className="text-xs sm:text-sm text-muted-foreground">
               Preencha o prefixo real que executou cada tabela, registre substituições de frota e vincule a matrícula do motorista.
@@ -634,8 +634,8 @@ export function CarroRealizadoView({
                             }}
                             className={cn(
                               "w-full h-8 px-2 text-center rounded-md border text-xs font-mono font-bold focus:outline-hidden focus:ring-1 focus:ring-[#164E3A]",
-                              newBloqueioCI 
-                                ? "border-rose-500 bg-rose-500/10 text-rose-600" 
+                              newBloqueioCI
+                                ? "border-rose-500 bg-rose-500/10 text-rose-600"
                                 : "border-border/80 bg-background"
                             )}
                             required
@@ -757,7 +757,7 @@ export function CarroRealizadoView({
 
         <form onSubmit={handleSaveForm} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
-            
+
             {/* Seletor de Viagem / Tabela */}
             <div className="space-y-1.5 lg:col-span-2">
               <Label className="text-xs font-bold text-foreground">
@@ -793,7 +793,7 @@ export function CarroRealizadoView({
             {/* Campo Carro Realizado (P) */}
             <div className="space-y-1.5">
               <Label className="text-xs font-bold text-foreground flex items-center justify-between">
-                <span>Carro Realiz. (P) <span className="text-rose-500">*</span></span>
+                <span>Carro Realiz. <span className="text-rose-500">*</span></span>
                 {isSubstituicao && (
                   <span className="text-[10px] text-blue-600 dark:text-blue-400 font-bold">
                     SUBSTITUIÇÃO
@@ -845,7 +845,7 @@ export function CarroRealizadoView({
 
           {/* Segunda Linha: Motorista e Motivo de Substituição */}
           <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-4 gap-3.5">
-            
+
             {/* Matrícula do Motorista */}
             <div className="space-y-1.5">
               <Label className="text-xs font-bold text-foreground">
@@ -933,15 +933,15 @@ export function CarroRealizadoView({
       {/* ========================================================= */}
       <div className="space-y-3">
         <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-          
+
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center bg-muted/60 p-1 rounded-xl border text-xs">
+            <div className="flex items-center bg-muted/60 p-1 rounded-full border border-border/80 text-xs">
               <button
                 type="button"
                 onClick={() => setGridFilter("TODOS")}
                 className={cn(
-                  "px-3 py-1 rounded-lg font-bold transition-all",
-                  gridFilter === "TODOS" ? "bg-background text-foreground shadow-2xs border" : "text-muted-foreground"
+                  "px-3.5 py-1 rounded-full font-bold transition-all cursor-pointer",
+                  gridFilter === "TODOS" ? "bg-background text-foreground shadow-2xs border border-border/50" : "text-muted-foreground hover:text-foreground"
                 )}
               >
                 Todos ({stats.total})
@@ -950,8 +950,8 @@ export function CarroRealizadoView({
                 type="button"
                 onClick={() => setGridFilter("PENDENTES")}
                 className={cn(
-                  "px-3 py-1 rounded-lg font-bold transition-all",
-                  gridFilter === "PENDENTES" ? "bg-amber-500 text-white shadow-2xs" : "text-muted-foreground"
+                  "px-3.5 py-1 rounded-full font-bold transition-all cursor-pointer",
+                  gridFilter === "PENDENTES" ? "bg-amber-500 text-white shadow-2xs" : "text-muted-foreground hover:text-foreground"
                 )}
               >
                 Pendentes ({stats.pendentes})
@@ -960,8 +960,8 @@ export function CarroRealizadoView({
                 type="button"
                 onClick={() => setGridFilter("SUBSTITUIDOS")}
                 className={cn(
-                  "px-3 py-1 rounded-lg font-bold transition-all",
-                  gridFilter === "SUBSTITUIDOS" ? "bg-blue-600 text-white shadow-2xs" : "text-muted-foreground"
+                  "px-3.5 py-1 rounded-full font-bold transition-all cursor-pointer",
+                  gridFilter === "SUBSTITUIDOS" ? "bg-blue-600 text-white shadow-2xs" : "text-muted-foreground hover:text-foreground"
                 )}
               >
                 Trocados ({stats.substituidos})
@@ -1002,7 +1002,7 @@ export function CarroRealizadoView({
                   <th className="py-2.5 px-3">Linha</th>
                   <th className="py-2.5 px-2">Tab</th>
                   <th className="py-2.5 px-3">Carro Programado</th>
-                  <th className="py-2.5 px-3 w-40">Carro Realiz. (P)</th>
+                  <th className="py-2.5 px-3 w-40">Carro Realiz.</th>
                   <th className="py-2.5 px-2">Status</th>
                   <th className="py-2.5 px-3 w-32">MOTO (Matrícula)</th>
                   <th className="py-2.5 px-3">Motorista</th>

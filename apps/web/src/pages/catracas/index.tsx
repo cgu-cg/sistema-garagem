@@ -23,8 +23,6 @@ import {
   ChevronDown,
   ShieldAlert,
   Loader2,
-  TrendingUp,
-  ArrowUpRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -694,10 +692,8 @@ export function CatracasPage() {
               </span>
             </div>
           </div>
-          <div className="flex items-center justify-between text-xs z-10 pt-1 border-t border-white/10">
+          <div className="flex items-center justify-between text-xs z-10 pt-2 border-t border-white/10">
             <span className="inline-flex items-center gap-1 text-emerald-300 font-semibold text-[11px]">
-              <TrendingUp className="w-3 h-3" />
-              {consistenciaDate ? `Data: ${formatDate(consistenciaDate)}` : "Data não selecionada"}
             </span>
             <Link to="/catracas/consistencia" className="text-emerald-100 hover:text-white flex items-center gap-0.5 text-[11px] font-medium">
               Conferir <ChevronRight className="w-3 h-3" />
@@ -742,10 +738,8 @@ export function CatracasPage() {
               </>
             )}
           </div>
-          <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800/60">
+          <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100 dark:border-slate-800/60">
             <span className="text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1 text-[11px]">
-              <ShieldAlert className="w-3 h-3" />
-              {alertLoading ? "Consultando..." : "TotalizadorServico"}
             </span>
             <Link to="/catracas/alertas" className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-[11px] flex items-center gap-0.5 font-medium">
               Ver alertas →
@@ -785,10 +779,8 @@ export function CatracasPage() {
               </>
             )}
           </div>
-          <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800/60">
+          <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100 dark:border-slate-800/60">
             <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1 text-[11px]">
-              <ArrowUpRight className="w-3 h-3" />
-              Sincronizado SQL Server
             </span>
             <Link to="/catracas/backup" className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-[11px] flex items-center gap-0.5 font-medium">
               Gerenciar →
@@ -828,10 +820,8 @@ export function CatracasPage() {
               </>
             )}
           </div>
-          <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800/60">
+          <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100 dark:border-slate-800/60">
             <span className="text-rose-600 dark:text-rose-400 font-semibold flex items-center gap-1 text-[11px]">
-              <AlertTriangle className="w-3 h-3" />
-              idLinha ≠ 888
             </span>
             <Link to="/catracas/alertas" className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-[11px] flex items-center gap-0.5 font-medium">
               Ver Carros →
@@ -857,10 +847,8 @@ export function CatracasPage() {
               Auditoria visual de fichas escaneadas
             </p>
           </div>
-          <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800/60">
+          <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100 dark:border-slate-800/60">
             <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1 text-[11px]">
-              <Check className="w-3 h-3" />
-              Servidor Conectado
             </span>
             <Link to="/catracas/diario" className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-[11px] flex items-center gap-0.5 font-medium">
               Consultar →
