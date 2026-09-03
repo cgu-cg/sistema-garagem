@@ -50,7 +50,7 @@ const navItems: NavItem[] = [
     to: "/home",
     label: "Início",
     icon: LayoutGrid,
-    roles: ["ADMIN", "COLABORADOR", "tanque", "abastecimento", "soltura", "operacional"]
+    roles: ["ADMIN", "COLABORADOR", "tanque", "abastecimento", "operacional"]
   },
   { 
     to: "/catracas", 
@@ -92,12 +92,12 @@ const navItems: NavItem[] = [
     to: "/manutencao",
     label: "Manutenção",
     icon: Wrench,
-    roles: ["ADMIN", "soltura", "COLABORADOR"],
+    roles: ["ADMIN", "COLABORADOR"],
     children: [
       {
         to: "/manutencao/ci-manutencao",
         label: "CI Manutenção",
-        roles: ["ADMIN", "soltura", "COLABORADOR"]
+        roles: ["ADMIN", "COLABORADOR"]
       }
     ]
   },
@@ -105,12 +105,12 @@ const navItems: NavItem[] = [
     to: "/soltura-adm",
     label: "Soltura ADM",
     icon: FileSpreadsheet,
-    roles: ["ADMIN", "soltura", "COLABORADOR"],
+    roles: ["ADMIN", "COLABORADOR"],
     children: [
       {
         to: "/soltura-adm/alterar-folha",
         label: "Alterar Folha de Soltura",
-        roles: ["ADMIN", "soltura", "COLABORADOR"]
+        roles: ["ADMIN", "COLABORADOR"]
       }
     ]
   },
@@ -118,12 +118,12 @@ const navItems: NavItem[] = [
     to: "/escala-carros",
     label: "Escala Carros",
     icon: CalendarClock,
-    roles: ["ADMIN", "soltura", "COLABORADOR"],
+    roles: ["ADMIN", "COLABORADOR"],
     children: [
       {
         to: "/escala-carros/alterar-carro-programado",
         label: "Alterar Carro Programado",
-        roles: ["ADMIN", "soltura", "COLABORADOR"]
+        roles: ["ADMIN", "COLABORADOR"]
       }
     ]
   },
@@ -207,12 +207,17 @@ export function Layout() {
   const hasPermission = (to: string, roles: string[]) => {
     if (user?.role === "ADMIN") return true;
 
+    // Usuário de soltura (soltura_vcg, soltura_vcm ou role "soltura") visualiza ESTRITAMENTE o menu Soltura e seus submenus Folha de Soltura e Histórico de Soltura
+    if (user?.role === "soltura" || user?.email?.toLowerCase().includes("soltura")) {
+      return to === "/soltura" || to === "/soltura/historico";
+    }
+
     if (user?.groups && user.groups.length > 0) {
       const normalizedTo = to.startsWith("/catracas") ? "/catracas" 
         : to.startsWith("/soltura") ? "/soltura" 
-        : to.startsWith("/manutencao") ? "/soltura"
-        : to.startsWith("/soltura-adm") ? "/soltura"
-        : to.startsWith("/escala-carros") ? "/soltura"
+        : to.startsWith("/manutencao") ? "/manutencao"
+        : to.startsWith("/soltura-adm") ? "/soltura-adm"
+        : to.startsWith("/escala-carros") ? "/escala-carros"
         : to;
       return user.groups.some(g => {
         const perms = Array.isArray(g.permissions) ? g.permissions : [];

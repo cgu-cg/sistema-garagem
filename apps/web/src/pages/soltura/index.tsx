@@ -1330,133 +1330,146 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
               </div>
 
               {/* ========================================================= */}
-              {/* SEÇÃO: RESERVA TERMINAL (Adaptável ao Tema Light e Dark) */}
+              {/* SEÇÃO LADO A LADO: PENDURADOS (30%) E RESERVA TERMINAL (70%) */}
               {/* ========================================================= */}
-              <div className="rounded-2xl border border-border/80 bg-card text-card-foreground p-4 sm:p-5 shadow-xs space-y-3 print:bg-white print:border-neutral-500 print:p-2">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-foreground flex items-center gap-1.5 print:text-black">
-                    <MapPin className="w-3.5 h-3.5 text-[#164E3A] dark:text-emerald-400 print:text-black" />
-                    RESERVA TERMINAL
-                  </h3>
-                  <span className="text-[10px] text-muted-foreground font-mono hidden print:inline">
-                    Garagem {garagem}
-                  </span>
-                </div>
+              <div className="grid grid-cols-1 lg:grid-cols-10 gap-4 items-stretch print:grid-cols-10">
 
-                {/* Grid dos 4 Terminais */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                  {TERMINAIS_PADRAO.map(termNome => {
-                    const carrosDoTerminal = reservasTerminais.filter(r => r.terminal === termNome);
-                    return (
-                      <div
-                        key={termNome}
-                        className="rounded-xl border border-border/70 bg-muted/30 hover:bg-muted/50 dark:bg-card/90 dark:border-border/60 p-3 flex flex-col gap-2 transition-all print:border-neutral-400 print:bg-white shadow-2xs"
-                      >
-                        {/* Header do Card */}
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-bold text-foreground tracking-tight print:text-black">
-                            {termNome}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenAddModal(termNome)}
-                            className="print:hidden w-6 h-6 rounded-md border border-emerald-600/40 dark:border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 flex items-center justify-center transition-colors cursor-pointer shrink-0 shadow-2xs"
-                            title={`Adicionar carro na reserva do ${termNome}`}
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-
-                        {/* Tags dos Carros Alocados */}
-                        <div className="flex flex-wrap gap-1.5">
-                          {carrosDoTerminal.map(car => (
-                            <div
-                              key={car.id}
-                              className={cn(
-                                "px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition-all group select-none shadow-2xs",
-                                car.tipo === "VERMELHO" ? "border border-rose-500/50 text-rose-700 dark:text-rose-400 bg-rose-500/10 print:border-rose-600 print:text-rose-700" :
-                                  car.tipo === "AZUL" ? "border border-sky-500/50 text-sky-700 dark:text-sky-400 bg-sky-500/10 print:border-sky-600 print:text-sky-700" :
-                                    car.tipo === "CORINGA" ? "border border-amber-500/50 text-amber-700 dark:text-amber-400 bg-amber-500/10 print:border-amber-600 print:text-amber-700" :
-                                      car.tipo === "MICRO" ? "border border-purple-500/50 text-purple-700 dark:text-purple-400 bg-purple-500/10 print:border-purple-600 print:text-purple-700" :
-                                        "border border-orange-500/50 text-orange-700 dark:text-orange-400 bg-orange-500/10 print:border-orange-600 print:text-orange-700"
-                              )}
-                              title={`Carro ${car.carro} • Tipo: ${car.tipo}`}
-                            >
-                              <span>{car.carro}</span>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveReserva(car.id, car.carro)}
-                                className="print:hidden text-muted-foreground hover:text-rose-600 dark:hover:text-rose-400 transition-colors opacity-60 group-hover:opacity-100 cursor-pointer text-[13px] leading-none"
-                                title="Remover carro da reserva"
-                              >
-                                ×
-                              </button>
-                            </div>
-                          ))}
-                          {carrosDoTerminal.length === 0 && (
-                            <span className="text-[11px] text-muted-foreground/70 italic print:text-neutral-400">
-                              Sem carros
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* SEÇÃO: PENDURADOS (carros bloqueados CI) */}
-              {penduradosAtivos.length > 0 && (
+                {/* 1. LADO ESQUERDO: PENDURADOS (30% da largura - col-span-3 de 10) */}
                 <div
                   id="secao-pendurados"
                   className={cn(
-                    "border rounded-2xl p-4 transition-all duration-500 shadow-2xs space-y-2.5 print:bg-white print:border-neutral-500 print:p-2",
+                    "lg:col-span-3 rounded-2xl p-4 sm:p-5 transition-all duration-500 shadow-xs flex flex-col justify-between print:bg-white print:border-neutral-500 print:p-2",
                     pulsingCarro
-                      ? "border-rose-500 bg-rose-500/15 ring-2 ring-rose-500/40 shadow-lg"
-                      : "border-rose-500/30 bg-rose-500/5 text-card-foreground"
+                      ? "border-2 border-rose-500 bg-rose-500/15 ring-2 ring-rose-500/40 shadow-lg"
+                      : "border border-rose-500/30 bg-rose-500/5 text-card-foreground"
                   )}
                 >
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-rose-700 dark:text-rose-400 flex items-center gap-1.5 print:text-black">
+                        <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0 print:text-black" />
+                        PENDURADOS/BLOQUEADOS
+                      </h3>
+                    </div>
+
+                    {/* Exibição dos carros pendurados: apenas o número do carro, defeito no hover */}
+                    <div className="flex flex-wrap gap-2 pt-0.5">
+                      {penduradosAtivos.map(ci => {
+                        const isPulsing = pulsingCarro === ci.prefixo;
+                        return (
+                          <div
+                            id={`pendurado-${ci.prefixo}`}
+                            key={ci.id || ci.prefixo}
+                            className="relative group inline-block"
+                          >
+                            <div
+                              className={cn(
+                                "px-3 py-1 rounded-lg border font-mono font-bold text-xs flex items-center justify-center gap-1 shadow-2xs select-none transition-all duration-300 cursor-pointer print:border-neutral-400 print:text-black",
+                                isPulsing
+                                  ? "border-rose-600 bg-rose-600 text-white ring-4 ring-rose-500/50 scale-110 animate-bounce shadow-xl font-black z-20"
+                                  : "border-rose-500/50 bg-rose-500/10 text-rose-700 dark:text-rose-400 hover:bg-rose-500/20 hover:border-rose-500"
+                              )}
+                              title={`Carro ${ci.prefixo}${ci.motivo ? ` • Defeito: ${ci.motivo}` : ""}`}
+                            >
+                              <span>{ci.prefixo}</span>
+                            </div>
+
+                            {/* Tooltip moderno com o defeito que surge suavemente ao passar o mouse */}
+                            {ci.motivo && (
+                              <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:flex flex-col items-center z-30 transition-all duration-200">
+                                <div className="bg-neutral-900 text-white text-[11px] font-sans font-medium px-2.5 py-1 rounded-lg shadow-xl whitespace-nowrap border border-neutral-700/80">
+                                  {ci.motivo}
+                                </div>
+                                <div className="w-2 h-2 -mt-1 rotate-45 bg-neutral-900 border-r border-b border-neutral-700/80"></div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {penduradosAtivos.length === 0 && (
+                        <span className="text-[11px] text-muted-foreground/70 italic">
+                          Nenhum carro bloqueado ou na CI no momento.
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. LADO DIREITO: RESERVA TERMINAL (70% da largura - col-span-7 de 10) */}
+                <div className="lg:col-span-7 rounded-2xl border border-border/80 bg-card text-card-foreground p-4 sm:p-5 shadow-xs space-y-3 print:bg-white print:border-neutral-500 print:p-2">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-rose-700 dark:text-rose-400 flex items-center gap-1.5 print:text-black">
-                      <AlertTriangle className="w-3.5 h-3.5 text-rose-500 print:text-black" />
-                      PENDURADOS — CARROS ALTO CONSUMO / BLOQUEADOS
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-foreground flex items-center gap-1.5 print:text-black">
+                      <MapPin className="w-3.5 h-3.5 text-[#164E3A] dark:text-emerald-400 print:text-black" />
+                      RESERVA TERMINAL
                     </h3>
-                    <span className="text-[10px] text-muted-foreground font-mono">
-                      {penduradosAtivos.length} {penduradosAtivos.length === 1 ? "carro" : "carros"}
+                    <span className="text-[10px] text-muted-foreground font-mono hidden print:inline">
+                      Garagem {garagem}
                     </span>
                   </div>
 
-                  {/* Exibição direta dos carros (sem o texto 'VERMELHO' em cima) */}
-                  <div className="flex flex-wrap gap-2 pt-0.5">
-                    {penduradosAtivos.map(ci => {
-                      const isPulsing = pulsingCarro === ci.prefixo;
+                  {/* Grid dos 4 Terminais (4 colunas aproveitando os 70% de largura) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                    {TERMINAIS_PADRAO.map(termNome => {
+                      const carrosDoTerminal = reservasTerminais.filter(r => r.terminal === termNome);
                       return (
                         <div
-                          id={`pendurado-${ci.prefixo}`}
-                          key={ci.id || ci.prefixo}
-                          className={cn(
-                            "px-3 py-1.5 rounded-xl border font-mono font-bold text-xs flex items-center gap-1.5 shadow-2xs select-none transition-all duration-300 print:border-neutral-400 print:text-black",
-                            isPulsing
-                              ? "border-rose-600 bg-rose-600 text-white ring-4 ring-rose-500/50 scale-110 animate-bounce shadow-xl font-black z-20"
-                              : "border-rose-500/50 bg-rose-500/10 text-rose-700 dark:text-rose-400"
-                          )}
-                          title={`Carro ${ci.prefixo}${ci.motivo ? ` • Motivo: ${ci.motivo}` : ""}`}
+                          key={termNome}
+                          className="rounded-xl border border-border/70 bg-muted/30 hover:bg-muted/50 dark:bg-card/90 dark:border-border/60 p-2.5 flex flex-col gap-2 transition-all print:border-neutral-400 print:bg-white shadow-2xs"
                         >
-                          <span>{ci.prefixo}</span>
-                          {ci.motivo && (
-                            <span className={cn(
-                              "text-[10px] font-sans font-normal max-w-[150px] truncate hidden sm:inline",
-                              isPulsing ? "text-white opacity-95" : "text-muted-foreground opacity-80"
-                            )}>
-                              • {ci.motivo}
+                          {/* Header do Card */}
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-bold text-foreground tracking-tight print:text-black">
+                              {termNome}
                             </span>
-                          )}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenAddModal(termNome)}
+                              className="print:hidden w-6 h-6 rounded-md border border-emerald-600/40 dark:border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 flex items-center justify-center transition-colors cursor-pointer shrink-0 shadow-2xs"
+                              title={`Adicionar carro na reserva do ${termNome}`}
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          {/* Tags dos Carros Alocados */}
+                          <div className="flex flex-wrap gap-1.5">
+                            {carrosDoTerminal.map(car => (
+                              <div
+                                key={car.id}
+                                className={cn(
+                                  "px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition-all group select-none shadow-2xs",
+                                  car.tipo === "VERMELHO" ? "border border-rose-500/50 text-rose-700 dark:text-rose-400 bg-rose-500/10 print:border-rose-600 print:text-rose-700" :
+                                    car.tipo === "AZUL" ? "border border-sky-500/50 text-sky-700 dark:text-sky-400 bg-sky-500/10 print:border-sky-600 print:text-sky-700" :
+                                      car.tipo === "CORINGA" ? "border border-amber-500/50 text-amber-700 dark:text-amber-400 bg-amber-500/10 print:border-amber-600 print:text-amber-700" :
+                                        car.tipo === "MICRO" ? "border border-purple-500/50 text-purple-700 dark:text-purple-400 bg-purple-500/10 print:border-purple-600 print:text-purple-700" :
+                                          "border border-orange-500/50 text-orange-700 dark:text-orange-400 bg-orange-500/10 print:border-orange-600 print:text-orange-700"
+                                )}
+                                title={`Carro ${car.carro} • Tipo: ${car.tipo}`}
+                              >
+                                <span>{car.carro}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveReserva(car.id, car.carro)}
+                                  className="print:hidden text-muted-foreground hover:text-rose-600 dark:hover:text-rose-400 transition-colors opacity-60 group-hover:opacity-100 cursor-pointer text-[13px] leading-none"
+                                  title="Remover carro da reserva"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                            {carrosDoTerminal.length === 0 && (
+                              <span className="text-[11px] text-muted-foreground/70 italic print:text-neutral-400">
+                                Sem carros
+                              </span>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
                   </div>
                 </div>
-              )}
+
+              </div>
 
               {/* Rodapé Oficial da Impressão A4 - Página 2 */}
               <div className="hidden print:flex items-center justify-between text-[7pt] text-neutral-600 border-t border-neutral-400 pt-1 mt-2 font-mono">

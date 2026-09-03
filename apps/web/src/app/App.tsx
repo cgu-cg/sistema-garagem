@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useEffect } from "react";
 import { Toaster } from "sonner";
 import { Loader2 } from "lucide-react";
@@ -30,16 +30,27 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function PermissionRoute({ to, fallbackRoles, children }: { to: string; fallbackRoles: Role[]; children: React.ReactNode }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
   if (loading && !user) return <LoadingScreen />;
   if (!user) return <Navigate to="/" replace />;
   if (user.role === "ADMIN") return <>{children}</>;
 
+  // Usuário de soltura (soltura_vcg, soltura_vcm ou role 'soltura') tem acesso ESTRITO apenas a /soltura e /soltura/historico
+  if (user.role === "soltura" || user.email?.toLowerCase().includes("soltura")) {
+    const isAllowed = to === "/soltura" && (location.pathname === "/soltura" || location.pathname === "/soltura/historico");
+    if (!isAllowed) {
+      const defaultRoute = getDefaultRoute(user);
+      return <Navigate to={defaultRoute} replace />;
+    }
+    return <>{children}</>;
+  }
+
   if (user.groups && user.groups.length > 0) {
     const normalizedTo = to.startsWith("/catracas") ? "/catracas" 
       : to.startsWith("/soltura") ? "/soltura" 
-      : to.startsWith("/manutencao") ? "/soltura"
-      : to.startsWith("/soltura-adm") ? "/soltura"
-      : to.startsWith("/escala-carros") ? "/soltura"
+      : to.startsWith("/manutencao") ? "/manutencao"
+      : to.startsWith("/soltura-adm") ? "/soltura-adm"
+      : to.startsWith("/escala-carros") ? "/escala-carros"
       : to;
     const hasPerm = user.groups.some(g => {
       const perms = Array.isArray(g.permissions) ? g.permissions : [];
@@ -173,7 +184,7 @@ export function App() {
           <Route
             path="/soltura/ci-manutencao"
             element={
-              <PermissionRoute to="/soltura" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+              <PermissionRoute to="/manutencao" fallbackRoles={["ADMIN", "COLABORADOR"]}>
                 <SolturaPage defaultTab="CI_MANUTENCAO" />
               </PermissionRoute>
             }
@@ -181,7 +192,7 @@ export function App() {
           <Route
             path="/soltura/alterar-folha"
             element={
-              <PermissionRoute to="/soltura" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+              <PermissionRoute to="/soltura-adm" fallbackRoles={["ADMIN", "COLABORADOR"]}>
                 <SolturaPage defaultTab="ALTERAR_FOLHA" />
               </PermissionRoute>
             }
@@ -189,7 +200,7 @@ export function App() {
           <Route
             path="/soltura/alterar-carro-programado"
             element={
-              <PermissionRoute to="/soltura" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+              <PermissionRoute to="/escala-carros" fallbackRoles={["ADMIN", "COLABORADOR"]}>
                 <SolturaPage defaultTab="ALTERAR_CARRO_PROGRAMADO" />
               </PermissionRoute>
             }
@@ -197,7 +208,7 @@ export function App() {
           <Route
             path="/soltura/carro-realizado"
             element={
-              <PermissionRoute to="/soltura" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+              <PermissionRoute to="/escala-carros" fallbackRoles={["ADMIN", "COLABORADOR"]}>
                 <SolturaPage defaultTab="ALTERAR_CARRO_PROGRAMADO" />
               </PermissionRoute>
             }
@@ -211,7 +222,7 @@ export function App() {
           <Route
             path="/manutencao"
             element={
-              <PermissionRoute to="/manutencao" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+              <PermissionRoute to="/manutencao" fallbackRoles={["ADMIN", "COLABORADOR"]}>
                 <SolturaPage defaultTab="CI_MANUTENCAO" />
               </PermissionRoute>
             }
@@ -219,7 +230,7 @@ export function App() {
           <Route
             path="/manutencao/ci-manutencao"
             element={
-              <PermissionRoute to="/manutencao" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+              <PermissionRoute to="/manutencao" fallbackRoles={["ADMIN", "COLABORADOR"]}>
                 <SolturaPage defaultTab="CI_MANUTENCAO" />
               </PermissionRoute>
             }
@@ -229,7 +240,7 @@ export function App() {
           <Route
             path="/soltura-adm"
             element={
-              <PermissionRoute to="/soltura-adm" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+              <PermissionRoute to="/soltura-adm" fallbackRoles={["ADMIN", "COLABORADOR"]}>
                 <SolturaPage defaultTab="ALTERAR_FOLHA" />
               </PermissionRoute>
             }
@@ -237,7 +248,7 @@ export function App() {
           <Route
             path="/soltura-adm/alterar-folha"
             element={
-              <PermissionRoute to="/soltura-adm" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+              <PermissionRoute to="/soltura-adm" fallbackRoles={["ADMIN", "COLABORADOR"]}>
                 <SolturaPage defaultTab="ALTERAR_FOLHA" />
               </PermissionRoute>
             }
@@ -247,7 +258,7 @@ export function App() {
           <Route
             path="/escala-carros"
             element={
-              <PermissionRoute to="/escala-carros" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+              <PermissionRoute to="/escala-carros" fallbackRoles={["ADMIN", "COLABORADOR"]}>
                 <SolturaPage defaultTab="ALTERAR_CARRO_PROGRAMADO" />
               </PermissionRoute>
             }
@@ -255,7 +266,7 @@ export function App() {
           <Route
             path="/escala-carros/alterar-carro-programado"
             element={
-              <PermissionRoute to="/escala-carros" fallbackRoles={["ADMIN", "soltura", "COLABORADOR"]}>
+              <PermissionRoute to="/escala-carros" fallbackRoles={["ADMIN", "COLABORADOR"]}>
                 <SolturaPage defaultTab="ALTERAR_CARRO_PROGRAMADO" />
               </PermissionRoute>
             }
