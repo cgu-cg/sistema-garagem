@@ -33,9 +33,12 @@ interface Group {
 const AVAILABLE_PERMISSIONS = [
   { path: "/home", label: "Início (Dashboard)" },
   { path: "/catracas", label: "Conferência Catracas" },
-  { path: "/abastecimento", label: "Abastecimento" },
+  { path: "/abastecimento", label: "Leitura de Tanques" },
   { path: "/abastecimento-carro", label: "Abastecimento por Carro" },
   { path: "/soltura", label: "Soltura" },
+  { path: "/manutencao", label: "Manutenção" },
+  { path: "/soltura-adm", label: "Soltura ADM" },
+  { path: "/escala-carros", label: "Escala Carros" },
   { path: "/controle-operacional", label: "Controle Operacional" },
   { path: "/admin/usuarios", label: "Usuários (Administração)" },
 ];

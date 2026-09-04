@@ -9,25 +9,25 @@ async function main() {
   const groupTodos = await prisma.group.upsert({
     where: { name: "Todos" },
     update: {
-      description: "Acesso a Leitura de Tanques, Abastecimento por Carro, Soltura e Controle Operacional",
+      description: "Acesso a Leitura de Tanques, Abastecimento por Carro, Soltura, Manutenção, Soltura ADM e Controle Operacional",
       permissions: JSON.stringify([
         "/abastecimento",
-        "/abastecimentos",
         "/abastecimento-carro",
         "/soltura",
-        "/solturas",
+        "/manutencao",
+        "/soltura-adm",
         "/controle-operacional",
       ]),
     },
     create: {
       name: "Todos",
-      description: "Acesso a Leitura de Tanques, Abastecimento por Carro, Soltura e Controle Operacional",
+      description: "Acesso a Leitura de Tanques, Abastecimento por Carro, Soltura, Manutenção, Soltura ADM e Controle Operacional",
       permissions: JSON.stringify([
         "/abastecimento",
-        "/abastecimentos",
         "/abastecimento-carro",
         "/soltura",
-        "/solturas",
+        "/manutencao",
+        "/soltura-adm",
         "/controle-operacional",
       ]),
     },

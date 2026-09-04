@@ -45,6 +45,24 @@ function PermissionRoute({ to, fallbackRoles, children }: { to: string; fallback
     return <>{children}</>;
   }
 
+  // Usuário teste@teste.com tem acesso ESTRITO apenas aos menus solicitados
+  if (user.email?.toLowerCase() === "teste@teste.com") {
+    const allowed = [
+      "/abastecimento",
+      "/abastecimento-carro",
+      "/soltura",
+      "/manutencao",
+      "/soltura-adm",
+      "/controle-operacional"
+    ];
+    const isAllowed = allowed.some(route => to === route || to.startsWith(route + "/"));
+    if (!isAllowed) {
+      const defaultRoute = getDefaultRoute(user);
+      return <Navigate to={defaultRoute} replace />;
+    }
+    return <>{children}</>;
+  }
+
   if (user.groups && user.groups.length > 0) {
     const normalizedTo = to.startsWith("/catracas") ? "/catracas" 
       : to.startsWith("/soltura") ? "/soltura" 
@@ -229,6 +247,14 @@ export function App() {
           />
           <Route
             path="/manutencao/ci-manutencao"
+            element={
+              <PermissionRoute to="/manutencao" fallbackRoles={["ADMIN", "COLABORADOR"]}>
+                <SolturaPage defaultTab="CI_MANUTENCAO" />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/ci-manutencao"
             element={
               <PermissionRoute to="/manutencao" fallbackRoles={["ADMIN", "COLABORADOR"]}>
                 <SolturaPage defaultTab="CI_MANUTENCAO" />

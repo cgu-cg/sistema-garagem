@@ -33,6 +33,12 @@ export interface BloqueioCarro {
   dataLiberacao?: string;
   motivoLiberacao?: string;
   responsavelLiberacao?: string;
+  // Campos da Planilha CI - Solicitação de Veículos (CGU.REG.MT0005)
+  categoriaPlanilha?: "PREVENTIVA" | "OFICINA" | "REFORCO" | "BLOQUEADO";
+  setorOficina?: "MECANICA" | "ELEVADOR" | "ELETRICA" | "BORRACHARIA" | "FUNILARIA" | "TACOGRAFO" | "BILHETAGEM" | "LIMPEZA";
+  tipoPreventiva?: "PREVENTIVA" | "LUBRIFICACAO" | "TROCA_OLEO" | "REVISAO_GERAL" | "SISEP";
+  horarioReforco?: string;
+  consorciada?: "VSF" | "VCG" | "JTU" | "VCM";
 }
 
 export interface TerminalReserva {

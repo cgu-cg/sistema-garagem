@@ -91,6 +91,7 @@ export const useAuth = create<AuthState>((set) => ({
 
 export function getDefaultRoute(user: User | null): string {
   if (!user) return "/";
+  if (user.email?.toLowerCase() === "teste@teste.com") return "/soltura";
   if (user.role === "ADMIN") return "/home";
   if (user.role === "tanque") return "/abastecimento";
   if (user.role === "soltura") return "/soltura";

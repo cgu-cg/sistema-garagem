@@ -212,6 +212,19 @@ export function Layout() {
       return to === "/soltura" || to === "/soltura/historico";
     }
 
+    // Usuário teste@teste.com visualiza ESTRITAMENTE os menus solicitados
+    if (user?.email?.toLowerCase() === "teste@teste.com") {
+      const allowed = [
+        "/abastecimento",
+        "/abastecimento-carro",
+        "/soltura",
+        "/manutencao",
+        "/soltura-adm",
+        "/controle-operacional"
+      ];
+      return allowed.some(route => to === route || to.startsWith(route + "/"));
+    }
+
     if (user?.groups && user.groups.length > 0) {
       const normalizedTo = to.startsWith("/catracas") ? "/catracas" 
         : to.startsWith("/soltura") ? "/soltura" 
@@ -754,8 +767,8 @@ export function Layout() {
         </header>
 
         {/* Page Content Viewport */}
-        <main className="flex-1 p-3 sm:p-5 lg:p-6 overflow-y-auto">
-          <div className="max-w-7xl mx-auto w-full">
+        <main className="flex-1 p-3 sm:p-5 lg:p-6 overflow-y-auto print:p-0 print:m-0 print:overflow-visible">
+          <div className="max-w-7xl mx-auto w-full print:max-w-none print:w-full print:m-0 print:p-0">
             <Outlet />
           </div>
         </main>

@@ -1,23 +1,37 @@
-import { useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { BloqueioCarro } from "@/data/solturaData";
-import { saveCIBloqueiosToStorage, checkCarroBloqueado } from "./ciManager";
+import { INVENTORY_CARS } from "@/data/inventoryCars";
+import { 
+  saveCIBloqueiosToStorage, 
+  getConsorciadaByCarro 
+} from "./ciManager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogDescription, 
+  DialogFooter, 
+  DialogHeader, 
+  DialogTitle 
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { 
+  Bus, 
   ShieldAlert, 
   Wrench, 
-  Plus, 
-  Search, 
+  X, 
   CheckCircle2, 
   AlertTriangle, 
   Trash2, 
-  Edit3, 
   Check, 
-  RefreshCw,
-  Printer
+  Printer, 
+  Clock, 
+  Layers, 
+  Calendar, 
+  FileText,
+  ChevronRight 
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -27,120 +41,218 @@ interface CiManutencaoViewProps {
   garagemFiltro?: "VCG" | "VCM" | "TODAS";
 }
 
-const TIPO_LABELS: Record<string, { label: string; color: string; bg: string; border: string }> = {
-  BLOQUEADO_CORRETIVA: { label: "Corretiva Urgente", color: "text-rose-700 dark:text-rose-400", bg: "bg-rose-50 dark:bg-rose-950/40", border: "border-rose-200 dark:border-rose-900/50" },
-  EM_MANUTENCAO: { label: "Manutenção Geral", color: "text-amber-700 dark:text-amber-400", bg: "bg-amber-50 dark:bg-amber-950/40", border: "border-amber-200 dark:border-amber-900/50" },
-  REFORCO_REVISAO: { label: "Revisão Preventiva", color: "text-blue-700 dark:text-blue-400", bg: "bg-blue-50 dark:bg-blue-950/40", border: "border-blue-200 dark:border-blue-900/50" },
-  BLOQUEADO_MOTOR: { label: "Motor / Arrefecimento", color: "text-red-700 dark:text-red-400", bg: "bg-red-50 dark:bg-red-950/40", border: "border-red-200 dark:border-red-900/50" },
-  BLOQUEADO_CAMBIO: { label: "Câmbio / Embreagem", color: "text-orange-700 dark:text-orange-400", bg: "bg-orange-50 dark:bg-orange-950/40", border: "border-orange-200 dark:border-orange-900/50" },
-  BLOQUEADO_FREIO: { label: "Freio / Cuíca / Ar", color: "text-rose-800 dark:text-rose-300", bg: "bg-rose-100/70 dark:bg-rose-950/60", border: "border-rose-300 dark:border-rose-800" },
-  BLOQUEADO_MOLA: { label: "Mola / Suspensão", color: "text-purple-700 dark:text-purple-400", bg: "bg-purple-50 dark:bg-purple-950/40", border: "border-purple-200 dark:border-purple-900/50" },
-  BLOQUEADO_AGETRAN: { label: "Agetran / Notificação", color: "text-indigo-700 dark:text-indigo-400", bg: "bg-indigo-50 dark:bg-indigo-950/40", border: "border-indigo-200 dark:border-indigo-900/50" },
-  BLOQUEADO_MODULO: { label: "Elétrica / Módulo", color: "text-cyan-700 dark:text-cyan-400", bg: "bg-cyan-50 dark:bg-cyan-950/40", border: "border-cyan-200 dark:border-cyan-900/50" },
-  BLOQUEADO_AR: { label: "Ar-Condicionado", color: "text-teal-700 dark:text-teal-400", bg: "bg-teal-50 dark:bg-teal-950/40", border: "border-teal-200 dark:border-teal-900/50" },
-  BLOQUEADO_SINISTRO: { label: "Sinistro / Batido", color: "text-zinc-800 dark:text-zinc-300", bg: "bg-zinc-100 dark:bg-zinc-800", border: "border-zinc-300 dark:border-zinc-700" },
-};
+type TabCategory = "PREVENTIVA" | "OFICINA" | "REFORCO" | "BLOQUEADO";
 
-export function CiManutencaoView({ ciList, setCiList, garagemFiltro = "TODAS" }: CiManutencaoViewProps) {
-  const [showForm, setShowForm] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedGaragem, setSelectedGaragem] = useState<"TODAS" | "VCG" | "VCM">(garagemFiltro);
-  const [selectedStatus, setSelectedStatus] = useState<"TODOS" | "ATIVOS" | "LIBERADOS">("ATIVOS");
-  const [selectedGravidade, setSelectedGravidade] = useState<string>("TODAS");
+const SETORES_OFICINA = [
+  { id: "MECANICA", label: "Mecânica", chips: ["Suspensão", "Mecânica Geral", "Freio", "Diferencial", "Câmbio"] },
+  { id: "ELEVADOR", label: "Elevador", chips: ["Elevador Acessibilidade", "Trava de Segurança", "Plataforma"] },
+  { id: "ELETRICA", label: "Elétrica", chips: ["Módulo Eletrônico", "Chicote ARLA 32", "Sensor de Nível", "Tensor", "Alternador"] },
+  { id: "BORRACHARIA", label: "Borracharia", chips: ["Pneu Furado", "Troca de Roda", "Alinhamento"] },
+  { id: "FUNILARIA", label: "Funilaria / Pintura", chips: ["Sinistro", "Para-choque", "Retoque Pintura", "Chapeação"] },
+  { id: "TACOGRAFO", label: "Tacógrafo", chips: ["Aferição", "Troca de Disco", "Lacre Rompido"] },
+  { id: "BILHETAGEM", label: "Bilhetagem", chips: ["Validador", "Catraca Travada", "Cabo de Antena WiFi"] },
+  { id: "LIMPEZA", label: "Limpeza", chips: ["Higienização Pesada", "Lavagem de Motor", "Polimento"] },
+] as const;
 
-  // Form State para Novo CI
-  const [formPrefixo, setFormPrefixo] = useState("");
-  const [formGaragem, setFormGaragem] = useState<"VCG" | "VCM">("VCG");
-  const [formTipo, setFormTipo] = useState<BloqueioCarro["tipo"]>("EM_MANUTENCAO");
+const REFORCOS_SUGERIDOS = [
+  "07:15 - A", "07:15 - C", "07:32 - A", "07:40 - A", "07:40 - M", "07:40 - C",
+  "07:45 - A", "07:45 - C", "07:50 - A", "07:50 - C"
+];
+
+const BLOQUEIOS_MOTIVOS_RAPIDOS = [
+  "Motor", "Transmissão", "Revisão Geral", "Sinistro", "Mecânica (Pastilhas e Disco de Freio)",
+  "Falta de Peça Para-brisa", "Posto de Molas", "Módulo", "Suspensão", "Câmbio", "Freio", "Elétrica"
+];
+
+export function CiManutencaoView({ ciList, setCiList }: CiManutencaoViewProps) {
+  // Modo de visualização: Grade de Carros (Print 1) ou Planilha Espelho Impressa (Print 2)
+  const [viewMode, setViewMode] = useState<"GRID" | "PLANILHA">("GRID");
+
+  // Filtros de busca e status do grid
+  const [searchCarQuery, setSearchCarQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "BLOQUEADOS" | "APTOS" | "PREVENTIVAS" | "OFICINA">("ALL");
+
+  // Carro Selecionado para o Modal de CI (Print 2)
+  const [selectedCarro, setSelectedCarro] = useState<string | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  // Aba selecionada dentro do modal
+  const [modalCategory, setModalCategory] = useState<TabCategory>("OFICINA");
+
+  // Estados do Formulário dentro do Modal
+  const [formSetor, setFormSetor] = useState<(typeof SETORES_OFICINA)[number]["id"]>("MECANICA");
+  const [formTipoPreventiva, setFormTipoPreventiva] = useState<"PREVENTIVA" | "LUBRIFICACAO" | "TROCA_OLEO" | "REVISAO_GERAL" | "SISEP">("REVISAO_GERAL");
+  const [formHoraReforco, setFormHoraReforco] = useState("07:15");
+  const [formLetraReforco, setFormLetraReforco] = useState<"A" | "B" | "C" | "D" | "M">("A");
+  const [formMotivoReforco, setFormMotivoReforco] = useState("LUBRIFICAÇÃO");
+  const [formConsorciada, setFormConsorciada] = useState<"VSF" | "VCG" | "JTU" | "VCM">("VCG");
   const [formMotivo, setFormMotivo] = useState("");
-  const [formGravidade, setFormGravidade] = useState<"ALTA" | "MEDIA" | "BAIXA">("ALTA");
+  const [formDataBloqueio, setFormDataBloqueio] = useState(() => new Date().toISOString().split("T")[0]);
   const [formResponsavel, setFormResponsavel] = useState("Oficina Mecânica");
-  const [formData, setFormData] = useState(() => new Date().toISOString().split("T")[0]);
-  const [formHora, setFormHora] = useState(() => {
-    const d = new Date();
-    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  });
-  const [formPrevisao, setFormPrevisao] = useState("");
-  const [formOS, setFormOS] = useState("");
+  const [formGravidade, setFormGravidade] = useState<"ALTA" | "MEDIA" | "BAIXA">("ALTA");
 
-  // Modal de Baixa / Liberação de CI
-  const [itemToRelease, setItemToRelease] = useState<BloqueioCarro | null>(null);
-  const [releaseMotivo, setReleaseMotivo] = useState("Reparo concluído e testado");
-  const [releaseResponsavel, setReleaseResponsavel] = useState("Chefe de Oficina");
+  // Horário completo composto (ex: 07:15 - A)
+  const formHorarioReforco = useMemo(() => {
+    return `${formHoraReforco.trim() || "07:15"} - ${formLetraReforco}`;
+  }, [formHoraReforco, formLetraReforco]);
 
-  // Modal de Edição
-  const [editingItem, setEditingItem] = useState<BloqueioCarro | null>(null);
-
-  // Auto-detectar garagem ao digitar prefixo
-  const handlePrefixoChange = (val: string) => {
-    setFormPrefixo(val);
-    const clean = val.replace(/\D/g, "");
-    if (clean.startsWith("1") || clean.startsWith("38") || clean.startsWith("39")) {
-      setFormGaragem("VCM");
-    } else if (clean.startsWith("2") || clean.startsWith("3") || clean.startsWith("4")) {
-      setFormGaragem("VCG");
+  const parseAndSetHorarioReforco = (val: string) => {
+    if (!val) return;
+    const parts = val.split("-").map(s => s.trim());
+    if (parts[0]) setFormHoraReforco(parts[0]);
+    if (parts[1]) {
+      const l = parts[1].toUpperCase();
+      if (["A", "B", "C", "D", "M"].includes(l)) {
+        setFormLetraReforco(l as any);
+      }
     }
   };
 
-  // Salvar Novo CI
-  const handleCreateCI = (e: React.FormEvent) => {
+  // Estado para dar baixa / liberar veículo
+  const [isReleasing, setIsReleasing] = useState(false);
+  const [releaseMotivo, setReleaseMotivo] = useState("Reparo concluído e testado na pista");
+  const [releaseResponsavel, setReleaseResponsavel] = useState("Encarregado de Oficina");
+
+  // Mapa rápido de carros com registro de CI ativo
+  const activeCiMap = useMemo(() => {
+    const map = new Map<string, BloqueioCarro>();
+    ciList.forEach(item => {
+      if (item.status !== "LIBERADO") {
+        map.set(item.prefixo, item);
+      }
+    });
+    return map;
+  }, [ciList]);
+
+  // Estatísticas Rápidas
+  const stats = useMemo(() => {
+    const totalFrota = INVENTORY_CARS.length;
+    let bloqueadosCount = 0;
+    let preventivasCount = 0;
+    let oficinasCount = 0;
+
+    activeCiMap.forEach(ci => {
+      if (ci.categoriaPlanilha === "PREVENTIVA") preventivasCount++;
+      else if (ci.categoriaPlanilha === "OFICINA") oficinasCount++;
+      else bloqueadosCount++;
+    });
+
+    const totalNaCI = activeCiMap.size;
+    const aptos = totalFrota - totalNaCI;
+
+    return { totalFrota, totalNaCI, bloqueadosCount, preventivasCount, oficinasCount, aptos };
+  }, [activeCiMap]);
+
+  // Ao clicar em um cartão do carro na grade
+  const handleCarClick = (carro: string) => {
+    setSelectedCarro(carro);
+    const autoConsorciada = getConsorciadaByCarro(carro);
+    setFormConsorciada(autoConsorciada);
+
+    const existingCI = activeCiMap.get(carro);
+    if (existingCI) {
+      // Carregar dados existentes para visualização/edição
+      setModalCategory(existingCI.categoriaPlanilha || "OFICINA");
+      setFormMotivo(existingCI.motivo || "");
+      setFormResponsavel(existingCI.responsavel || "Oficina Mecânica");
+      setFormDataBloqueio(existingCI.data || new Date().toISOString().split("T")[0]);
+      setFormGravidade(existingCI.gravidade || "ALTA");
+      if (existingCI.setorOficina) setFormSetor(existingCI.setorOficina);
+      if (existingCI.tipoPreventiva) setFormTipoPreventiva(existingCI.tipoPreventiva);
+      if (existingCI.horarioReforco) parseAndSetHorarioReforco(existingCI.horarioReforco);
+      if (existingCI.consorciada) setFormConsorciada(existingCI.consorciada);
+    } else {
+      // Valores padrão para novo cadastro
+      setModalCategory("OFICINA");
+      setFormSetor("MECANICA");
+      setFormTipoPreventiva("REVISAO_GERAL");
+      setFormHoraReforco("07:15");
+      setFormLetraReforco("A");
+      setFormMotivoReforco("LUBRIFICAÇÃO");
+      setFormMotivo("");
+      setFormResponsavel("Oficina Mecânica");
+      setFormGravidade("ALTA");
+      setFormDataBloqueio(new Date().toISOString().split("T")[0]);
+    }
+
+    setIsReleasing(false);
+    setDialogOpen(true);
+  };
+
+  // Salvar / Atualizar Registro de CI
+  const handleSaveCI = (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanPrefixo = formPrefixo.trim();
+    if (!selectedCarro) return;
 
-    if (!cleanPrefixo) {
-      toast.error("Informe o prefixo do veículo.");
-      return;
+    let finalMotivo = formMotivo.trim();
+    if (!finalMotivo) {
+      if (modalCategory === "PREVENTIVA") {
+        const labels: Record<typeof formTipoPreventiva, string> = {
+          PREVENTIVA: "Preventiva Periódica",
+          LUBRIFICACAO: "Lubrificação Geral",
+          TROCA_OLEO: "Troca de Óleo e Filtros",
+          REVISAO_GERAL: "Revisão Geral Preventiva",
+          SISEP: "Manutenção SISEP"
+        };
+        finalMotivo = labels[formTipoPreventiva];
+      } else if (modalCategory === "REFORCO") {
+        finalMotivo = `${formMotivoReforco} (${formHorarioReforco})`;
+      } else if (modalCategory === "OFICINA") {
+        finalMotivo = `Setor ${formSetor}`;
+      } else {
+        finalMotivo = "Bloqueio Consorciada";
+      }
     }
 
-    if (!formMotivo.trim()) {
-      toast.error("Informe o motivo ou defeito do veículo.");
-      return;
-    }
-
-    // Verificar se já existe bloqueio ativo para esse prefixo
-    const existing = checkCarroBloqueado(cleanPrefixo, ciList);
-    if (existing) {
-      toast.warning(`Atenção: Carro ${cleanPrefixo} já possui um CI ativo (${existing.motivo}).`);
-    }
+    // Mapeamento do tipo de bloqueio para manter compatibilidade com as regras de soltura
+    let mappedTipo: BloqueioCarro["tipo"] = "EM_MANUTENCAO";
+    if (modalCategory === "PREVENTIVA") mappedTipo = "REFORCO_REVISAO";
+    else if (finalMotivo.toLowerCase().includes("motor")) mappedTipo = "BLOQUEADO_MOTOR";
+    else if (finalMotivo.toLowerCase().includes("freio")) mappedTipo = "BLOQUEADO_FREIO";
+    else if (finalMotivo.toLowerCase().includes("mola") || finalMotivo.toLowerCase().includes("suspens")) mappedTipo = "BLOQUEADO_MOLA";
+    else if (finalMotivo.toLowerCase().includes("câmbio") || finalMotivo.toLowerCase().includes("cambio") || finalMotivo.toLowerCase().includes("transmiss")) mappedTipo = "BLOQUEADO_CAMBIO";
+    else if (finalMotivo.toLowerCase().includes("elétrica") || finalMotivo.toLowerCase().includes("eletrica") || finalMotivo.toLowerCase().includes("módulo") || finalMotivo.toLowerCase().includes("modulo")) mappedTipo = "BLOQUEADO_MODULO";
+    else if (finalMotivo.toLowerCase().includes("sinistro")) mappedTipo = "BLOQUEADO_SINISTRO";
 
     const newCI: BloqueioCarro = {
-      id: `ci-${Date.now()}-${cleanPrefixo}`,
-      prefixo: cleanPrefixo,
-      garagem: formGaragem,
-      tipo: formTipo,
-      motivo: formMotivo.trim(),
-      data: formData,
-      hora: formHora,
+      id: `ci-${Date.now()}-${selectedCarro}`,
+      prefixo: selectedCarro,
+      garagem: formConsorciada === "VCM" ? "VCM" : "VCG",
+      consorciada: formConsorciada,
+      categoriaPlanilha: modalCategory,
+      setorOficina: modalCategory === "OFICINA" ? formSetor : undefined,
+      tipoPreventiva: modalCategory === "PREVENTIVA" ? formTipoPreventiva : undefined,
+      horarioReforco: modalCategory === "REFORCO" ? formHorarioReforco : undefined,
+      tipo: mappedTipo,
+      motivo: finalMotivo,
+      data: formDataBloqueio,
+      hora: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
       gravidade: formGravidade,
       responsavel: formResponsavel.trim() || "Oficina Central",
-      previsao: formPrevisao.trim() || undefined,
-      os: formOS.trim() || `OS-${Math.floor(100000 + Math.random() * 900000)}`,
+      os: activeCiMap.get(selectedCarro)?.os,
       status: "BLOQUEADO"
     };
 
-    const updatedList = [newCI, ...ciList];
+    // Atualiza a lista removendo bloqueio ativo anterior desse carro e inserindo o novo
+    const cleanList = ciList.filter(item => item.prefixo !== selectedCarro || item.status === "LIBERADO");
+    const updatedList = [newCI, ...cleanList];
+
     setCiList(updatedList);
     saveCIBloqueiosToStorage(updatedList);
-
-    toast.success(`CI de Manutenção cadastrado com sucesso para o Carro ${cleanPrefixo}!`);
-
-    // Reset Form
-    setFormPrefixo("");
-    setFormMotivo("");
-    setFormPrevisao("");
-    setFormOS("");
+    toast.success(`Carro ${selectedCarro} lançado na CI com sucesso!`);
+    setDialogOpen(false);
   };
 
-  // Confirmar Baixa / Liberação
-  const handleConfirmRelease = () => {
-    if (!itemToRelease) return;
+  // Liberar Carro da CI (Dar Baixa)
+  const handleReleaseCar = () => {
+    if (!selectedCarro) return;
 
     const agora = new Date();
     const dataLib = agora.toLocaleDateString("pt-BR");
     const horaLib = `${String(agora.getHours()).padStart(2, "0")}:${String(agora.getMinutes()).padStart(2, "0")}`;
 
     const updatedList = ciList.map(item => {
-      if (item.id === itemToRelease.id || (!item.id && item.prefixo === itemToRelease.prefixo)) {
+      if (item.prefixo === selectedCarro && item.status !== "LIBERADO") {
         return {
           ...item,
           status: "LIBERADO" as const,
@@ -154,94 +266,106 @@ export function CiManutencaoView({ ciList, setCiList, garagemFiltro = "TODAS" }:
 
     setCiList(updatedList);
     saveCIBloqueiosToStorage(updatedList);
-    toast.success(`Carro ${itemToRelease.prefixo} liberado do CI com sucesso!`);
-    setItemToRelease(null);
+    toast.success(`Carro ${selectedCarro} liberado da CI com sucesso! Agora está APTO para a soltura.`);
+    setDialogOpen(false);
+    setIsReleasing(false);
   };
 
-  // Salvar Edição
-  const handleSaveEdit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingItem) return;
+  // Excluir CI do Carro
+  const handleDeleteCI = () => {
+    if (!selectedCarro) return;
+    if (!confirm(`Deseja remover o registro de CI do Carro ${selectedCarro}?`)) return;
 
-    const updatedList = ciList.map(item => {
-      if (item.id === editingItem.id || (!item.id && item.prefixo === editingItem.prefixo)) {
-        return editingItem;
-      }
-      return item;
-    });
-
+    const updatedList = ciList.filter(item => item.prefixo !== selectedCarro);
     setCiList(updatedList);
     saveCIBloqueiosToStorage(updatedList);
-    toast.success(`Registro do Carro ${editingItem.prefixo} atualizado!`);
-    setEditingItem(null);
+    toast.info(`Registro de CI do Carro ${selectedCarro} removido.`);
+    setDialogOpen(false);
   };
 
-  // Excluir CI
-  const handleDeleteCI = (target: BloqueioCarro) => {
-    if (!confirm(`Deseja realmente remover o registro de CI do Carro ${target.prefixo}?`)) return;
+  // Retorna informações visuais de status para o cartão do carro
+  const getCarVisualInfo = (carro: string) => {
+    const ci = activeCiMap.get(carro);
+    if (!ci) {
+      return {
+        type: "apto",
+        label: "Apto",
+        cardClass: "bg-card border-border/80 hover:border-emerald-500/50 hover:bg-emerald-500/5",
+        iconClass: "text-emerald-600 dark:text-emerald-400",
+        badgeClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20"
+      };
+    }
 
-    const updatedList = ciList.filter(item => {
-      if (target.id && item.id) return item.id !== target.id;
-      return item.prefixo !== target.prefixo;
-    });
+    if (ci.categoriaPlanilha === "PREVENTIVA") {
+      return {
+        type: "preventiva",
+        label: ci.tipoPreventiva ? ci.tipoPreventiva.replace("_", " ") : "Preventiva",
+        cardClass: "bg-blue-50/50 dark:bg-blue-950/20 border-blue-400/60 dark:border-blue-800 hover:border-blue-500",
+        iconClass: "text-blue-600 dark:text-blue-400",
+        badgeClass: "bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/25"
+      };
+    }
 
-    setCiList(updatedList);
-    saveCIBloqueiosToStorage(updatedList);
-    toast.info(`CI do Carro ${target.prefixo} removido.`);
+    if (ci.categoriaPlanilha === "OFICINA") {
+      const setorNome = ci.setorOficina || "Oficina";
+      return {
+        type: "oficina",
+        label: setorNome,
+        cardClass: "bg-amber-50/50 dark:bg-amber-950/20 border-amber-400/60 dark:border-amber-800 hover:border-amber-500",
+        iconClass: "text-amber-600 dark:text-amber-400",
+        badgeClass: "bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/25"
+      };
+    }
+
+    if (ci.categoriaPlanilha === "REFORCO") {
+      return {
+        type: "reforco",
+        label: ci.horarioReforco || "Reforço",
+        cardClass: "bg-purple-50/50 dark:bg-purple-950/20 border-purple-400/60 dark:border-purple-800 hover:border-purple-500",
+        iconClass: "text-purple-600 dark:text-purple-400",
+        badgeClass: "bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/25"
+      };
+    }
+
+    return {
+      type: "bloqueado",
+      label: "Bloqueado",
+      cardClass: "bg-rose-50/50 dark:bg-rose-950/20 border-rose-400/60 dark:border-rose-800 hover:border-rose-500",
+      iconClass: "text-rose-600 dark:text-rose-400",
+      badgeClass: "bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/25"
+    };
   };
 
-  // Filtragem da Lista
-  const filteredCIs = useMemo(() => {
-    return ciList.filter(item => {
-      const isLiberado = item.status === "LIBERADO";
-
-      if (selectedStatus === "ATIVOS" && isLiberado) return false;
-      if (selectedStatus === "LIBERADOS" && !isLiberado) return false;
-
-      if (selectedGaragem !== "TODAS") {
-        const itemGaragem = item.garagem || (item.prefixo.startsWith("1") ? "VCM" : "VCG");
-        if (itemGaragem !== selectedGaragem) return false;
+  // Filtragem da Grade de Carros
+  const filteredCars = useMemo(() => {
+    return INVENTORY_CARS.filter(carro => {
+      // Filtro de Busca
+      if (searchCarQuery.trim() && !carro.includes(searchCarQuery.trim())) {
+        return false;
       }
 
-      if (selectedGravidade !== "TODAS") {
-        const grav = item.gravidade || "MEDIA";
-        if (grav !== selectedGravidade) return false;
-      }
+      const ci = activeCiMap.get(carro);
 
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        return (
-          item.prefixo.toLowerCase().includes(q) ||
-          item.motivo.toLowerCase().includes(q) ||
-          (item.responsavel && item.responsavel.toLowerCase().includes(q)) ||
-          (item.os && item.os.toLowerCase().includes(q)) ||
-          (TIPO_LABELS[item.tipo]?.label.toLowerCase().includes(q))
-        );
-      }
+      // Filtros de Status
+      if (statusFilter === "BLOQUEADOS" && (!ci || ci.categoriaPlanilha === "PREVENTIVA")) return false;
+      if (statusFilter === "APTOS" && ci) return false;
+      if (statusFilter === "PREVENTIVAS" && (!ci || ci.categoriaPlanilha !== "PREVENTIVA")) return false;
+      if (statusFilter === "OFICINA" && (!ci || ci.categoriaPlanilha !== "OFICINA")) return false;
 
       return true;
     });
-  }, [ciList, selectedStatus, selectedGaragem, selectedGravidade, searchQuery]);
+  }, [searchCarQuery, statusFilter, activeCiMap]);
 
-  // Estatísticas Rápidas
-  const stats = useMemo(() => {
-    const total = ciList.length;
-    const ativos = ciList.filter(c => c.status !== "LIBERADO").length;
-    const liberados = ciList.filter(c => c.status === "LIBERADO").length;
-    const vcgAtivos = ciList.filter(c => c.status !== "LIBERADO" && (!c.garagem || c.garagem === "VCG" || (!c.garagem && !c.prefixo.startsWith("1")))).length;
-    const vcmAtivos = ciList.filter(c => c.status !== "LIBERADO" && (c.garagem === "VCM" || (!c.garagem && c.prefixo.startsWith("1")))).length;
-    const altaGravidade = ciList.filter(c => c.status !== "LIBERADO" && (c.gravidade === "ALTA" || c.motivo.toLowerCase().includes("motor") || c.motivo.toLowerCase().includes("freio"))).length;
-
-    return { total, ativos, liberados, vcgAtivos, vcmAtivos, altaGravidade };
-  }, [ciList]);
+  // Carro ativo sob análise no popup
+  const currentCI = selectedCarro ? activeCiMap.get(selectedCarro) : undefined;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       
       {/* ========================================================= */}
-      {/* CABEÇALHO DO SUBMENU CI MANUTENÇÃO */}
+      {/* CABEÇALHO DA TELA DE CI */}
       {/* ========================================================= */}
-      <div className="bg-card border rounded-2xl p-5 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="bg-card border rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4 print:hidden">
         <div className="flex items-start gap-3.5">
           <div className="w-12 h-12 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0 border border-rose-500/20">
             <ShieldAlert className="w-6 h-6" />
@@ -249,30 +373,40 @@ export function CiManutencaoView({ ciList, setCiList, garagemFiltro = "TODAS" }:
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[11px] font-mono uppercase px-2 py-0.5 rounded bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 font-bold">
-                CI - COMUNICAÇÃO INTERNA
+                CI - SOLICITAÇÃO DE VEÍCULOS
               </span>
-              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-                Oficina & Pátio
+              <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-muted text-muted-foreground">
+                CGU.REG.MT0005
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground mt-1">
-              Alimentar CI Manutenção & Bloqueios da Frota
+              Controle de CI & Bloqueios da Frota
             </h1>
             <p className="text-xs sm:text-sm text-muted-foreground">
-              Cadastre veículos retidos na oficina, acompanhe reparos e libere carros aptos para a soltura.
+              Selecione qualquer veículo na grade para registrar ou liberar solicitações de manutenção e bloqueios.
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
           <Button
-            variant={showForm ? "default" : "outline"}
+            variant={viewMode === "GRID" ? "default" : "outline"}
             size="sm"
-            onClick={() => setShowForm(!showForm)}
+            onClick={() => setViewMode("GRID")}
             className="gap-1.5 h-9 text-xs font-semibold"
           >
-            <Plus className="w-3.5 h-3.5" />
-            {showForm ? "Ocultar Formulário" : "Novo Bloqueio CI"}
+            <Layers className="w-3.5 h-3.5" />
+            Grade de Carros
+          </Button>
+
+          <Button
+            variant={viewMode === "PLANILHA" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setViewMode("PLANILHA")}
+            className="gap-1.5 h-9 text-xs font-semibold"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            Planilha Oficial CGU
           </Button>
 
           <Button
@@ -282,766 +416,956 @@ export function CiManutencaoView({ ciList, setCiList, garagemFiltro = "TODAS" }:
             className="gap-1.5 h-9 text-xs"
           >
             <Printer className="w-3.5 h-3.5" />
-            Imprimir CI
+            Imprimir
           </Button>
         </div>
       </div>
 
       {/* ========================================================= */}
-      {/* CARDS DE RESUMO DO QUADRO CI */}
+      {/* CARDS DE RESUMO OPERACIONAL COM AÇÃO 'CONFERIR >' */}
       {/* ========================================================= */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <div className="bg-rose-500/10 border border-rose-500/20 p-3.5 rounded-xl">
-          <span className="text-xs text-rose-700 dark:text-rose-300 font-semibold flex items-center gap-1.5">
-            <ShieldAlert className="w-3.5 h-3.5 text-rose-500" />
-            Ativos no CI
-          </span>
-          <div className="flex items-baseline gap-1 mt-1">
-            <span className="text-2xl font-bold text-rose-600 dark:text-rose-400">{stats.ativos}</span>
-            <span className="text-xs text-rose-700/70 dark:text-rose-300/70">carros bloqueados</span>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 print:hidden">
+        
+        {/* CARD 1: Frota Total */}
+        <button
+          type="button"
+          onClick={() => setStatusFilter("ALL")}
+          className={cn(
+            "group text-left p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between shadow-2xs hover:shadow-md",
+            statusFilter === "ALL"
+              ? "bg-primary/5 border-primary ring-2 ring-primary/40 shadow-xs"
+              : "bg-card border-border/80 hover:border-primary/40"
+          )}
+        >
+          <div>
+            <span className="text-xs text-muted-foreground font-semibold flex items-center gap-1.5">
+              <Bus className="w-3.5 h-3.5 text-primary" />
+              Frota Total
+            </span>
+            <div className="flex items-baseline gap-1 mt-1">
+              <span className="text-2xl font-bold text-foreground">{stats.totalFrota}</span>
+              <span className="text-xs text-muted-foreground">veículos</span>
+            </div>
           </div>
-        </div>
+          <div className="flex items-center justify-between text-xs pt-2 mt-2 border-t border-border/40">
+            <span className="text-[11px] font-medium text-muted-foreground">
+              {statusFilter === "ALL" ? "Exibindo todos" : "Ver todos"}
+            </span>
+            <span className={cn(
+              "flex items-center gap-0.5 text-[11px] font-semibold transition-transform group-hover:translate-x-0.5",
+              statusFilter === "ALL" ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
+            )}>
+              Conferir <ChevronRight className="w-3 h-3" />
+            </span>
+          </div>
+        </button>
 
-        <div className="bg-amber-500/10 border border-amber-500/20 p-3.5 rounded-xl">
-          <span className="text-xs text-amber-700 dark:text-amber-300 font-semibold flex items-center gap-1.5">
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
-            Críticos / Motor / Freio
-          </span>
-          <div className="flex items-baseline gap-1 mt-1">
-            <span className="text-2xl font-bold text-amber-600 dark:text-amber-400">{stats.altaGravidade}</span>
-            <span className="text-xs text-amber-700/70 dark:text-amber-300/70">bloqueio total</span>
+        {/* CARD 2: Na CI / Retidos */}
+        <button
+          type="button"
+          onClick={() => setStatusFilter(statusFilter === "BLOQUEADOS" ? "ALL" : "BLOQUEADOS")}
+          className={cn(
+            "group text-left p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between shadow-2xs hover:shadow-md",
+            statusFilter === "BLOQUEADOS"
+              ? "bg-rose-500/15 border-rose-500 ring-2 ring-rose-500/50 shadow-xs"
+              : "bg-rose-500/10 border-rose-500/20 hover:border-rose-500/50"
+          )}
+        >
+          <div>
+            <span className="text-xs text-rose-700 dark:text-rose-300 font-semibold flex items-center gap-1.5">
+              <ShieldAlert className="w-3.5 h-3.5 text-rose-500" />
+              Na CI / Retidos
+            </span>
+            <div className="flex items-baseline gap-1 mt-1">
+              <span className="text-2xl font-bold text-rose-600 dark:text-rose-400">{stats.totalNaCI}</span>
+              <span className="text-xs text-rose-700/70 dark:text-rose-300/70">veículos</span>
+            </div>
           </div>
-        </div>
+          <div className="flex items-center justify-between text-xs pt-2 mt-2 border-t border-rose-500/20">
+            <span className="text-[11px] font-medium text-rose-700/80 dark:text-rose-300/80">
+              {statusFilter === "BLOQUEADOS" ? "Filtro ativo" : "Filtrar"}
+            </span>
+            <span className="flex items-center gap-0.5 text-[11px] font-semibold text-rose-600 dark:text-rose-400 group-hover:underline transition-transform group-hover:translate-x-0.5">
+              Conferir <ChevronRight className="w-3 h-3" />
+            </span>
+          </div>
+        </button>
 
-        <div className="bg-card border p-3.5 rounded-xl">
-          <span className="text-xs text-muted-foreground font-semibold flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-amber-400" />
-            VCG Retidos
-          </span>
-          <div className="flex items-baseline gap-1 mt-1">
-            <span className="text-2xl font-bold text-foreground">{stats.vcgAtivos}</span>
-            <span className="text-xs text-muted-foreground">veículos</span>
+        {/* CARD 3: Preventivas / Revisão */}
+        <button
+          type="button"
+          onClick={() => setStatusFilter(statusFilter === "PREVENTIVAS" ? "ALL" : "PREVENTIVAS")}
+          className={cn(
+            "group text-left p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between shadow-2xs hover:shadow-md",
+            statusFilter === "PREVENTIVAS"
+              ? "bg-blue-500/15 border-blue-500 ring-2 ring-blue-500/50 shadow-xs"
+              : "bg-blue-500/10 border-blue-500/20 hover:border-blue-500/50"
+          )}
+        >
+          <div>
+            <span className="text-xs text-blue-700 dark:text-blue-300 font-semibold flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-blue-500" />
+              Preventivas / Revisão
+            </span>
+            <div className="flex items-baseline gap-1 mt-1">
+              <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">{stats.preventivasCount}</span>
+              <span className="text-xs text-blue-700/70 dark:text-blue-300/70">carros</span>
+            </div>
           </div>
-        </div>
+          <div className="flex items-center justify-between text-xs pt-2 mt-2 border-t border-blue-500/20">
+            <span className="text-[11px] font-medium text-blue-700/80 dark:text-blue-300/80">
+              {statusFilter === "PREVENTIVAS" ? "Filtro ativo" : "Filtrar"}
+            </span>
+            <span className="flex items-center gap-0.5 text-[11px] font-semibold text-blue-600 dark:text-blue-400 group-hover:underline transition-transform group-hover:translate-x-0.5">
+              Conferir <ChevronRight className="w-3 h-3" />
+            </span>
+          </div>
+        </button>
 
-        <div className="bg-card border p-3.5 rounded-xl">
-          <span className="text-xs text-muted-foreground font-semibold flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-blue-400" />
-            VCM Retidos
-          </span>
-          <div className="flex items-baseline gap-1 mt-1">
-            <span className="text-2xl font-bold text-foreground">{stats.vcmAtivos}</span>
-            <span className="text-xs text-muted-foreground">veículos</span>
+        {/* CARD 4: Setores / Oficinas */}
+        <button
+          type="button"
+          onClick={() => setStatusFilter(statusFilter === "OFICINA" ? "ALL" : "OFICINA")}
+          className={cn(
+            "group text-left p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between shadow-2xs hover:shadow-md",
+            statusFilter === "OFICINA"
+              ? "bg-amber-500/15 border-amber-500 ring-2 ring-amber-500/50 shadow-xs"
+              : "bg-amber-500/10 border-amber-500/20 hover:border-amber-500/50"
+          )}
+        >
+          <div>
+            <span className="text-xs text-amber-700 dark:text-amber-300 font-semibold flex items-center gap-1.5">
+              <Wrench className="w-3.5 h-3.5 text-amber-500" />
+              Setores / Oficinas
+            </span>
+            <div className="flex items-baseline gap-1 mt-1">
+              <span className="text-2xl font-bold text-amber-600 dark:text-amber-400">{stats.oficinasCount}</span>
+              <span className="text-xs text-amber-700/70 dark:text-amber-300/70">em oficina</span>
+            </div>
           </div>
-        </div>
+          <div className="flex items-center justify-between text-xs pt-2 mt-2 border-t border-amber-500/20">
+            <span className="text-[11px] font-medium text-amber-700/80 dark:text-amber-300/80">
+              {statusFilter === "OFICINA" ? "Filtro ativo" : "Filtrar"}
+            </span>
+            <span className="flex items-center gap-0.5 text-[11px] font-semibold text-amber-600 dark:text-amber-400 group-hover:underline transition-transform group-hover:translate-x-0.5">
+              Conferir <ChevronRight className="w-3 h-3" />
+            </span>
+          </div>
+        </button>
 
-        <div className="bg-emerald-500/10 border border-emerald-500/20 p-3.5 rounded-xl">
-          <span className="text-xs text-emerald-700 dark:text-emerald-300 font-semibold flex items-center gap-1.5">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-            Liberados / Baixados
-          </span>
-          <div className="flex items-baseline gap-1 mt-1">
-            <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{stats.liberados}</span>
-            <span className="text-xs text-emerald-700/70 dark:text-emerald-300/70">prontos p/ pista</span>
+        {/* CARD 5: Aptos / Liberados */}
+        <button
+          type="button"
+          onClick={() => setStatusFilter(statusFilter === "APTOS" ? "ALL" : "APTOS")}
+          className={cn(
+            "group text-left p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between shadow-2xs hover:shadow-md",
+            statusFilter === "APTOS"
+              ? "bg-emerald-500/15 border-emerald-500 ring-2 ring-emerald-500/50 shadow-xs"
+              : "bg-emerald-500/10 border-emerald-500/20 hover:border-emerald-500/50"
+          )}
+        >
+          <div>
+            <span className="text-xs text-emerald-700 dark:text-emerald-300 font-semibold flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+              Aptos / Liberados
+            </span>
+            <div className="flex items-baseline gap-1 mt-1">
+              <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{stats.aptos}</span>
+              <span className="text-xs text-emerald-700/70 dark:text-emerald-300/70">prontos p/ pista</span>
+            </div>
           </div>
-        </div>
+          <div className="flex items-center justify-between text-xs pt-2 mt-2 border-t border-emerald-500/20">
+            <span className="text-[11px] font-medium text-emerald-700/80 dark:text-emerald-300/80">
+              {statusFilter === "APTOS" ? "Filtro ativo" : "Filtrar"}
+            </span>
+            <span className="flex items-center gap-0.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 group-hover:underline transition-transform group-hover:translate-x-0.5">
+              Conferir <ChevronRight className="w-3 h-3" />
+            </span>
+          </div>
+        </button>
+
       </div>
 
       {/* ========================================================= */}
-      {/* FORMULÁRIO DE CADASTRO DE BLOQUEIO CI */}
+      {/* MODO 1: GRADE DE CARROS */}
       {/* ========================================================= */}
-      {showForm && (
-        <div className="bg-card border-2 border-rose-500/30 rounded-2xl p-5 shadow-sm space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
-          <div className="flex items-center justify-between pb-3 border-b">
-            <div className="flex items-center gap-2">
-              <Wrench className="w-5 h-5 text-rose-600 dark:text-rose-400" />
-              <h2 className="text-base font-bold text-foreground">
-                Formulário de Alimentação de CI Manutenção
-              </h2>
+      <div className={cn("space-y-4 print:hidden", viewMode !== "GRID" && "hidden")}>
+          
+          {/* BARRA DE BUSCA E STATUS DO FILTRO */}
+          <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
+            {/* Input de Busca */}
+            <div className="relative w-full sm:w-80">
+              <Input
+                placeholder="Buscar número do carro..."
+                value={searchCarQuery}
+                onChange={(e) => setSearchCarQuery(e.target.value)}
+                className="w-full bg-background pr-8 h-9 text-xs"
+              />
+              {searchCarQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchCarQuery("")}
+                  className="absolute right-2.5 top-2.5 text-muted-foreground/60 hover:text-muted-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
             </div>
-            <span className="text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50 px-2.5 py-1 rounded-full border border-rose-200 dark:border-rose-800">
-              Impacta a Folha de Soltura em Tempo Real
-            </span>
+
+            {/* Indicador de Filtro Ativo */}
+            {statusFilter !== "ALL" && (
+              <div className="flex items-center gap-2 text-xs bg-muted/40 px-3 py-1.5 rounded-lg border w-full sm:w-auto justify-between sm:justify-start">
+                <span className="text-muted-foreground">
+                  Filtrando: <strong className="text-foreground">
+                    {statusFilter === "BLOQUEADOS" && "Na CI / Retidos"}
+                    {statusFilter === "PREVENTIVAS" && "Preventivas / Revisão"}
+                    {statusFilter === "OFICINA" && "Setores / Oficinas"}
+                    {statusFilter === "APTOS" && "Aptos / Liberados"}
+                  </strong> ({filteredCars.length} veículos)
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setStatusFilter("ALL")}
+                  className="h-6 px-2 text-xs text-primary hover:underline font-semibold"
+                >
+                  Ver todos
+                </Button>
+              </div>
+            )}
           </div>
 
-          <form onSubmit={handleCreateCI} className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
-              
-              {/* Prefixo do Carro */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-foreground">
-                  Prefixo do Carro <span className="text-rose-500">*</span>
-                </Label>
-                <Input
-                  placeholder="Ex: 3200, 1345"
-                  value={formPrefixo}
-                  onChange={(e) => handlePrefixoChange(e.target.value)}
-                  className="font-mono font-bold text-sm bg-muted/40 h-9"
-                  required
-                />
-              </div>
-
-              {/* Garagem */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-foreground">
-                  Garagem <span className="text-rose-500">*</span>
-                </Label>
-                <select
-                  value={formGaragem}
-                  onChange={(e) => setFormGaragem(e.target.value as any)}
-                  className="w-full h-9 px-3 rounded-lg border bg-muted/40 text-xs font-semibold focus:outline-hidden"
+          {/* GRADE DE CARTÕES DE CARROS (PRINT 1) */}
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-2">
+            {filteredCars.map(carro => {
+              const visual = getCarVisualInfo(carro);
+              return (
+                <button
+                  key={carro}
+                  type="button"
+                  onClick={() => handleCarClick(carro)}
+                  className={cn(
+                    "flex flex-col items-center justify-center p-2 rounded-xl shadow-2xs transition-all duration-150 hover:scale-[1.02] focus:outline-hidden focus:ring-2 focus:ring-primary/40 text-center relative overflow-hidden h-20 border",
+                    visual.cardClass
+                  )}
                 >
-                  <option value="VCG">Viação Campo Grande (VCG)</option>
-                  <option value="VCM">Viação Cidade Morena (VCM)</option>
-                </select>
-              </div>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Bus className={cn("h-3.5 w-3.5 shrink-0", visual.iconClass)} />
+                    <span className="font-bold text-sm tracking-tight font-mono text-foreground">
+                      {carro}
+                    </span>
+                  </div>
+                  <span className={cn("text-[9px] font-semibold px-2 py-0.5 rounded-full inline-block leading-tight truncate max-w-[90%]", visual.badgeClass)}>
+                    {visual.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
 
-              {/* Tipo de Bloqueio */}
-              <div className="space-y-1.5 lg:col-span-2">
-                <Label className="text-xs font-bold text-foreground">
-                  Tipo de Bloqueio / Categoria <span className="text-rose-500">*</span>
-                </Label>
-                <select
-                  value={formTipo}
-                  onChange={(e) => setFormTipo(e.target.value as any)}
-                  className="w-full h-9 px-3 rounded-lg border bg-muted/40 text-xs font-semibold focus:outline-hidden"
-                >
-                  <option value="EM_MANUTENCAO">Manutenção Geral / Mecânica</option>
-                  <option value="BLOQUEADO_CORRETIVA">Corretiva Urgente / Pátio</option>
-                  <option value="BLOQUEADO_MOTOR">Motor / Arrefecimento / Óleo</option>
-                  <option value="BLOQUEADO_FREIO">Freio / Cuíca / Válvula de Ar</option>
-                  <option value="BLOQUEADO_MOLA">Mola / Suspensão / Eixo</option>
-                  <option value="BLOQUEADO_CAMBIO">Câmbio / Embreagem / Diferencial</option>
-                  <option value="BLOQUEADO_AGETRAN">Agetran / Vistoria / Notificação</option>
-                  <option value="BLOQUEADO_MODULO">Elétrica / Módulo / Multiplex</option>
-                  <option value="BLOQUEADO_AR">Ar-Condicionado / Climatizador</option>
-                  <option value="BLOQUEADO_SINISTRO">Sinistro / Batido / Chaparia</option>
-                  <option value="REFORCO_REVISAO">Revisão Preventiva Programada</option>
-                </select>
-              </div>
-
-              {/* Gravidade */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-foreground">
-                  Gravidade / Impacto
-                </Label>
-                <select
-                  value={formGravidade}
-                  onChange={(e) => setFormGravidade(e.target.value as any)}
-                  className="w-full h-9 px-3 rounded-lg border bg-muted/40 text-xs font-semibold focus:outline-hidden"
-                >
-                  <option value="ALTA">Alta (Bloqueio Total)</option>
-                  <option value="MEDIA">Média (Restrição)</option>
-                  <option value="BAIXA">Baixa (Monitoramento)</option>
-                </select>
-              </div>
-
-              {/* Número OS */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-foreground">
-                  N° Ordem Serviço (OS)
-                </Label>
-                <Input
-                  placeholder="Ex: OS-202645"
-                  value={formOS}
-                  onChange={(e) => setFormOS(e.target.value)}
-                  className="text-xs bg-muted/40 h-9 font-mono"
-                />
-              </div>
-
-            </div>
-
-            {/* Linha 2 do formulário */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3.5">
-              
-              {/* Motivo detalhado */}
-              <div className="space-y-1.5 md:col-span-2">
-                <Label className="text-xs font-bold text-foreground">
-                  Motivo Detalhado / Sintoma do Defeito <span className="text-rose-500">*</span>
-                </Label>
-                <Input
-                  placeholder="Ex: Bloqueado cuíca de freio com vazamento de ar..."
-                  value={formMotivo}
-                  onChange={(e) => setFormMotivo(e.target.value)}
-                  className="text-xs bg-muted/40 h-9"
-                  required
-                />
-              </div>
-
-              {/* Responsável / Oficina */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-foreground">
-                  Responsável / Oficina
-                </Label>
-                <Input
-                  placeholder="Ex: Mecânico Silva / Plantão"
-                  value={formResponsavel}
-                  onChange={(e) => setFormResponsavel(e.target.value)}
-                  className="text-xs bg-muted/40 h-9"
-                />
-              </div>
-
-              {/* Data e Hora de Entrada */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-foreground">
-                  Data & Hora Entrada
-                </Label>
-                <div className="flex items-center gap-1.5">
-                  <Input
-                    type="date"
-                    value={formData}
-                    onChange={(e) => setFormData(e.target.value)}
-                    className="text-xs bg-muted/40 h-9"
-                  />
-                  <Input
-                    type="time"
-                    value={formHora}
-                    onChange={(e) => setFormHora(e.target.value)}
-                    className="text-xs bg-muted/40 h-9 w-20"
-                  />
-                </div>
-              </div>
-
-              {/* Previsão de Liberação */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-foreground">
-                  Previsão de Liberação
-                </Label>
-                <Input
-                  placeholder="Ex: Hoje às 14:00, Amanhã"
-                  value={formPrevisao}
-                  onChange={(e) => setFormPrevisao(e.target.value)}
-                  className="text-xs bg-muted/40 h-9"
-                />
-              </div>
-
-            </div>
-
-            {/* Botões de Ação */}
-            <div className="flex items-center justify-end gap-2.5 pt-2 border-t">
+          {filteredCars.length === 0 && (
+            <div className="py-16 text-center text-muted-foreground bg-card rounded-2xl border">
+              <Bus className="h-10 w-10 mx-auto text-muted-foreground/40 mb-2" />
+              <p className="font-medium text-sm">Nenhum veículo encontrado com os filtros aplicados.</p>
               <Button
-                type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  setFormPrefixo("");
-                  setFormMotivo("");
+                  setSearchCarQuery("");
+                  setStatusFilter("ALL");
                 }}
-                className="text-xs h-9"
+                className="mt-3 text-xs"
               >
-                Limpar Campos
-              </Button>
-
-              <Button
-                type="submit"
-                size="sm"
-                className="bg-rose-600 hover:bg-rose-700 text-white text-xs h-9 font-semibold gap-1.5 shadow-xs"
-              >
-                <ShieldAlert className="w-4 h-4" />
-                Cadastrar Bloqueio CI
+                Limpar Filtros
               </Button>
             </div>
-          </form>
+          )}
         </div>
-      )}
 
       {/* ========================================================= */}
-      {/* FILTROS E BUSCA DO QUADRO CI */}
+      {/* MODO 2: ESPELHO DA PLANILHA OFICIAL IMPRESSA (PRINT 2) */}
       {/* ========================================================= */}
-      <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-        
-        {/* Filtros de Status e Garagem */}
-        <div className="flex items-center gap-2 flex-wrap">
+      <div className={cn(
+        "bg-white text-slate-900 border rounded-2xl p-6 shadow-sm space-y-4 print:space-y-2.5",
+        "print:p-0 print:border-none print:shadow-none print:m-0 print:w-full print:block print:text-black",
+        viewMode === "PLANILHA" ? "block" : "hidden print:block"
+      )}>
           
-          <div className="flex items-center bg-muted/60 p-1 rounded-xl border text-xs">
-            <button
-              type="button"
-              onClick={() => setSelectedStatus("ATIVOS")}
-              className={cn(
-                "px-3 py-1 rounded-lg font-bold transition-all",
-                selectedStatus === "ATIVOS"
-                  ? "bg-rose-600 text-white shadow-2xs"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Ativos ({stats.ativos})
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedStatus("LIBERADOS")}
-              className={cn(
-                "px-3 py-1 rounded-lg font-bold transition-all",
-                selectedStatus === "LIBERADOS"
-                  ? "bg-emerald-600 text-white shadow-2xs"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Liberados ({stats.liberados})
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedStatus("TODOS")}
-              className={cn(
-                "px-3 py-1 rounded-lg font-bold transition-all",
-                selectedStatus === "TODOS"
-                  ? "bg-background text-foreground shadow-2xs border"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Todos ({stats.total})
-            </button>
+          {/* Cabeçalho da Planilha Oficial (CGU.REG.MT0005) */}
+          <div className="border border-slate-400 divide-y divide-slate-400">
+            <div className="flex items-center justify-between p-3 bg-slate-50">
+              <div className="flex items-center gap-3">
+                <Bus className="w-8 h-8 text-slate-700" />
+                <div>
+                  <h3 className="text-base font-extrabold tracking-tight uppercase">CONSÓRCIO GUAICURUS</h3>
+                  <p className="text-[10px] text-slate-600 font-mono">OPERADOR DO TRANSPORTE COLETIVO</p>
+                </div>
+              </div>
+              <div className="text-center flex-1">
+                <h2 className="text-lg font-black uppercase tracking-wider">
+                  CI - Solicitação de veículos
+                </h2>
+              </div>
+              <div className="text-right text-[11px] font-mono">
+                <strong>Número:</strong> CGU.REG.MT0005
+              </div>
+            </div>
+
+            <div className="grid grid-cols-4 text-center text-[11px] divide-x divide-slate-400 py-1.5 font-semibold bg-slate-100">
+              <div>DATA DA CRIAÇÃO: 10/10/2024</div>
+              <div>REVISÃO Nº: 1</div>
+              <div>DATA DA REVISÃO: 09/10/2025</div>
+              <div>DATA: {new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" }).toUpperCase()}</div>
+            </div>
           </div>
 
-          <div className="flex items-center bg-muted/60 p-1 rounded-xl border text-xs">
-            <button
-              type="button"
-              onClick={() => setSelectedGaragem("TODAS")}
-              className={cn(
-                "px-2.5 py-1 rounded-lg font-semibold transition-all",
-                selectedGaragem === "TODAS" ? "bg-background text-foreground shadow-2xs border" : "text-muted-foreground"
-              )}
-            >
-              Todas Garagens
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedGaragem("VCG")}
-              className={cn(
-                "px-2.5 py-1 rounded-lg font-semibold transition-all",
-                selectedGaragem === "VCG" ? "bg-background text-foreground shadow-2xs border" : "text-muted-foreground"
-              )}
-            >
-              VCG
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedGaragem("VCM")}
-              className={cn(
-                "px-2.5 py-1 rounded-lg font-semibold transition-all",
-                selectedGaragem === "VCM" ? "bg-background text-foreground shadow-2xs border" : "text-muted-foreground"
-              )}
-            >
-              VCM
-            </button>
+          {/* QUADRO 1: PREVENTIVAS */}
+          <div className="border border-slate-400">
+            <div className="bg-slate-200 text-center text-xs font-bold py-1 border-b border-slate-400 uppercase tracking-wide">
+              Preventivas
+            </div>
+            <div className="grid grid-cols-5 text-center text-[11px] font-bold bg-slate-100 divide-x divide-slate-400 border-b border-slate-400 py-1">
+              <div>Preventiva</div>
+              <div>Lubrificação</div>
+              <div>Troca de óleo</div>
+              <div>REVISÃO GERAL</div>
+              <div>SISEP</div>
+            </div>
+            <div className="grid grid-cols-5 text-center text-xs divide-x divide-slate-400 min-h-[48px] p-1 font-mono">
+              <div>{ciList.filter(c => c.status !== "LIBERADO" && c.categoriaPlanilha === "PREVENTIVA" && c.tipoPreventiva === "PREVENTIVA").map(c => c.prefixo).join(", ") || "—"}</div>
+              <div>{ciList.filter(c => c.status !== "LIBERADO" && c.categoriaPlanilha === "PREVENTIVA" && c.tipoPreventiva === "LUBRIFICACAO").map(c => c.prefixo).join(", ") || "—"}</div>
+              <div>{ciList.filter(c => c.status !== "LIBERADO" && c.categoriaPlanilha === "PREVENTIVA" && c.tipoPreventiva === "TROCA_OLEO").map(c => c.prefixo).join(", ") || "—"}</div>
+              <div className="font-bold text-blue-700">{ciList.filter(c => c.status !== "LIBERADO" && c.categoriaPlanilha === "PREVENTIVA" && c.tipoPreventiva === "REVISAO_GERAL").map(c => c.prefixo).join(", ") || "—"}</div>
+              <div>{ciList.filter(c => c.status !== "LIBERADO" && c.categoriaPlanilha === "PREVENTIVA" && c.tipoPreventiva === "SISEP").map(c => c.prefixo).join(", ") || "—"}</div>
+            </div>
           </div>
 
-          <div className="flex items-center bg-muted/60 p-1 rounded-xl border text-xs">
-            {(["TODAS", "ALTA", "MEDIA", "BAIXA"] as const).map(g => (
-              <button
-                key={g}
-                type="button"
-                onClick={() => setSelectedGravidade(g)}
-                className={cn(
-                  "px-2 py-1 rounded-lg font-semibold transition-all",
-                  selectedGravidade === g ? "bg-background text-foreground shadow-2xs border" : "text-muted-foreground"
-                )}
-              >
-                {g === "TODAS" ? "Todas Grav." : g}
-              </button>
-            ))}
+          {/* QUADRO 2: SETORES DA OFICINA */}
+          <div className="border border-slate-400">
+            <div className="grid grid-cols-8 text-center text-[10px] font-bold bg-slate-200 divide-x divide-slate-400 border-b border-slate-400 py-1 uppercase">
+              <div>Mecânica</div>
+              <div>Elevador</div>
+              <div>Elétrica</div>
+              <div>Borracharia</div>
+              <div>Funilaria / Pintura</div>
+              <div>Tacógrafo</div>
+              <div>Bilhetagem</div>
+              <div>Limpeza</div>
+            </div>
+            <div className="grid grid-cols-8 text-center text-[10px] divide-x divide-slate-400 min-h-[80px] p-1">
+              {SETORES_OFICINA.map(setor => {
+                const itens = ciList.filter(c => c.status !== "LIBERADO" && c.categoriaPlanilha === "OFICINA" && c.setorOficina === setor.id);
+                return (
+                  <div key={setor.id} className="space-y-1">
+                    {itens.length === 0 && <span className="text-slate-400">—</span>}
+                    {itens.map(item => (
+                      <div key={item.id || item.prefixo} className="border-b border-slate-200 pb-1">
+                        <strong className="font-mono text-xs block">{item.prefixo}</strong>
+                        <span className="text-[9px] text-slate-600 block">{item.motivo}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
-        </div>
-
-        {/* Input de Busca */}
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-          <Input
-            placeholder="Buscar por prefixo, motivo, OS..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-8 h-9 text-xs bg-card"
-          />
-        </div>
-
-      </div>
-
-      {/* ========================================================= */}
-      {/* TABELA DE REGISTROS DE CI MANUTENÇÃO */}
-      {/* ========================================================= */}
-      <div className="bg-card border rounded-2xl shadow-xs overflow-hidden">
-        <div className="px-4 py-3 border-b bg-muted/30 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <ShieldAlert className="w-4 h-4 text-rose-500" />
-            <span className="text-xs font-bold uppercase tracking-wider text-foreground">
-              Registros de Comunicação Interna (CI) - {filteredCIs.length} encontrado(s)
-            </span>
+          {/* QUADRO 3: REFORÇO COM HORÁRIO */}
+          <div className="border border-slate-400">
+            <div className="bg-slate-200 text-center text-xs font-bold py-1 border-b border-slate-400 uppercase tracking-wide">
+              Reforço com horário
+            </div>
+            <div className="grid grid-cols-2 divide-x divide-slate-400 text-xs">
+              <div className="p-2 space-y-1">
+                {ciList.filter(c => c.status !== "LIBERADO" && c.categoriaPlanilha === "REFORCO").slice(0, 5).map(item => (
+                  <div key={item.id} className="flex items-center justify-between border-b border-slate-200 py-0.5 text-[11px]">
+                    <span className="font-bold font-mono">{item.horarioReforco || "07:15 - A"}</span>
+                    <span>{item.motivo}</span>
+                    <strong className="font-mono text-xs">{item.prefixo}</strong>
+                  </div>
+                ))}
+              </div>
+              <div className="p-2 space-y-1">
+                {ciList.filter(c => c.status !== "LIBERADO" && c.categoriaPlanilha === "REFORCO").slice(5).map(item => (
+                  <div key={item.id} className="flex items-center justify-between border-b border-slate-200 py-0.5 text-[11px]">
+                    <span className="font-bold font-mono">{item.horarioReforco || "07:40 - M"}</span>
+                    <span>{item.motivo}</span>
+                    <strong className="font-mono text-xs">{item.prefixo}</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-        </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="border-b bg-muted/20 text-muted-foreground font-semibold">
-                <th className="py-2.5 px-3">Prefixo</th>
-                <th className="py-2.5 px-2">Garagem</th>
-                <th className="py-2.5 px-3">Tipo de Bloqueio</th>
-                <th className="py-2.5 px-3">Motivo / Descrição do Defeito</th>
-                <th className="py-2.5 px-2">Gravidade</th>
-                <th className="py-2.5 px-3">Entrada / Previsão</th>
-                <th className="py-2.5 px-3">OS / Responsável</th>
-                <th className="py-2.5 px-2">Status</th>
-                <th className="py-2.5 px-3 text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {filteredCIs.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="py-8 text-center text-muted-foreground">
-                    Nenhum registro de CI encontrado com os filtros selecionados.
-                  </td>
-                </tr>
-              ) : (
-                filteredCIs.map((item, idx) => {
-                  const isLiberado = item.status === "LIBERADO";
-                  const tipoInfo = TIPO_LABELS[item.tipo] || {
-                    label: item.tipo,
-                    color: "text-foreground",
-                    bg: "bg-muted",
-                    border: "border-border"
-                  };
-                  const itemGaragem = item.garagem || (item.prefixo.startsWith("1") ? "VCM" : "VCG");
-
-                  return (
-                    <tr 
-                      key={item.id || `${item.prefixo}-${idx}`}
-                      className={cn(
-                        "hover:bg-muted/30 transition-colors",
-                        isLiberado ? "opacity-60 bg-emerald-500/5" : ""
-                      )}
-                    >
-                      {/* Prefixo */}
-                      <td className="py-2.5 px-3">
-                        <div className="flex items-center gap-1.5">
-                          <span className={cn(
-                            "font-mono font-bold text-sm px-2 py-0.5 rounded-md border shadow-2xs",
-                            isLiberado 
-                              ? "bg-muted text-muted-foreground border-border" 
-                              : "bg-rose-600 text-white border-rose-700"
-                          )}>
-                            {item.prefixo}
-                          </span>
-                        </div>
-                      </td>
-
-                      {/* Garagem */}
-                      <td className="py-2.5 px-2">
-                        <span className={cn(
-                          "px-2 py-0.5 rounded text-[10px] font-bold",
-                          itemGaragem === "VCG"
-                            ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
-                            : "bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300"
-                        )}>
-                          {itemGaragem}
-                        </span>
-                      </td>
-
-                      {/* Tipo */}
-                      <td className="py-2.5 px-3">
-                        <span className={cn(
-                          "px-2 py-0.5 rounded text-[11px] font-semibold border inline-block",
-                          tipoInfo.bg,
-                          tipoInfo.color,
-                          tipoInfo.border
-                        )}>
-                          {tipoInfo.label}
-                        </span>
-                      </td>
-
-                      {/* Motivo */}
-                      <td className="py-2.5 px-3 max-w-xs">
-                        <p className="font-semibold text-foreground truncate" title={item.motivo}>
-                          {item.motivo}
-                        </p>
-                        {isLiberado && item.motivoLiberacao && (
-                          <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5 truncate">
-                            ✓ Baixa: {item.motivoLiberacao} ({item.dataLiberacao})
-                          </p>
-                        )}
-                      </td>
-
-                      {/* Gravidade */}
-                      <td className="py-2.5 px-2">
-                        <span className={cn(
-                          "px-1.5 py-0.5 rounded text-[10px] font-bold uppercase",
-                          (item.gravidade === "ALTA" || !item.gravidade)
-                            ? "bg-rose-100 text-rose-800 dark:bg-rose-950/70 dark:text-rose-300"
-                            : item.gravidade === "MEDIA"
-                              ? "bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300"
-                              : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
-                        )}>
-                          {item.gravidade || "ALTA"}
-                        </span>
-                      </td>
-
-                      {/* Entrada / Previsão */}
-                      <td className="py-2.5 px-3 text-muted-foreground whitespace-nowrap">
-                        <div>
-                          <span className="font-medium text-foreground">{item.data}</span>
-                          {item.hora && <span className="text-[10px] ml-1 text-muted-foreground">({item.hora})</span>}
-                        </div>
-                        {item.previsao && (
-                          <div className="text-[10px] text-blue-600 dark:text-blue-400 font-medium">
-                            Prev: {item.previsao}
-                          </div>
-                        )}
-                      </td>
-
-                      {/* OS / Responsável */}
-                      <td className="py-2.5 px-3 max-w-[140px] truncate text-muted-foreground">
-                        <span className="font-mono text-[10px] text-foreground font-semibold block">
-                          {item.os || "OS-Pátio"}
-                        </span>
-                        <span className="text-[11px] truncate block">
-                          {item.responsavel || "Oficina Mecânica"}
-                        </span>
-                      </td>
-
-                      {/* Status */}
-                      <td className="py-2.5 px-2">
-                        {isLiberado ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300">
-                            <Check className="w-2.5 h-2.5" /> Liberado
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300">
-                            <ShieldAlert className="w-2.5 h-2.5" /> Retido CI
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Ações */}
-                      <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {!isLiberado ? (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setItemToRelease(item);
-                                setReleaseMotivo("Reparo concluído e testado");
-                              }}
-                              className="h-7 px-2 text-[11px] bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800 font-semibold gap-1"
-                              title="Dar baixa e liberar veículo do CI"
-                            >
-                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                              Liberar
-                            </Button>
-                          ) : (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                const updatedList = ciList.map(ci => ci.id === item.id ? { ...ci, status: "BLOQUEADO" as const } : ci);
-                                setCiList(updatedList);
-                                saveCIBloqueiosToStorage(updatedList);
-                                toast.info(`Carro ${item.prefixo} retornado para Bloqueado.`);
-                              }}
-                              className="h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground"
-                              title="Reabrir CI"
-                            >
-                              <RefreshCw className="w-3 h-3" />
-                              Reabrir
-                            </Button>
-                          )}
-
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setEditingItem(item)}
-                            className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                            title="Editar CI"
-                          >
-                            <Edit3 className="w-3 h-3" />
-                          </Button>
-
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDeleteCI(item)}
-                            className="h-7 w-7 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                            title="Excluir CI"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </Button>
-                        </div>
-                      </td>
+          {/* QUADRO 4: BLOQUEADOS POR CONSORCIADA (VSF, VCG, JTU, VCM) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            
+            {/* VSF */}
+            <div className="border border-slate-400">
+              <div className="bg-slate-200 text-center text-xs font-bold py-1 border-b border-slate-400 uppercase">
+                BLOQUEADOS VSF (Viação São Francisco)
+              </div>
+              <table className="w-full text-[11px] text-left">
+                <thead>
+                  <tr className="border-b border-slate-400 bg-slate-100 font-bold">
+                    <th className="p-1 w-20">PREFIXO</th>
+                    <th className="p-1">MOTIVO</th>
+                    <th className="p-1 w-24">DATA BLOQUEIO</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 font-mono text-xs">
+                  {ciList.filter(c => c.status !== "LIBERADO" && (c.categoriaPlanilha === "BLOQUEADO" || !c.categoriaPlanilha) && (c.consorciada === "VSF" || (!c.consorciada && c.prefixo.startsWith("2")))).map(c => (
+                    <tr key={c.id || c.prefixo}>
+                      <td className="p-1 font-bold">{c.prefixo}</td>
+                      <td className="p-1 font-sans text-[11px]">{c.motivo}</td>
+                      <td className="p-1 text-[10px]">{c.data}</td>
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* VCG */}
+            <div className="border border-slate-400">
+              <div className="bg-slate-200 text-center text-xs font-bold py-1 border-b border-slate-400 uppercase">
+                BLOQUEADOS VCG (Viação Cidade Morena)
+              </div>
+              <table className="w-full text-[11px] text-left">
+                <thead>
+                  <tr className="border-b border-slate-400 bg-slate-100 font-bold">
+                    <th className="p-1 w-20">PREFIXO</th>
+                    <th className="p-1">MOTIVO</th>
+                    <th className="p-1 w-24">DATA BLOQUEIO</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 font-mono text-xs">
+                  {ciList.filter(c => c.status !== "LIBERADO" && (c.categoriaPlanilha === "BLOQUEADO" || !c.categoriaPlanilha) && (c.consorciada === "VCG" || (!c.consorciada && c.prefixo.startsWith("4")))).map(c => (
+                    <tr key={c.id || c.prefixo}>
+                      <td className="p-1 font-bold">{c.prefixo}</td>
+                      <td className="p-1 font-sans text-[11px]">{c.motivo}</td>
+                      <td className="p-1 text-[10px]">{c.data}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* JTU */}
+            <div className="border border-slate-400">
+              <div className="bg-slate-200 text-center text-xs font-bold py-1 border-b border-slate-400 uppercase">
+                BLOQUEADOS JTU (Jaguar Transporte Urbano)
+              </div>
+              <table className="w-full text-[11px] text-left">
+                <thead>
+                  <tr className="border-b border-slate-400 bg-slate-100 font-bold">
+                    <th className="p-1 w-20">PREFIXO</th>
+                    <th className="p-1">MOTIVO</th>
+                    <th className="p-1 w-24">DATA BLOQUEIO</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 font-mono text-xs">
+                  {ciList.filter(c => c.status !== "LIBERADO" && (c.categoriaPlanilha === "BLOQUEADO" || !c.categoriaPlanilha) && (c.consorciada === "JTU" || (!c.consorciada && c.prefixo.startsWith("3")))).map(c => (
+                    <tr key={c.id || c.prefixo}>
+                      <td className="p-1 font-bold">{c.prefixo}</td>
+                      <td className="p-1 font-sans text-[11px]">{c.motivo}</td>
+                      <td className="p-1 text-[10px]">{c.data}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* VCM */}
+            <div className="border border-slate-400">
+              <div className="bg-slate-200 text-center text-xs font-bold py-1 border-b border-slate-400 uppercase">
+                BLOQUEADOS VCM (Viação Campo Grande)
+              </div>
+              <table className="w-full text-[11px] text-left">
+                <thead>
+                  <tr className="border-b border-slate-400 bg-slate-100 font-bold">
+                    <th className="p-1 w-20">PREFIXO</th>
+                    <th className="p-1">MOTIVO</th>
+                    <th className="p-1 w-24">DATA BLOQUEIO</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 font-mono text-xs">
+                  {ciList.filter(c => c.status !== "LIBERADO" && (c.categoriaPlanilha === "BLOQUEADO" || !c.categoriaPlanilha) && (c.consorciada === "VCM" || (!c.consorciada && c.prefixo.startsWith("1")))).map(c => (
+                    <tr key={c.id || c.prefixo}>
+                      <td className="p-1 font-bold">{c.prefixo}</td>
+                      <td className="p-1 font-sans text-[11px]">{c.motivo}</td>
+                      <td className="p-1 text-[10px]">{c.data}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+
+          {/* Assinatura no Rodapé */}
+          <div className="pt-6 flex justify-end">
+            <div className="text-center w-64 border-t border-slate-600 pt-1 text-xs">
+              <strong>Manutenção / Encarregado</strong>
+            </div>
+          </div>
+
         </div>
-      </div>
 
       {/* ========================================================= */}
-      {/* MODAL DE BAIXA / LIBERAÇÃO DE CI */}
+      {/* POPUP / DIALOG DO CARRO (PRINT 2 - RESOLVER A PLANILHA) */}
       {/* ========================================================= */}
-      <Dialog open={!!itemToRelease} onOpenChange={(open) => !open && setItemToRelease(null)}>
-        <DialogContent className="sm:max-w-md">
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-2xl sm:max-w-3xl max-h-[92vh] overflow-y-auto print:hidden">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-emerald-600">
-              <CheckCircle2 className="w-5 h-5" />
-              Liberar Veículo do CI de Manutenção
-            </DialogTitle>
-            <DialogDescription>
-              Confirme a conclusão do reparo para liberar o veículo para a escala e soltura na pista.
-            </DialogDescription>
+            <div className="flex items-center justify-between pr-6">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center border border-primary/20">
+                  <Bus className="w-6 h-6" />
+                </div>
+                <div>
+                  <DialogTitle className="text-xl font-bold flex items-center gap-2">
+                    <span>Carro {selectedCarro}</span>
+                    <span className="text-xs font-mono px-2 py-0.5 rounded-md bg-muted text-muted-foreground font-bold">
+                      {formConsorciada}
+                    </span>
+                  </DialogTitle>
+                  <DialogDescription className="text-xs">
+                    CI - Solicitação de veículos • Consórcio Guaicurus
+                  </DialogDescription>
+                </div>
+              </div>
+
+              {/* Badge de Status Atual */}
+              {currentCI ? (
+                <span className="text-xs font-bold px-3 py-1 rounded-full bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/25 flex items-center gap-1.5">
+                  <ShieldAlert className="w-3.5 h-3.5 text-rose-500" />
+                  Na CI: {currentCI.motivo}
+                </span>
+              ) : (
+                <span className="text-xs font-bold px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                  Apto para Soltura
+                </span>
+              )}
+            </div>
           </DialogHeader>
 
-          {itemToRelease && (
-            <div className="space-y-4 py-2">
-              <div className="bg-muted/50 p-3 rounded-xl border flex items-center justify-between">
+          {/* SE O CARRO JÁ ESTÁ NA CI: EXIBIR DETALHES E OPÇÃO DE BAIXA/LIBERAÇÃO */}
+          {currentCI && (
+            <div className="bg-rose-50/60 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+                  <strong className="text-xs font-bold text-rose-800 dark:text-rose-300">
+                    Bloqueio Ativo Registrado na CI
+                  </strong>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDeleteCI}
+                    className="h-7 text-xs gap-1 text-rose-600 border-rose-200 hover:bg-rose-50 dark:hover:bg-rose-950"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Excluir CI
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => setIsReleasing(!isReleasing)}
+                    className="h-7 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    {isReleasing ? "Cancelar Baixa" : "Liberar Carro (Dar Baixa)"}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs pt-1 border-t border-rose-200/60 dark:border-rose-900/40">
                 <div>
-                  <span className="text-xs text-muted-foreground block">Carro</span>
-                  <span className="font-mono font-bold text-lg text-foreground">{itemToRelease.prefixo}</span>
+                  <span className="text-muted-foreground block text-[11px]">Categoria:</span>
+                  <strong className="font-semibold">{currentCI.categoriaPlanilha || "Bloqueio Consorciada"}</strong>
                 </div>
-                <div className="text-right">
-                  <span className="text-xs text-muted-foreground block">Defeito Registrado</span>
-                  <span className="text-xs font-semibold text-rose-600">{itemToRelease.motivo}</span>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Motivo:</span>
+                  <strong className="font-semibold">{currentCI.motivo}</strong>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Data de Entrada:</span>
+                  <strong className="font-semibold">{currentCI.data}</strong>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[11px]">Responsável:</span>
+                  <strong className="font-semibold">{currentCI.responsavel || "Oficina Central"}</strong>
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold">Motivo / Parecer da Liberação</Label>
-                <Input
-                  value={releaseMotivo}
-                  onChange={(e) => setReleaseMotivo(e.target.value)}
-                  placeholder="Ex: Troca de cuíca concluída, testado na pista..."
-                  className="text-xs"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold">Responsável pela Liberação</Label>
-                <Input
-                  value={releaseResponsavel}
-                  onChange={(e) => setReleaseResponsavel(e.target.value)}
-                  placeholder="Ex: Encarregado Silva"
-                  className="text-xs"
-                />
-              </div>
+              {/* Sub-painel para confirmar liberação imediata */}
+              {isReleasing && (
+                <div className="bg-background border rounded-lg p-3 space-y-2.5 animate-in fade-in-50 duration-150">
+                  <strong className="text-xs font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+                    <Check className="w-4 h-4 text-emerald-500" />
+                    Confirmar Liberação do Veículo para a Pista
+                  </strong>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-[11px]">Motivo do Encerramento / Laudo</Label>
+                      <Input
+                        value={releaseMotivo}
+                        onChange={(e) => setReleaseMotivo(e.target.value)}
+                        className="h-8 text-xs mt-1"
+                        placeholder="Ex: Peça substituída e aprovada em teste"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-[11px]">Encarregado / Responsável</Label>
+                      <Input
+                        value={releaseResponsavel}
+                        onChange={(e) => setReleaseResponsavel(e.target.value)}
+                        className="h-8 text-xs mt-1"
+                        placeholder="Ex: Chefe de Oficina"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleReleaseCar}
+                      className="h-8 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Concluir Baixa & Liberar Carro
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
-          <DialogFooter className="flex gap-2 sm:justify-end">
-            <Button variant="outline" size="sm" onClick={() => setItemToRelease(null)}>
-              Cancelar
-            </Button>
-            <Button 
-              size="sm" 
-              onClick={handleConfirmRelease}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
-            >
-              Confirmar Baixa & Liberar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          {/* FORMULÁRIO COMPLETO DAS 4 SEÇÕES DA PLANILHA FÍSICA (PRINT 2) */}
+          <form onSubmit={handleSaveCI} className="space-y-4">
+            
+            {/* Seletor de Categoria da Planilha (4 Quadrantes do Print 2) */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold">
+                Seção da Planilha de Solicitação de Veículos <span className="text-rose-500">*</span>
+              </Label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {(
+                  [
+                    { id: "OFICINA", label: "Setores da Oficina", icon: Wrench },
+                    { id: "PREVENTIVA", label: "Preventivas", icon: Calendar },
+                    { id: "REFORCO", label: "Reforço com Horário", icon: Clock },
+                    { id: "BLOQUEADO", label: "Bloqueio Consorciada", icon: ShieldAlert },
+                  ] as const
+                ).map(cat => {
+                  const Icon = cat.icon;
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setModalCategory(cat.id)}
+                      className={cn(
+                        "p-2.5 rounded-xl border text-left transition-all flex flex-col gap-1",
+                        modalCategory === cat.id
+                          ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                          : "bg-card hover:bg-muted/60 text-muted-foreground border-border"
+                      )}
+                    >
+                      <Icon className="w-4 h-4 shrink-0" />
+                      <span className="text-xs font-bold leading-tight">{cat.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
-      {/* ========================================================= */}
-      {/* MODAL DE EDIÇÃO DE CI */}
-      {/* ========================================================= */}
-      <Dialog open={!!editingItem} onOpenChange={(open) => !open && setEditingItem(null)}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Edit3 className="w-5 h-5 text-primary" />
-              Editar Registro de CI - Carro {editingItem?.prefixo}
-            </DialogTitle>
-            <DialogDescription>
-              Atualize as informações de manutenção e previsão deste veículo.
-            </DialogDescription>
-          </DialogHeader>
+            {/* SEÇÃO 1: SETORES DA OFICINA COM MOTIVO */}
+            {modalCategory === "OFICINA" && (
+              <div className="p-3.5 rounded-xl border bg-muted/20 space-y-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold">Setor / Oficina Responsável</Label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                    {SETORES_OFICINA.map(s => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => {
+                          setFormSetor(s.id);
+                          setFormResponsavel(`Oficina ${s.label}`);
+                        }}
+                        className={cn(
+                          "px-2.5 py-1.5 rounded-lg border text-xs font-semibold text-center transition-all",
+                          formSetor === s.id
+                            ? "bg-amber-500 text-white border-amber-600 shadow-2xs font-bold"
+                            : "bg-background text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-          {editingItem && (
-            <form onSubmit={handleSaveEdit} className="space-y-3.5 py-2">
-              <div className="grid grid-cols-2 gap-3">
+                {/* Motivos rápidos sugeridos do setor */}
                 <div className="space-y-1">
-                  <Label className="text-xs font-bold">Prefixo</Label>
-                  <Input
-                    value={editingItem.prefixo}
-                    onChange={(e) => setEditingItem({ ...editingItem, prefixo: e.target.value })}
-                    className="font-mono font-bold text-xs"
-                  />
+                  <Label className="text-[11px] text-muted-foreground">Motivos comuns deste setor (clique para preencher):</Label>
+                  <div className="flex flex-wrap gap-1">
+                    {SETORES_OFICINA.find(s => s.id === formSetor)?.chips.map(chip => (
+                      <button
+                        key={chip}
+                        type="button"
+                        onClick={() => setFormMotivo(chip)}
+                        className="text-[10px] px-2 py-0.5 rounded-md bg-background border hover:bg-muted text-muted-foreground hover:text-foreground"
+                      >
+                        + {chip}
+                      </button>
+                    ))}
+                  </div>
                 </div>
+              </div>
+            )}
+
+            {/* SEÇÃO 2: PREVENTIVAS */}
+            {modalCategory === "PREVENTIVA" && (
+              <div className="p-3.5 rounded-xl border bg-muted/20 space-y-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold">Tipo de Preventiva (Colunas da Planilha)</Label>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                    {(
+                      [
+                        { id: "PREVENTIVA", label: "Preventiva" },
+                        { id: "LUBRIFICACAO", label: "Lubrificação" },
+                        { id: "TROCA_OLEO", label: "Troca de Óleo" },
+                        { id: "REVISAO_GERAL", label: "Revisão Geral" },
+                        { id: "SISEP", label: "SISEP" },
+                      ] as const
+                    ).map(tp => (
+                      <button
+                        key={tp.id}
+                        type="button"
+                        onClick={() => {
+                          setFormTipoPreventiva(tp.id);
+                          setFormMotivo(tp.label);
+                        }}
+                        className={cn(
+                          "px-2 py-1.5 rounded-lg border text-xs font-semibold text-center transition-all",
+                          formTipoPreventiva === tp.id
+                            ? "bg-blue-600 text-white border-blue-700 shadow-2xs font-bold"
+                            : "bg-background text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        {tp.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SEÇÃO 3: REFORÇO COM HORÁRIO */}
+            {modalCategory === "REFORCO" && (
+              <div className="p-3.5 rounded-xl border bg-muted/20 space-y-3">
+                {/* Inputs de Horário e Letra (A, B, C, D) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold">Horário do Reforço</Label>
+                    <Input
+                      type="time"
+                      value={formHoraReforco}
+                      onChange={(e) => setFormHoraReforco(e.target.value)}
+                      className="h-9 text-xs font-mono font-bold bg-background"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold">Letra / Turno do Reforço</Label>
+                    <select
+                      value={formLetraReforco}
+                      onChange={(e) => setFormLetraReforco(e.target.value as any)}
+                      className="w-full h-9 px-3 rounded-lg border bg-background text-xs font-bold font-mono focus:outline-hidden"
+                    >
+                      <option value="A">A</option>
+                      <option value="B">B</option>
+                      <option value="C">C</option>
+                      <option value="D">D</option>
+                      <option value="M">M</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Prévia do Horário Composto */}
+                <div className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-background border text-xs">
+                  <span className="text-muted-foreground text-[11px]">Horário Selecionado:</span>
+                  <strong className="font-mono text-xs font-bold text-purple-700 dark:text-purple-300">
+                    {formHorarioReforco}
+                  </strong>
+                </div>
+
+                {/* Sugestões Rápidas */}
                 <div className="space-y-1">
-                  <Label className="text-xs font-bold">Garagem</Label>
-                  <select
-                    value={editingItem.garagem || "VCG"}
-                    onChange={(e) => setEditingItem({ ...editingItem, garagem: e.target.value as any })}
-                    className="w-full h-9 px-3 rounded-lg border text-xs font-semibold"
-                  >
-                    <option value="VCG">VCG</option>
-                    <option value="VCM">VCM</option>
-                  </select>
+                  <Label className="text-[11px] text-muted-foreground">Sugestões rápidas da folha:</Label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {REFORCOS_SUGERIDOS.map(hora => (
+                      <button
+                        key={hora}
+                        type="button"
+                        onClick={() => parseAndSetHorarioReforco(hora)}
+                        className={cn(
+                          "px-2 py-0.5 rounded-md border text-[11px] font-mono transition-all",
+                          formHorarioReforco === hora
+                            ? "bg-purple-600 text-white border-purple-700 shadow-2xs font-bold"
+                            : "bg-background text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        {hora}
+                      </button>
+                    ))}
+                  </div>
                 </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold">Motivo do Reforço</Label>
+                  <div className="flex gap-2">
+                    {["LUBRIFICAÇÃO", "TROCA DE ÓLEO", "REVISÃO"].map(mot => (
+                      <button
+                        key={mot}
+                        type="button"
+                        onClick={() => {
+                          setFormMotivoReforco(mot);
+                          setFormMotivo(mot);
+                        }}
+                        className={cn(
+                          "px-3 py-1 rounded-md border text-xs font-semibold transition-all",
+                          formMotivoReforco === mot
+                            ? "bg-background border-primary text-primary font-bold shadow-2xs"
+                            : "bg-background text-muted-foreground"
+                        )}
+                      >
+                        {mot}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SEÇÃO 4: BLOQUEADOS POR CONSORCIADA */}
+            {modalCategory === "BLOQUEADO" && (
+              <div className="p-3.5 rounded-xl border bg-muted/20 space-y-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold">Consorciada Guaicurus (Garagem)</Label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {(
+                      [
+                        { id: "VSF", label: "VSF (São Francisco)" },
+                        { id: "VCG", label: "VCG (Cidade Morena)" },
+                        { id: "JTU", label: "JTU (Jaguar)" },
+                        { id: "VCM", label: "VCM (Campo Grande)" },
+                      ] as const
+                    ).map(cons => (
+                      <button
+                        key={cons.id}
+                        type="button"
+                        onClick={() => setFormConsorciada(cons.id)}
+                        className={cn(
+                          "px-2 py-1.5 rounded-lg border text-xs font-semibold text-center transition-all",
+                          formConsorciada === cons.id
+                            ? "bg-rose-600 text-white border-rose-700 shadow-2xs font-bold"
+                            : "bg-background text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        {cons.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Chips de motivos de bloqueio comuns do print 2 */}
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground">Motivos de bloqueio da folha:</Label>
+                  <div className="flex flex-wrap gap-1">
+                    {BLOQUEIOS_MOTIVOS_RAPIDOS.map(mot => (
+                      <button
+                        key={mot}
+                        type="button"
+                        onClick={() => setFormMotivo(mot)}
+                        className="text-[10px] px-2 py-0.5 rounded-md bg-background border hover:bg-muted text-muted-foreground hover:text-foreground"
+                      >
+                        + {mot}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* CAMPO DE MOTIVO DETALHADO */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold">
+                Motivo / Defeito / Observações da Solicitação <span className="text-rose-500">*</span>
+              </Label>
+              <Input
+                value={formMotivo}
+                onChange={(e) => setFormMotivo(e.target.value)}
+                placeholder="Ex: Suspensão, Módulo, Motor, Sinistro, Revisão Geral..."
+                className="text-xs h-9"
+                required
+              />
+            </div>
+
+            {/* CAMPOS COMPLEMENTARES: DATA DO BLOQUEIO E RESPONSÁVEL */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Data da Solicitação / Bloqueio</Label>
+                <Input
+                  type="date"
+                  value={formDataBloqueio}
+                  onChange={(e) => setFormDataBloqueio(e.target.value)}
+                  className="text-xs h-8"
+                />
               </div>
 
               <div className="space-y-1">
-                <Label className="text-xs font-bold">Motivo / Defeito</Label>
+                <Label className="text-xs">Responsável / Oficina</Label>
                 <Input
-                  value={editingItem.motivo}
-                  onChange={(e) => setEditingItem({ ...editingItem, motivo: e.target.value })}
-                  className="text-xs"
-                  required
+                  value={formResponsavel}
+                  onChange={(e) => setFormResponsavel(e.target.value)}
+                  placeholder="Ex: Mecânica Geral"
+                  className="text-xs h-8"
                 />
               </div>
+            </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs font-bold">Gravidade</Label>
-                  <select
-                    value={editingItem.gravidade || "ALTA"}
-                    onChange={(e) => setEditingItem({ ...editingItem, gravidade: e.target.value as any })}
-                    className="w-full h-9 px-3 rounded-lg border text-xs font-semibold"
-                  >
-                    <option value="ALTA">Alta (Bloqueio Total)</option>
-                    <option value="MEDIA">Média (Restrição)</option>
-                    <option value="BAIXA">Baixa (Monitoramento)</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs font-bold">Previsão</Label>
-                  <Input
-                    value={editingItem.previsao || ""}
-                    onChange={(e) => setEditingItem({ ...editingItem, previsao: e.target.value })}
-                    placeholder="Ex: Hoje 16:00"
-                    className="text-xs"
-                  />
-                </div>
-              </div>
+            <DialogFooter className="pt-3 border-t flex flex-row items-center justify-between sm:justify-between">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setDialogOpen(false)}
+                className="text-xs"
+              >
+                Fechar
+              </Button>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs font-bold">Responsável</Label>
-                  <Input
-                    value={editingItem.responsavel || ""}
-                    onChange={(e) => setEditingItem({ ...editingItem, responsavel: e.target.value })}
-                    className="text-xs"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs font-bold">N° OS</Label>
-                  <Input
-                    value={editingItem.os || ""}
-                    onChange={(e) => setEditingItem({ ...editingItem, os: e.target.value })}
-                    className="text-xs font-mono"
-                  />
-                </div>
-              </div>
-
-              <DialogFooter className="pt-3">
-                <Button type="button" variant="outline" size="sm" onClick={() => setEditingItem(null)}>
-                  Cancelar
+              <div className="flex items-center gap-2">
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="bg-primary text-primary-foreground text-xs font-semibold gap-1.5 shadow-xs"
+                >
+                  <Check className="w-4 h-4" />
+                  Salvar Solicitação do Carro {selectedCarro}
                 </Button>
-                <Button type="submit" size="sm" className="font-semibold">
-                  Salvar Alterações
-                </Button>
-              </DialogFooter>
-            </form>
-          )}
+              </div>
+            </DialogFooter>
+
+          </form>
+
         </DialogContent>
       </Dialog>
 
