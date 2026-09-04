@@ -22,7 +22,6 @@ import {
   Plus,
   Bus,
   Tag,
-  SlidersHorizontal,
   ChevronDown,
   ChevronUp
 } from "lucide-react";
@@ -472,18 +471,10 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       if (filterStatus === "LIBERADOS" && !isDone) return false;
       if (filterStatus === "SUBSTITUIDOS" && !isSub) return false;
 
-      // Filtro de Texto
+      // Filtro de Texto (exclusivo por Linha)
       if (!searchQuery.trim()) return true;
-      const q = searchQuery.toLowerCase();
-      return (
-        item.linha.toLowerCase().includes(q) ||
-        item.tabela.toLowerCase().includes(q) ||
-        item.carroProgramado.toLowerCase().includes(q) ||
-        (item.carroRealizado && item.carroRealizado.toLowerCase().includes(q)) ||
-        (item.motoristaCodigo && item.motoristaCodigo.toLowerCase().includes(q)) ||
-        (item.motoristaNome && item.motoristaNome.toLowerCase().includes(q)) ||
-        item.saidaGaragem.includes(q)
-      );
+      const q = searchQuery.trim().toLowerCase();
+      return item.linha.toLowerCase().includes(q);
     });
   }, [activeSchedules, filterStatus, searchQuery]);
 
@@ -1339,16 +1330,6 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                 </button>
               )}
             </div>
-            <button
-              type="button"
-              className={cn(
-                "h-9 w-9 rounded-xl border border-border/80 bg-muted/40 hover:bg-muted/70 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0 shadow-2xs",
-                searchQuery && "text-[#164E3A] dark:text-emerald-400 border-[#164E3A]/40 bg-[#164E3A]/10 font-bold"
-              )}
-              title={searchQuery ? `Filtro ativo: ${searchQuery}` : "Filtrar por linha"}
-            >
-              <SlidersHorizontal className="w-4 h-4" />
-            </button>
           </div>
 
           {/* ========================================================= */}
