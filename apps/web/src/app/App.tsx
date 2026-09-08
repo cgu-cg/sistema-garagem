@@ -36,7 +36,7 @@ function PermissionRoute({ to, fallbackRoles, children }: { to: string; fallback
   if (user.role === "ADMIN") return <>{children}</>;
 
   // Usuário de soltura (soltura_vcg, soltura_vcm ou role 'soltura') tem acesso ESTRITO apenas a /soltura e /soltura/historico
-  if (user.role === "soltura" || user.email?.toLowerCase().includes("soltura")) {
+  if ((user.role === "soltura" || user.email?.toLowerCase().includes("soltura")) && !user.email?.toLowerCase().includes("teste")) {
     const isAllowed = to === "/soltura" && (location.pathname === "/soltura" || location.pathname === "/soltura/historico");
     if (!isAllowed) {
       const defaultRoute = getDefaultRoute(user);
@@ -45,17 +45,19 @@ function PermissionRoute({ to, fallbackRoles, children }: { to: string; fallback
     return <>{children}</>;
   }
 
-  // Usuário teste@teste.com tem acesso ESTRITO apenas aos menus solicitados
-  if (user.email?.toLowerCase() === "teste@teste.com") {
+  // Usuário teste@teste.com (ou contas de teste) tem acesso ESTRITO apenas aos menus solicitados
+  if (user.email?.toLowerCase() === "teste@teste.com" || user.email?.toLowerCase()?.includes("teste")) {
     const allowed = [
       "/abastecimento",
       "/abastecimento-carro",
       "/soltura",
       "/manutencao",
+      "/ci-manutencao",
+      "/soltura/ci-manutencao",
       "/soltura-adm",
       "/controle-operacional"
     ];
-    const isAllowed = allowed.some(route => to === route || to.startsWith(route + "/"));
+    const isAllowed = allowed.some(route => to === route || to.startsWith(route + "/") || route.startsWith(to + "/"));
     if (!isAllowed) {
       const defaultRoute = getDefaultRoute(user);
       return <Navigate to={defaultRoute} replace />;
@@ -65,15 +67,22 @@ function PermissionRoute({ to, fallbackRoles, children }: { to: string; fallback
 
   if (user.groups && user.groups.length > 0) {
     const normalizedTo = to.startsWith("/catracas") ? "/catracas" 
-      : to.startsWith("/soltura") ? "/soltura" 
-      : to.startsWith("/manutencao") ? "/manutencao"
       : to.startsWith("/soltura-adm") ? "/soltura-adm"
       : to.startsWith("/escala-carros") ? "/escala-carros"
+      : to.startsWith("/manutencao") || to.startsWith("/ci-manutencao") || to.startsWith("/soltura/ci-manutencao") ? "/manutencao"
+      : to.startsWith("/soltura") ? "/soltura" 
       : to;
+
     const hasPerm = user.groups.some(g => {
       const perms = Array.isArray(g.permissions) ? g.permissions : [];
       return perms.some(p => {
         const clean = p.split("?")[0];
+        if (normalizedTo === "/manutencao" && (clean === "/manutencao" || clean === "/ci-manutencao" || clean === "/soltura" || clean === "/soltura/ci-manutencao")) {
+          return true;
+        }
+        if (normalizedTo === "/soltura-adm" && (clean === "/soltura-adm" || clean === "/soltura" || clean === "/soltura/alterar-folha")) {
+          return true;
+        }
         return normalizedTo === clean || normalizedTo.startsWith(clean + "/") || clean.startsWith(normalizedTo + "/");
       });
     });

@@ -207,35 +207,46 @@ export function Layout() {
   const hasPermission = (to: string, roles: string[]) => {
     if (user?.role === "ADMIN") return true;
 
-    // Usuário de soltura (soltura_vcg, soltura_vcm ou role "soltura") visualiza ESTRITAMENTE o menu Soltura e seus submenus Folha de Soltura e Histórico de Soltura
-    if (user?.role === "soltura" || user?.email?.toLowerCase().includes("soltura")) {
+    // Usuário de soltura estrito (soltura_vcg, soltura_vcm ou role "soltura") visualiza ESTRITAMENTE o menu Soltura e seus submenus
+    if ((user?.role === "soltura" || user?.email?.toLowerCase().includes("soltura")) && !user?.email?.toLowerCase().includes("teste")) {
       return to === "/soltura" || to === "/soltura/historico";
     }
 
-    // Usuário teste@teste.com visualiza ESTRITAMENTE os menus solicitados
-    if (user?.email?.toLowerCase() === "teste@teste.com") {
+    // Usuário teste@teste.com (ou contas de teste) visualiza ESTRITAMENTE os menus solicitados
+    if (user?.email?.toLowerCase() === "teste@teste.com" || user?.email?.toLowerCase()?.includes("teste")) {
       const allowed = [
         "/abastecimento",
         "/abastecimento-carro",
         "/soltura",
         "/manutencao",
+        "/ci-manutencao",
+        "/soltura/ci-manutencao",
         "/soltura-adm",
         "/controle-operacional"
       ];
-      return allowed.some(route => to === route || to.startsWith(route + "/"));
+      return allowed.some(route => to === route || to.startsWith(route + "/") || route.startsWith(to + "/"));
     }
 
     if (user?.groups && user.groups.length > 0) {
+      // Normalização com prefixos mais específicos primeiro para não haver colisão (ex: /soltura-adm antes de /soltura)
       const normalizedTo = to.startsWith("/catracas") ? "/catracas" 
-        : to.startsWith("/soltura") ? "/soltura" 
-        : to.startsWith("/manutencao") ? "/manutencao"
         : to.startsWith("/soltura-adm") ? "/soltura-adm"
         : to.startsWith("/escala-carros") ? "/escala-carros"
+        : to.startsWith("/manutencao") || to.startsWith("/ci-manutencao") || to.startsWith("/soltura/ci-manutencao") ? "/manutencao"
+        : to.startsWith("/soltura") ? "/soltura" 
         : to;
+
       return user.groups.some(g => {
         const perms = Array.isArray(g.permissions) ? g.permissions : [];
         return perms.some(p => {
           const clean = p.split("?")[0];
+          // Retrocompatibilidade caso o grupo tenha /soltura ou /manutencao ou /ci-manutencao
+          if (normalizedTo === "/manutencao" && (clean === "/manutencao" || clean === "/ci-manutencao" || clean === "/soltura" || clean === "/soltura/ci-manutencao")) {
+            return true;
+          }
+          if (normalizedTo === "/soltura-adm" && (clean === "/soltura-adm" || clean === "/soltura" || clean === "/soltura/alterar-folha")) {
+            return true;
+          }
           return normalizedTo === clean || normalizedTo.startsWith(clean + "/") || clean.startsWith(normalizedTo + "/");
         });
       });
@@ -269,7 +280,7 @@ export function Layout() {
     if (location.pathname.startsWith("/catracas")) return "Conferência Catracas";
     if (location.pathname.startsWith("/abastecimento-carro")) return "Abastecimento por Carro";
     if (location.pathname.startsWith("/abastecimento")) return "Leitura de Tanques";
-    if (location.pathname.startsWith("/manutencao") || location.pathname.startsWith("/soltura/ci-manutencao")) return "Manutenção - CI Manutenção";
+    if (location.pathname.startsWith("/manutencao") || location.pathname.startsWith("/ci-manutencao") || location.pathname.startsWith("/soltura/ci-manutencao")) return "Manutenção - CI Manutenção";
     if (location.pathname.startsWith("/soltura-adm") || location.pathname.startsWith("/soltura/alterar-folha")) return "Soltura ADM - Alterar Folha de Soltura";
     if (location.pathname.startsWith("/escala-carros") || location.pathname.startsWith("/soltura/alterar-carro-programado") || location.pathname.startsWith("/soltura/carro-realizado")) return "Escala Carros - Alterar Carro Programado";
     if (location.pathname.startsWith("/soltura/historico")) return "Soltura - Histórico de Soltura";
