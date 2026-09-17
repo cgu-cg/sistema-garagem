@@ -1,24 +1,42 @@
-import { SolturaItem } from "@/data/solturaData";
+import { SolturaItem, escalaOficialPdfVCG } from "@/data/solturaData";
 import { saveCache } from "@/lib/offline-db";
 
 export const STORAGE_KEY_CUSTOM_SCHEDULES = "soltura_custom_schedules_v1";
+export const SYNC_VERSION_KEY_PDF_2026 = "sistema_garagem_escala_pdf_2026_v2";
 
 /**
  * Carrega a grade customizada salva pelo usuário no localStorage.
+ * Garante que a escala oficial do PDF 2026 seja aplicada na primeira carga ou sincronização.
  */
 export function getInitialCustomSchedules(): Record<string, SolturaItem[]> {
   try {
     const saved = localStorage.getItem(STORAGE_KEY_CUSTOM_SCHEDULES);
+    let currentMap: Record<string, SolturaItem[]> = {};
+
     if (saved) {
       const parsed = JSON.parse(saved);
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return parsed;
+        currentMap = parsed;
       }
     }
+
+    // Verifica se já migrou para a nova escala oficial do PDF 2026
+    const hasSyncedPdf = localStorage.getItem(SYNC_VERSION_KEY_PDF_2026);
+    if (!hasSyncedPdf) {
+      // Aplica a escala oficial do PDF na chave VCG_SEG_SEX_MATUTINO
+      currentMap["VCG_SEG_SEX_MATUTINO"] = escalaOficialPdfVCG;
+      localStorage.setItem(STORAGE_KEY_CUSTOM_SCHEDULES, JSON.stringify(currentMap));
+      localStorage.setItem(SYNC_VERSION_KEY_PDF_2026, "true");
+      saveCache("custom_schedules_v1", currentMap).catch(() => {});
+    }
+
+    return currentMap;
   } catch (e) {
     console.error("Erro ao ler folha customizada do localStorage:", e);
+    return {
+      VCG_SEG_SEX_MATUTINO: escalaOficialPdfVCG
+    };
   }
-  return {};
 }
 
 /**

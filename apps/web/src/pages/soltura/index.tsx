@@ -2172,7 +2172,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       {/* ========================================================= */}
       {/* VISUALIZAÇÃO: ALTERAR CARRO PROGRAMADO */}
       {/* ========================================================= */}
-      {(viewMode === "ALTERAR_CARRO_PROGRAMADO" || viewMode === "CARRO_REALIZADO") && (
+      {viewMode === "ALTERAR_CARRO_PROGRAMADO" && (
         <AlterarCarroProgramadoView
           garagem={garagem}
           escalaTipo={escalaTipo}
