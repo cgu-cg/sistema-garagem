@@ -37,6 +37,8 @@ interface CarroRealizadoViewProps {
   setGaragem: (g: "VCG" | "VCM") => void;
   escalaTipo: "SEG_SEX" | "SABADO" | "DOM_FER";
   setEscalaTipo: (e: "SEG_SEX" | "SABADO" | "DOM_FER") => void;
+  turnoTipo?: "MATUTINO" | "VESPERTINO";
+  setTurnoTipo?: (t: "MATUTINO" | "VESPERTINO") => void;
   dataOperacao: string;
   setDataOperacao: (d: string) => void;
   schedules: SolturaItem[];
@@ -51,6 +53,8 @@ export function CarroRealizadoView({
   setGaragem,
   escalaTipo,
   setEscalaTipo,
+  turnoTipo = "MATUTINO",
+  setTurnoTipo,
   dataOperacao,
   setDataOperacao,
   schedules,
@@ -465,6 +469,32 @@ export function CarroRealizadoView({
               Dom/Fer
             </button>
           </div>
+
+          {/* Seletor de Turno para Segunda a Sexta */}
+          {escalaTipo === "SEG_SEX" && setTurnoTipo && (
+            <div className="flex items-center bg-muted/60 p-1 rounded-xl border text-xs animate-in fade-in duration-150">
+              <button
+                type="button"
+                onClick={() => setTurnoTipo("MATUTINO")}
+                className={cn(
+                  "px-2.5 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1 cursor-pointer",
+                  turnoTipo === "MATUTINO" ? "bg-[#164E3A] text-white dark:bg-emerald-600 shadow-2xs" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <span>☀️ Matutino</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTurnoTipo("VESPERTINO")}
+                className={cn(
+                  "px-2.5 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1 cursor-pointer",
+                  turnoTipo === "VESPERTINO" ? "bg-[#164E3A] text-white dark:bg-emerald-600 shadow-2xs" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <span>🌙 Vespertino</span>
+              </button>
+            </div>
+          )}
 
           <Input
             type="date"

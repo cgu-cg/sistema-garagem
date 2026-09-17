@@ -91,6 +91,46 @@ export function saveCIBloqueiosToStorage(list: BloqueioCarro[]): void {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
     // Disparar evento customizado para sincronização entre componentes
     window.dispatchEvent(new CustomEvent("ci_bloqueios_updated", { detail: list }));
+
+    // Sincronizar com as folhas de manutenção salvas
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith("manutencao_carros_v1_")) {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const mItems = JSON.parse(raw);
+            if (Array.isArray(mItems)) {
+              let hasChange = false;
+              const updatedMItems = mItems.map((m: any) => {
+                const ciMatch = list.find(c => c.prefixo === m.prefixo);
+                if (ciMatch) {
+                  if (ciMatch.status === "LIBERADO" && (!m.liberado || m.bloqueado)) {
+                    hasChange = true;
+                    return { ...m, liberado: true, bloqueado: false, emExecucao: false };
+                  }
+                  if (ciMatch.status === "BLOQUEADO" && (!m.bloqueado || m.liberado)) {
+                    hasChange = true;
+                    return { ...m, bloqueado: true, liberado: false, observacao: ciMatch.motivo || m.observacao };
+                  }
+                }
+                return m;
+              });
+
+              if (hasChange) {
+                localStorage.setItem(key, JSON.stringify(updatedMItems));
+                const datePart = key.replace("manutencao_carros_v1_", "");
+                window.dispatchEvent(new CustomEvent("manutencao_updated", {
+                  detail: { data: datePart, items: updatedMItems }
+                }));
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Erro ao sincronizar CI com Manutenção:", e);
+    }
   } catch (e) {
     console.error("Erro ao salvar CIs no localStorage:", e);
   }
@@ -99,6 +139,40 @@ export function saveCIBloqueiosToStorage(list: BloqueioCarro[]): void {
 export function checkCarroBloqueado(prefixo: string, list: BloqueioCarro[]): BloqueioCarro | null {
   if (!prefixo) return null;
   const clean = prefixo.replace(/\D/g, "");
+
+  // 1. Checa a folha de manutenção salva
+  try {
+    const today = new Date().toISOString().split("T")[0];
+    const keysToCheck = [`manutencao_carros_v1_${today}`, "manutencao_carros_v1_2026-09-09"];
+    for (const k of keysToCheck) {
+      const raw = localStorage.getItem(k);
+      if (raw) {
+        const mItems = JSON.parse(raw);
+        if (Array.isArray(mItems)) {
+          const m = mItems.find((it: any) => it.prefixo === clean);
+          if (m) {
+            // Se foi explicitamente marcado como liberado na manutenção:
+            if (m.liberado) return null;
+            // Se está bloqueado ou em execução na manutenção:
+            if (m.bloqueado || m.emExecucao) {
+              return {
+                id: `manut-lock-${clean}`,
+                prefixo: clean,
+                garagem: "VCG",
+                tipo: m.bloqueado ? "BLOQUEADO_CORRETIVA" : "EM_MANUTENCAO",
+                motivo: m.observacao || (m.bloqueado ? "Bloqueado na Manutenção" : "Em Manutenção na Oficina"),
+                data: m.data || today,
+                status: m.bloqueado ? "BLOQUEADO" : "EM_MANUTENCAO",
+                responsavel: "Oficina Manutenção"
+              };
+            }
+          }
+        }
+      }
+    }
+  } catch {}
+
+  // 2. Consulta a lista de CIs fornecida
   return list.find(b => 
     (b.status === "BLOQUEADO" || b.status === "EM_MANUTENCAO" || b.status === "AGUARDANDO_PECA" || !b.status) &&
     (b.prefixo === clean || b.prefixo === prefixo)

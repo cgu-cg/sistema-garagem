@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { SolturaItem, BloqueioCarro } from "@/data/solturaData";
-import { AlertTriangle, Bus } from "lucide-react";
+import { AlertTriangle, Bus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -11,6 +11,7 @@ interface AlterarCarroProgramadoViewProps {
   schedules: SolturaItem[];
   ciList: BloqueioCarro[];
   onUpdateField: (itemId: string, field: keyof SolturaItem, value: any) => void;
+  onUpdateMultipleFields?: (itemId: string, updates: Partial<SolturaItem>) => void;
   checkBloqueioCI: (prefixo: string) => BloqueioCarro | null | undefined;
   onSelectGaragem?: (garagem: "VCG" | "VCM") => void;
   onSelectEscalaTipo?: (escala: "SEG_SEX" | "SABADO" | "DOM_FER") => void;
@@ -21,14 +22,28 @@ export function AlterarCarroProgramadoView({
   escalaTipo,
   schedules,
   onUpdateField,
+  onUpdateMultipleFields,
   checkBloqueioCI,
   onSelectGaragem,
   onSelectEscalaTipo
 }: AlterarCarroProgramadoViewProps) {
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Filtro de pesquisa rápida (por linha, tabela ou prefixo do carro programado)
+  const filteredSchedules = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return schedules;
+    return schedules.filter(s =>
+      s.linha.toLowerCase().includes(q) ||
+      s.tabela.toLowerCase().includes(q) ||
+      (s.carroProgramado && s.carroProgramado.toLowerCase().includes(q))
+    );
+  }, [schedules, searchQuery]);
+
   // Divisão simétrica em 2 colunas idêntica à Folha de Soltura
-  const metade = Math.ceil(schedules.length / 2);
-  const colunaEsquerda = schedules.slice(0, metade);
-  const colunaDireita = schedules.slice(metade);
+  const metade = Math.ceil(filteredSchedules.length / 2);
+  const colunaEsquerda = filteredSchedules.slice(0, metade);
+  const colunaDireita = filteredSchedules.slice(metade);
 
   return (
     <div className="bg-card border rounded-2xl p-4 sm:p-5 shadow-xs space-y-4">
@@ -44,11 +59,11 @@ export function AlterarCarroProgramadoView({
               Alterar Carro Programado • {escalaTipo === "SEG_SEX" ? "Segunda a Sexta" : escalaTipo === "SABADO" ? "Sábado" : "Dom / Feriado"}
             </h2>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20">
-              Escala de Frota
+              Escala de Frota Oficial
             </span>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Defina e altere o prefixo do Carro Programado para cada linha e tabela da escala operacional.
+            Defina e altere o prefixo do Carro Programado para cada uma das {schedules.length} linhas e tabelas da escala operacional da planilha.
           </p>
         </div>
 
@@ -98,21 +113,57 @@ export function AlterarCarroProgramadoView({
             </div>
           )}
 
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground px-2 py-1 rounded-full bg-muted/40 border">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground px-2.5 py-1 rounded-full bg-muted/40 border">
             <Bus className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-            <span className="font-semibold text-foreground">{schedules.length} Viagens</span>
+            <span className="font-semibold text-foreground">
+              {filteredSchedules.length} {filteredSchedules.length === schedules.length ? "Viagens" : `de ${schedules.length}`}
+            </span>
           </div>
         </div>
       </div>
 
-      {/* Grade de 2 Colunas Lado a Lado (idêntico à Folha de Soltura, sem Carro Realizado e sem MOTO) */}
+      {/* Barra de Pesquisa Rápida */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-muted/30 p-2.5 rounded-xl border border-border/60">
+        <div className="relative flex-1 max-w-md">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Filtrar por Linha (ex: 080), Tabela (ex: 1) ou Carro (ex: 3267)..."
+            className="w-full h-8.5 pl-9 pr-8 text-xs rounded-lg border border-border bg-background focus:outline-hidden focus:ring-1 focus:ring-blue-600"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/20 border border-emerald-500 text-emerald-700" />
+            <span>Apto para Pista</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-500/20 border border-rose-500 text-rose-700" />
+            <span>Oficina (CI)</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Grade de 2 Colunas Lado a Lado (idêntico à Folha de Soltura e Planilha Excel) */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         
         {/* Coluna 1 */}
         <div className="border rounded-xl overflow-hidden shadow-2xs bg-card">
           <div className="bg-muted/60 px-3.5 py-2 text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between border-b">
             <span className="text-foreground">
-              COLUNA 01 (ORDENS 01 A {String(colunaEsquerda.length).padStart(2, "0")})
+              COLUNA 01 ({colunaEsquerda.length > 0 ? `ORDENS ${colunaEsquerda[0]?.ordem || 1} A ${colunaEsquerda[colunaEsquerda.length - 1]?.ordem || colunaEsquerda.length}` : "VAZIA"})
             </span>
             <span className="font-semibold">{colunaEsquerda.length} HORÁRIOS</span>
           </div>
@@ -120,14 +171,14 @@ export function AlterarCarroProgramadoView({
             <table className="w-full text-xs text-left border-collapse">
               <thead>
                 <tr className="bg-muted/40 text-muted-foreground border-b text-[11px] font-semibold">
-                  <th className="py-2 px-2 w-10 text-center">Nº</th>
-                  <th className="py-2 px-2 font-bold text-foreground w-24">Linha</th>
-                  <th className="py-2 px-1 text-center w-14">Tab</th>
+                  <th className="py-2 px-2 w-9 text-center">Nº</th>
+                  <th className="py-2 px-2 font-bold text-foreground w-20">Linha</th>
+                  <th className="py-2 px-1 text-center w-12">Tab</th>
                   <th className="py-2 px-2 text-center bg-blue-500/5 text-blue-700 dark:text-blue-300 font-bold w-24">Carro Prog.</th>
-                  <th className="py-2 px-1.5 text-center font-bold text-foreground w-20">Saída Gar.</th>
-                  <th className="py-2 px-1.5 text-center text-muted-foreground w-20">Início Linha</th>
-                  <th className="py-2 px-2 text-center w-24">Status CI</th>
-                  <th className="py-2 px-2 text-center w-20">Ação</th>
+                  <th className="py-2 px-1.5 text-center font-bold text-foreground w-18">Saída Gar.</th>
+                  <th className="py-2 px-1.5 text-center text-muted-foreground w-18">Bairro</th>
+                  <th className="py-2 px-1.5 text-center w-20">Status CI</th>
+                  <th className="py-2 px-1.5 text-center w-16">Ação</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/60 font-mono">
@@ -139,6 +190,7 @@ export function AlterarCarroProgramadoView({
                     schedules={schedules}
                     checkBloqueioCI={checkBloqueioCI}
                     onUpdateField={onUpdateField}
+                    onUpdateMultipleFields={onUpdateMultipleFields}
                   />
                 ))}
                 {colunaEsquerda.length === 0 && (
@@ -157,7 +209,7 @@ export function AlterarCarroProgramadoView({
         <div className="border rounded-xl overflow-hidden shadow-2xs bg-card">
           <div className="bg-muted/60 px-3.5 py-2 text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between border-b">
             <span className="text-foreground">
-              COLUNA 02 (ORDENS {String(colunaEsquerda.length + 1).padStart(2, "0")} A {String(schedules.length).padStart(2, "0")})
+              COLUNA 02 ({colunaDireita.length > 0 ? `ORDENS ${colunaDireita[0]?.ordem || colunaEsquerda.length + 1} A ${colunaDireita[colunaDireita.length - 1]?.ordem || schedules.length}` : "VAZIA"})
             </span>
             <span className="font-semibold">{colunaDireita.length} HORÁRIOS</span>
           </div>
@@ -165,14 +217,14 @@ export function AlterarCarroProgramadoView({
             <table className="w-full text-xs text-left border-collapse">
               <thead>
                 <tr className="bg-muted/40 text-muted-foreground border-b text-[11px] font-semibold">
-                  <th className="py-2 px-2 w-10 text-center">Nº</th>
-                  <th className="py-2 px-2 font-bold text-foreground w-24">Linha</th>
-                  <th className="py-2 px-1 text-center w-14">Tab</th>
+                  <th className="py-2 px-2 w-9 text-center">Nº</th>
+                  <th className="py-2 px-2 font-bold text-foreground w-20">Linha</th>
+                  <th className="py-2 px-1 text-center w-12">Tab</th>
                   <th className="py-2 px-2 text-center bg-blue-500/5 text-blue-700 dark:text-blue-300 font-bold w-24">Carro Prog.</th>
-                  <th className="py-2 px-1.5 text-center font-bold text-foreground w-20">Saída Gar.</th>
-                  <th className="py-2 px-1.5 text-center text-muted-foreground w-20">Início Linha</th>
-                  <th className="py-2 px-2 text-center w-24">Status CI</th>
-                  <th className="py-2 px-2 text-center w-20">Ação</th>
+                  <th className="py-2 px-1.5 text-center font-bold text-foreground w-18">Saída Gar.</th>
+                  <th className="py-2 px-1.5 text-center text-muted-foreground w-18">Bairro</th>
+                  <th className="py-2 px-1.5 text-center w-20">Status CI</th>
+                  <th className="py-2 px-1.5 text-center w-16">Ação</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/60 font-mono">
@@ -184,6 +236,7 @@ export function AlterarCarroProgramadoView({
                     schedules={schedules}
                     checkBloqueioCI={checkBloqueioCI}
                     onUpdateField={onUpdateField}
+                    onUpdateMultipleFields={onUpdateMultipleFields}
                   />
                 ))}
                 {colunaDireita.length === 0 && (
@@ -210,6 +263,7 @@ interface AlterarCarroProgramadoTableRowProps {
   schedules: SolturaItem[];
   checkBloqueioCI: (prefixo: string) => BloqueioCarro | null | undefined;
   onUpdateField: (itemId: string, field: keyof SolturaItem, value: any) => void;
+  onUpdateMultipleFields?: (itemId: string, updates: Partial<SolturaItem>) => void;
 }
 
 function AlterarCarroProgramadoTableRow({
@@ -217,7 +271,8 @@ function AlterarCarroProgramadoTableRow({
   index,
   schedules,
   checkBloqueioCI,
-  onUpdateField
+  onUpdateField,
+  onUpdateMultipleFields
 }: AlterarCarroProgramadoTableRowProps) {
   const [carroProg, setCarroProg] = useState(item.carroProgramado || "");
   const bloqueio = checkBloqueioCI(carroProg);
@@ -238,11 +293,16 @@ function AlterarCarroProgramadoTableRow({
       return;
     }
 
-    onUpdateField(item.id, "carroProgramado", finalVal);
+    if (onUpdateMultipleFields) {
+      onUpdateMultipleFields(item.id, { carroProgramado: finalVal });
+    } else {
+      onUpdateField(item.id, "carroProgramado", finalVal);
+    }
+
     if (bloqueio) {
       toast.warning(`Carro ${finalVal} alterado, porém consta no CI: ${bloqueio.motivo}`);
     } else {
-      toast.success(`Carro programado da Linha ${item.linha} alterado para ${finalVal}!`);
+      toast.success(`Carro programado da Linha ${item.linha} (Tab ${item.tabela}) alterado para ${finalVal}!`);
     }
   };
 
@@ -273,6 +333,11 @@ function AlterarCarroProgramadoTableRow({
             type="text"
             value={carroProg}
             onChange={(e) => setCarroProg(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                handleAlterar();
+              }
+            }}
             placeholder="Carro..."
             className={cn(
               "w-20 h-7 text-center rounded-md border text-xs font-mono font-bold focus:outline-hidden focus:ring-1 focus:ring-blue-600 transition-all",
@@ -287,7 +352,7 @@ function AlterarCarroProgramadoTableRow({
                 ? `Atenção: Carro ${carroProg} já está programado na Linha ${duplicado.linha} (Tab ${duplicado.tabela})!`
                 : bloqueio
                   ? `Carro no CI: ${bloqueio.motivo}`
-                  : "Digite para alterar o Carro Programado e clique em Alterar ao lado"
+                  : "Digite para alterar o Carro Programado e pressione Enter ou clique em Alterar ao lado"
             }
           />
           {duplicado ? (
@@ -302,22 +367,25 @@ function AlterarCarroProgramadoTableRow({
         </div>
       </td>
 
-      {/* Saída Garagem (Somente leitura) */}
+      {/* Saída Garagem */}
       <td className="py-2 px-1.5 text-center font-bold text-foreground text-xs">
         {item.saidaGaragem}
       </td>
 
-      {/* Início Linha (Somente leitura) */}
-      <td className="py-2 px-1.5 text-center text-muted-foreground text-xs">
-        {item.inicioLinha || item.inicioBairro || "—"}
+      {/* Bairro (Horário da planilha) */}
+      <td className="py-2 px-1.5 text-center text-muted-foreground text-xs font-medium">
+        {item.inicioBairro || item.chegadaGaragem || item.inicioLinha || "—"}
       </td>
 
-      {/* Status CI */}
-      <td className="py-2 px-2 text-center">
+      {/* Status CI / Manutenção */}
+      <td className="py-2 px-1.5 text-center">
         {bloqueio ? (
-          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
-            <AlertTriangle className="w-3 h-3 text-rose-600" />
-            Oficina
+          <span 
+            className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 max-w-[120px] truncate"
+            title={`Carro Bloqueado / Em Manutenção: ${bloqueio.motivo}`}
+          >
+            <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
+            <span className="truncate">{bloqueio.motivo ? bloqueio.motivo.slice(0, 10) : "Oficina"}</span>
           </span>
         ) : (
           <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
@@ -332,7 +400,7 @@ function AlterarCarroProgramadoTableRow({
           type="button"
           size="sm"
           onClick={handleAlterar}
-          className="h-7 px-2.5 text-[11px] font-bold rounded-lg transition-all bg-[#164E3A] hover:bg-[#113C2D] text-white shadow-2xs"
+          className="h-7 px-2 text-[11px] font-bold rounded-lg transition-all bg-[#164E3A] hover:bg-[#113C2D] text-white shadow-2xs"
           title="Clique para confirmar e salvar a alteração do carro programado"
         >
           Alterar

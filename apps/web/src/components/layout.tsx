@@ -21,7 +21,6 @@ import {
   Bell,
   Calendar,
   Wrench,
-  FileSpreadsheet,
   CalendarClock
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -85,6 +84,11 @@ const navItems: NavItem[] = [
         to: "/soltura/historico",
         label: "Histórico de Soltura",
         roles: ["ADMIN", "soltura", "COLABORADOR"]
+      },
+      {
+        to: "/soltura/alterar-folha",
+        label: "Alterar Folha de Soltura",
+        roles: ["ADMIN", "soltura", "COLABORADOR"]
       }
     ]
   },
@@ -95,21 +99,13 @@ const navItems: NavItem[] = [
     roles: ["ADMIN", "COLABORADOR"],
     children: [
       {
+        to: "/manutencao",
+        label: "Controle de Frota",
+        roles: ["ADMIN", "COLABORADOR"]
+      },
+      {
         to: "/manutencao/ci-manutencao",
         label: "CI Manutenção",
-        roles: ["ADMIN", "COLABORADOR"]
-      }
-    ]
-  },
-  {
-    to: "/soltura-adm",
-    label: "Soltura ADM",
-    icon: FileSpreadsheet,
-    roles: ["ADMIN", "COLABORADOR"],
-    children: [
-      {
-        to: "/soltura-adm/alterar-folha",
-        label: "Alterar Folha de Soltura",
         roles: ["ADMIN", "COLABORADOR"]
       }
     ]
@@ -151,7 +147,6 @@ export function Layout() {
   const [openSubMenus, setOpenSubMenus] = useState<Record<string, boolean>>({
     "/soltura": true,
     "/manutencao": true,
-    "/soltura-adm": true,
     "/escala-carros": true,
   });
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -222,6 +217,9 @@ export function Layout() {
         "/ci-manutencao",
         "/soltura/ci-manutencao",
         "/soltura-adm",
+        "/escala-carros",
+        "/escala-carros/alterar-carro-programado",
+        "/alterar-carro-programado",
         "/controle-operacional"
       ];
       return allowed.some(route => to === route || to.startsWith(route + "/") || route.startsWith(to + "/"));
@@ -245,6 +243,9 @@ export function Layout() {
             return true;
           }
           if (normalizedTo === "/soltura-adm" && (clean === "/soltura-adm" || clean === "/soltura" || clean === "/soltura/alterar-folha")) {
+            return true;
+          }
+          if (normalizedTo === "/escala-carros" && (clean === "/escala-carros" || clean === "/alterar-carro-programado" || clean === "/escala-carros/alterar-carro-programado" || clean === "/soltura")) {
             return true;
           }
           return normalizedTo === clean || normalizedTo.startsWith(clean + "/") || clean.startsWith(normalizedTo + "/");
@@ -280,9 +281,10 @@ export function Layout() {
     if (location.pathname.startsWith("/catracas")) return "Conferência Catracas";
     if (location.pathname.startsWith("/abastecimento-carro")) return "Abastecimento por Carro";
     if (location.pathname.startsWith("/abastecimento")) return "Leitura de Tanques";
+    if (location.pathname === "/manutencao") return "Manutenção - Controle de Frota";
     if (location.pathname.startsWith("/manutencao") || location.pathname.startsWith("/ci-manutencao") || location.pathname.startsWith("/soltura/ci-manutencao")) return "Manutenção - CI Manutenção";
-    if (location.pathname.startsWith("/soltura-adm") || location.pathname.startsWith("/soltura/alterar-folha")) return "Soltura ADM - Alterar Folha de Soltura";
-    if (location.pathname.startsWith("/escala-carros") || location.pathname.startsWith("/soltura/alterar-carro-programado") || location.pathname.startsWith("/soltura/carro-realizado")) return "Escala Carros - Alterar Carro Programado";
+    if (location.pathname.startsWith("/soltura/alterar-folha") || location.pathname.startsWith("/soltura-adm") || location.pathname.startsWith("/alterar-folha")) return "Soltura - Alterar Folha de Soltura";
+    if (location.pathname.startsWith("/escala-carros") || location.pathname.startsWith("/soltura/alterar-carro-programado") || location.pathname.startsWith("/alterar-carro-programado") || location.pathname.startsWith("/soltura/carro-realizado")) return "Escala Carros - Alterar Carro Programado";
     if (location.pathname.startsWith("/soltura/historico")) return "Soltura - Histórico de Soltura";
     if (location.pathname.startsWith("/soltura")) return "Soltura - Folha de Soltura";
     if (location.pathname.startsWith("/controle-operacional")) return "Controle Operacional";
@@ -443,7 +445,7 @@ export function Layout() {
                 )}
 
                 {hasChildren && isOpen && (
-                  <div className="pl-6 pr-2 space-y-1 pt-1 animate-in slide-in-from-top-1 duration-150">
+                  <div className="ml-6 pl-3 border-l-2 border-slate-200 dark:border-slate-800 space-y-1 my-1 animate-in slide-in-from-top-1 duration-150">
                     {item.children?.map((subItem) => {
                       const subActive = location.pathname === subItem.to;
                       return (
@@ -452,14 +454,13 @@ export function Layout() {
                           to={subItem.to}
                           onClick={() => setMobileMenuOpen(false)}
                           className={cn(
-                            "flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors",
+                            "flex items-center px-3 py-2 rounded-xl text-xs font-medium transition-all",
                             subActive
-                              ? "bg-emerald-50 text-emerald-800 dark:bg-slate-800 dark:text-emerald-300 font-semibold"
-                              : "text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50"
+                              ? "bg-[#164E3A] text-white dark:bg-emerald-600 font-semibold shadow-xs"
+                              : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white"
                           )}
                         >
-                          {subActive && <span className="w-1.5 h-1.5 rounded-full bg-[#164E3A] dark:bg-emerald-400 shrink-0" />}
-                          <span>{subItem.label}</span>
+                          <span className="truncate">{subItem.label}</span>
                         </Link>
                       );
                     })}
@@ -611,7 +612,7 @@ export function Layout() {
 
                 {/* Submenu for desktop */}
                 {hasChildren && isOpen && (
-                  <div className="pl-7 pr-1 space-y-1 pt-1 animate-in slide-in-from-top-1 duration-150">
+                  <div className="ml-6 pl-3 border-l-2 border-slate-200 dark:border-slate-800 space-y-1 my-1 animate-in slide-in-from-top-1 duration-150">
                     {item.children?.map((subItem) => {
                       const subActive = location.pathname === subItem.to;
                       return (
@@ -619,13 +620,12 @@ export function Layout() {
                           key={subItem.to}
                           to={subItem.to}
                           className={cn(
-                            "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+                            "flex items-center px-3 py-2 rounded-xl text-xs font-medium transition-all",
                             subActive
-                              ? "bg-emerald-50 text-emerald-900 dark:bg-slate-800 dark:text-emerald-300 font-semibold"
-                              : "text-slate-500 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800/50 hover:text-slate-800 dark:hover:text-slate-200"
+                              ? "bg-[#164E3A] text-white dark:bg-emerald-600 font-semibold shadow-xs"
+                              : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white"
                           )}
                         >
-                          {subActive && <span className="w-1.5 h-1.5 rounded-full bg-[#164E3A] dark:bg-emerald-400 shrink-0" />}
                           <span className="truncate">{subItem.label}</span>
                         </Link>
                       );

@@ -9,26 +9,51 @@ async function main() {
   const groupTodos = await prisma.group.upsert({
     where: { name: "Todos" },
     update: {
-      description: "Acesso a Leitura de Tanques, Abastecimento por Carro, Soltura, Manutenção, Soltura ADM e Controle Operacional",
+      description: "Acesso a Leitura de Tanques, Abastecimento por Carro, Soltura, Manutenção, Soltura ADM, Escala Carros e Controle Operacional",
       permissions: JSON.stringify([
         "/abastecimento",
         "/abastecimento-carro",
         "/soltura",
         "/manutencao",
         "/soltura-adm",
+        "/escala-carros",
+        "/escala-carros/alterar-carro-programado",
         "/controle-operacional",
       ]),
     },
     create: {
       name: "Todos",
-      description: "Acesso a Leitura de Tanques, Abastecimento por Carro, Soltura, Manutenção, Soltura ADM e Controle Operacional",
+      description: "Acesso a Leitura de Tanques, Abastecimento por Carro, Soltura, Manutenção, Soltura ADM, Escala Carros e Controle Operacional",
       permissions: JSON.stringify([
         "/abastecimento",
         "/abastecimento-carro",
         "/soltura",
         "/manutencao",
         "/soltura-adm",
+        "/escala-carros",
+        "/escala-carros/alterar-carro-programado",
         "/controle-operacional",
+      ]),
+    },
+  });
+
+  const groupEscalaCarros = await prisma.group.upsert({
+    where: { name: "Escala Carros" },
+    update: {
+      description: "Acesso ao menu Escala Carros",
+      permissions: JSON.stringify([
+        "/escala-carros",
+        "/escala-carros/alterar-carro-programado",
+        "/alterar-carro-programado",
+      ]),
+    },
+    create: {
+      name: "Escala Carros",
+      description: "Acesso ao menu Escala Carros",
+      permissions: JSON.stringify([
+        "/escala-carros",
+        "/escala-carros/alterar-carro-programado",
+        "/alterar-carro-programado",
       ]),
     },
   });

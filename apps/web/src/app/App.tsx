@@ -12,6 +12,7 @@ import { SolturaPage } from "@/pages/soltura";
 import { UsersPage } from "@/pages/admin/users";
 import { CatracasPage } from "@/pages/catracas";
 import { ControleOperacionalPage } from "@/pages/controle-operacional";
+import { ManutencaoPage } from "@/pages/manutencao";
 
 function LoadingScreen() {
   return (
@@ -51,9 +52,15 @@ function PermissionRoute({ to, fallbackRoles, children }: { to: string; fallback
       "/abastecimento",
       "/abastecimento-carro",
       "/soltura",
+      "/alterar-folha",
       "/manutencao",
       "/ci-manutencao",
       "/soltura/ci-manutencao",
+      "/escala-carros",
+      "/escala-carros/alterar-carro-programado",
+      "/alterar-carro-programado",
+      "/soltura/alterar-carro-programado",
+      "/soltura/carro-realizado",
       "/soltura-adm",
       "/controle-operacional"
     ];
@@ -66,12 +73,12 @@ function PermissionRoute({ to, fallbackRoles, children }: { to: string; fallback
   }
 
   if (user.groups && user.groups.length > 0) {
-    const normalizedTo = to.startsWith("/catracas") ? "/catracas" 
-      : to.startsWith("/soltura-adm") ? "/soltura-adm"
-      : to.startsWith("/escala-carros") ? "/escala-carros"
-      : to.startsWith("/manutencao") || to.startsWith("/ci-manutencao") || to.startsWith("/soltura/ci-manutencao") ? "/manutencao"
-      : to.startsWith("/soltura") ? "/soltura" 
-      : to;
+    const normalizedTo = to.startsWith("/catracas") ? "/catracas"
+      : to.startsWith("/soltura-adm") || to.startsWith("/alterar-folha") ? "/soltura-adm"
+        : to.startsWith("/escala-carros") || to.startsWith("/alterar-carro-programado") ? "/escala-carros"
+          : to.startsWith("/manutencao") || to.startsWith("/ci-manutencao") || to.startsWith("/soltura/ci-manutencao") ? "/manutencao"
+            : to.startsWith("/soltura") ? "/soltura"
+              : to;
 
     const hasPerm = user.groups.some(g => {
       const perms = Array.isArray(g.permissions) ? g.permissions : [];
@@ -80,7 +87,7 @@ function PermissionRoute({ to, fallbackRoles, children }: { to: string; fallback
         if (normalizedTo === "/manutencao" && (clean === "/manutencao" || clean === "/ci-manutencao" || clean === "/soltura" || clean === "/soltura/ci-manutencao")) {
           return true;
         }
-        if (normalizedTo === "/soltura-adm" && (clean === "/soltura-adm" || clean === "/soltura" || clean === "/soltura/alterar-folha")) {
+        if (normalizedTo === "/soltura-adm" && (clean === "/soltura-adm" || clean === "/soltura" || clean === "/soltura/alterar-folha" || clean === "/alterar-folha")) {
           return true;
         }
         return normalizedTo === clean || normalizedTo.startsWith(clean + "/") || clean.startsWith(normalizedTo + "/");
@@ -250,7 +257,7 @@ export function App() {
             path="/manutencao"
             element={
               <PermissionRoute to="/manutencao" fallbackRoles={["ADMIN", "COLABORADOR"]}>
-                <SolturaPage defaultTab="CI_MANUTENCAO" />
+                <ManutencaoPage />
               </PermissionRoute>
             }
           />
@@ -285,6 +292,22 @@ export function App() {
             element={
               <PermissionRoute to="/soltura-adm" fallbackRoles={["ADMIN", "COLABORADOR"]}>
                 <SolturaPage defaultTab="ALTERAR_FOLHA" />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/alterar-folha"
+            element={
+              <PermissionRoute to="/soltura-adm" fallbackRoles={["ADMIN", "COLABORADOR"]}>
+                <SolturaPage defaultTab="ALTERAR_FOLHA" />
+              </PermissionRoute>
+            }
+          />
+          <Route
+            path="/alterar-carro-programado"
+            element={
+              <PermissionRoute to="/escala-carros" fallbackRoles={["ADMIN", "COLABORADOR"]}>
+                <SolturaPage defaultTab="ALTERAR_CARRO_PROGRAMADO" />
               </PermissionRoute>
             }
           />
