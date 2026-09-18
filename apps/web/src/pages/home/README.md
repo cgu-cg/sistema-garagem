@@ -16,8 +16,6 @@ A Dashboard é a central de comando operacional do Sistema Garagem. Ela resume o
 ## 3. Painéis e Funcionalidades
 * **Gráfico de Consumo Diário**: Gráfico de barras verticais com visual Bento Grid exibindo o volume em litros injetado na frota nos últimos 7 dias, 30 dias ou dia atual.
 * **Lembretes & Tarefas**: Checklist interativo de rotina operacional (ex: conferência de bicos, auditoria de tanques, verificação de CIs). Permite marcar como concluído e adicionar novas tarefas dinamicamente.
-* **Escala & Saídas da Garagem**: Tabela com os próximos despachos prioritários, motorista escalado, carro programado, linha, tabela e horário de saída da garagem.
-* **Controle de Turno (Stopwatch)**: Cronômetro em tempo real do turno ativo com metas visuais de despacho matinal e abastecimento.
 
 ---
 

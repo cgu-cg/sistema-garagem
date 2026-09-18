@@ -37,15 +37,51 @@ export const createAbastecimentoSchema = z.object({
 });
 
 export const createSolturaSchema = z.object({
-  busId: z.number().int().positive("Ônibus realizado inválido"),
+  busId: z.number().int().positive().optional().nullable(),
   programmedBusId: z.number().int().positive().optional().nullable(),
+  scheduleId: z.string().optional().nullable(),
+  carroProgramado: z.string().optional().nullable(),
+  carroRealizado: z.string().min(1, "Carro realizado é obrigatório"),
   linha: z.string().min(1, "Linha é obrigatória"),
   tabela: z.string().min(1, "Tabela é obrigatória"),
-  driverCode: z.string().min(1, "Código do motorista (MOTO) é obrigatório"),
-  driverName: z.string().min(1, "Nome do motorista é obrigatório"),
-  saidaGaragem: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Horário de saída inválido (HH:mm)"),
-  inicioLinha: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Horário de início inválido (HH:mm)"),
+  driverCode: z.string().optional().nullable(),
+  driverName: z.string().optional().nullable(),
+  saidaGaragem: z.string().optional().nullable(),
+  inicioLinha: z.string().optional().nullable(),
+  horaLiberacao: z.string().optional().nullable(),
+  garagem: z.string().optional().nullable(),
+  turno: z.string().optional().nullable(),
+  escalaTipo: z.string().optional().nullable(),
+  dataOperacao: z.string().optional().nullable(),
+  substituido: z.boolean().optional().nullable(),
+  historicoTrocas: z.union([z.string(), z.array(z.any())]).optional().nullable(),
+  status: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+});
+
+export const batchSyncSolturaSchema = z.object({
+  dataOperacao: z.string().min(1, "Data de operação é obrigatória"),
+  garagem: z.string().min(1, "Garagem é obrigatória"),
+  turno: z.string().optional().nullable(),
+  escalaTipo: z.string().optional().nullable(),
+  items: z.array(
+    z.object({
+      scheduleId: z.string().min(1),
+      carroProgramado: z.string().optional().nullable(),
+      carroRealizado: z.string().min(1),
+      linha: z.string().min(1),
+      tabela: z.string().min(1),
+      driverCode: z.string().optional().nullable(),
+      driverName: z.string().optional().nullable(),
+      saidaGaragem: z.string().optional().nullable(),
+      inicioLinha: z.string().optional().nullable(),
+      horaLiberacao: z.string().optional().nullable(),
+      substituido: z.boolean().optional().nullable(),
+      historicoTrocas: z.union([z.string(), z.array(z.any())]).optional().nullable(),
+      status: z.string().optional().nullable(),
+      notes: z.string().optional().nullable(),
+    })
+  ),
 });
 
 export const consisteCatracaQuerySchema = z.object({

@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, Fragment } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,7 +24,8 @@ import {
   Tag,
   ChevronDown,
   ChevronUp,
-  Warehouse
+  Warehouse,
+  RotateCcw
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -104,6 +105,32 @@ export interface DispatchedRecord {
   historicoTrocas?: TrocaCarroItem[];
 }
 
+export function getHojeLocal(): string {
+  const d = new Date();
+  const ano = d.getFullYear();
+  const mes = String(d.getMonth() + 1).padStart(2, "0");
+  const dia = String(d.getDate()).padStart(2, "0");
+  return `${ano}-${mes}-${dia}`;
+}
+
+export function getOntemLocal(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const ano = d.getFullYear();
+  const mes = String(d.getMonth() + 1).padStart(2, "0");
+  const dia = String(d.getDate()).padStart(2, "0");
+  return `${ano}-${mes}-${dia}`;
+}
+
+export function formatarDataBr(isoDate: string): string {
+  if (!isoDate) return "";
+  const parts = isoDate.split("-");
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  return isoDate;
+}
+
 interface SolturaPageProps {
   defaultTab?: ViewMode;
 }
@@ -139,7 +166,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
   const [escalaTipo, setEscalaTipo] = useState<EscalaTipo>("SEG_SEX");
   const [turnoTipo, setTurnoTipo] = useState<TurnoTipo>("MATUTINO");
-  const [dataOperacao, setDataOperacao] = useState(() => new Date().toISOString().split("T")[0]);
+  const [dataOperacao, setDataOperacao] = useState(() => getHojeLocal());
 
   // Modos de visualização
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
@@ -173,11 +200,13 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     }
   }, [location.pathname, defaultTab]);
 
-  // Na Folha de Soltura do dia corrente, a data é sempre a data de hoje
+  // Na Folha de Soltura (/soltura), a data é sempre e estritamente a data de hoje local.
+  // No Histórico (/soltura/historico), inicia por padrão em ontem para consulta imediata de outros dias.
   useEffect(() => {
     if (viewMode === "FOLHA") {
-      const hoje = new Date().toISOString().split("T")[0];
-      setDataOperacao(hoje);
+      setDataOperacao(getHojeLocal());
+    } else if (viewMode === "HISTORICO") {
+      setDataOperacao(getOntemLocal());
     }
   }, [viewMode]);
 
@@ -204,20 +233,13 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     };
   }, []);
 
-  // Chave de armazenamento por Turno e Escala
+  // Chave de armazenamento por Turno e Escala (usada como cache de contingência)
   const getDispatchStorageKey = (g: string, e: string, t: TurnoTipo, d: string) => {
     return `soltura_dispatches_${g}_${e}_${e === "SEG_SEX" ? t : "PADRAO"}_${d}`;
   };
 
-  // Despachos em memória / sincronizados localmente e via backend
-  const [dispatches, setDispatches] = useState<Record<string, DispatchedRecord>>(() => {
-    try {
-      const saved = localStorage.getItem(getDispatchStorageKey(garagem, escalaTipo, turnoTipo, dataOperacao));
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
-  });
+  // Despachos em memória sincronizados estritamente com o backend SQL Server
+  const [dispatches, setDispatches] = useState<Record<string, DispatchedRecord>>({});
 
   // Rascunhos de digitação na folha antes da liberação
   const [drafts, setDrafts] = useState<Record<string, { carro?: string; moto?: string }>>({});
@@ -232,30 +254,24 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     }));
   };
 
-  // Recarregar despachos quando trocar garagem, escala, turno ou data
+  // Limpar despachos e rascunhos ao alternar filtros antes da carga da API
   useEffect(() => {
-    try {
-      const key = getDispatchStorageKey(garagem, escalaTipo, turnoTipo, dataOperacao);
-      const saved = localStorage.getItem(key);
-      if (saved) {
-        setDispatches(JSON.parse(saved));
-      } else {
-        setDispatches({});
-      }
-    } catch {
-      setDispatches({});
-    }
+    setDispatches({});
     setDrafts({});
   }, [garagem, escalaTipo, turnoTipo, dataOperacao]);
 
-  // Persistir despachos no localStorage
+  // Persistir despachos no localStorage (apenas como cache local)
   const saveDispatches = (newDispatches: Record<string, DispatchedRecord>) => {
     setDispatches(newDispatches);
     try {
       const key = getDispatchStorageKey(garagem, escalaTipo, turnoTipo, dataOperacao);
-      localStorage.setItem(key, JSON.stringify(newDispatches));
+      if (Object.keys(newDispatches).length === 0) {
+        localStorage.removeItem(key);
+      } else {
+        localStorage.setItem(key, JSON.stringify(newDispatches));
+      }
     } catch (e) {
-      console.error("Falha ao salvar localStorage", e);
+      console.error("Erro ao salvar despachos no localStorage:", e);
     }
   };
 
@@ -308,6 +324,132 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       return timeA - timeB;
     });
   }, [rawBaseSchedules]);
+
+  const [isSyncingDb, setIsSyncingDb] = useState(false);
+
+  // Sincronizar com o banco de dados oficial (SQL Server)
+  useEffect(() => {
+    let isCancelled = false;
+    setIsSyncingDb(true);
+
+    api.listSolturas({
+      date: dataOperacao,
+      garagem,
+      turno: escalaTipo === "SEG_SEX" ? turnoTipo : undefined,
+      escalaTipo,
+    })
+      .then((records: any[]) => {
+        if (isCancelled) return;
+        const key = getDispatchStorageKey(garagem, escalaTipo, turnoTipo, dataOperacao);
+
+        if (Array.isArray(records)) {
+          if (records.length > 0) {
+            // Se existem registros no banco para essa data, o banco é a autoridade máxima
+            const dbDispatches: Record<string, DispatchedRecord> = {};
+            records.forEach((rec) => {
+              const sid = rec.scheduleId || `${rec.linha}_${rec.tabela}`;
+              dbDispatches[sid] = {
+                scheduleId: sid,
+                carroRealizado: rec.carroRealizado,
+                motoristaCodigo: rec.driverCode || "",
+                motoristaNome: rec.driverName || "",
+                horaLiberacao: rec.horaLiberacao || "",
+                observacoes: rec.notes || undefined,
+                substituido: !!rec.substituido,
+                historicoTrocas: rec.historicoTrocas || [],
+              };
+            });
+            setDispatches(dbDispatches);
+            localStorage.setItem(key, JSON.stringify(dbDispatches));
+          } else {
+            // O BANCO DE DADOS É A AUTORIDADE MÁXIMA: se o banco retornou 0 registros para esta data/turno,
+            // a folha DEVE zerar imediatamente, limpando qualquer cache do localStorage!
+            setDispatches({});
+            localStorage.removeItem(key);
+          }
+        }
+      })
+      .catch((err) => {
+        console.error("Erro ao carregar solturas do banco:", err);
+        // Em caso de falha de rede/offline, tenta ler do cache local de contingência
+        try {
+          const key = getDispatchStorageKey(garagem, escalaTipo, turnoTipo, dataOperacao);
+          const saved = localStorage.getItem(key);
+          if (saved) {
+            setDispatches(JSON.parse(saved));
+          }
+        } catch {}
+      })
+      .finally(() => {
+        if (!isCancelled) setIsSyncingDb(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [garagem, escalaTipo, turnoTipo, dataOperacao]);
+
+  // Persistir despacho individual na API
+  const persistDispatchToApi = async (item: SolturaItem, record: DispatchedRecord) => {
+    try {
+      await api.createSoltura({
+        scheduleId: item.id,
+        carroProgramado: item.carroProgramado || null,
+        carroRealizado: record.carroRealizado,
+        linha: item.linha,
+        tabela: item.tabela,
+        driverCode: record.motoristaCodigo || null,
+        driverName: record.motoristaNome || null,
+        saidaGaragem: item.saidaGaragem || null,
+        inicioLinha: item.inicioLinha || item.inicioBairro || null,
+        horaLiberacao: record.horaLiberacao || null,
+        garagem,
+        turno: escalaTipo === "SEG_SEX" ? turnoTipo : "PADRAO",
+        escalaTipo,
+        dataOperacao,
+        substituido: record.substituido,
+        historicoTrocas: record.historicoTrocas || [],
+        status: "LIBERADO",
+        notes: record.observacoes || null,
+      });
+    } catch (err) {
+      console.error("Erro ao salvar soltura no banco:", err);
+    }
+  };
+
+  // Salvar múltiplos despachos (usado pelo CarroRealizadoView)
+  const handleSaveDispatchFromView = (newDispatches: Record<string, DispatchedRecord>) => {
+    saveDispatches(newDispatches);
+    const itemsToPersist = Object.values(newDispatches).map(disp => {
+      const sched = baseSchedules.find(s => s.id === disp.scheduleId);
+      return {
+        scheduleId: disp.scheduleId,
+        carroProgramado: sched?.carroProgramado || null,
+        carroRealizado: disp.carroRealizado,
+        linha: sched?.linha || "",
+        tabela: sched?.tabela || "",
+        driverCode: disp.motoristaCodigo || null,
+        driverName: disp.motoristaNome || null,
+        saidaGaragem: sched?.saidaGaragem || null,
+        inicioLinha: sched?.inicioLinha || sched?.inicioBairro || null,
+        horaLiberacao: disp.horaLiberacao || null,
+        substituido: !!disp.substituido,
+        historicoTrocas: disp.historicoTrocas || [],
+        status: "LIBERADO",
+        notes: disp.observacoes || null
+      };
+    }).filter(i => i.linha && i.tabela);
+
+    if (itemsToPersist.length > 0) {
+      api.batchSyncSolturas({
+        dataOperacao,
+        garagem,
+        turno: escalaTipo === "SEG_SEX" ? turnoTipo : "PADRAO",
+        escalaTipo,
+        items: itemsToPersist
+      }).catch(e => console.error("Erro ao sincronizar do CarroRealizadoView:", e));
+    }
+  };
 
   const handleUpdateScheduleField = (itemId: string, field: keyof SolturaItem, value: any) => {
     // Regra: Bloquear duplicidade de carro programado na mesma escala
@@ -682,12 +824,21 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
   // Dividir em 2 colunas para exibição estilo Prancheta / Folha
   const { colunaEsquerda, colunaDireita } = useMemo(() => {
+    if (turnoTipo === "VESPERTINO" && garagem === "VCG" && escalaTipo === "SEG_SEX") {
+      // No Vespertino Oficial da VCG (documento JTU.REG.OP.0001):
+      // Coluna 1: Soltura Vespertina V.C.G. (48 horários)
+      // Coluna 2: Terminais (33 horários: Nova Bahia 13, Gen. Osório 9, Júlio Castilho 7, Bandeirantes 4)
+      return {
+        colunaEsquerda: filteredSchedules.filter(it => it.observacoes === "V.C.G." || !it.observacoes),
+        colunaDireita: filteredSchedules.filter(it => it.observacoes && it.observacoes !== "V.C.G.")
+      };
+    }
     const meio = Math.ceil(filteredSchedules.length / 2);
     return {
       colunaEsquerda: filteredSchedules.slice(0, meio),
       colunaDireita: filteredSchedules.slice(meio)
     };
-  }, [filteredSchedules]);
+  }, [filteredSchedules, turnoTipo, garagem, escalaTipo]);
 
   // Verifica se o carro já está sendo utilizado no campo Carro Realiz. de OUTRA linha
   // O carro que foi substituído fica liberado para ser utilizado por outra linha!
@@ -780,6 +931,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
     const updated = { ...dispatches, [item.id]: newRecord };
     saveDispatches(updated);
+    persistDispatchToApi(item, newRecord);
 
     // Limpar rascunho
     setDrafts(prev => {
@@ -856,6 +1008,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
     const updated = { ...dispatches, [item.id]: newRecord };
     saveDispatches(updated);
+    persistDispatchToApi(item, newRecord);
 
     toast.success(`Carro da Linha ${item.linha} alterado para ${cleanNovo}!`);
   };
@@ -1380,19 +1533,62 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                 )}
               </div>
 
-              {/* Linha Inferior/Ao lado: Data (apenas no Histórico) e Ações Imprimir / Excel */}
-              <div className="flex items-center gap-2">
+              {/* Linha Inferior/Ao lado: Seletor de Data (apenas no Histórico) e Ações Imprimir / Excel */}
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Seletor de Data: visível EXCLUSIVAMENTE no Histórico (/soltura/historico) */}
                 {viewMode === "HISTORICO" && (
-                  /* No Histórico: Seletor de data ativo para busca */
-                  <div className="flex items-center gap-1.5 bg-card border px-3 py-1.5 rounded-xl text-xs shadow-2xs" title="Filtrar data do histórico">
-                    <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
-                    <input
-                      type="date"
-                      value={dataOperacao}
-                      onChange={(e) => setDataOperacao(e.target.value)}
-                      className="bg-transparent text-xs font-semibold focus:outline-hidden cursor-pointer text-foreground"
-                    />
+                  <div className="flex flex-wrap items-center gap-2 animate-in fade-in">
+                    <div className="flex items-center bg-muted/60 p-1 rounded-full border border-border/80">
+                      <button
+                        type="button"
+                        onClick={() => setDataOperacao(getHojeLocal())}
+                        className={cn(
+                          "px-3 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer",
+                          dataOperacao === getHojeLocal()
+                            ? "bg-[#164E3A] text-white dark:bg-emerald-600 shadow-2xs"
+                            : "text-muted-foreground hover:text-foreground font-medium"
+                        )}
+                        title="Histórico de Hoje"
+                      >
+                        <span className={cn("w-2 h-2 rounded-full", dataOperacao === getHojeLocal() ? "bg-emerald-400 animate-pulse" : "bg-neutral-400")} />
+                        Hoje ({formatarDataBr(getHojeLocal()).slice(0, 5)})
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setDataOperacao(getOntemLocal())}
+                        className={cn(
+                          "px-3 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer",
+                          dataOperacao === getOntemLocal()
+                            ? "bg-amber-600 text-white shadow-2xs"
+                            : "text-muted-foreground hover:text-foreground font-medium"
+                        )}
+                        title="Histórico de Ontem"
+                      >
+                        <Clock className="w-3 h-3" />
+                        Ontem ({formatarDataBr(getOntemLocal()).slice(0, 5)})
+                      </button>
+                    </div>
+
+                    {/* Seletor de Data do Histórico */}
+                    <div className="flex items-center gap-1.5 bg-card border px-2.5 py-1 rounded-xl text-xs shadow-2xs" title="Selecionar outra data no histórico">
+                      <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
+                      <input
+                        type="date"
+                        value={dataOperacao}
+                        onChange={(e) => setDataOperacao(e.target.value)}
+                        className="bg-transparent text-xs font-semibold focus:outline-hidden cursor-pointer text-foreground"
+                      />
+                    </div>
                   </div>
+                )}
+
+                {/* Status de Sincronização */}
+                {isSyncingDb && (
+                  <span className="text-[10px] text-muted-foreground flex items-center gap-1 animate-pulse font-mono">
+                    <RefreshCw className="w-3 h-3 animate-spin text-emerald-600" />
+                    Sincronizando...
+                  </span>
                 )}
 
                 <Button
@@ -1416,15 +1612,105 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                   <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                   <span>Exportar Excel (BI)</span>
                 </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isSyncingDb}
+                  onClick={() => {
+                    setIsSyncingDb(true);
+                    api.listSolturas({
+                      date: dataOperacao,
+                      garagem,
+                      turno: escalaTipo === "SEG_SEX" ? turnoTipo : undefined,
+                      escalaTipo,
+                    }).then((records: any[]) => {
+                      const key = getDispatchStorageKey(garagem, escalaTipo, turnoTipo, dataOperacao);
+                      if (Array.isArray(records) && records.length > 0) {
+                        const dbDispatches: Record<string, DispatchedRecord> = {};
+                        records.forEach((rec) => {
+                          const sid = rec.scheduleId || `${rec.linha}_${rec.tabela}`;
+                          dbDispatches[sid] = {
+                            scheduleId: sid,
+                            carroRealizado: rec.carroRealizado,
+                            motoristaCodigo: rec.driverCode || "",
+                            motoristaNome: rec.driverName || "",
+                            horaLiberacao: rec.horaLiberacao || "",
+                            observacoes: rec.notes || undefined,
+                            substituido: !!rec.substituido,
+                            historicoTrocas: rec.historicoTrocas || [],
+                          };
+                        });
+                        setDispatches(dbDispatches);
+                        localStorage.setItem(key, JSON.stringify(dbDispatches));
+                        toast.success(`${records.length} soltura(s) sincronizada(s) do banco!`);
+                      } else {
+                        setDispatches({});
+                        localStorage.removeItem(key);
+                        toast.info("Folha zerada. Nenhuma soltura no banco para esta data/turno.");
+                      }
+                    }).catch(err => {
+                      toast.error("Erro ao sincronizar com o banco: " + (err.message || ""));
+                    }).finally(() => {
+                      setIsSyncingDb(false);
+                    });
+                  }}
+                  className="h-8 px-3 text-xs gap-1.5 rounded-xl border font-semibold shadow-2xs hover:bg-muted/80 transition-all cursor-pointer"
+                  title="Atualizar dados diretamente do banco SQL Server"
+                >
+                  <RefreshCw className={cn("w-3.5 h-3.5 text-muted-foreground", isSyncingDb && "animate-spin text-emerald-600")} />
+                  <span>Sincronizar</span>
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    handleResetSchedule();
+                    setDispatches({});
+                    try {
+                      const key = getDispatchStorageKey(garagem, escalaTipo, turnoTipo, dataOperacao);
+                      localStorage.removeItem(key);
+                    } catch {}
+                    toast.success("Grade oficial do PDF restaurada e folha limpa!");
+                  }}
+                  className="h-8 px-3 text-xs gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 font-semibold shadow-2xs transition-all cursor-pointer"
+                  title="Restaurar escala oficial do PDF e zerar a folha"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                  <span>Restaurar Grade Oficial</span>
+                </Button>
               </div>
 
             </div>
           </div>
 
+          {/* Banner informativo quando estiver consultando na página de Histórico */}
+          {viewMode === "HISTORICO" && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 sm:px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-amber-900 dark:text-amber-200 animate-in fade-in">
+              <div className="flex items-center gap-2 text-xs sm:text-sm font-semibold">
+                <Calendar className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>
+                  Consultando histórico de soltura de <strong>{formatarDataBr(dataOperacao)}</strong> ({dataOperacao === getHojeLocal() ? "Hoje" : dataOperacao === getOntemLocal() ? "Ontem" : "Data Selecionada"}). Registros congelados para consulta e auditoria.
+                </span>
+              </div>
+              {dataOperacao !== getOntemLocal() && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setDataOperacao(getOntemLocal())}
+                  className="h-7 text-xs px-2.5 font-bold border-amber-500/40 hover:bg-amber-500/20 text-amber-950 dark:text-amber-100 shrink-0 cursor-pointer rounded-lg"
+                >
+                  Ver Ontem
+                </Button>
+              )}
+            </div>
+          )}
+
           {/* ========================================================= */}
-          {/* BARRA DE ESTATÍSTICAS E PROGRESSO OPERACIONAL (Apenas na Folha de Soltura) */}
+          {/* BARRA DE ESTATÍSTICAS E PROGRESSO OPERACIONAL (Folha de Soltura e Histórico) */}
           {/* ========================================================= */}
-          {viewMode === "FOLHA" && (
+          {(viewMode === "FOLHA" || viewMode === "HISTORICO") && (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2">
 
               {/* Card Total */}
@@ -1564,8 +1850,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                 </span>
               </div>
               <div className="text-right font-mono text-[7pt] leading-tight text-neutral-900 border border-neutral-400 px-2 py-1 bg-neutral-50 rounded">
-                <div><strong>REGISTRO:</strong> {garagem === "VCG" ? "CGU.REG.OP.0001" : "VCM.REG.TR.0017"}</div>
-                <div><strong>REVISÃO:</strong> 01 (01/07/2025)</div>
+                <div><strong>REGISTRO:</strong> {turnoTipo === "VESPERTINO" && garagem === "VCG" ? "JTU.REG.OP.0001" : garagem === "VCG" ? "CGU.REG.OP.0001" : "VCM.REG.TR.0017"}</div>
+                <div><strong>REVISÃO:</strong> {turnoTipo === "VESPERTINO" && garagem === "VCG" ? "0 (07/08/2026)" : "01 (01/07/2025)"}</div>
                 <div><strong>DATA INF.:</strong> 20/08/2026</div>
                 <div><strong>EMISSÃO:</strong> {dataOperacao.split("-").reverse().join("/")}</div>
               </div>
@@ -1711,7 +1997,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                             getOutraLinhaComCarroRealiz={getOutraLinhaComCarroRealiz}
                             getOutraLinhaComMoto={getOutraLinhaComMoto}
                             historicoTrocas={dispatches[item.id]?.historicoTrocas || []}
-                            isReadOnly={viewMode === "HISTORICO"}
+                            isReadOnly={viewMode === "HISTORICO" || dataOperacao !== getHojeLocal()}
                           />
                         </>
                       );
@@ -1769,7 +2055,9 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
               <div className="border rounded-xl overflow-hidden bg-card">
                 <div className="bg-muted/60 px-3.5 py-2 text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between border-b">
                   <span className="text-foreground">
-                    COLUNA 01 (ORDENS 01 A {String(colunaEsquerda.length).padStart(2, "0")})
+                    {turnoTipo === "VESPERTINO" && garagem === "VCG"
+                      ? "SOLTURA VESPERTINA V.C.G. (ORDENS 01 A 48)"
+                      : `COLUNA 01 (ORDENS 01 A ${String(colunaEsquerda.length).padStart(2, "0")})`}
                   </span>
                   <span className="font-semibold">{colunaEsquerda.length} HORÁRIOS</span>
                 </div>
@@ -1792,7 +2080,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                         <FolhaTableRow
                           key={item.id}
                           item={item}
-                          index={item.ordem || idx + 1}
+                          index={item.ordemTerminal ?? item.ordem ?? (idx + 1)}
                           reservasTerminais={reservasTerminais}
                           checkBloqueioCI={checkBloqueioCI}
                           onRelease={handleRelease}
@@ -1811,95 +2099,129 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
               </div>
 
               {/* Coluna 2 */}
-              <div className="border rounded-xl overflow-hidden bg-card">
-                <div className="bg-muted/60 px-3.5 py-2 text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between border-b">
-                  <span className="text-foreground">
-                    COLUNA 02 (ORDENS {String(colunaEsquerda.length + 1).padStart(2, "0")} A {String(filteredSchedules.length).padStart(2, "0")})
-                  </span>
-                  <span className="font-semibold">{colunaDireita.length} HORÁRIOS</span>
+              <div className="border rounded-xl overflow-hidden bg-card flex flex-col justify-between">
+                <div>
+                  <div className="bg-muted/60 px-3.5 py-2 text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between border-b">
+                    <span className="text-foreground">
+                      {turnoTipo === "VESPERTINO" && garagem === "VCG"
+                        ? "SOLTURA VESPERTINA TERMINAIS"
+                        : `COLUNA 02 (ORDENS ${String(colunaEsquerda.length + 1).padStart(2, "0")} A ${String(filteredSchedules.length).padStart(2, "0")})`}
+                    </span>
+                    <span className="font-semibold">{colunaDireita.length} HORÁRIOS</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left border-collapse">
+                      <thead>
+                        <tr className="bg-muted/40 text-muted-foreground border-b text-[11px] font-semibold">
+                          <th className="py-2 px-2 w-10 text-center">Nº</th>
+                          <th className="py-2 px-2 font-bold text-foreground">Linha</th>
+                          <th className="py-2 px-1 text-center">Tab</th>
+                          <th className="py-2 px-2 text-center">Carro Prog.</th>
+                          <th className="py-2 px-2 text-center">Carro Realiz.</th>
+                          <th className="py-2 px-2 text-center">MOTO</th>
+                          <th className="py-2 px-2 text-center font-bold text-foreground">Saída Gar.</th>
+                          <th className="py-2 px-2 text-center text-muted-foreground">Bairro</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/60 font-mono">
+                        {colunaDireita.map((item, idx) => {
+                          const isNewVespSection = turnoTipo === "VESPERTINO" && item.observacoes && (idx === 0 || colunaDireita[idx - 1]?.observacoes !== item.observacoes);
+                          return (
+                            <Fragment key={item.id}>
+                              {isNewVespSection && (
+                                <tr key={`sep-print-vesp-${item.id}`}>
+                                  <td colSpan={8} className="py-1 px-2 bg-neutral-200 text-black font-black uppercase tracking-wider text-[8pt] border-y border-neutral-400">
+                                    SOLTURA VESPERTINA {item.observacoes}
+                                  </td>
+                                </tr>
+                              )}
+                              <FolhaTableRow
+                                key={item.id}
+                                item={item}
+                                index={item.ordemTerminal ?? item.ordem ?? (colunaEsquerda.length + idx + 1)}
+                                reservasTerminais={reservasTerminais}
+                                checkBloqueioCI={checkBloqueioCI}
+                                onRelease={handleRelease}
+                                onDraftChange={handleDraftChange}
+                                onTrocarCarro={handleTrocarCarro}
+                                onPenduradoAlert={triggerPenduradoAlert}
+                                getOutraLinhaComCarroRealiz={getOutraLinhaComCarroRealiz}
+                                getOutraLinhaComMoto={getOutraLinhaComMoto}
+                                historicoTrocas={dispatches[item.id]?.historicoTrocas || []}
+                                isReadOnly={true}
+                              />
+                            </Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs text-left border-collapse">
-                    <thead>
-                      <tr className="bg-muted/40 text-muted-foreground border-b text-[11px] font-semibold">
-                        <th className="py-2 px-2 w-10 text-center">Nº</th>
-                        <th className="py-2 px-2 font-bold text-foreground">Linha</th>
-                        <th className="py-2 px-1 text-center">Tab</th>
-                        <th className="py-2 px-2 text-center">Carro Prog.</th>
-                        <th className="py-2 px-2 text-center">Carro Realiz.</th>
-                        <th className="py-2 px-2 text-center">MOTO</th>
-                        <th className="py-2 px-2 text-center font-bold text-foreground">Saída Gar.</th>
-                        <th className="py-2 px-2 text-center text-muted-foreground">Bairro</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/60 font-mono">
-                      {colunaDireita.map((item, idx) => (
-                        <FolhaTableRow
-                          key={item.id}
-                          item={item}
-                          index={item.ordem || colunaEsquerda.length + idx + 1}
-                          reservasTerminais={reservasTerminais}
-                          checkBloqueioCI={checkBloqueioCI}
-                          onRelease={handleRelease}
-                          onDraftChange={handleDraftChange}
-                          onTrocarCarro={handleTrocarCarro}
-                          onPenduradoAlert={triggerPenduradoAlert}
-                          getOutraLinhaComCarroRealiz={getOutraLinhaComCarroRealiz}
-                          getOutraLinhaComMoto={getOutraLinhaComMoto}
-                          historicoTrocas={dispatches[item.id]?.historicoTrocas || []}
-                          isReadOnly={true}
-                        />
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
 
-            {/* Bloco Oficial de Rodapé da Página 1: RESERVAS e RESERVA TERMINAL (conforme CGU.REG.OP.0001) */}
-            <div className="grid grid-cols-2 gap-4 pt-1 font-sans text-black">
-              {/* Reservas Garagem */}
-              <div className="border border-neutral-700 p-1.5 bg-white text-[8pt]">
-                <div className="font-bold border-b border-neutral-400 pb-0.5 mb-1 text-center bg-neutral-100 uppercase tracking-wider text-[7.5pt]">
-                  RESERVAS
-                </div>
-                <div className="grid grid-cols-3 gap-1 font-mono text-center font-bold text-[9pt]">
-                  {reservasGaragem.map((res, i) => (
-                    <div key={i} className="py-0.5 px-1 border border-neutral-300 rounded bg-neutral-50">
-                      {res}
+                {/* Quadro de Observação e Crachá da Folha Vespertina (JTU.REG.OP.0001) */}
+                {turnoTipo === "VESPERTINO" && (
+                  <div className="p-2 border-t border-neutral-300 bg-white text-black font-sans text-[7.5pt] mt-2">
+                    <div className="font-bold uppercase tracking-wider mb-1 text-[8pt]">OBSERVAÇÃO:</div>
+                    <div className="space-y-2 font-mono text-neutral-400">
+                      <div className="border-b border-dotted border-neutral-400 h-3"></div>
+                      <div className="border-b border-dotted border-neutral-400 h-3"></div>
+                      <div className="border-b border-dotted border-neutral-400 h-3"></div>
+                      <div className="border-b border-dotted border-neutral-400 h-3"></div>
                     </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Reserva Terminal */}
-              <div className="border border-neutral-700 p-1.5 bg-white text-[7pt]">
-                <div className="font-bold border-b border-neutral-400 pb-0.5 mb-1 text-center bg-neutral-100 uppercase tracking-wider text-[7.5pt]">
-                  RESERVA TERMINAL
-                </div>
-                <div className="grid grid-cols-2 gap-1 text-[6.5pt] font-mono">
-                  {TERMINAIS_PADRAO.map(term => {
-                    const carros = reservasTerminais.filter(r => r.terminal === term);
-                    return (
-                      <div key={term} className="border border-neutral-300 p-1 rounded">
-                        <div className="font-bold uppercase truncate">{term}</div>
-                        <div className="flex gap-1 mt-0.5 font-bold">
-                          <span className="text-neutral-600">C1:</span> {carros[0]?.carro || "—"}
-                          <span className="text-neutral-600 ml-1">C2:</span> {carros[1]?.carro || "—"}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                    <div className="flex justify-end mt-2 pt-1 font-bold text-[8pt]">
+                      <span>CRACHÁ: ____________________</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* Bloco Oficial de Rodapé da Página 1: RESERVAS e RESERVA TERMINAL (conforme CGU.REG.OP.0001 no matutino) */}
+            {turnoTipo !== "VESPERTINO" && (
+              <div className="grid grid-cols-2 gap-4 pt-1 font-sans text-black">
+                {/* Reservas Garagem */}
+                <div className="border border-neutral-700 p-1.5 bg-white text-[8pt]">
+                  <div className="font-bold border-b border-neutral-400 pb-0.5 mb-1 text-center bg-neutral-100 uppercase tracking-wider text-[7.5pt]">
+                    RESERVAS
+                  </div>
+                  <div className="grid grid-cols-3 gap-1 font-mono text-center font-bold text-[9pt]">
+                    {reservasGaragem.map((res, i) => (
+                      <div key={i} className="py-0.5 px-1 border border-neutral-300 rounded bg-neutral-50">
+                        {res}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Reserva Terminal */}
+                <div className="border border-neutral-700 p-1.5 bg-white text-[7pt]">
+                  <div className="font-bold border-b border-neutral-400 pb-0.5 mb-1 text-center bg-neutral-100 uppercase tracking-wider text-[7.5pt]">
+                    RESERVA TERMINAL
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 text-[6.5pt] font-mono">
+                    {TERMINAIS_PADRAO.map(term => {
+                      const carros = reservasTerminais.filter(r => r.terminal === term);
+                      return (
+                        <div key={term} className="border border-neutral-300 p-1 rounded">
+                          <div className="font-bold uppercase truncate">{term}</div>
+                          <div className="flex gap-1 mt-0.5 font-bold">
+                            <span className="text-neutral-600">C1:</span> {carros[0]?.carro || "—"}
+                            <span className="text-neutral-600 ml-1">C2:</span> {carros[1]?.carro || "—"}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Rodapé Oficial da Impressão A4 - Assinaturas e Alerta CI */}
             <div className="border-t border-neutral-400 pt-1 mt-1 text-[6.5pt] text-neutral-800 font-sans flex flex-col gap-0.5">
               <div className="flex items-center justify-between font-mono">
                 <span>Responsável pela aprovação: <strong>Paulo Vitor</strong></span>
                 <span>Responsável pela Elaboração: <strong>André Luiz</strong></span>
-                <span className="font-bold">Página 01 / 02</span>
+                <span className="font-bold">Página 01 / {turnoTipo === "VESPERTINO" ? "01" : "02"}</span>
               </div>
               <div className="text-center font-bold text-neutral-900 tracking-wider">
                 **** CARROS DE PLANO ESCALADOS NAS LINHAS COM OBSERVAÇÃO, CONFERIR COM A CI ****
@@ -2076,7 +2398,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           setDataOperacao={setDataOperacao}
           schedules={baseSchedules}
           dispatches={dispatches}
-          onSaveDispatch={saveDispatches}
+          onSaveDispatch={handleSaveDispatchFromView}
           ciList={ciList}
         />
       )}
@@ -2464,7 +2786,7 @@ function FolhaTableRow({
     >
       {/* 1. Ordem */}
       <td className="py-2 px-2 text-center text-muted-foreground text-[11px] font-semibold select-none">
-        {String(index).padStart(2, "0")}
+        {String(item.ordemTerminal ?? item.ordem ?? index).padStart(2, "0")}
       </td>
 
       {/* 2. Linha */}

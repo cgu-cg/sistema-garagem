@@ -115,8 +115,21 @@ export const api = {
   getAbastecimentoCarroSessionDetails: (id: number) => request(`/abastecimento-carro/sessions/${id}`),
 
   // Soltura
-  listSolturas: (params?: { startDate?: string; endDate?: string }) => {
+  listSolturas: (params?: {
+    date?: string;
+    dataOperacao?: string;
+    garagem?: string;
+    turno?: string;
+    escalaTipo?: string;
+    startDate?: string;
+    endDate?: string;
+  }) => {
     const query = new URLSearchParams();
+    if (params?.date) query.set("date", params.date);
+    if (params?.dataOperacao) query.set("dataOperacao", params.dataOperacao);
+    if (params?.garagem) query.set("garagem", params.garagem);
+    if (params?.turno) query.set("turno", params.turno);
+    if (params?.escalaTipo) query.set("escalaTipo", params.escalaTipo);
     if (params?.startDate) query.set("startDate", params.startDate);
     if (params?.endDate) query.set("endDate", params.endDate);
     const qs = query.toString();
@@ -124,6 +137,14 @@ export const api = {
   },
   createSoltura: (data: any) =>
     request("/solturas", { method: "POST", body: JSON.stringify(data) }),
+  batchSyncSolturas: (data: {
+    dataOperacao: string;
+    garagem: string;
+    turno?: string;
+    escalaTipo?: string;
+    items: any[];
+  }) =>
+    request("/solturas/batch-sync", { method: "POST", body: JSON.stringify(data) }),
 
   // Catracas
   getConsistenciaCatraca: (params: { date: string; minDiff?: number }) => {
@@ -211,5 +232,6 @@ export const api = {
   deleteReservaTerminal: (id: number) =>
     request(`/solturas/reservas-terminais/${id}`, { method: "DELETE" }),
 };
+
 
 

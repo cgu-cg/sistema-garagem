@@ -62,21 +62,32 @@ model Abastecimento {
 
 model Soltura {
   id              Int      @id @default(autoincrement())
-  busId           Int      @map("bus_id")
+  busId           Int?     @map("bus_id")
   programmedBusId Int?     @map("programmed_bus_id")
+  scheduleId      String?  @map("schedule_id")
+  carroProgramado String?  @map("carro_programado")
+  carroRealizado  String?  @map("carro_realizado")
   linha           String
   tabela          String
-  driverCode      String   @map("driver_code")
-  driverName      String   @map("motorista")
-  saidaGaragem    String   @map("saida_garagem")
-  inicioLinha     String   @map("inicio_linha")
+  driverCode      String?  @map("driver_code")
+  driverName      String?  @map("motorista")
+  saidaGaragem    String?  @map("saida_garagem")
+  inicioLinha     String?  @map("inicio_linha")
+  horaLiberacao   String?  @map("hora_liberacao")
+  garagem         String?  @map("garagem")
+  turno           String?  @map("turno")
+  escalaTipo      String?  @map("escala_tipo")
+  dataOperacao    String?  @map("data_operacao")
+  substituido     Boolean? @default(false) @map("substituido")
+  historicoTrocas String?  @map("historico_trocas")
+  status          String?  @default("LIBERADO") @map("status")
   notes           String?  @map("observacoes")
-  userId          Int      @map("user_id")
+  userId          Int?     @map("user_id")
   createdAt       DateTime @default(now()) @map("created_at")
 
-  bus           Bus  @relation("RealizedBuses", fields: [busId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  programmedBus Bus? @relation("ProgrammedBuses", fields: [programmedBusId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  user          User @relation(fields: [userId], references: [id])
+  bus           Bus?  @relation("RealizedBuses", fields: [busId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  programmedBus Bus?  @relation("ProgrammedBuses", fields: [programmedBusId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user          User? @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("solturas")
 }

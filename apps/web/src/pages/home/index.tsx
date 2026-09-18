@@ -15,14 +15,10 @@ import {
   Clock,
   CheckCircle2,
   Plus,
-  Play,
-  Pause,
-  RotateCcw,
   Check,
   TrendingUp,
   BarChart3,
-  ArrowUpRight,
-  Users
+  ArrowUpRight
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -57,11 +53,6 @@ export function HomePage() {
 
   const [loading, setLoading] = useState(true);
   const [timeframe, setTimeframe] = useState<"7d" | "30d" | "hoje">("7d");
-  const [searchSchedule, setSearchSchedule] = useState("");
-
-  // Shift Timer (Donezo Time Tracker Widget)
-  const [shiftSeconds, setShiftSeconds] = useState(24135); // 06:42:15 default
-  const [isTimerRunning, setIsTimerRunning] = useState(true);
 
   // Operational Checklist / Reminders
   const [tasks, setTasks] = useState<OperationalTask[]>([
@@ -86,23 +77,6 @@ export function HomePage() {
     litrosT2Hoje: 0,
   });
 
-  // Timer Tick
-  useEffect(() => {
-    let interval: any = null;
-    if (isTimerRunning) {
-      interval = setInterval(() => {
-        setShiftSeconds((prev) => prev + 1);
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isTimerRunning]);
-
-  const formatTimer = (totalSec: number) => {
-    const hours = Math.floor(totalSec / 3600);
-    const mins = Math.floor((totalSec % 3600) / 60);
-    const secs = totalSec % 60;
-    return `${hours.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-  };
 
   useEffect(() => {
     async function load() {
@@ -207,20 +181,6 @@ export function HomePage() {
     toast.success("Tarefa adicionada aos lembretes");
   };
 
-  // Driver samples for the fleet list matching real programmed schedules
-  const driverNames = [
-    "Carlos Eduardo", "Roberto Silveira", "Marcos Antônio", "Rogério Pereira", "Fernando Costa", 
-    "Lucas Souza", "Anderson Lima", "Gilberto Ramos", "Paulo Henrique", "Alexandre Duarte"
-  ];
-
-  // Filtered schedules
-  const displayedSchedules = programmedSchedules
-    .filter(s => 
-      (s.programmedBusPrefix && s.programmedBusPrefix.includes(searchSchedule)) || 
-      s.linha.toLowerCase().includes(searchSchedule.toLowerCase()) || 
-      s.tabela.includes(searchSchedule)
-    )
-    .slice(0, 5);
 
   if (loading) {
     return (
@@ -599,174 +559,6 @@ export function HomePage() {
             <span className="font-semibold text-emerald-600 dark:text-emerald-400">
               {Math.round((tasks.filter(t => t.completed).length / tasks.length) * 100)}% do dia
             </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Bottom Row (Fleet Departure Schedule + Shift Timer & Progress Ring) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        
-        {/* Left: Escala de Motoristas & Frotas (7 cols in LG) */}
-        <div className="lg:col-span-7 rounded-3xl bg-white dark:bg-[#0E1420] border border-slate-200/80 dark:border-slate-800/80 p-5 sm:p-6 shadow-2xs flex flex-col justify-between">
-          <div>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-              <div>
-                <h2 className="text-base font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-                  <Users className="w-4 h-4 text-[#164E3A] dark:text-emerald-400" />
-                  Escala & Saídas da Garagem
-                </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Próximos despachos de veículos e horários programados
-                </p>
-              </div>
-
-              <div className="w-full sm:w-48">
-                <Input
-                  type="text"
-                  placeholder="Filtrar carro ou linha..."
-                  value={searchSchedule}
-                  onChange={(e) => setSearchSchedule(e.target.value)}
-                  className="h-8 text-xs rounded-xl bg-slate-50 dark:bg-slate-800/80"
-                />
-              </div>
-            </div>
-
-            {/* Table of Departures */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-slate-100 dark:border-slate-800/60 text-slate-400 font-semibold text-[11px]">
-                    <th className="text-left pb-2.5">Escala / Motorista</th>
-                    <th className="text-left pb-2.5">Carro Programado</th>
-                    <th className="text-left pb-2.5">Linha / Tabela</th>
-                    <th className="text-left pb-2.5">Saída Garagem</th>
-                    <th className="text-right pb-2.5">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/40">
-                  {displayedSchedules.map((item, idx) => {
-                    const assignedDriver = driverNames[idx % driverNames.length];
-                    return (
-                      <tr key={item.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
-                        <td className="py-2.5 font-medium text-slate-900 dark:text-white flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-bold flex items-center justify-center text-[10px]">
-                            {assignedDriver.slice(0, 2).toUpperCase()}
-                          </div>
-                          <span className="truncate max-w-[130px] font-semibold">{assignedDriver}</span>
-                        </td>
-                        <td className="py-2.5 font-bold text-slate-800 dark:text-slate-200">
-                          {item.programmedBusPrefix ? `Carro ${item.programmedBusPrefix}` : "A Definir"}
-                        </td>
-                        <td className="py-2.5 text-slate-600 dark:text-slate-400 truncate max-w-[140px]">
-                          Linha {item.linha} <span className="text-[10px] text-slate-400 font-normal">({item.tabela})</span>
-                        </td>
-                        <td className="py-2.5 font-semibold text-slate-700 dark:text-slate-300">
-                          {item.saidaGaragem || "05:00"}
-                        </td>
-                        <td className="py-2.5 text-right">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/40">
-                            No Horário
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-xs">
-            <span className="text-slate-500">Exibindo 5 saídas prioritárias</span>
-            <Link to="/soltura" className="font-semibold text-[#164E3A] dark:text-emerald-400 hover:underline flex items-center gap-1">
-              Ver grade completa <ChevronRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-        </div>
-
-        {/* Right: Shift Time Tracker & Progress Gauge */}
-        <div className="lg:col-span-5 rounded-3xl bg-white dark:bg-[#0E1420] border border-slate-200/80 dark:border-slate-800/80 p-5 sm:p-6 shadow-2xs flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h2 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
-                  Controle de Turno & Pista
-                </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Cronômetro e acompanhamento da jornada
-                </p>
-              </div>
-
-              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/40">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Turno 1 Ativo
-              </span>
-            </div>
-
-            {/* Time Tracker Stopwatch Card */}
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800/80 text-center my-3">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
-                Tempo de Turno Decorrido
-              </span>
-              <div className="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-white tracking-wider font-mono">
-                {formatTimer(shiftSeconds)}
-              </div>
-              <div className="mt-3 flex items-center justify-center gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setIsTimerRunning(!isTimerRunning)}
-                  className="rounded-xl text-xs h-8 gap-1.5 px-3 border-slate-200 dark:border-slate-700"
-                >
-                  {isTimerRunning ? (
-                    <>
-                      <Pause className="w-3.5 h-3.5 text-amber-600" />
-                      Pausar
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-3.5 h-3.5 text-emerald-600" />
-                      Continuar
-                    </>
-                  )}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setShiftSeconds(0)}
-                  className="rounded-xl text-xs h-8 text-slate-500 hover:text-slate-800 dark:hover:text-white"
-                  title="Reiniciar contagem do turno"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                </Button>
-              </div>
-            </div>
-
-            {/* Progress metrics bars */}
-            <div className="space-y-2 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-600 dark:text-slate-400">Meta de Soltura Matinal</span>
-                <span className="font-bold text-[#164E3A] dark:text-emerald-400">100%</span>
-              </div>
-              <div className="w-full bg-slate-100 dark:bg-slate-800/80 rounded-full h-2 overflow-hidden">
-                <div className="bg-[#164E3A] dark:bg-emerald-500 h-2 rounded-full w-full" />
-              </div>
-
-              <div className="flex items-center justify-between pt-1">
-                <span className="text-slate-600 dark:text-slate-400">Abastecimento Frotas (T1)</span>
-                <span className="font-bold text-emerald-600">82%</span>
-              </div>
-              <div className="w-full bg-slate-100 dark:bg-slate-800/80 rounded-full h-2 overflow-hidden">
-                <div className="bg-emerald-500 h-2 rounded-full w-[82%]" />
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-xs text-slate-500">
-            <span>Frentista: José Carlos</span>
-            <Link to="/abastecimento-carro" className="text-[#164E3A] dark:text-emerald-400 font-semibold hover:underline">
-              Abastecimento de Frota →
-            </Link>
           </div>
         </div>
       </div>

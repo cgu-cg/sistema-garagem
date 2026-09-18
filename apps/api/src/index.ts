@@ -35,7 +35,7 @@ app.use("/api/uploads", express.static(uploadsDir));
 app.use("/api", routes);
 
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok" });
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
 // Serve frontend static build

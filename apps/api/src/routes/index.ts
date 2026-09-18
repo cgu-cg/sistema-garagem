@@ -8,6 +8,7 @@ import {
   createBusSchema,
   createAbastecimentoSchema,
   createSolturaSchema,
+  batchSyncSolturaSchema,
   startSessionSchema,
   finishSessionSchema,
   createAbastecimentoCarroItemSchema,
@@ -62,6 +63,7 @@ router.get("/abastecimento-carro/sessions/:id", authenticate, authorize("ADMIN",
 // Soltura
 router.get("/solturas", authenticate, authorize("ADMIN", "soltura"), solturaController.list);
 router.post("/solturas", authenticate, authorize("ADMIN", "soltura"), validate(createSolturaSchema), solturaController.create);
+router.post("/solturas/batch-sync", authenticate, authorize("ADMIN", "soltura"), validate(batchSyncSolturaSchema), solturaController.syncBatch);
 router.get("/solturas/reservas-terminais", authenticate, authorize("ADMIN", "soltura", "COLABORADOR"), reservasTerminaisController.list);
 router.post("/solturas/reservas-terminais", authenticate, authorize("ADMIN", "soltura"), validate(createReservaTerminalSchema), reservasTerminaisController.create);
 router.delete("/solturas/reservas-terminais/:id", authenticate, authorize("ADMIN", "soltura"), reservasTerminaisController.remove);

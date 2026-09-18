@@ -1,8 +1,8 @@
-import { SolturaItem, escalaOficialPdfVCG } from "@/data/solturaData";
+import { SolturaItem, escalaOficialPdfVCG, vcgSegundaSextaVespertino } from "@/data/solturaData";
 import { saveCache } from "@/lib/offline-db";
 
 export const STORAGE_KEY_CUSTOM_SCHEDULES = "soltura_custom_schedules_v1";
-export const SYNC_VERSION_KEY_PDF_2026 = "sistema_garagem_escala_pdf_2026_v2";
+export const SYNC_VERSION_KEY_PDF_2026 = "sistema_garagem_escala_pdf_2026_v4";
 
 /**
  * Carrega a grade customizada salva pelo usuário no localStorage.
@@ -20,21 +20,29 @@ export function getInitialCustomSchedules(): Record<string, SolturaItem[]> {
       }
     }
 
-    // Verifica se já migrou para a nova escala oficial do PDF 2026
+    // Verifica se já migrou para a nova escala oficial do PDF 2026 (v4 - com vespertino oficial)
     const hasSyncedPdf = localStorage.getItem(SYNC_VERSION_KEY_PDF_2026);
     if (!hasSyncedPdf) {
-      // Aplica a escala oficial do PDF na chave VCG_SEG_SEX_MATUTINO
+      // Aplica a escala oficial do PDF na chave VCG_SEG_SEX_MATUTINO e a escala vespertina na VCG_SEG_SEX_VESPERTINO
       currentMap["VCG_SEG_SEX_MATUTINO"] = escalaOficialPdfVCG;
+      currentMap["VCG_SEG_SEX_VESPERTINO"] = vcgSegundaSextaVespertino;
       localStorage.setItem(STORAGE_KEY_CUSTOM_SCHEDULES, JSON.stringify(currentMap));
       localStorage.setItem(SYNC_VERSION_KEY_PDF_2026, "true");
       saveCache("custom_schedules_v1", currentMap).catch(() => {});
+
+      // Limpa qualquer cache residual de despachos locais de teste no navegador
+      try {
+        const keysToRemove = Object.keys(localStorage).filter(k => k.startsWith("soltura_dispatches_"));
+        keysToRemove.forEach(k => localStorage.removeItem(k));
+      } catch {}
     }
 
     return currentMap;
   } catch (e) {
     console.error("Erro ao ler folha customizada do localStorage:", e);
     return {
-      VCG_SEG_SEX_MATUTINO: escalaOficialPdfVCG
+      VCG_SEG_SEX_MATUTINO: escalaOficialPdfVCG,
+      VCG_SEG_SEX_VESPERTINO: vcgSegundaSextaVespertino
     };
   }
 }
