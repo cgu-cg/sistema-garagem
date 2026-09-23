@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { SolturaItem } from "@/data/solturaData";
+import { normalizeLinhaETabela } from "./folhaStorage";
 import { Button } from "@/components/ui/button";
 import { PlusCircle, Search, Trash2, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -107,8 +108,8 @@ export function AlterarFolhaView({
     const newItem: SolturaItem = {
       id: `custom-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       ordem: schedules.length + 1,
-      linha: newLine.trim(),
-      tabela: newTab.trim(),
+      linha: normalizeLinhaETabela(newLine),
+      tabela: normalizeLinhaETabela(newTab),
       carroProgramado: newCarroProg.trim() || "",
       saidaGaragem: newSaida.trim(),
       inicioLinha: newInicio.trim() || undefined,
@@ -528,8 +529,8 @@ function AlterarFolhaTableRow({ item, index, onUpdateField, onUpdateMultipleFiel
     }
 
     const updates: Partial<SolturaItem> = {
-      linha: linha.trim(),
-      tabela: tab.trim(),
+      linha: normalizeLinhaETabela(linha),
+      tabela: normalizeLinhaETabela(tab),
       carroProgramado: carroProg.trim(),
       saidaGaragem: saida,
       inicioBairro: bairro.trim() || undefined,

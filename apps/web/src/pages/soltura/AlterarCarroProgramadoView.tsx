@@ -13,7 +13,9 @@ import {
 import {
   Search,
   Plus,
-  AlertTriangle
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -42,6 +44,7 @@ export function AlterarCarroProgramadoView({
   onSelectEscalaTipo
 }: AlterarCarroProgramadoViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [isListaEstendida, setIsListaEstendida] = useState(false);
 
   // Carros bloqueados / pendurados na CI vindos da mesma fonte dinâmica da Soltura e Manutenção
   const penduradosCI = useMemo<BloqueioCarro[]>(() => {
@@ -298,13 +301,13 @@ export function AlterarCarroProgramadoView({
         </div>
       </div>
 
-      {/* Grid Principal: Tabela à Esquerda + Painel Lateral à Direita */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_290px] xl:grid-cols-[1fr_320px] gap-4 items-start">
+      {/* Grid Principal: Tabela à Esquerda (70%) + Painel Lateral à Direita (30%) */}
+      <div className="grid grid-cols-1 lg:grid-cols-10 gap-4 xl:gap-6 items-start">
         
         {/* ========================================================= */}
-        {/* ÁREA ESQUERDA: CARD PRINCIPAL COM A TABELA DE ESCALA */}
+        {/* ÁREA ESQUERDA: CARD PRINCIPAL COM A TABELA DE ESCALA (70%) */}
         {/* ========================================================= */}
-        <div className="rounded-3xl border border-border bg-card text-card-foreground shadow-sm overflow-hidden flex flex-col min-h-[680px] dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
+        <div className="lg:col-span-7 rounded-3xl border border-border bg-card text-card-foreground shadow-sm overflow-hidden flex flex-col dark:border-slate-800/90 dark:bg-[#0A0F1A]/95 lg:sticky lg:top-4 self-start">
           
           {/* Topo do card com contagem de horários alinhada à direita */}
           <div className="px-5 py-3 flex items-center justify-end border-b border-border bg-muted/30 dark:border-slate-800/60 dark:bg-[#0E1420]/40">
@@ -313,11 +316,16 @@ export function AlterarCarroProgramadoView({
             </span>
           </div>
 
-          {/* Tabela de Escala de Horários */}
-          <div className="overflow-x-auto flex-1">
+          {/* Tabela de Escala de Horários com rolagem vertical suave calibrada para ~12 linhas ou estendida */}
+          <div
+            className={cn(
+              "overflow-x-auto overflow-y-auto transition-all duration-300 scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/40",
+              isListaEstendida ? "max-h-none" : "max-h-[515px]"
+            )}
+          >
             <table className="w-full text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-border bg-muted/20 text-[11px] font-bold text-muted-foreground tracking-wider dark:border-slate-800/80 dark:bg-transparent dark:text-slate-300">
+              <thead className="sticky top-0 z-10 bg-card/95 backdrop-blur-xs shadow-2xs">
+                <tr className="border-b border-border bg-muted/60 text-[11px] font-bold text-muted-foreground tracking-wider dark:border-slate-800/80 dark:bg-[#0E1420] dark:text-slate-300">
                   <th className="py-2.5 px-3 text-left w-24">Linha</th>
                   <th className="py-2.5 px-3 text-left w-16">Tabela</th>
                   <th className="py-2.5 px-3 text-left w-24">Hr Saida</th>
@@ -348,23 +356,44 @@ export function AlterarCarroProgramadoView({
             </table>
           </div>
 
+          {/* Rodapé com botão para estender ou recolher toda a lista */}
+          <div className="p-2.5 border-t border-border bg-muted/25 dark:border-slate-800/60 dark:bg-[#0E1420]/40 flex items-center justify-center">
+            <button
+              type="button"
+              onClick={() => setIsListaEstendida(!isListaEstendida)}
+              className="w-full py-2 px-4 rounded-xl border border-border/80 bg-card hover:bg-muted/50 text-xs font-semibold text-foreground flex items-center justify-center gap-2 transition-all shadow-2xs hover:shadow-xs cursor-pointer group dark:border-slate-800 dark:bg-[#0B101B] dark:hover:bg-slate-800/60"
+            >
+              {isListaEstendida ? (
+                <>
+                  <ChevronUp className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                  <span>Recolher lista (mostrar 12 linhas)</span>
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="w-4 h-4 text-[#164E3A] dark:text-emerald-400 group-hover:translate-y-0.5 transition-transform" />
+                  <span>Estender toda a lista (mostrar todos os {filteredSchedules.length} horários)</span>
+                </>
+              )}
+            </button>
+          </div>
+
         </div>
 
         {/* ========================================================= */}
-        {/* ÁREA DIREITA: PAINEL LATERAL OPERACIONAL VCG (PRINT & PDF) */}
+        {/* ÁREA DIREITA: PAINEL LATERAL OPERACIONAL VCG (30%) */}
         {/* ========================================================= */}
-        <div className="space-y-3 font-sans text-xs">
+        <div className="lg:col-span-3 space-y-3.5 font-sans text-xs">
           
           {/* Card 1: GARAGEM VCG (Azul, Vermelho, Micro) */}
-          <div className="rounded-2xl border border-border bg-card text-card-foreground p-3 shadow-xs space-y-2.5 dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
+          <div className="rounded-2xl border border-border bg-card text-card-foreground p-3.5 shadow-xs space-y-3 dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
             <div className="text-center font-bold text-xs uppercase tracking-wider text-foreground border-b border-border pb-1.5 dark:text-slate-200 dark:border-slate-800/60">
               GARAGEM VCG
             </div>
 
             {/* Subseção AZUL */}
-            <div className="rounded-xl border border-border/70 bg-muted/30 p-2 space-y-1.5 dark:border-slate-800/80 dark:bg-[#0E1420]/60">
+            <div className="rounded-xl border border-border/70 bg-muted/30 p-2.5 space-y-2 dark:border-slate-800/80 dark:bg-[#0E1420]/60">
               <div className="flex items-center justify-between">
-                <span className="font-bold text-[10px] uppercase text-sky-600 dark:text-sky-400 tracking-wider">
+                <span className="font-bold text-[11px] uppercase text-sky-600 dark:text-sky-400 tracking-wider">
                   AZUL ({reservasAzul.length})
                 </span>
                 <button
@@ -376,11 +405,11 @@ export function AlterarCarroProgramadoView({
                   <Plus className="w-3 h-3" />
                 </button>
               </div>
-              <div className="flex flex-wrap gap-1 pt-1 font-mono text-[10px]">
+              <div className="flex flex-wrap gap-1.5 pt-0.5 font-mono text-xs">
                 {reservasAzul.map((c, i) => (
                   <span
                     key={i}
-                    className="px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 font-bold dark:bg-sky-500/10 dark:text-sky-300 dark:border-sky-500/20"
+                    className="px-2 py-0.5 rounded-md bg-sky-50 text-sky-700 border border-sky-200 font-bold dark:bg-sky-500/10 dark:text-sky-300 dark:border-sky-500/20 shadow-2xs"
                   >
                     {c}
                   </span>
@@ -389,9 +418,9 @@ export function AlterarCarroProgramadoView({
             </div>
 
             {/* Subseção VERMELHO */}
-            <div className="rounded-xl border border-border/70 bg-muted/30 p-2 space-y-1.5 dark:border-slate-800/80 dark:bg-[#0E1420]/60">
+            <div className="rounded-xl border border-border/70 bg-muted/30 p-2.5 space-y-2 dark:border-slate-800/80 dark:bg-[#0E1420]/60">
               <div className="flex items-center justify-between">
-                <span className="font-bold text-[10px] uppercase text-rose-600 dark:text-rose-400 tracking-wider">
+                <span className="font-bold text-[11px] uppercase text-rose-600 dark:text-rose-400 tracking-wider">
                   VERMELHO ({reservasVermelho.length})
                 </span>
                 <button
@@ -403,11 +432,11 @@ export function AlterarCarroProgramadoView({
                   <Plus className="w-3 h-3" />
                 </button>
               </div>
-              <div className="flex flex-wrap gap-1 pt-1 font-mono text-[10px]">
+              <div className="flex flex-wrap gap-1.5 pt-0.5 font-mono text-xs">
                 {reservasVermelho.map((c, i) => (
                   <span
                     key={i}
-                    className="px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 font-bold dark:bg-rose-500/10 dark:text-rose-300 dark:border-rose-500/20"
+                    className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 font-bold dark:bg-rose-500/10 dark:text-rose-300 dark:border-rose-500/20 shadow-2xs"
                   >
                     {c}
                   </span>
@@ -416,9 +445,9 @@ export function AlterarCarroProgramadoView({
             </div>
 
             {/* Subseção MICRO */}
-            <div className="rounded-xl border border-border/70 bg-muted/30 p-2 space-y-1.5 dark:border-slate-800/80 dark:bg-[#0E1420]/60">
+            <div className="rounded-xl border border-border/70 bg-muted/30 p-2.5 space-y-2 dark:border-slate-800/80 dark:bg-[#0E1420]/60">
               <div className="flex items-center justify-between">
-                <span className="font-bold text-[10px] uppercase text-amber-600 dark:text-amber-400 tracking-wider">
+                <span className="font-bold text-[11px] uppercase text-amber-600 dark:text-amber-400 tracking-wider">
                   MICRO ({reservasMicro.length})
                 </span>
                 <button
@@ -430,11 +459,11 @@ export function AlterarCarroProgramadoView({
                   <Plus className="w-3 h-3" />
                 </button>
               </div>
-              <div className="flex flex-wrap gap-1 pt-1 font-mono text-[10px]">
+              <div className="flex flex-wrap gap-1.5 pt-0.5 font-mono text-xs">
                 {reservasMicro.map((c, i) => (
                   <span
                     key={i}
-                    className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 font-bold dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/20"
+                    className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 font-bold dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/20 shadow-2xs"
                   >
                     {c}
                   </span>
@@ -445,17 +474,17 @@ export function AlterarCarroProgramadoView({
           </div>
 
           {/* Card 2: CARROS BLOQUEADOS C.I. (Mesma informação dinâmica da Soltura e Manutenção) */}
-          <div className="rounded-2xl border border-rose-200 bg-rose-50/40 text-card-foreground p-3 shadow-xs space-y-2 dark:border-rose-500/40 dark:bg-[#160A10]/90">
+          <div className="rounded-2xl border border-rose-200 bg-rose-50/40 text-card-foreground p-3.5 shadow-xs space-y-2.5 dark:border-rose-500/40 dark:bg-[#160A10]/90">
             <div className="flex items-center justify-between border-b border-rose-200/70 pb-1.5 dark:border-rose-900/40">
-              <div className="flex items-center gap-1.5 text-rose-700 font-bold text-[10px] uppercase tracking-wider dark:text-rose-400">
+              <div className="flex items-center gap-1.5 text-rose-700 font-bold text-[11px] uppercase tracking-wider dark:text-rose-400">
                 <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0 dark:text-rose-500" />
                 <span>CARROS BLOQUEADOS C.I.</span>
               </div>
-              <span className="text-[10px] font-mono text-muted-foreground font-semibold dark:text-slate-400">
+              <span className="text-[11px] font-mono text-muted-foreground font-semibold dark:text-slate-400">
                 {penduradosCI.length} {penduradosCI.length === 1 ? "carro" : "carros"}
               </span>
             </div>
-            <div className="flex flex-wrap gap-1.5 font-mono text-[10px] max-h-[340px] overflow-y-auto pr-1">
+            <div className="flex flex-wrap gap-1.5 font-mono text-xs max-h-[340px] overflow-y-auto pr-1">
               {penduradosCI.map(ci => (
                 <span
                   key={ci.id || ci.prefixo}
@@ -466,7 +495,7 @@ export function AlterarCarroProgramadoView({
                 </span>
               ))}
               {penduradosCI.length === 0 && (
-                <span className="text-muted-foreground text-[10px] italic py-1">
+                <span className="text-muted-foreground text-xs italic py-1">
                   Nenhum carro bloqueado ou na CI no momento.
                 </span>
               )}
@@ -474,9 +503,9 @@ export function AlterarCarroProgramadoView({
           </div>
 
           {/* Card 3: BLOQUEADOS PORTARIA */}
-          <div className="rounded-2xl border border-border bg-card text-card-foreground p-3 shadow-xs space-y-2 dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
+          <div className="rounded-2xl border border-border bg-card text-card-foreground p-3.5 shadow-xs space-y-2.5 dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
             <div className="flex items-center justify-between border-b border-border pb-1.5 dark:border-slate-800/60">
-              <span className="font-bold text-[10px] uppercase tracking-wider text-foreground dark:text-slate-300">
+              <span className="font-bold text-[11px] uppercase tracking-wider text-foreground dark:text-slate-300">
                 BLOQUEADOS PORTARIA
               </span>
               <button
@@ -488,14 +517,14 @@ export function AlterarCarroProgramadoView({
                 <Plus className="w-3 h-3" />
               </button>
             </div>
-            <div className="flex flex-wrap gap-1 font-mono text-[10px] min-h-[22px]">
+            <div className="flex flex-wrap gap-1.5 font-mono text-xs min-h-[22px]">
               {bloqueadosPortaria.length === 0 ? (
-                <span className="text-muted-foreground text-[10px] italic">Nenhum veículo bloqueado.</span>
+                <span className="text-muted-foreground text-xs italic">Nenhum veículo bloqueado.</span>
               ) : (
                 bloqueadosPortaria.map((c, i) => (
                   <span
                     key={i}
-                    className="px-1.5 py-0.5 rounded bg-muted text-foreground border border-border font-bold flex items-center gap-1 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700"
+                    className="px-2 py-0.5 rounded-md bg-muted text-foreground border border-border font-bold flex items-center gap-1 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700 shadow-2xs"
                   >
                     {c}
                     <button
@@ -513,9 +542,9 @@ export function AlterarCarroProgramadoView({
 
           {/* Card 4: TERMINAL GENERAL OSÓRIO */}
           {terminais.filter(t => t.terminal.includes("OSORIO")).map((t, i) => (
-            <div key={i} className="rounded-2xl border border-border bg-card text-card-foreground p-3 shadow-xs space-y-1.5 dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
+            <div key={i} className="rounded-2xl border border-border bg-card text-card-foreground p-3.5 shadow-xs space-y-2 dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
               <div className="flex items-center justify-between border-b border-border pb-1 dark:border-slate-800/60">
-                <span className="font-bold text-[10px] uppercase tracking-wider text-foreground dark:text-slate-300">
+                <span className="font-bold text-[11px] uppercase tracking-wider text-foreground dark:text-slate-300">
                   {t.terminal}
                 </span>
                 <button
@@ -538,9 +567,9 @@ export function AlterarCarroProgramadoView({
 
           {/* Card 5: TERMINAL NOVA BAHIA */}
           {terminais.filter(t => t.terminal.includes("NOVA BAHIA")).map((t, i) => (
-            <div key={i} className="rounded-2xl border border-border bg-card text-card-foreground p-3 shadow-xs space-y-1.5 dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
+            <div key={i} className="rounded-2xl border border-border bg-card text-card-foreground p-3.5 shadow-xs space-y-2 dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
               <div className="flex items-center justify-between border-b border-border pb-1 dark:border-slate-800/60">
-                <span className="font-bold text-[10px] uppercase tracking-wider text-foreground dark:text-slate-300">
+                <span className="font-bold text-[11px] uppercase tracking-wider text-foreground dark:text-slate-300">
                   {t.terminal}
                 </span>
                 <button
@@ -563,9 +592,9 @@ export function AlterarCarroProgramadoView({
 
           {/* Card 6: TERMINAL BANDEIRANTES */}
           {terminais.filter(t => t.terminal.includes("BANDEIRANTES")).map((t, i) => (
-            <div key={i} className="rounded-2xl border border-border bg-card text-card-foreground p-3 shadow-xs space-y-1.5 dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
+            <div key={i} className="rounded-2xl border border-border bg-card text-card-foreground p-3.5 shadow-xs space-y-2 dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
               <div className="flex items-center justify-between border-b border-border pb-1 dark:border-slate-800/60">
-                <span className="font-bold text-[10px] uppercase tracking-wider text-foreground dark:text-slate-300">
+                <span className="font-bold text-[11px] uppercase tracking-wider text-foreground dark:text-slate-300">
                   {t.terminal}
                 </span>
                 <button
@@ -587,9 +616,9 @@ export function AlterarCarroProgramadoView({
           ))}
 
           {/* Card 7: RABICHO (Tabela LINHA | TAB | CARRO) */}
-          <div className="rounded-2xl border border-border bg-card text-card-foreground p-3 shadow-xs space-y-2 dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
+          <div className="rounded-2xl border border-border bg-card text-card-foreground p-3.5 shadow-xs space-y-2.5 dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
             <div className="flex items-center justify-between border-b border-border pb-1 dark:border-slate-800/60">
-              <span className="font-bold text-[10px] uppercase tracking-wider text-foreground dark:text-slate-300">
+              <span className="font-bold text-[11px] uppercase tracking-wider text-foreground dark:text-slate-300">
                 RABICHO
               </span>
               <button
@@ -633,9 +662,9 @@ export function AlterarCarroProgramadoView({
           </div>
 
           {/* Card 8: PEDIDO LIMPEZA */}
-          <div className="rounded-2xl border border-border bg-card text-card-foreground p-3 shadow-xs space-y-1.5 dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
+          <div className="rounded-2xl border border-border bg-card text-card-foreground p-3.5 shadow-xs space-y-2.5 dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
             <div className="flex items-center justify-between border-b border-border pb-1 dark:border-slate-800/60">
-              <span className="font-bold text-[10px] uppercase tracking-wider text-foreground dark:text-slate-300">
+              <span className="font-bold text-[11px] uppercase tracking-wider text-foreground dark:text-slate-300">
                 PEDIDO LIMPEZA ({pedidosLimpeza.length})
               </span>
               <button
@@ -647,14 +676,14 @@ export function AlterarCarroProgramadoView({
                 <Plus className="w-3 h-3" />
               </button>
             </div>
-            <div className="flex flex-wrap gap-1 font-mono text-[10px]">
+            <div className="flex flex-wrap gap-1.5 font-mono text-xs">
               {pedidosLimpeza.length === 0 ? (
-                <span className="text-muted-foreground text-[10px] italic">Nenhum pedido.</span>
+                <span className="text-muted-foreground text-xs italic">Nenhum pedido.</span>
               ) : (
                 pedidosLimpeza.map((c, i) => (
                   <span
                     key={i}
-                    className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-bold flex items-center gap-1 dark:bg-blue-500/10 dark:text-blue-300 dark:border-blue-500/20"
+                    className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 font-bold flex items-center gap-1 dark:bg-blue-500/10 dark:text-blue-300 dark:border-blue-500/20 shadow-2xs"
                   >
                     {c}
                     <button
@@ -671,9 +700,9 @@ export function AlterarCarroProgramadoView({
           </div>
 
           {/* Card 9: PEDIDO BORRACHARIA */}
-          <div className="rounded-2xl border border-border bg-card text-card-foreground p-3 shadow-xs space-y-1.5 dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
+          <div className="rounded-2xl border border-border bg-card text-card-foreground p-3.5 shadow-xs space-y-2.5 dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
             <div className="flex items-center justify-between border-b border-border pb-1 dark:border-slate-800/60">
-              <span className="font-bold text-[10px] uppercase tracking-wider text-foreground dark:text-slate-300">
+              <span className="font-bold text-[11px] uppercase tracking-wider text-foreground dark:text-slate-300">
                 PEDIDO BORRACHARIA ({pedidosBorracharia.length})
               </span>
               <button
@@ -685,14 +714,14 @@ export function AlterarCarroProgramadoView({
                 <Plus className="w-3 h-3" />
               </button>
             </div>
-            <div className="flex flex-wrap gap-1 font-mono text-[10px]">
+            <div className="flex flex-wrap gap-1.5 font-mono text-xs">
               {pedidosBorracharia.length === 0 ? (
-                <span className="text-muted-foreground text-[10px] italic">Nenhum pedido.</span>
+                <span className="text-muted-foreground text-xs italic">Nenhum pedido.</span>
               ) : (
                 pedidosBorracharia.map((c, i) => (
                   <span
                     key={i}
-                    className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 font-bold flex items-center gap-1 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/20"
+                    className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 font-bold flex items-center gap-1 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/20 shadow-2xs"
                   >
                     {c}
                     <button
@@ -709,9 +738,9 @@ export function AlterarCarroProgramadoView({
           </div>
 
           {/* Card 10: PEDIDOS GARAGEM */}
-          <div className="rounded-2xl border border-border bg-card text-card-foreground p-3 shadow-xs space-y-1.5 dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
+          <div className="rounded-2xl border border-border bg-card text-card-foreground p-3.5 shadow-xs space-y-2.5 dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
             <div className="flex items-center justify-between border-b border-border pb-1 dark:border-slate-800/60">
-              <span className="font-bold text-[10px] uppercase tracking-wider text-foreground dark:text-slate-300">
+              <span className="font-bold text-[11px] uppercase tracking-wider text-foreground dark:text-slate-300">
                 PEDIDOS GARAGEM ({pedidosGaragem.length})
               </span>
               <button
@@ -723,14 +752,14 @@ export function AlterarCarroProgramadoView({
                 <Plus className="w-3 h-3" />
               </button>
             </div>
-            <div className="flex flex-wrap gap-1 font-mono text-[10px]">
+            <div className="flex flex-wrap gap-1.5 font-mono text-xs">
               {pedidosGaragem.length === 0 ? (
-                <span className="text-muted-foreground text-[10px] italic">Nenhum pedido.</span>
+                <span className="text-muted-foreground text-xs italic">Nenhum pedido.</span>
               ) : (
                 pedidosGaragem.map((c, i) => (
                   <span
                     key={i}
-                    className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold flex items-center gap-1 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/20"
+                    className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold flex items-center gap-1 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/20 shadow-2xs"
                   >
                     {c}
                     <button
@@ -747,10 +776,10 @@ export function AlterarCarroProgramadoView({
           </div>
 
           {/* Card 11: TOTAL DE CARROS SOLTURA LINHAS */}
-          <div className="rounded-2xl border border-border bg-card text-card-foreground p-3 shadow-xs space-y-2 dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
-            <div className="text-center font-bold text-[10px] uppercase tracking-wider text-foreground border-b border-border pb-1 dark:text-slate-300 dark:border-slate-800/60">
+          <div className="rounded-2xl border border-border bg-card text-card-foreground p-3.5 shadow-xs space-y-2.5 dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
+            <div className="text-center font-bold text-[11px] uppercase tracking-wider text-foreground border-b border-border pb-1 dark:text-slate-300 dark:border-slate-800/60">
               <div>TOTAL DE CARROS</div>
-              <div className="text-[9px] text-muted-foreground">SOLTURA LINHAS</div>
+              <div className="text-[10px] text-muted-foreground">SOLTURA LINHAS</div>
             </div>
             <table className="w-full text-[9px] font-mono">
               <thead>

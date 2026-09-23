@@ -160,7 +160,10 @@ export function syncItemsWithCI(
   const ciMap = new Map<string, BloqueioCarro>();
   ciList.forEach(ci => {
     if (ci.prefixo) {
-      ciMap.set(ci.prefixo.replace(/\D/g, ""), ci);
+      const clean = ci.prefixo.replace(/\D/g, "");
+      if (clean) {
+        ciMap.set(clean, ci);
+      }
     }
   });
 
@@ -168,18 +171,19 @@ export function syncItemsWithCI(
 
   // 1. Atualizar carros já presentes na lista de manutenção
   const updatedItems: ManutencaoCarroItem[] = items.map(item => {
-    const clean = item.prefixo.replace(/\D/g, "");
+    const clean = (item.prefixo || "").replace(/\D/g, "");
+    if (!clean) return item;
     processedPrefixes.add(clean);
     const ci = ciMap.get(clean);
 
     if (ci) {
       const isLiberadoCI = ci.status === "LIBERADO";
-      // Qualquer carro retido na CI é considerado BLOQUEADO no Controle de Manutenção
-      const isBloqueadoCI = !isLiberadoCI;
-      const isEmExecucaoCI = !isLiberadoCI && (ci.status === "EM_MANUTENCAO" || item.emExecucao);
+      const isEmExecucaoCI = !isLiberadoCI && ci.status === "EM_MANUTENCAO";
+      const isBloqueadoCI = !isLiberadoCI && !isEmExecucaoCI;
 
       return {
         ...item,
+        consorciada: ci.consorciada || item.consorciada || getConsorciadaByPrefix(clean),
         observacao: ci.motivo || item.observacao,
         bloqueado: isBloqueadoCI,
         emExecucao: isEmExecucaoCI,
@@ -187,11 +191,12 @@ export function syncItemsWithCI(
         data: item.data || data
       };
     } else {
-      // Se não consta na CI com bloqueio, não deve estar retido como bloqueado
-      if (item.bloqueado) {
+      // Se não consta na CI com bloqueio, não deve estar retido como bloqueado ou em execução
+      if (item.bloqueado || item.emExecucao) {
         return {
           ...item,
           bloqueado: false,
+          emExecucao: false,
           liberado: true
         };
       }
@@ -201,11 +206,12 @@ export function syncItemsWithCI(
 
   // 2. Inserir carros da CI que ainda não faziam parte da lista de manutenção
   ciList.forEach(ci => {
-    const clean = ci.prefixo.replace(/\D/g, "");
+    const clean = (ci.prefixo || "").replace(/\D/g, "");
+    if (!clean) return;
     if (!processedPrefixes.has(clean)) {
       const isLiberadoCI = ci.status === "LIBERADO";
-      const isBloqueadoCI = !isLiberadoCI;
       const isEmExecucaoCI = !isLiberadoCI && ci.status === "EM_MANUTENCAO";
+      const isBloqueadoCI = !isLiberadoCI && !isEmExecucaoCI;
 
       updatedItems.push({
         id: `manut-ci-${clean}`,

@@ -2,11 +2,21 @@ import { SolturaItem, escalaOficialPdfVCG, vcgSegundaSextaVespertino } from "@/d
 import { saveCache } from "@/lib/offline-db";
 
 export const STORAGE_KEY_CUSTOM_SCHEDULES = "soltura_custom_schedules_v1";
-export const SYNC_VERSION_KEY_PDF_2026 = "sistema_garagem_escala_pdf_2026_v4";
+export const SYNC_VERSION_KEY_PDF_2026 = "sistema_garagem_escala_pdf_2026_v5";
+
+/**
+ * Normaliza linha e tabela para garantir uso exclusivo de '/' como separador,
+ * eliminando underlines ('_') e hífens ('-').
+ */
+export function normalizeLinhaETabela(str?: string | null): string {
+  if (!str) return "";
+  return str.replace(/[_-]/g, "/").replace(/\s*\/\s*/g, "/").trim();
+}
 
 /**
  * Carrega a grade customizada salva pelo usuário no localStorage.
- * Garante que a escala oficial do PDF 2026 seja aplicada na primeira carga ou sincronização.
+ * Garante que a escala oficial do PDF 2026 seja aplicada na primeira carga ou sincronização
+ * e que todos os registros usem obrigatoriamente a barra '/' como separador.
  */
 export function getInitialCustomSchedules(): Record<string, SolturaItem[]> {
   try {
@@ -20,14 +30,35 @@ export function getInitialCustomSchedules(): Record<string, SolturaItem[]> {
       }
     }
 
-    // Verifica se já migrou para a nova escala oficial do PDF 2026 (v4 - com vespertino oficial)
+    // Normaliza todos os itens de todas as escalas existentes no cache local
+    let hasModified = false;
+    for (const key of Object.keys(currentMap)) {
+      if (Array.isArray(currentMap[key])) {
+        currentMap[key] = currentMap[key].map(item => {
+          const novaLinha = normalizeLinhaETabela(item.linha);
+          const novaTabela = normalizeLinhaETabela(item.tabela);
+          if (novaLinha !== item.linha || novaTabela !== item.tabela) {
+            hasModified = true;
+            return {
+              ...item,
+              linha: novaLinha,
+              tabela: novaTabela
+            };
+          }
+          return item;
+        });
+      }
+    }
+
+    // Verifica se já migrou para a nova escala oficial do PDF 2026 (v5 - com barras obrigatórias)
     const hasSyncedPdf = localStorage.getItem(SYNC_VERSION_KEY_PDF_2026);
-    if (!hasSyncedPdf) {
-      // Aplica a escala oficial do PDF na chave VCG_SEG_SEX_MATUTINO e a escala vespertina na VCG_SEG_SEX_VESPERTINO
-      currentMap["VCG_SEG_SEX_MATUTINO"] = escalaOficialPdfVCG;
-      currentMap["VCG_SEG_SEX_VESPERTINO"] = vcgSegundaSextaVespertino;
+    if (!hasSyncedPdf || hasModified) {
+      if (!hasSyncedPdf) {
+        currentMap["VCG_SEG_SEX_MATUTINO"] = escalaOficialPdfVCG;
+        currentMap["VCG_SEG_SEX_VESPERTINO"] = vcgSegundaSextaVespertino;
+        localStorage.setItem(SYNC_VERSION_KEY_PDF_2026, "true");
+      }
       localStorage.setItem(STORAGE_KEY_CUSTOM_SCHEDULES, JSON.stringify(currentMap));
-      localStorage.setItem(SYNC_VERSION_KEY_PDF_2026, "true");
       saveCache("custom_schedules_v1", currentMap).catch(() => {});
 
       // Limpa qualquer cache residual de despachos locais de teste no navegador
