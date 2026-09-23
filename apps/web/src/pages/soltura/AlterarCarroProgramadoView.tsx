@@ -387,7 +387,7 @@ export function AlterarCarroProgramadoView({
           {/* Card 1: GARAGEM VCG (Azul, Vermelho, Micro) */}
           <div className="rounded-2xl border border-border bg-card text-card-foreground p-3.5 shadow-xs space-y-3 dark:border-slate-800/90 dark:bg-[#0A0F1A]/95">
             <div className="text-center font-bold text-xs uppercase tracking-wider text-foreground border-b border-border pb-1.5 dark:text-slate-200 dark:border-slate-800/60">
-              GARAGEM VCG
+              GARAGEM {garagem || "VCG"}
             </div>
 
             {/* Subseção AZUL */}
@@ -406,14 +406,29 @@ export function AlterarCarroProgramadoView({
                 </button>
               </div>
               <div className="flex flex-wrap gap-1.5 pt-0.5 font-mono text-xs">
-                {reservasAzul.map((c, i) => (
-                  <span
-                    key={i}
-                    className="px-2 py-0.5 rounded-md bg-sky-50 text-sky-700 border border-sky-200 font-bold dark:bg-sky-500/10 dark:text-sky-300 dark:border-sky-500/20 shadow-2xs"
-                  >
-                    {c}
-                  </span>
-                ))}
+                {reservasAzul.length === 0 ? (
+                  <span className="text-muted-foreground text-xs italic">Nenhum carro na reserva azul.</span>
+                ) : (
+                  reservasAzul.map((c, i) => (
+                    <span
+                      key={i}
+                      className="px-2 py-0.5 rounded-md bg-sky-50 text-sky-700 border border-sky-200 font-bold flex items-center gap-1.5 dark:bg-sky-500/10 dark:text-sky-300 dark:border-sky-500/20 shadow-2xs group"
+                    >
+                      <span>{c}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReservasAzul(prev => prev.filter((_, idx) => idx !== i));
+                          toast.success(`Carro ${c} removido da reserva Azul!`);
+                        }}
+                        className="text-sky-500 hover:text-rose-600 dark:text-sky-400 dark:hover:text-rose-400 opacity-60 hover:opacity-100 transition-opacity cursor-pointer font-bold leading-none text-xs ml-0.5"
+                        title={`Remover carro ${c} da reserva Azul`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))
+                )}
               </div>
             </div>
 
@@ -433,14 +448,29 @@ export function AlterarCarroProgramadoView({
                 </button>
               </div>
               <div className="flex flex-wrap gap-1.5 pt-0.5 font-mono text-xs">
-                {reservasVermelho.map((c, i) => (
-                  <span
-                    key={i}
-                    className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 font-bold dark:bg-rose-500/10 dark:text-rose-300 dark:border-rose-500/20 shadow-2xs"
-                  >
-                    {c}
-                  </span>
-                ))}
+                {reservasVermelho.length === 0 ? (
+                  <span className="text-muted-foreground text-xs italic">Nenhum carro na reserva vermelha.</span>
+                ) : (
+                  reservasVermelho.map((c, i) => (
+                    <span
+                      key={i}
+                      className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 font-bold flex items-center gap-1.5 dark:bg-rose-500/10 dark:text-rose-300 dark:border-rose-500/20 shadow-2xs group"
+                    >
+                      <span>{c}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReservasVermelho(prev => prev.filter((_, idx) => idx !== i));
+                          toast.success(`Carro ${c} removido da reserva Vermelha!`);
+                        }}
+                        className="text-rose-500 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300 opacity-60 hover:opacity-100 transition-opacity cursor-pointer font-bold leading-none text-xs ml-0.5"
+                        title={`Remover carro ${c} da reserva Vermelha`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))
+                )}
               </div>
             </div>
 
@@ -460,14 +490,29 @@ export function AlterarCarroProgramadoView({
                 </button>
               </div>
               <div className="flex flex-wrap gap-1.5 pt-0.5 font-mono text-xs">
-                {reservasMicro.map((c, i) => (
-                  <span
-                    key={i}
-                    className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 font-bold dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/20 shadow-2xs"
-                  >
-                    {c}
-                  </span>
-                ))}
+                {reservasMicro.length === 0 ? (
+                  <span className="text-muted-foreground text-xs italic">Nenhum carro na reserva micro.</span>
+                ) : (
+                  reservasMicro.map((c, i) => (
+                    <span
+                      key={i}
+                      className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 font-bold flex items-center gap-1.5 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/20 shadow-2xs group"
+                    >
+                      <span>{c}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReservasMicro(prev => prev.filter((_, idx) => idx !== i));
+                          toast.success(`Carro ${c} removido da reserva Micro!`);
+                        }}
+                        className="text-amber-600 hover:text-rose-600 dark:text-amber-400 dark:hover:text-rose-400 opacity-60 hover:opacity-100 transition-opacity cursor-pointer font-bold leading-none text-xs ml-0.5"
+                        title={`Remover carro ${c} da reserva Micro`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))
+                )}
               </div>
             </div>
 
