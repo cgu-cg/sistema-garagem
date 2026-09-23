@@ -1,10 +1,13 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { BloqueioCarro } from "@/data/solturaData";
 import { INVENTORY_CARS } from "@/data/inventoryCars";
 import { 
   saveCIBloqueiosToStorage, 
-  getConsorciadaByCarro 
+  getConsorciadaByCarro,
+  getGaragemFisicaByCarro 
 } from "./ciManager";
+import { useAuth } from "@/stores/auth";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -54,17 +57,80 @@ const SETORES_OFICINA = [
   { id: "LIMPEZA", label: "Limpeza", chips: ["Higienização Pesada", "Lavagem de Motor", "Polimento"] },
 ] as const;
 
-const REFORCOS_SUGERIDOS = [
-  "07:15 - A", "07:15 - C", "07:32 - A", "07:40 - A", "07:40 - M", "07:40 - C",
-  "07:45 - A", "07:45 - C", "07:50 - A", "07:50 - C"
-];
-
 const BLOQUEIOS_MOTIVOS_RAPIDOS = [
   "Motor", "Transmissão", "Revisão Geral", "Sinistro", "Mecânica (Pastilhas e Disco de Freio)",
   "Falta de Peça Para-brisa", "Posto de Molas", "Módulo", "Suspensão", "Câmbio", "Freio", "Elétrica"
 ];
 
 export function CiManutencaoView({ ciList, setCiList }: CiManutencaoViewProps) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "ADMIN";
+
+  // Identificação da Garagem Física do Usuário Logado:
+  // - VCM (Garagem 1)
+  // - VCG (Garagem 2)
+  const userGaragemFixa: "VCM" | "VCG" | undefined = useMemo(() => {
+    if (user?.garagem === "VCM" || user?.email?.toLowerCase().includes("vcm")) return "VCM";
+    if (user?.garagem === "VCG" || user?.email?.toLowerCase().includes("vcg")) return "VCG";
+    return undefined;
+  }, [user]);
+
+  // Seletor de Garagem exclusivo para ADMIN (permite visualizar Todas, VCG ou VCM)
+  const [adminGaragemFiltro, setAdminGaragemFiltro] = useState<"TODAS" | "VCG" | "VCM">("TODAS");
+
+  // Frota padrão com base nos 464 carros conhecidos, mapeados para suas garagens físicas (incluindo 2002 na Garagem 1 - VCM)
+  const [fleetCars, setFleetCars] = useState<Array<{ prefixo: string; garagem: "VCM" | "VCG" }>>(() => {
+    return INVENTORY_CARS.map(c => ({
+      prefixo: c,
+      garagem: getGaragemFisicaByCarro(c),
+    }));
+  });
+
+  // Busca lista atualizada de veículos do SQL Server via API (tabela Veiculos, coluna garagem)
+  useEffect(() => {
+    let isMounted = true;
+    api.getBusesInventory()
+      .then((res: any) => {
+        if (!isMounted || !Array.isArray(res)) return;
+        const mapped = res.map((item: any) => {
+          const prefixo = String(item.prefixo || item.idCarro || "");
+          const garagemNome: "VCM" | "VCG" = item.garagemNome || getGaragemFisicaByCarro(prefixo);
+          return {
+            prefixo,
+            garagem: garagemNome,
+          };
+        }).filter((item: { prefixo: string; garagem: "VCM" | "VCG" }) => item.prefixo.length > 0);
+
+        if (mapped.length > 0) {
+          setFleetCars(mapped);
+        }
+      })
+      .catch((err: any) => {
+        console.warn("[CI Manutenção] Usando frota padrão em cache/offline:", err);
+      });
+
+    return () => { isMounted = false; };
+  }, []);
+
+  // Escopo de Garagem Ativo:
+  // - Se for usuário com garagem fixa (ex: VCG ou VCM): SEMPRE fixo na sua respectiva garagem!
+  // - Se for ADMIN: pode alternar entre Todas, Garagem 1 (VCM) e Garagem 2 (VCG)
+  const activeGaragemScope: "TODAS" | "VCG" | "VCM" = useMemo(() => {
+    if (!isAdmin && userGaragemFixa) return userGaragemFixa;
+    return adminGaragemFiltro;
+  }, [isAdmin, userGaragemFixa, adminGaragemFiltro]);
+
+  // Veículos permitidos na visualização de acordo com a garagem
+  const allowedCars = useMemo(() => {
+    if (activeGaragemScope === "TODAS") return fleetCars;
+    return fleetCars.filter(c => c.garagem === activeGaragemScope);
+  }, [fleetCars, activeGaragemScope]);
+
+  // Conjunto de prefixos permitidos para verificação O(1)
+  const allowedPrefixes = useMemo(() => {
+    return new Set(allowedCars.map(c => c.prefixo));
+  }, [allowedCars]);
+
   // Modo de visualização: Grade de Carros (Print 1) ou Planilha Espelho Impressa (Print 2)
   const [viewMode, setViewMode] = useState<"GRID" | "PLANILHA">("GRID");
 
@@ -84,7 +150,8 @@ export function CiManutencaoView({ ciList, setCiList }: CiManutencaoViewProps) {
   const [formTipoPreventiva, setFormTipoPreventiva] = useState<"PREVENTIVA" | "LUBRIFICACAO" | "TROCA_OLEO" | "REVISAO_GERAL" | "SISEP">("REVISAO_GERAL");
   const [formHoraReforco, setFormHoraReforco] = useState("07:15");
   const [formLetraReforco, setFormLetraReforco] = useState<"A" | "B" | "C" | "D" | "M">("A");
-  const [formMotivoReforco, setFormMotivoReforco] = useState("LUBRIFICAÇÃO");
+  const [formMotivoReforco, setFormMotivoReforco] = useState<string>("LUBRIFICAÇÃO");
+  const [formOutroMotivoReforco, setFormOutroMotivoReforco] = useState("");
   const [formConsorciada, setFormConsorciada] = useState<"VSF" | "VCG" | "JTU" | "VCM">("VCG");
   const [formMotivo, setFormMotivo] = useState("");
   const [formDataBloqueio, setFormDataBloqueio] = useState(() => new Date().toISOString().split("T")[0]);
@@ -124,24 +191,26 @@ export function CiManutencaoView({ ciList, setCiList }: CiManutencaoViewProps) {
     return map;
   }, [ciList]);
 
-  // Estatísticas Rápidas
+  // Estatísticas Rápidas baseadas na frota da garagem do usuário
   const stats = useMemo(() => {
-    const totalFrota = INVENTORY_CARS.length;
+    const totalFrota = allowedCars.length;
     let bloqueadosCount = 0;
     let preventivasCount = 0;
     let oficinasCount = 0;
+    let totalNaCI = 0;
 
-    activeCiMap.forEach(ci => {
+    activeCiMap.forEach((ci, carro) => {
+      if (!allowedPrefixes.has(carro)) return; // Ignora carros de outra garagem fora do escopo
+      totalNaCI++;
       if (ci.categoriaPlanilha === "PREVENTIVA") preventivasCount++;
       else if (ci.categoriaPlanilha === "OFICINA") oficinasCount++;
       else bloqueadosCount++;
     });
 
-    const totalNaCI = activeCiMap.size;
-    const aptos = totalFrota - totalNaCI;
+    const aptos = Math.max(0, totalFrota - totalNaCI);
 
     return { totalFrota, totalNaCI, bloqueadosCount, preventivasCount, oficinasCount, aptos };
-  }, [activeCiMap]);
+  }, [allowedCars, allowedPrefixes, activeCiMap]);
 
   // Ao clicar em um cartão do carro na grade
   const handleCarClick = (carro: string) => {
@@ -161,6 +230,19 @@ export function CiManutencaoView({ ciList, setCiList }: CiManutencaoViewProps) {
       if (existingCI.tipoPreventiva) setFormTipoPreventiva(existingCI.tipoPreventiva);
       if (existingCI.horarioReforco) parseAndSetHorarioReforco(existingCI.horarioReforco);
       if (existingCI.consorciada) setFormConsorciada(existingCI.consorciada);
+      if (existingCI.categoriaPlanilha === "REFORCO") {
+        const cleanMotivo = (existingCI.motivo || "").replace(/\s*\([^)]*\)\s*$/, "").trim();
+        if (["LUBRIFICAÇÃO", "TROCA DE ÓLEO", "REVISÃO"].includes(cleanMotivo.toUpperCase())) {
+          setFormMotivoReforco(cleanMotivo.toUpperCase());
+          setFormOutroMotivoReforco("");
+        } else {
+          setFormMotivoReforco("OUTRO");
+          setFormOutroMotivoReforco(cleanMotivo);
+        }
+      } else {
+        setFormMotivoReforco("LUBRIFICAÇÃO");
+        setFormOutroMotivoReforco("");
+      }
     } else {
       // Valores padrão para novo cadastro
       setModalCategory("OFICINA");
@@ -169,6 +251,7 @@ export function CiManutencaoView({ ciList, setCiList }: CiManutencaoViewProps) {
       setFormHoraReforco("07:15");
       setFormLetraReforco("A");
       setFormMotivoReforco("LUBRIFICAÇÃO");
+      setFormOutroMotivoReforco("");
       setFormMotivo("");
       setFormResponsavel("Oficina Mecânica");
       setFormGravidade("ALTA");
@@ -184,8 +267,16 @@ export function CiManutencaoView({ ciList, setCiList }: CiManutencaoViewProps) {
     e.preventDefault();
     if (!selectedCarro) return;
 
+    if (modalCategory === "REFORCO" && formMotivoReforco === "OUTRO" && !formOutroMotivoReforco.trim()) {
+      toast.error("Por favor, informe o motivo do reforço.");
+      return;
+    }
+
     let finalMotivo = formMotivo.trim();
-    if (!finalMotivo) {
+    if (modalCategory === "REFORCO") {
+      const desc = formMotivoReforco === "OUTRO" ? formOutroMotivoReforco.trim() : formMotivoReforco;
+      finalMotivo = `${desc} (${formHorarioReforco})`;
+    } else if (!finalMotivo) {
       if (modalCategory === "PREVENTIVA") {
         const labels: Record<typeof formTipoPreventiva, string> = {
           PREVENTIVA: "Preventiva Periódica",
@@ -195,8 +286,6 @@ export function CiManutencaoView({ ciList, setCiList }: CiManutencaoViewProps) {
           SISEP: "Manutenção SISEP"
         };
         finalMotivo = labels[formTipoPreventiva];
-      } else if (modalCategory === "REFORCO") {
-        finalMotivo = `${formMotivoReforco} (${formHorarioReforco})`;
       } else if (modalCategory === "OFICINA") {
         finalMotivo = `Setor ${formSetor}`;
       } else {
@@ -214,10 +303,12 @@ export function CiManutencaoView({ ciList, setCiList }: CiManutencaoViewProps) {
     else if (finalMotivo.toLowerCase().includes("elétrica") || finalMotivo.toLowerCase().includes("eletrica") || finalMotivo.toLowerCase().includes("módulo") || finalMotivo.toLowerCase().includes("modulo")) mappedTipo = "BLOQUEADO_MODULO";
     else if (finalMotivo.toLowerCase().includes("sinistro")) mappedTipo = "BLOQUEADO_SINISTRO";
 
+    const carroGaragemFisica = fleetCars.find(c => c.prefixo === selectedCarro)?.garagem || getGaragemFisicaByCarro(selectedCarro);
+
     const newCI: BloqueioCarro = {
       id: `ci-${Date.now()}-${selectedCarro}`,
       prefixo: selectedCarro,
-      garagem: formConsorciada === "VCM" ? "VCM" : "VCG",
+      garagem: carroGaragemFisica,
       consorciada: formConsorciada,
       categoriaPlanilha: modalCategory,
       setorOficina: modalCategory === "OFICINA" ? formSetor : undefined,
@@ -336,25 +427,27 @@ export function CiManutencaoView({ ciList, setCiList }: CiManutencaoViewProps) {
     };
   };
 
-  // Filtragem da Grade de Carros
+  // Filtragem da Grade de Carros (baseada nos carros permitidos para a garagem)
   const filteredCars = useMemo(() => {
-    return INVENTORY_CARS.filter(carro => {
-      // Filtro de Busca
-      if (searchCarQuery.trim() && !carro.includes(searchCarQuery.trim())) {
-        return false;
-      }
+    return allowedCars
+      .map(c => c.prefixo)
+      .filter(carro => {
+        // Filtro de Busca
+        if (searchCarQuery.trim() && !carro.includes(searchCarQuery.trim())) {
+          return false;
+        }
 
-      const ci = activeCiMap.get(carro);
+        const ci = activeCiMap.get(carro);
 
-      // Filtros de Status
-      if (statusFilter === "BLOQUEADOS" && (!ci || ci.categoriaPlanilha === "PREVENTIVA")) return false;
-      if (statusFilter === "APTOS" && ci) return false;
-      if (statusFilter === "PREVENTIVAS" && (!ci || ci.categoriaPlanilha !== "PREVENTIVA")) return false;
-      if (statusFilter === "OFICINA" && (!ci || ci.categoriaPlanilha !== "OFICINA")) return false;
+        // Filtros de Status
+        if (statusFilter === "BLOQUEADOS" && (!ci || ci.categoriaPlanilha === "PREVENTIVA")) return false;
+        if (statusFilter === "APTOS" && ci) return false;
+        if (statusFilter === "PREVENTIVAS" && (!ci || ci.categoriaPlanilha !== "PREVENTIVA")) return false;
+        if (statusFilter === "OFICINA" && (!ci || ci.categoriaPlanilha !== "OFICINA")) return false;
 
-      return true;
-    });
-  }, [searchCarQuery, statusFilter, activeCiMap]);
+        return true;
+      });
+  }, [allowedCars, searchCarQuery, statusFilter, activeCiMap]);
 
   // Carro ativo sob análise no popup
   const currentCI = selectedCarro ? activeCiMap.get(selectedCarro) : undefined;
@@ -378,6 +471,13 @@ export function CiManutencaoView({ ciList, setCiList }: CiManutencaoViewProps) {
               <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-muted text-muted-foreground">
                 CGU.REG.MT0005
               </span>
+
+              {/* Badge indicando a garagem fixa do usuário logado */}
+              {userGaragemFixa && !isAdmin && (
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25">
+                  GARAGEM: {userGaragemFixa === "VCM" ? "GARAGEM 1 (VCM)" : "GARAGEM 2 (VCG)"}
+                </span>
+              )}
             </div>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground mt-1">
               Controle de CI & Bloqueios da Frota
@@ -389,6 +489,28 @@ export function CiManutencaoView({ ciList, setCiList }: CiManutencaoViewProps) {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Seletor de Garagem Exclusivo para Administrador */}
+          {isAdmin && (
+            <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-xl border text-xs mr-1">
+              <span className="text-[10px] font-bold text-muted-foreground px-1 uppercase font-mono">Filtro:</span>
+              {(["TODAS", "VCG", "VCM"] as const).map(g => (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={() => setAdminGaragemFiltro(g)}
+                  className={cn(
+                    "px-2 py-0.5 rounded-lg font-mono text-[11px] font-bold transition-all",
+                    adminGaragemFiltro === g
+                      ? "bg-background text-foreground shadow-xs border"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {g === "TODAS" ? "Todas" : g === "VCM" ? "Garagem 1 (VCM)" : "Garagem 2 (VCG)"}
+                </button>
+              ))}
+            </div>
+          )}
+
           <Button
             variant={viewMode === "GRID" ? "default" : "outline"}
             size="sm"
@@ -1170,7 +1292,7 @@ export function CiManutencaoView({ ciList, setCiList }: CiManutencaoViewProps) {
             {/* SEÇÃO 3: REFORÇO COM HORÁRIO */}
             {modalCategory === "REFORCO" && (
               <div className="p-3.5 rounded-xl border bg-muted/20 space-y-3">
-                {/* Inputs de Horário e Letra (A, B, C, D) */}
+                {/* Inputs de Horário e Letra (A, B, C, D, M) */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-xs font-bold">Horário do Reforço</Label>
@@ -1198,58 +1320,53 @@ export function CiManutencaoView({ ciList, setCiList }: CiManutencaoViewProps) {
                   </div>
                 </div>
 
-                {/* Prévia do Horário Composto */}
-                <div className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-background border text-xs">
-                  <span className="text-muted-foreground text-[11px]">Horário Selecionado:</span>
-                  <strong className="font-mono text-xs font-bold text-purple-700 dark:text-purple-300">
-                    {formHorarioReforco}
-                  </strong>
-                </div>
-
-                {/* Sugestões Rápidas */}
-                <div className="space-y-1">
-                  <Label className="text-[11px] text-muted-foreground">Sugestões rápidas da folha:</Label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {REFORCOS_SUGERIDOS.map(hora => (
-                      <button
-                        key={hora}
-                        type="button"
-                        onClick={() => parseAndSetHorarioReforco(hora)}
-                        className={cn(
-                          "px-2 py-0.5 rounded-md border text-[11px] font-mono transition-all",
-                          formHorarioReforco === hora
-                            ? "bg-purple-600 text-white border-purple-700 shadow-2xs font-bold"
-                            : "bg-background text-muted-foreground hover:text-foreground"
-                        )}
-                      >
-                        {hora}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
+                {/* Motivo do Reforço com cards rápidos e opção OUTRO */}
+                <div className="space-y-1.5 pt-1">
                   <Label className="text-xs font-bold">Motivo do Reforço</Label>
-                  <div className="flex gap-2">
-                    {["LUBRIFICAÇÃO", "TROCA DE ÓLEO", "REVISÃO"].map(mot => (
+                  <div className="flex flex-wrap gap-2">
+                    {(["LUBRIFICAÇÃO", "TROCA DE ÓLEO", "REVISÃO", "OUTRO"] as const).map(mot => (
                       <button
                         key={mot}
                         type="button"
                         onClick={() => {
                           setFormMotivoReforco(mot);
-                          setFormMotivo(mot);
+                          if (mot !== "OUTRO") {
+                            setFormMotivo(mot);
+                          } else {
+                            setFormMotivo(formOutroMotivoReforco);
+                          }
                         }}
                         className={cn(
-                          "px-3 py-1 rounded-md border text-xs font-semibold transition-all",
+                          "px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer",
                           formMotivoReforco === mot
-                            ? "bg-background border-primary text-primary font-bold shadow-2xs"
-                            : "bg-background text-muted-foreground"
+                            ? "bg-emerald-600 text-white border-emerald-700 shadow-2xs font-bold dark:bg-emerald-600"
+                            : "bg-background text-muted-foreground hover:text-foreground hover:bg-muted/50"
                         )}
                       >
                         {mot}
                       </button>
                     ))}
                   </div>
+
+                  {/* Input condicional exibido apenas quando OUTRO for selecionado */}
+                  {formMotivoReforco === "OUTRO" && (
+                    <div className="pt-2 space-y-1.5">
+                      <Label className="text-xs font-semibold text-foreground">
+                        Descreva o Motivo do Reforço <span className="text-rose-500">*</span>
+                      </Label>
+                      <Input
+                        value={formOutroMotivoReforco}
+                        onChange={(e) => {
+                          setFormOutroMotivoReforco(e.target.value);
+                          setFormMotivo(e.target.value);
+                        }}
+                        placeholder="Digite o motivo do reforço..."
+                        className="text-xs h-9 bg-background"
+                        autoFocus
+                        required
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1304,19 +1421,21 @@ export function CiManutencaoView({ ciList, setCiList }: CiManutencaoViewProps) {
               </div>
             )}
 
-            {/* CAMPO DE MOTIVO DETALHADO */}
-            <div className="space-y-1.5">
-              <Label className="text-xs font-bold">
-                Motivo / Defeito / Observações da Solicitação <span className="text-rose-500">*</span>
-              </Label>
-              <Input
-                value={formMotivo}
-                onChange={(e) => setFormMotivo(e.target.value)}
-                placeholder="Ex: Suspensão, Módulo, Motor, Sinistro, Revisão Geral..."
-                className="text-xs h-9"
-                required
-              />
-            </div>
+            {/* CAMPO DE MOTIVO DETALHADO (Apenas para Oficinas, Preventivas e Bloqueados; na aba Reforço o motivo já é definido nos cards/outro) */}
+            {modalCategory !== "REFORCO" && (
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold">
+                  Motivo / Defeito / Observações da Solicitação <span className="text-rose-500">*</span>
+                </Label>
+                <Input
+                  value={formMotivo}
+                  onChange={(e) => setFormMotivo(e.target.value)}
+                  placeholder="Ex: Suspensão, Módulo, Motor, Sinistro, Revisão Geral..."
+                  className="text-xs h-9"
+                  required
+                />
+              </div>
+            )}
 
             {/* CAMPOS COMPLEMENTARES: DATA DO BLOQUEIO E RESPONSÁVEL */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

@@ -36,6 +36,19 @@ function PermissionRoute({ to, fallbackRoles, children }: { to: string; fallback
   if (!user) return <Navigate to="/" replace />;
   if (user.role === "ADMIN") return <>{children}</>;
 
+  // Usuário de Manutenção (manutencao_vcg@teste.com, role 'manutencao' ou emails de manutencao)
+  if (user.role === "manutencao" || user.email?.toLowerCase().includes("manutencao")) {
+    const isAllowed = 
+      location.pathname === "/manutencao" ||
+      location.pathname === "/manutencao/ci-manutencao" ||
+      location.pathname === "/ci-manutencao";
+
+    if (!isAllowed) {
+      return <Navigate to="/manutencao" replace />;
+    }
+    return <>{children}</>;
+  }
+
   // Usuário de soltura (soltura_vcg, soltura_vcm ou role 'soltura') tem acesso ESTRITO apenas a /soltura e /soltura/historico
   if ((user.role === "soltura" || user.email?.toLowerCase().includes("soltura")) && !user.email?.toLowerCase().includes("teste")) {
     const isAllowed = to === "/soltura" && (location.pathname === "/soltura" || location.pathname === "/soltura/historico");
@@ -46,8 +59,8 @@ function PermissionRoute({ to, fallbackRoles, children }: { to: string; fallback
     return <>{children}</>;
   }
 
-  // Usuário teste@teste.com (ou contas de teste) tem acesso ESTRITO apenas aos menus solicitados
-  if (user.email?.toLowerCase() === "teste@teste.com" || user.email?.toLowerCase()?.includes("teste")) {
+  // Usuário teste@teste.com tem acesso aos menus solicitados
+  if (user.email?.toLowerCase() === "teste@teste.com") {
     const allowed = [
       "/abastecimento",
       "/abastecimento-carro",
@@ -218,7 +231,7 @@ export function App() {
           <Route
             path="/soltura/ci-manutencao"
             element={
-              <PermissionRoute to="/manutencao" fallbackRoles={["ADMIN", "COLABORADOR"]}>
+              <PermissionRoute to="/manutencao" fallbackRoles={["ADMIN", "COLABORADOR", "manutencao"]}>
                 <SolturaPage defaultTab="CI_MANUTENCAO" />
               </PermissionRoute>
             }
@@ -256,7 +269,7 @@ export function App() {
           <Route
             path="/manutencao"
             element={
-              <PermissionRoute to="/manutencao" fallbackRoles={["ADMIN", "COLABORADOR"]}>
+              <PermissionRoute to="/manutencao" fallbackRoles={["ADMIN", "COLABORADOR", "manutencao"]}>
                 <ManutencaoPage />
               </PermissionRoute>
             }
@@ -264,7 +277,7 @@ export function App() {
           <Route
             path="/manutencao/ci-manutencao"
             element={
-              <PermissionRoute to="/manutencao" fallbackRoles={["ADMIN", "COLABORADOR"]}>
+              <PermissionRoute to="/manutencao" fallbackRoles={["ADMIN", "COLABORADOR", "manutencao"]}>
                 <SolturaPage defaultTab="CI_MANUTENCAO" />
               </PermissionRoute>
             }
@@ -272,7 +285,7 @@ export function App() {
           <Route
             path="/ci-manutencao"
             element={
-              <PermissionRoute to="/manutencao" fallbackRoles={["ADMIN", "COLABORADOR"]}>
+              <PermissionRoute to="/manutencao" fallbackRoles={["ADMIN", "COLABORADOR", "manutencao"]}>
                 <SolturaPage defaultTab="CI_MANUTENCAO" />
               </PermissionRoute>
             }

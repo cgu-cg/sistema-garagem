@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback, Fragment } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef, Fragment } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,8 +24,9 @@ import {
   Tag,
   ChevronDown,
   ChevronUp,
-  Warehouse,
-  RotateCcw
+  ChevronLeft,
+  ChevronRight,
+  Warehouse
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -54,7 +55,6 @@ import { getInitialCIBloqueios, checkCarroBloqueado, subscribeCIUpdates } from "
 import {
   getInitialCustomSchedules,
   saveCustomSchedulesToStorage,
-  resetCustomScheduleFromStorage,
   subscribeCustomSchedulesUpdates
 } from "./folhaStorage";
 
@@ -131,6 +131,37 @@ export function formatarDataBr(isoDate: string): string {
   return isoDate;
 }
 
+export function ajustarDia(isoDate: string, dias: number): string {
+  if (!isoDate) return getHojeLocal();
+  const parts = isoDate.split("-");
+  if (parts.length !== 3) return getHojeLocal();
+  const ano = parseInt(parts[0], 10);
+  const mes = parseInt(parts[1], 10) - 1;
+  const dia = parseInt(parts[2], 10);
+  const d = new Date(ano, mes, dia);
+  d.setDate(d.getDate() + dias);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+export function getTextoDataHistorico(isoDate: string): string {
+  if (!isoDate) return "Hoje";
+  const hoje = getHojeLocal();
+  if (isoDate === hoje) {
+    return "Hoje";
+  }
+  const parts = isoDate.split("-");
+  if (parts.length !== 3) return isoDate;
+  const [ano, mes, dia] = parts;
+  const anoAtual = String(new Date().getFullYear());
+  if (ano === anoAtual) {
+    return `${dia}/${mes}`;
+  }
+  return `${dia}/${mes}/${ano}`;
+}
+
 interface SolturaPageProps {
   defaultTab?: ViewMode;
 }
@@ -140,6 +171,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === "ADMIN";
+  const dateInputRef = useRef<HTMLInputElement>(null);
 
   // Determinar empresa permitida:
   // Se for ADMIN, permite alternar livremente.
@@ -528,12 +560,6 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     toast.success("Viagem removida da folha!");
   };
 
-  const handleResetSchedule = () => {
-    const updated = resetCustomScheduleFromStorage(scheduleKey);
-    setCustomSchedules(updated);
-    toast.success("Grade de horários restaurada para o padrão original!");
-  };
-
   // Reservas de terminais persistidas no banco de dados
   const [reservasTerminais, setReservasTerminais] = useState<ReservaTerminalItem[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -761,8 +787,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   // Função para verificar se o carro está em CI Bloqueado
   const checkBloqueioCI = useCallback((prefixo?: string) => {
     if (!prefixo) return null;
-    return checkCarroBloqueado(prefixo, ciList);
-  }, [ciList]);
+    return checkCarroBloqueado(prefixo, ciList, dataOperacao);
+  }, [ciList, dataOperacao]);
 
   // Alerta sonner + scroll suave + efeito pulsante no carro pendurado
   const triggerPenduradoAlert = useCallback((prefixo: string, motivo?: string) => {
@@ -959,6 +985,12 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     const cleanNovo = novoCarro.trim();
     if (!cleanNovo) {
       toast.error("Informe o prefixo do novo carro.");
+      return;
+    }
+
+    const bloqueio = checkBloqueioCI(cleanNovo);
+    if (bloqueio) {
+      triggerPenduradoAlert(cleanNovo, bloqueio.motivo);
       return;
     }
 
@@ -1537,65 +1569,80 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
               <div className="flex flex-wrap items-center gap-2">
                 {/* Seletor de Data: visível EXCLUSIVAMENTE no Histórico (/soltura/historico) */}
                 {viewMode === "HISTORICO" && (
-                  <div className="flex flex-wrap items-center gap-2 animate-in fade-in">
-                    <div className="flex items-center bg-muted/60 p-1 rounded-full border border-border/80">
+                  <div className="flex items-center gap-1.5 animate-in fade-in">
+                    {/* Input date nativo acionado pelo showPicker() posicionado fora da tela para não gerar artefatos visuais */}
+                    <input
+                      ref={dateInputRef}
+                      type="date"
+                      value={dataOperacao}
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          setDataOperacao(e.target.value);
+                        }
+                      }}
+                      className="fixed -top-[9999px] -left-[9999px] opacity-0 pointer-events-none w-0 h-0 select-none"
+                      tabIndex={-1}
+                      aria-label="Escolher data no calendário"
+                    />
+
+                    {/* Botão Dia Anterior (<) */}
+                    <button
+                      type="button"
+                      onClick={() => setDataOperacao((prev) => ajustarDia(prev, -1))}
+                      className="h-8 w-8 rounded-xl flex items-center justify-center border border-border/80 bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground transition-all cursor-pointer shadow-2xs shrink-0"
+                      title="Dia anterior"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+
+                    {/* Botão Central: Calendário + Data */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        try {
+                          dateInputRef.current?.showPicker();
+                        } catch {
+                          dateInputRef.current?.focus();
+                        }
+                      }}
+                      className="h-8 px-3 rounded-full border border-border/80 bg-muted/60 hover:bg-muted text-foreground flex items-center gap-1.5 cursor-pointer transition-all shadow-2xs shrink-0 select-none"
+                      title="Clique para escolher uma data no calendário"
+                    >
+                      <Calendar className="w-3.5 h-3.5 text-[#164E3A] dark:text-emerald-400 shrink-0" />
+                      <span className="font-semibold text-xs tracking-tight text-foreground">
+                        {getTextoDataHistorico(dataOperacao)}
+                      </span>
+                    </button>
+
+                    {/* Botão Próximo Dia (>) */}
+                    <button
+                      type="button"
+                      onClick={() => setDataOperacao((prev) => ajustarDia(prev, 1))}
+                      className="h-8 w-8 rounded-xl flex items-center justify-center border border-border/80 bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground transition-all cursor-pointer shadow-2xs shrink-0"
+                      title="Próximo dia"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+
+                    {/* Botão 'Hoje' (aparece apenas quando a data selecionada NÃO for hoje) */}
+                    {dataOperacao !== getHojeLocal() && (
                       <button
                         type="button"
                         onClick={() => setDataOperacao(getHojeLocal())}
-                        className={cn(
-                          "px-3 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer",
-                          dataOperacao === getHojeLocal()
-                            ? "bg-[#164E3A] text-white dark:bg-emerald-600 shadow-2xs"
-                            : "text-muted-foreground hover:text-foreground font-medium"
-                        )}
-                        title="Histórico de Hoje"
+                        className="h-8 px-3.5 rounded-full bg-[#164E3A] hover:bg-[#113C2D] text-white dark:bg-emerald-600 dark:hover:bg-emerald-500 font-bold text-xs shadow-2xs transition-all cursor-pointer flex items-center justify-center animate-in fade-in zoom-in-95 shrink-0"
+                        title="Ir para Hoje"
                       >
-                        <span className={cn("w-2 h-2 rounded-full", dataOperacao === getHojeLocal() ? "bg-emerald-400 animate-pulse" : "bg-neutral-400")} />
-                        Hoje ({formatarDataBr(getHojeLocal()).slice(0, 5)})
+                        Hoje
                       </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setDataOperacao(getOntemLocal())}
-                        className={cn(
-                          "px-3 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer",
-                          dataOperacao === getOntemLocal()
-                            ? "bg-amber-600 text-white shadow-2xs"
-                            : "text-muted-foreground hover:text-foreground font-medium"
-                        )}
-                        title="Histórico de Ontem"
-                      >
-                        <Clock className="w-3 h-3" />
-                        Ontem ({formatarDataBr(getOntemLocal()).slice(0, 5)})
-                      </button>
-                    </div>
-
-                    {/* Seletor de Data do Histórico */}
-                    <div className="flex items-center gap-1.5 bg-card border px-2.5 py-1 rounded-xl text-xs shadow-2xs" title="Selecionar outra data no histórico">
-                      <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
-                      <input
-                        type="date"
-                        value={dataOperacao}
-                        onChange={(e) => setDataOperacao(e.target.value)}
-                        className="bg-transparent text-xs font-semibold focus:outline-hidden cursor-pointer text-foreground"
-                      />
-                    </div>
+                    )}
                   </div>
-                )}
-
-                {/* Status de Sincronização */}
-                {isSyncingDb && (
-                  <span className="text-[10px] text-muted-foreground flex items-center gap-1 animate-pulse font-mono">
-                    <RefreshCw className="w-3 h-3 animate-spin text-emerald-600" />
-                    Sincronizando...
-                  </span>
                 )}
 
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={handlePrint}
-                  className="h-8 px-3 text-xs gap-1.5 rounded-xl border font-semibold shadow-2xs hover:bg-muted/80 transition-all"
+                  className="h-8 px-3.5 text-xs gap-1.5 rounded-full border border-border/80 font-semibold shadow-2xs hover:bg-muted/80 transition-all"
                   title="Imprimir folha de soltura em formato papel A4"
                 >
                   <Printer className="w-3.5 h-3.5 text-muted-foreground" />
@@ -1606,7 +1653,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                   variant="outline"
                   size="sm"
                   onClick={handleExportExcelBI}
-                  className="h-8 px-3 text-xs gap-1.5 rounded-xl border font-semibold shadow-2xs bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20 transition-all"
+                  className="h-8 px-3.5 text-xs gap-1.5 rounded-full border font-semibold shadow-2xs bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20 transition-all"
                   title="Exportar dados estruturados para Excel e Power BI"
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
@@ -1660,25 +1707,6 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                 >
                   <RefreshCw className={cn("w-3.5 h-3.5 text-muted-foreground", isSyncingDb && "animate-spin text-emerald-600")} />
                   <span>Sincronizar</span>
-                </Button>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    handleResetSchedule();
-                    setDispatches({});
-                    try {
-                      const key = getDispatchStorageKey(garagem, escalaTipo, turnoTipo, dataOperacao);
-                      localStorage.removeItem(key);
-                    } catch {}
-                    toast.success("Grade oficial do PDF restaurada e folha limpa!");
-                  }}
-                  className="h-8 px-3 text-xs gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 font-semibold shadow-2xs transition-all cursor-pointer"
-                  title="Restaurar escala oficial do PDF e zerar a folha"
-                >
-                  <RotateCcw className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                  <span>Restaurar Grade Oficial</span>
                 </Button>
               </div>
 
@@ -1930,10 +1958,20 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                     </span>
                   )}
                 </span>
-                <span className="font-mono font-semibold text-foreground">
+                <span className="font-mono font-semibold text-foreground flex items-center gap-2">
+                  {isSyncingDb && (
+                    <RefreshCw className="w-3 h-3 animate-spin text-emerald-600 dark:text-emerald-400" />
+                  )}
                   {filteredSchedules.length} {filteredSchedules.length === 1 ? "HORÁRIO" : "HORÁRIOS"}
                 </span>
               </div>
+
+              {/* Barra de progresso sutil ao carregar linhas da folha */}
+              {isSyncingDb && (
+                <div className="h-0.5 w-full bg-emerald-500/20 overflow-hidden">
+                  <div className="h-full bg-emerald-600 dark:bg-emerald-400 animate-pulse w-full" />
+                </div>
+              )}
 
               {/* Tabela com rolagem vertical suave calibrada para 10 itens visíveis ou estendida */}
               <div
@@ -1956,7 +1994,10 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                       <th className="py-2.5 px-2.5 text-center">Ações</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-border/60 font-mono">
+                  <tbody className={cn(
+                    "divide-y divide-border/60 font-mono transition-opacity duration-200",
+                    isSyncingDb && "opacity-50 pointer-events-none"
+                  )}>
                     {filteredSchedules.map((item, idx) => {
                       const isFirstVCM = item.tipo === "VCM" && (idx === 0 || filteredSchedules[idx - 1]?.tipo !== "VCM");
                       const isFirstFrete = item.tipo === "FRETAMENTO" && (idx === 0 || filteredSchedules[idx - 1]?.tipo !== "FRETAMENTO");
@@ -2005,7 +2046,14 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                     {filteredSchedules.length === 0 && (
                       <tr>
                         <td colSpan={9} className="py-12 text-center text-muted-foreground font-sans">
-                          Nenhum registro encontrado para a busca "{searchQuery}".
+                          {isSyncingDb ? (
+                            <div className="flex flex-col items-center justify-center gap-2 py-4 animate-in fade-in">
+                              <RefreshCw className="w-5 h-5 animate-spin text-emerald-600 dark:text-emerald-400" />
+                              <span className="text-xs font-medium">Carregando linhas da folha...</span>
+                            </div>
+                          ) : (
+                            `Nenhum registro encontrado para a busca "${searchQuery}".`
+                          )}
                         </td>
                       </tr>
                     )}
@@ -2483,8 +2531,6 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           onUpdateMultipleFields={handleUpdateScheduleMultipleFields}
           onAddSchedule={handleAddSchedule}
           onDeleteSchedule={handleDeleteSchedule}
-          onResetSchedule={handleResetSchedule}
-          hasCustomModifications={Boolean(customSchedules[scheduleKey])}
           onSelectGaragem={isAdmin ? setGaragem : undefined}
           onSelectEscalaTipo={setEscalaTipo}
           onSelectTurnoTipo={setTurnoTipo}

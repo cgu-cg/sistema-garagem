@@ -11,6 +11,19 @@ export function getConsorciadaByCarro(carro: string): "VSF" | "VCG" | "JTU" | "V
   return "VCG";
 }
 
+/**
+ * Retorna a Garagem Física de operação do veículo.
+ * No Consórcio Guaicurus:
+ * - Garagem 1 (VCM): abriga carros da VCM (1xxx) e carros cedidos/alocados de outras empresas (ex: 2002 da VSF).
+ * - Garagem 2 (VCG): abriga a frota que opera na VCG.
+ */
+export function getGaragemFisicaByCarro(carro: string): "VCM" | "VCG" {
+  const clean = carro.replace(/\D/g, "");
+  if (clean === "2002") return "VCM";
+  if (clean.startsWith("1")) return "VCM";
+  return "VCG";
+}
+
 // Sementes extraídas da folha física oficial: CI - Solicitação de veículos (CGU.REG.MT0005)
 export const SEED_CI_PLANILHA: BloqueioCarro[] = [
   // Preventivas
@@ -96,30 +109,67 @@ export function saveCIBloqueiosToStorage(list: BloqueioCarro[]): void {
     try {
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key && key.startsWith("manutencao_carros_v1_")) {
+        if (key && (key.startsWith("manutencao_carros_v2_") || key.startsWith("manutencao_carros_v1_"))) {
           const raw = localStorage.getItem(key);
           if (raw) {
             const mItems = JSON.parse(raw);
             if (Array.isArray(mItems)) {
               let hasChange = false;
+              const handledPrefixes = new Set<string>();
+
               const updatedMItems = mItems.map((m: any) => {
-                const ciMatch = list.find(c => c.prefixo === m.prefixo);
+                const clean = String(m.prefixo || "").replace(/\D/g, "");
+                handledPrefixes.add(clean);
+                const ciMatch = list.find(c => c.prefixo.replace(/\D/g, "") === clean);
+
                 if (ciMatch) {
-                  if (ciMatch.status === "LIBERADO" && (!m.liberado || m.bloqueado)) {
+                  if (ciMatch.status === "LIBERADO" && (!m.liberado || m.bloqueado || m.emExecucao)) {
                     hasChange = true;
-                    return { ...m, liberado: true, bloqueado: false, emExecucao: false };
+                    return { ...m, liberado: true, bloqueado: false, emExecucao: false, observacao: ciMatch.motivoLiberacao || m.observacao };
                   }
-                  if (ciMatch.status === "BLOQUEADO" && (!m.bloqueado || m.liberado)) {
+                  if (ciMatch.status === "EM_MANUTENCAO" && (!m.emExecucao || !m.bloqueado || m.liberado)) {
                     hasChange = true;
-                    return { ...m, bloqueado: true, liberado: false, observacao: ciMatch.motivo || m.observacao };
+                    return { ...m, emExecucao: true, bloqueado: true, liberado: false, observacao: ciMatch.motivo || m.observacao };
+                  }
+                  if (ciMatch.status !== "LIBERADO" && ciMatch.status !== "EM_MANUTENCAO") {
+                    if (!m.bloqueado || m.liberado || m.emExecucao || (ciMatch.motivo && m.observacao !== ciMatch.motivo)) {
+                      hasChange = true;
+                      return { ...m, bloqueado: true, emExecucao: false, liberado: false, observacao: ciMatch.motivo || m.observacao };
+                    }
+                  }
+                } else {
+                  if (m.bloqueado || m.emExecucao) {
+                    hasChange = true;
+                    return { ...m, bloqueado: false, emExecucao: false, liberado: true };
                   }
                 }
                 return m;
               });
 
+              // Insere carros da CI não presentes na folha
+              list.forEach(ci => {
+                const clean = ci.prefixo.replace(/\D/g, "");
+                if (!handledPrefixes.has(clean) && ci.status !== "LIBERADO") {
+                  hasChange = true;
+                  updatedMItems.push({
+                    id: `manut-ci-${clean}`,
+                    prefixo: clean,
+                    consorciada: ci.consorciada || getConsorciadaByCarro(clean),
+                    observacao: ci.motivo || "",
+                    bloqueado: true,
+                    emExecucao: ci.status === "EM_MANUTENCAO",
+                    liberado: false,
+                    data: key.includes("manutencao_carros_v2_") ? key.replace("manutencao_carros_v2_", "") : key.replace("manutencao_carros_v1_", "")
+                  });
+                  handledPrefixes.add(clean);
+                }
+              });
+
               if (hasChange) {
                 localStorage.setItem(key, JSON.stringify(updatedMItems));
-                const datePart = key.replace("manutencao_carros_v1_", "");
+                const datePart = key.includes("manutencao_carros_v2_") 
+                  ? key.replace("manutencao_carros_v2_", "") 
+                  : key.replace("manutencao_carros_v1_", "");
                 window.dispatchEvent(new CustomEvent("manutencao_updated", {
                   detail: { data: datePart, items: updatedMItems }
                 }));
@@ -136,20 +186,26 @@ export function saveCIBloqueiosToStorage(list: BloqueioCarro[]): void {
   }
 }
 
-export function checkCarroBloqueado(prefixo: string, list: BloqueioCarro[]): BloqueioCarro | null {
+export function checkCarroBloqueado(prefixo: string, list: BloqueioCarro[], data?: string): BloqueioCarro | null {
   if (!prefixo) return null;
   const clean = prefixo.replace(/\D/g, "");
 
   // 1. Checa a folha de manutenção salva
   try {
     const today = new Date().toISOString().split("T")[0];
-    const keysToCheck = [`manutencao_carros_v1_${today}`, "manutencao_carros_v1_2026-09-09"];
+    const keysToCheck = [
+      ...(data ? [`manutencao_carros_v2_${data}`, `manutencao_carros_v1_${data}`] : []),
+      `manutencao_carros_v2_${today}`,
+      "manutencao_carros_v2_2026-09-09",
+      `manutencao_carros_v1_${today}`,
+      "manutencao_carros_v1_2026-09-09"
+    ];
     for (const k of keysToCheck) {
       const raw = localStorage.getItem(k);
       if (raw) {
         const mItems = JSON.parse(raw);
         if (Array.isArray(mItems)) {
-          const m = mItems.find((it: any) => it.prefixo === clean);
+          const m = mItems.find((it: any) => String(it.prefixo || "").replace(/\D/g, "") === clean);
           if (m) {
             // Se foi explicitamente marcado como liberado na manutenção:
             if (m.liberado) return null;
@@ -158,11 +214,11 @@ export function checkCarroBloqueado(prefixo: string, list: BloqueioCarro[]): Blo
               return {
                 id: `manut-lock-${clean}`,
                 prefixo: clean,
-                garagem: "VCG",
-                tipo: m.bloqueado ? "BLOQUEADO_CORRETIVA" : "EM_MANUTENCAO",
-                motivo: m.observacao || (m.bloqueado ? "Bloqueado na Manutenção" : "Em Manutenção na Oficina"),
-                data: m.data || today,
-                status: m.bloqueado ? "BLOQUEADO" : "EM_MANUTENCAO",
+                garagem: getGaragemFisicaByCarro(clean),
+                tipo: m.bloqueado && !m.emExecucao ? "BLOQUEADO_CORRETIVA" : "EM_MANUTENCAO",
+                motivo: m.observacao || (m.emExecucao ? "Em Manutenção na Oficina" : "Bloqueado na Manutenção"),
+                data: m.data || data || today,
+                status: m.emExecucao ? "EM_MANUTENCAO" : "BLOQUEADO",
                 responsavel: "Oficina Manutenção"
               };
             }

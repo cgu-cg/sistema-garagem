@@ -65,16 +65,6 @@ export function saveCustomSchedulesToStorage(schedulesMap: Record<string, Soltur
 }
 
 /**
- * Remove a customização de uma escala/turno específica, voltando para a grade padrão.
- */
-export function resetCustomScheduleFromStorage(scheduleKey: string): Record<string, SolturaItem[]> {
-  const current = getInitialCustomSchedules();
-  delete current[scheduleKey];
-  saveCustomSchedulesToStorage(current);
-  return current;
-}
-
-/**
  * Escuta atualizações de outras abas ou componentes.
  */
 export function subscribeCustomSchedulesUpdates(

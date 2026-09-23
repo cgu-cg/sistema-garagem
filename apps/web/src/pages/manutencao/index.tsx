@@ -4,20 +4,24 @@ import {
   getManutencaoData, 
   saveManutencaoData, 
   subscribeManutencaoUpdates,
+  syncItemsWithCI,
   SEED_MANUTENCAO_OFICIAL,
   getConsorciadaByPrefix
 } from "./manutencaoManager";
+import { getInitialCIBloqueios, saveCIBloqueiosToStorage, subscribeCIUpdates } from "@/pages/soltura/ciManager";
 import { INVENTORY_CARS } from "@/data/inventoryCars";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogFooter 
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { useAuth } from "@/stores/auth";
+import { 
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator
+} from "@/components/ui/dropdown-menu";
 import { 
   Search, 
   Printer, 
@@ -30,7 +34,9 @@ import {
   Bus,
   ArrowUpRight,
   AlertTriangle,
-  CheckCircle2
+  CheckCircle2,
+  MoreVertical,
+  Ban
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -41,14 +47,20 @@ const SUGESTOES_OBS = [
 ];
 
 export function ManutencaoPage() {
+  const { user } = useAuth();
+
   // Data selecionada (padrão inicial é a data oficial do documento: 2026-09-09 ou data corrente)
   const [dataOperacao, setDataOperacao] = useState<string>("2026-09-09");
   
   // Lista de carros de manutenção do dia
   const [items, setItems] = useState<ManutencaoCarroItem[]>(() => getManutencaoData("2026-09-09"));
 
-  // Filtros
-  const [filterConsorciada, setFilterConsorciada] = useState<"TODAS" | "VSF" | "JTU" | "VCG" | "VCM">("TODAS");
+  // Filtros inicializados com a garagem do usuário caso seja VCG ou VCM
+  const [filterConsorciada, setFilterConsorciada] = useState<"TODAS" | "VSF" | "JTU" | "VCG" | "VCM">(() => {
+    if (user?.garagem === "VCG" || user?.email?.toLowerCase().includes("vcg")) return "VCG";
+    if (user?.garagem === "VCM" || user?.email?.toLowerCase().includes("vcm")) return "VCM";
+    return "TODAS";
+  });
   const [filterStatus, setFilterStatus] = useState<"TODOS" | "BLOQUEADOS" | "EM_EXECUCAO" | "LIBERADOS">("TODOS");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
@@ -64,30 +76,43 @@ export function ManutencaoPage() {
   const [editItem, setEditItem] = useState<ManutencaoCarroItem | null>(null);
   const [editObs, setEditObs] = useState("");
 
-  // Sincronização em tempo real via storage e custom events
+  // Sincronização em tempo real via storage e custom events (Manutenção e CI)
   useEffect(() => {
     const list = getManutencaoData(dataOperacao);
     setItems(list);
 
-    const unsubscribe = subscribeManutencaoUpdates((detail) => {
+    const unsubscribeManut = subscribeManutencaoUpdates((detail) => {
       if (detail.data === dataOperacao) {
         setItems(detail.items);
       }
     });
 
-    return unsubscribe;
+    const unsubscribeCI = subscribeCIUpdates((updatedCI) => {
+      setItems(prevItems => {
+        return syncItemsWithCI(prevItems, updatedCI, dataOperacao);
+      });
+    });
+
+    return () => {
+      unsubscribeManut();
+      unsubscribeCI();
+    };
   }, [dataOperacao]);
 
-  // Cálculos de Resumo idênticos aos da folha física (23 Bloqueados, 25 Em Execução, 48 Liberados, 96 Total)
+  // Cálculos de Resumo idênticos aos 3 quadros (Bloqueados, Em Manutenção, Liberados, Total)
   const stats = useMemo(() => {
     let bloqueados = 0;
     let emExecucao = 0;
     let liberados = 0;
 
     items.forEach(item => {
-      if (item.bloqueado) bloqueados++;
-      if (item.emExecucao) emExecucao++;
-      if (item.liberado) liberados++;
+      if (item.emExecucao && !item.liberado) {
+        emExecucao++;
+      } else if (item.bloqueado && !item.liberado) {
+        bloqueados++;
+      } else {
+        liberados++;
+      }
     });
 
     const total = items.length || 1;
@@ -106,39 +131,35 @@ export function ManutencaoPage() {
     };
   }, [items]);
 
-  // Alterna status diretamente ao clicar na coluna
-  const handleToggleColumn = (itemId: string, column: "BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO") => {
+  // Transição de status a partir do menu de 3 pontinhos
+  const handleSetStatus = (itemId: string, newStatus: "BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO") => {
     const updated = items.map(item => {
       if (item.id !== itemId) return item;
 
-      if (column === "BLOQUEADO") {
-        const nextBloqueado = !item.bloqueado;
+      if (newStatus === "BLOQUEADO") {
         return {
           ...item,
-          bloqueado: nextBloqueado,
-          // Se for marcado como bloqueado, não pode estar liberado
-          liberado: nextBloqueado ? false : item.liberado
+          bloqueado: true,
+          emExecucao: false,
+          liberado: false
         };
       }
 
-      if (column === "EM_EXECUCAO") {
-        const nextEmExecucao = !item.emExecucao;
+      if (newStatus === "EM_EXECUCAO") {
         return {
           ...item,
-          emExecucao: nextEmExecucao,
-          // Se for colocado em execução, não pode estar liberado
-          liberado: nextEmExecucao ? false : item.liberado
+          bloqueado: true,
+          emExecucao: true,
+          liberado: false
         };
       }
 
-      if (column === "LIBERADO") {
-        const nextLiberado = !item.liberado;
+      if (newStatus === "LIBERADO") {
         return {
           ...item,
-          liberado: nextLiberado,
-          // Se liberado, remove bloqueio
-          bloqueado: nextLiberado ? false : item.bloqueado,
-          emExecucao: nextLiberado ? false : item.emExecucao
+          liberado: true,
+          bloqueado: false,
+          emExecucao: false
         };
       }
 
@@ -147,7 +168,32 @@ export function ManutencaoPage() {
 
     setItems(updated);
     saveManutencaoData(dataOperacao, updated);
-    toast.success("Status operacional atualizado e sincronizado.");
+
+    if (newStatus === "LIBERADO") {
+      toast.success("Veículo liberado da manutenção e desimpedido na CI e Soltura.");
+    } else if (newStatus === "BLOQUEADO") {
+      toast.success("Veículo bloqueado na manutenção, lançado na CI e retido na Soltura.");
+    } else {
+      toast.success("Veículo em manutenção na oficina, lançado na CI e retido na Soltura.");
+    }
+  };
+
+  // Abrir modal de adição com pré-configuração
+  const handleOpenAddModal = (status?: "BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO") => {
+    if (status === "BLOQUEADO") {
+      setNewBloqueado(true);
+      setNewEmExecucao(false);
+      setNewLiberado(false);
+    } else if (status === "EM_EXECUCAO") {
+      setNewBloqueado(true);
+      setNewEmExecucao(true);
+      setNewLiberado(false);
+    } else {
+      setNewBloqueado(false);
+      setNewEmExecucao(false);
+      setNewLiberado(true);
+    }
+    setModalAddOpen(true);
   };
 
   // Salvar alteração de observação
@@ -209,19 +255,42 @@ export function ManutencaoPage() {
   // Remover carro da folha
   const handleRemoveCarro = (id: string, prefixo: string) => {
     if (!confirm(`Deseja remover o carro ${prefixo} desta folha de manutenção?`)) return;
+    const clean = prefixo.replace(/\D/g, "");
     const updated = items.filter(it => it.id !== id);
     setItems(updated);
     saveManutencaoData(dataOperacao, updated);
-    toast.info(`Carro ${prefixo} removido da folha.`);
+
+    // Também atualiza na CI para que o veículo não permaneça bloqueado na Soltura
+    try {
+      const currentCI = getInitialCIBloqueios();
+      const updatedCI = currentCI.map(c => {
+        if (c.prefixo.replace(/\D/g, "") === clean && c.status !== "LIBERADO") {
+          return {
+            ...c,
+            status: "LIBERADO" as const,
+            dataLiberacao: dataOperacao,
+            motivoLiberacao: "Removido do Controle de Manutenção"
+          };
+        }
+        return c;
+      });
+      saveCIBloqueiosToStorage(updatedCI);
+    } catch (e) {
+      console.error("Erro ao liberar carro na CI ao remover:", e);
+    }
+
+    toast.info(`Carro ${prefixo} removido da folha e liberado na CI e Soltura.`);
   };
 
-  // Restaurar dados originais da semente
+  // Restaurar dados originais da semente sincronizados com a CI
   const handleResetSeed = () => {
-    if (!confirm("Deseja restaurar a planilha com os 96 carros originais da planilha oficial (09/09/2026)?")) return;
+    if (!confirm("Deseja restaurar a planilha com a base oficial sincronizada com a CI Manutenção?")) return;
+    const currentCI = getInitialCIBloqueios();
     const seedWithDate = SEED_MANUTENCAO_OFICIAL.map(it => ({ ...it, data: dataOperacao }));
-    setItems(seedWithDate);
-    saveManutencaoData(dataOperacao, seedWithDate);
-    toast.success("Folha restaurada para o padrão oficial das imagens.");
+    const synced = syncItemsWithCI(seedWithDate, currentCI, dataOperacao);
+    setItems(synced);
+    saveManutencaoData(dataOperacao, synced);
+    toast.success("Folha restaurada e sincronizada com a CI Manutenção.");
   };
 
   // Filtragem por busca e consorciada
@@ -233,9 +302,10 @@ export function ManutencaoPage() {
       }
 
       // Filtro de status
-      if (filterStatus === "BLOQUEADOS" && !item.bloqueado) return false;
-      if (filterStatus === "EM_EXECUCAO" && !item.emExecucao) return false;
-      if (filterStatus === "LIBERADOS" && !item.liberado) return false;
+      // Filtro de status compatível com os 3 quadros
+      if (filterStatus === "BLOQUEADOS" && (!item.bloqueado || item.emExecucao || item.liberado)) return false;
+      if (filterStatus === "EM_EXECUCAO" && (!item.emExecucao || item.liberado)) return false;
+      if (filterStatus === "LIBERADOS" && !item.liberado && (item.bloqueado || item.emExecucao)) return false;
 
       // Busca por prefixo ou observação
       if (searchQuery.trim()) {
@@ -249,20 +319,16 @@ export function ManutencaoPage() {
     });
   }, [items, filterConsorciada, filterStatus, searchQuery]);
 
-  // Agrupamento por consorciada mantendo a ordem oficial das fotos: VSF, JTU, VCG, VCM
+  // Agrupamento por consorciada mantendo a ordem oficial: VSF, JTU, VCG, VCM
   const groupedSections = useMemo(() => {
     const consorciadas: Array<"VSF" | "JTU" | "VCG" | "VCM"> = ["VSF", "JTU", "VCG", "VCM"];
     return consorciadas.map(c => {
       const sectionItems = filteredItems.filter(it => it.consorciada === c);
       
-      // Ordenação: primeiro os bloqueados (para manter o destaque no topo como na foto), depois os demais
-      const sorted = [...sectionItems].sort((a, b) => {
-        if (a.bloqueado && !b.bloqueado) return -1;
-        if (!a.bloqueado && b.bloqueado) return 1;
-        if (a.emExecucao && !b.emExecucao) return -1;
-        if (!a.emExecucao && b.emExecucao) return 1;
-        return a.prefixo.localeCompare(b.prefixo);
-      });
+      // Ordenação por prefixo numérico
+      const sorted = [...sectionItems].sort((a, b) => 
+        a.prefixo.localeCompare(b.prefixo, undefined, { numeric: true })
+      );
 
       return {
         consorciada: c,
@@ -272,10 +338,14 @@ export function ManutencaoPage() {
     }).filter(sec => sec.items.length > 0 || (filterConsorciada === sec.consorciada));
   }, [filteredItems, filterConsorciada]);
 
-  // Formatação visual da data: DD/MM/AAAA
+  // Formatação visual da data: se for ano atual, exibe apenas DD/MM (ex: 09/09); se outro ano, DD/MM/AAAA
   const formattedData = useMemo(() => {
     try {
       const [ano, mes, dia] = dataOperacao.split("-");
+      const currentYear = new Date().getFullYear().toString();
+      if (ano === currentYear) {
+        return `${dia}/${mes}`;
+      }
       return `${dia}/${mes}/${ano}`;
     } catch {
       return dataOperacao;
@@ -458,40 +528,64 @@ export function ManutencaoPage() {
 
       {/* ==========================================================
           3. CARD PRINCIPAL DA PLANILHA OFICIAL DE MANUTENÇÃO
-          Sem duplicação de dashboard e sem os cards do terceiro print
           ========================================================== */}
       <div className="bg-white dark:bg-[#0E1420] border border-gray-100/90 dark:border-slate-800/80 rounded-3xl p-5 sm:p-7 shadow-xs space-y-5">
         
-        {/* Barra Superior de Filtros e Busca */}
-        <div className="print:hidden flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-gray-100 dark:border-slate-800/80">
+        {/* ==========================================================
+            CABEÇALHO DA PLANILHA (PRINT 01 - ACIMA DOS FILTROS)
+            ========================================================== */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-gray-100 dark:border-slate-800/80">
+          <div>
+            <h2 className="text-sm sm:text-base font-bold uppercase tracking-wider text-gray-900 dark:text-white">
+              CARROS EM: MANUTENÇÃO, BLOQUEADO, LIBERADO
+            </h2>
+            <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
+              Consórcio Guaicurus • Quadro de Manutenção Operacional
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="hidden print:inline-block text-xs font-bold font-mono mr-2">
+              {formattedData}
+            </span>
+            <span className="text-xs font-semibold px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40">
+              {filteredItems.length} veículos listados
+            </span>
+          </div>
+        </div>
+
+        {/* ==========================================================
+            BARRA DE FILTROS E BUSCA (PRINT 02 - ABAIXO DO CABEÇALHO)
+            ========================================================== */}
+        <div className="print:hidden flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-2">
           
           {/* Seletor de Data e Pills de Consorciada */}
           <div className="flex flex-wrap items-center gap-2">
             
-            {/* Input Data em Pílula */}
-            <div className="flex items-center gap-2 bg-gray-50 dark:bg-slate-900 px-3.5 py-1.5 rounded-full border border-gray-200 dark:border-slate-700 shadow-2xs">
-              <CalendarIcon className="w-3.5 h-3.5 text-gray-500" />
-              <span className="text-[11px] font-bold text-gray-500">DATA:</span>
+            {/* Seletor de Data Sem "DATA:" e sem ano quando for ano atual */}
+            <div className="relative flex items-center gap-2 bg-gray-50 dark:bg-slate-900 px-3.5 py-1.5 rounded-full border border-gray-200 dark:border-slate-700 shadow-2xs hover:bg-gray-100 dark:hover:bg-slate-800/80 transition-colors cursor-pointer group">
+              <CalendarIcon className="w-3.5 h-3.5 text-gray-500 shrink-0" />
+              <span className="text-xs font-mono font-bold text-gray-900 dark:text-white select-none">
+                {formattedData}
+              </span>
               <input
                 type="date"
                 value={dataOperacao}
-                onChange={(e) => setDataOperacao(e.target.value)}
-                className="bg-transparent text-xs font-mono font-bold focus:outline-hidden text-gray-900 dark:text-white cursor-pointer"
+                onChange={(e) => {
+                  if (e.target.value) setDataOperacao(e.target.value);
+                }}
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                title="Clique para selecionar data"
               />
               <button
                 type="button"
-                onClick={() => setDataOperacao(new Date().toISOString().split("T")[0])}
-                className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline px-1"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDataOperacao(new Date().toISOString().split("T")[0]);
+                }}
+                className="relative z-10 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline px-1 border-l border-gray-200 dark:border-slate-700 pl-2"
               >
                 Hoje
-              </button>
-              <button
-                type="button"
-                onClick={() => setDataOperacao("2026-09-09")}
-                className="text-[11px] font-bold text-amber-600 dark:text-amber-400 hover:underline px-1"
-                title="Voltar para a data oficial das fotos enviadas (09/09/2026)"
-              >
-                09/09
               </button>
             </div>
 
@@ -533,164 +627,306 @@ export function ManutencaoPage() {
         </div>
 
         {/* ==========================================================
-            CABEÇALHO LIMPO DA PLANILHA (SEM A DASH DO SEGUNDO PRINT)
+            CONTEÚDO DAS CONSORCIADAS (3 QUADROS PARALELOS)
             ========================================================== */}
-        <div className="rounded-2xl border border-gray-200 dark:border-slate-800 overflow-hidden bg-white dark:bg-[#070A11]">
-          
-          <div className="bg-gray-100 dark:bg-slate-900/80 px-4 py-3 border-b border-gray-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <h2 className="text-sm sm:text-base font-bold uppercase tracking-wider text-gray-900 dark:text-white">
-                CARROS EM: MANUTENÇÃO, BLOQUEADO, LIBERADO
-              </h2>
-              <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
-                Consórcio Guaicurus • Quadro de Manutenção Operacional
-              </p>
+        <div className="space-y-6">
+          {groupedSections.length === 0 ? (
+            <div className="p-8 text-center text-gray-500 rounded-2xl border border-gray-200 dark:border-slate-800">
+              <Bus className="w-8 h-8 mx-auto mb-2 opacity-40" />
+              <p className="text-sm font-semibold">Nenhum veículo encontrado para os filtros selecionados.</p>
             </div>
+          ) : (
+              groupedSections.map((sec) => {
+                const bloqueados = sec.items.filter(it => it.bloqueado && !it.emExecucao && !it.liberado);
+                const emExecucao = sec.items.filter(it => it.emExecucao && !it.liberado);
+                const liberados = sec.items.filter(it => it.liberado || (!it.bloqueado && !it.emExecucao));
 
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-xs font-bold text-gray-800 dark:text-slate-200">
-                <span className="text-gray-500 font-semibold">DATA:</span>
-                <span className="font-mono">{formattedData}</span>
-              </div>
-              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40">
-                {filteredItems.length} veículos listados
-              </span>
-            </div>
-          </div>
+                return (
+                  <div 
+                    key={sec.consorciada} 
+                    className="rounded-2xl border border-gray-200 dark:border-slate-800 overflow-hidden bg-gray-50/50 dark:bg-slate-900/30"
+                  >
+                    {/* CABEÇALHO DA CONSORCIADA */}
+                    <div className="bg-gray-100/90 dark:bg-slate-800/60 text-gray-800 dark:text-slate-200 font-bold text-xs sm:text-sm py-2.5 px-4 flex items-center justify-between border-b border-gray-200 dark:border-slate-800">
+                      <span className="tracking-wide font-bold">{sec.label}</span>
+                      <span className="text-[11px] font-semibold text-gray-500 dark:text-slate-400 font-mono">
+                        {sec.items.length} {sec.items.length === 1 ? "carro" : "carros"}
+                      </span>
+                    </div>
 
-          {/* TABELAS POR SEÇÃO (VSF, JTU, VCG) */}
-          <div className="overflow-x-auto">
-            {groupedSections.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">
-                <Bus className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                <p className="text-sm font-semibold">Nenhum veículo encontrado para os filtros selecionados.</p>
-              </div>
-            ) : (
-              groupedSections.map((sec) => (
-                <div key={sec.consorciada} className="border-b border-gray-200 dark:border-slate-800 last:border-b-0">
-                  
-                  {/* CABEÇALHO DO BLOCO DA CONSORCIADA (ex: VSF) */}
-                  <div className="bg-gray-50 dark:bg-slate-800/40 text-gray-800 dark:text-slate-200 font-bold text-xs sm:text-sm py-2 px-4 flex items-center justify-between border-b border-gray-200 dark:border-slate-800">
-                    <span className="tracking-wide">{sec.label}</span>
-                    <span className="text-[11px] font-semibold text-gray-500 dark:text-slate-400">
-                      {sec.items.length} carros
-                    </span>
-                  </div>
-
-                  {/* TABELA DE COLUNAS */}
-                  <table className="w-full border-collapse text-left">
-                    <thead>
-                      <tr className="bg-gray-100/70 dark:bg-slate-900/60 text-gray-600 dark:text-slate-300 text-[11px] font-bold uppercase border-b border-gray-200 dark:border-slate-800">
-                        <th className="py-2 px-3 w-28 text-center">PREFIXO</th>
-                        <th className="py-2 px-3 text-left">OBSERVAÇÃO</th>
-                        <th className="py-2 px-3 w-32 text-center">BLOQUEADO</th>
-                        <th className="py-2 px-3 w-36 text-center">EM EXECUÇÃO</th>
-                        <th className="py-2 px-3 w-32 text-center">LIBERADO</th>
-                        <th className="py-2 px-3 w-20 text-center print:hidden">AÇÃO</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100 dark:divide-slate-800/60 text-xs">
-                      {sec.items.map((item) => {
-                        const isBloqueadoRow = item.bloqueado;
-
-                        return (
-                          <tr
-                            key={item.id}
-                            className={cn(
-                              "transition-colors group",
-                              isBloqueadoRow 
-                                ? "bg-amber-100/90 dark:bg-amber-950/30 text-amber-950 dark:text-amber-100 font-bold border-l-4 border-amber-500" 
-                                : "hover:bg-gray-50/80 dark:hover:bg-slate-800/40 bg-white dark:bg-transparent text-gray-800 dark:text-slate-200 font-medium"
-                            )}
+                    {/* GRID DE 3 QUADROS: BLOQUEADOS | EM MANUTENÇÃO | LIBERADO */}
+                    <div className="p-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
+                      
+                      {/* QUADRO 1: BLOQUEADOS (ROSE / VERMELHO) */}
+                      <div className="rounded-2xl border border-rose-500/40 dark:border-rose-500/30 bg-rose-500/[0.02] dark:bg-rose-950/10 overflow-hidden flex flex-col">
+                        {/* Header do Quadro */}
+                        <div className="p-3 border-b border-rose-200/80 dark:border-rose-900/40 flex items-center justify-between bg-rose-50/60 dark:bg-rose-950/20">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-rose-700 dark:text-rose-300">
+                              Bloqueados
+                            </span>
+                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-900/50 text-rose-800 dark:text-rose-200 border border-rose-200 dark:border-rose-800/40">
+                              {bloqueados.length}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => handleOpenAddModal("BLOQUEADO")}
+                            className="w-6 h-6 rounded-md bg-rose-100 hover:bg-rose-200 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+                            title="Adicionar carro bloqueado"
                           >
-                            {/* PREFIXO */}
-                            <td className="py-2 px-3 text-center font-mono font-bold text-sm">
-                              {item.prefixo}
-                            </td>
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
 
-                            {/* OBSERVAÇÃO */}
-                            <td className="py-2 px-3 text-left">
-                              <div className="flex items-center justify-between">
-                                <span className="font-bold tracking-wide uppercase">
-                                  {item.observacao || "—"}
-                                </span>
-                                <button
-                                  onClick={() => {
-                                    setEditItem(item);
-                                    setEditObs(item.observacao);
-                                  }}
-                                  className="print:hidden opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-900 dark:hover:text-white transition-opacity p-1 rounded-sm"
-                                  title="Editar observação"
-                                >
-                                  <Edit2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </td>
+                        {/* Tabela de Bloqueados */}
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="text-[10px] font-bold uppercase text-gray-500 dark:text-slate-400 border-b border-rose-100 dark:border-rose-900/30 bg-rose-50/30 dark:bg-rose-950/10">
+                                <th className="py-2 px-3 w-20 text-center">Carro</th>
+                                <th className="py-2 px-3 text-left">Defeito</th>
+                                <th className="py-2 px-3 w-12 text-center">Ação</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-rose-100/60 dark:divide-rose-950/40">
+                              {bloqueados.length === 0 ? (
+                                <tr>
+                                  <td colSpan={3} className="py-6 text-center text-xs text-gray-400 dark:text-slate-500">
+                                    Nenhum veículo bloqueado
+                                  </td>
+                                </tr>
+                              ) : (
+                                bloqueados.map((item) => (
+                                  <tr key={item.id} className="hover:bg-rose-50/40 dark:hover:bg-rose-950/20 transition-colors">
+                                    <td className="py-2 px-3 text-center">
+                                      <span className="inline-block font-mono font-bold text-xs px-2 py-0.5 rounded-md bg-rose-100/80 dark:bg-rose-950/60 text-rose-900 dark:text-rose-200 border border-rose-200/80 dark:border-rose-900/50">
+                                        {item.prefixo}
+                                      </span>
+                                    </td>
+                                    <td className="py-2 px-3 font-semibold uppercase text-[11px] text-gray-800 dark:text-slate-200">
+                                      <span className="truncate block max-w-[130px] sm:max-w-[150px]" title={item.observacao}>
+                                        {item.observacao || "—"}
+                                      </span>
+                                    </td>
+                                    <td className="py-2 px-3 text-center">
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <button className="p-1 rounded-md text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-rose-100/50 dark:hover:bg-rose-900/30 transition-colors cursor-pointer">
+                                            <MoreVertical className="w-4 h-4" />
+                                          </button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end" className="w-44">
+                                          <DropdownMenuItem onClick={() => handleSetStatus(item.id, "LIBERADO")}>
+                                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 mr-2" />
+                                            Liberar
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={() => handleSetStatus(item.id, "EM_EXECUCAO")}>
+                                            <Wrench className="w-3.5 h-3.5 text-amber-500 mr-2" />
+                                            Em Manutenção
+                                          </DropdownMenuItem>
+                                          <DropdownMenuSeparator />
+                                          <DropdownMenuItem onClick={() => { setEditItem(item); setEditObs(item.observacao); }}>
+                                            <Edit2 className="w-3.5 h-3.5 text-gray-500 mr-2" />
+                                            Editar Defeito
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={() => handleRemoveCarro(item.id, item.prefixo)} className="text-red-600 dark:text-red-400">
+                                            <Trash2 className="w-3.5 h-3.5 text-red-500 mr-2" />
+                                            Remover
+                                          </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
+                                    </td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
 
-                            {/* BLOQUEADO (X em vermelho) */}
-                            <td
-                              onClick={() => handleToggleColumn(item.id, "BLOQUEADO")}
-                              className="py-2 px-3 text-center cursor-pointer select-none hover:bg-red-500/10 transition-colors"
-                              title="Clique para alternar Bloqueado"
-                            >
-                              {item.bloqueado ? (
-                                <span className="inline-flex items-center justify-center w-6 h-6 rounded-md font-black text-base text-red-600 dark:text-red-400">
-                                  X
-                                </span>
-                              ) : null}
-                            </td>
+                      {/* QUADRO 2: EM MANUTENÇÃO (ÂMBAR / LARANJA) */}
+                      <div className="rounded-2xl border border-amber-500/40 dark:border-amber-500/30 bg-amber-500/[0.02] dark:bg-amber-950/10 overflow-hidden flex flex-col">
+                        {/* Header do Quadro */}
+                        <div className="p-3 border-b border-amber-200/80 dark:border-amber-900/40 flex items-center justify-between bg-amber-50/60 dark:bg-amber-950/20">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-amber-700 dark:text-amber-300">
+                              Em Manutenção
+                            </span>
+                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800/40">
+                              {emExecucao.length}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => handleOpenAddModal("EM_EXECUCAO")}
+                            className="w-6 h-6 rounded-md bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+                            title="Adicionar carro em manutenção"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
 
-                            {/* EM EXECUÇÃO (x em laranja/vermelho) */}
-                            <td
-                              onClick={() => handleToggleColumn(item.id, "EM_EXECUCAO")}
-                              className="py-2 px-3 text-center cursor-pointer select-none hover:bg-orange-500/10 transition-colors"
-                              title="Clique para alternar Em Execução"
-                            >
-                              {item.emExecucao ? (
-                                <span className="inline-flex items-center justify-center w-6 h-6 rounded-md font-black text-base text-orange-600 dark:text-orange-400">
-                                  x
-                                </span>
-                              ) : null}
-                            </td>
+                        {/* Tabela de Em Manutenção */}
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="text-[10px] font-bold uppercase text-gray-500 dark:text-slate-400 border-b border-amber-100 dark:border-amber-900/30 bg-amber-50/30 dark:bg-amber-950/10">
+                                <th className="py-2 px-3 w-20 text-center">Carro</th>
+                                <th className="py-2 px-3 text-left">Defeito</th>
+                                <th className="py-2 px-3 w-12 text-center">Ação</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-amber-100/60 dark:divide-amber-950/40">
+                              {emExecucao.length === 0 ? (
+                                <tr>
+                                  <td colSpan={3} className="py-6 text-center text-xs text-gray-400 dark:text-slate-500">
+                                    Nenhum veículo em manutenção
+                                  </td>
+                                </tr>
+                              ) : (
+                                emExecucao.map((item) => (
+                                  <tr key={item.id} className="hover:bg-amber-50/40 dark:hover:bg-amber-950/20 transition-colors">
+                                    <td className="py-2 px-3 text-center">
+                                      <span className="inline-block font-mono font-bold text-xs px-2 py-0.5 rounded-md bg-amber-100/80 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border border-amber-200/80 dark:border-amber-900/50">
+                                        {item.prefixo}
+                                      </span>
+                                    </td>
+                                    <td className="py-2 px-3 font-semibold uppercase text-[11px] text-gray-800 dark:text-slate-200">
+                                      <span className="truncate block max-w-[130px] sm:max-w-[150px]" title={item.observacao}>
+                                        {item.observacao || "—"}
+                                      </span>
+                                    </td>
+                                    <td className="py-2 px-3 text-center">
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <button className="p-1 rounded-md text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-amber-100/50 dark:hover:bg-amber-900/30 transition-colors cursor-pointer">
+                                            <MoreVertical className="w-4 h-4" />
+                                          </button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end" className="w-44">
+                                          <DropdownMenuItem onClick={() => handleSetStatus(item.id, "LIBERADO")}>
+                                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 mr-2" />
+                                            Liberar
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={() => handleSetStatus(item.id, "BLOQUEADO")}>
+                                            <Ban className="w-3.5 h-3.5 text-rose-500 mr-2" />
+                                            Bloquear
+                                          </DropdownMenuItem>
+                                          <DropdownMenuSeparator />
+                                          <DropdownMenuItem onClick={() => { setEditItem(item); setEditObs(item.observacao); }}>
+                                            <Edit2 className="w-3.5 h-3.5 text-gray-500 mr-2" />
+                                            Editar Defeito
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={() => handleRemoveCarro(item.id, item.prefixo)} className="text-red-600 dark:text-red-400">
+                                            <Trash2 className="w-3.5 h-3.5 text-red-500 mr-2" />
+                                            Remover
+                                          </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
+                                    </td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
 
-                            {/* LIBERADO (X em verde) */}
-                            <td
-                              onClick={() => handleToggleColumn(item.id, "LIBERADO")}
-                              className="py-2 px-3 text-center cursor-pointer select-none hover:bg-green-500/10 transition-colors"
-                              title="Clique para alternar Liberado"
-                            >
-                              {item.liberado ? (
-                                <span className="inline-flex items-center justify-center w-6 h-6 rounded-md font-black text-base text-green-600 dark:text-green-400">
-                                  X
-                                </span>
-                              ) : null}
-                            </td>
+                      {/* QUADRO 3: LIBERADO (ESMERALDA / VERDE) */}
+                      <div className="rounded-2xl border border-emerald-500/40 dark:border-emerald-500/30 bg-emerald-500/[0.02] dark:bg-emerald-950/10 overflow-hidden flex flex-col">
+                        {/* Header do Quadro */}
+                        <div className="p-3 border-b border-emerald-200/80 dark:border-emerald-900/40 flex items-center justify-between bg-emerald-50/60 dark:bg-emerald-950/20">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                              Liberado
+                            </span>
+                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-800/40">
+                              {liberados.length}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => handleOpenAddModal("LIBERADO")}
+                            className="w-6 h-6 rounded-md bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+                            title="Adicionar carro liberado"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
 
-                            {/* AÇÕES (Discreto, visível em hover) */}
-                            <td className="py-2 px-3 text-center print:hidden">
-                              <button
-                                onClick={() => handleRemoveCarro(item.id, item.prefixo)}
-                                className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-all p-1"
-                                title="Remover carro desta folha"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </td>
+                        {/* Tabela de Liberados */}
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="text-[10px] font-bold uppercase text-gray-500 dark:text-slate-400 border-b border-emerald-100 dark:border-emerald-900/30 bg-emerald-50/30 dark:bg-emerald-950/10">
+                                <th className="py-2 px-3 w-20 text-center">Carro</th>
+                                <th className="py-2 px-3 text-left">Defeito</th>
+                                <th className="py-2 px-3 w-12 text-center">Ação</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-emerald-100/60 dark:divide-emerald-950/40">
+                              {liberados.length === 0 ? (
+                                <tr>
+                                  <td colSpan={3} className="py-6 text-center text-xs text-gray-400 dark:text-slate-500">
+                                    Nenhum veículo liberado
+                                  </td>
+                                </tr>
+                              ) : (
+                                liberados.map((item) => (
+                                  <tr key={item.id} className="hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20 transition-colors">
+                                    <td className="py-2 px-3 text-center">
+                                      <span className="inline-block font-mono font-bold text-xs px-2 py-0.5 rounded-md bg-emerald-100/80 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-200 border border-emerald-200/80 dark:border-emerald-900/50">
+                                        {item.prefixo}
+                                      </span>
+                                    </td>
+                                    <td className="py-2 px-3 font-semibold uppercase text-[11px] text-gray-800 dark:text-slate-200">
+                                      <span className="truncate block max-w-[130px] sm:max-w-[150px]" title={item.observacao}>
+                                        {item.observacao || "—"}
+                                      </span>
+                                    </td>
+                                    <td className="py-2 px-3 text-center">
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <button className="p-1 rounded-md text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-emerald-100/50 dark:hover:bg-emerald-900/30 transition-colors cursor-pointer">
+                                            <MoreVertical className="w-4 h-4" />
+                                          </button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end" className="w-44">
+                                          <DropdownMenuItem onClick={() => handleSetStatus(item.id, "BLOQUEADO")}>
+                                            <Ban className="w-3.5 h-3.5 text-rose-500 mr-2" />
+                                            Bloquear
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={() => handleSetStatus(item.id, "EM_EXECUCAO")}>
+                                            <Wrench className="w-3.5 h-3.5 text-amber-500 mr-2" />
+                                            Em Manutenção
+                                          </DropdownMenuItem>
+                                          <DropdownMenuSeparator />
+                                          <DropdownMenuItem onClick={() => { setEditItem(item); setEditObs(item.observacao); }}>
+                                            <Edit2 className="w-3.5 h-3.5 text-gray-500 mr-2" />
+                                            Editar Defeito
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={() => handleRemoveCarro(item.id, item.prefixo)} className="text-red-600 dark:text-red-400">
+                                            <Trash2 className="w-3.5 h-3.5 text-red-500 mr-2" />
+                                            Remover
+                                          </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
+                                    </td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
 
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                    </div>
 
-                </div>
-              ))
+                  </div>
+                );
+              })
             )}
           </div>
 
         </div>
-
-      </div>
 
       {/* ==========================================================
           MODAL: ADICIONAR VEÍCULO À FOLHA DE MANUTENÇÃO

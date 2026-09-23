@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { api } from "@/lib/api";
 
-export type Role = "ADMIN" | "COLABORADOR" | "tanque" | "abastecimento" | "soltura" | "operacional";
+export type Role = "ADMIN" | "COLABORADOR" | "tanque" | "abastecimento" | "soltura" | "operacional" | "manutencao";
 
 export interface Group {
   id: number;
@@ -25,6 +25,7 @@ export const roleLabels: Record<Role, string> = {
   abastecimento: "Abastecimento",
   soltura: "Soltura",
   operacional: "Controle Operacional",
+  manutencao: "Manutenção",
 };
 
 interface AuthState {
@@ -91,7 +92,8 @@ export const useAuth = create<AuthState>((set) => ({
 
 export function getDefaultRoute(user: User | null): string {
   if (!user) return "/";
-  if (user.email?.toLowerCase() === "teste@teste.com" || user.email?.toLowerCase().includes("teste")) return "/soltura";
+  if (user.role === "manutencao" || user.email?.toLowerCase().includes("manutencao")) return "/manutencao";
+  if (user.email?.toLowerCase() === "teste@teste.com") return "/soltura";
   if (user.role === "ADMIN") return "/home";
   if (user.role === "tanque") return "/abastecimento";
   if (user.role === "soltura") return "/soltura";

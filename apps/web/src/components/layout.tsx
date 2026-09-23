@@ -96,17 +96,17 @@ const navItems: NavItem[] = [
     to: "/manutencao",
     label: "Manutenção",
     icon: Wrench,
-    roles: ["ADMIN", "COLABORADOR"],
+    roles: ["ADMIN", "COLABORADOR", "manutencao"],
     children: [
       {
         to: "/manutencao",
         label: "Controle de Frota",
-        roles: ["ADMIN", "COLABORADOR"]
+        roles: ["ADMIN", "COLABORADOR", "manutencao"]
       },
       {
         to: "/manutencao/ci-manutencao",
         label: "CI Manutenção",
-        roles: ["ADMIN", "COLABORADOR"]
+        roles: ["ADMIN", "COLABORADOR", "manutencao"]
       }
     ]
   },
@@ -202,13 +202,18 @@ export function Layout() {
   const hasPermission = (to: string, roles: string[]) => {
     if (user?.role === "ADMIN") return true;
 
+    // Usuário de Manutenção (manutencao_vcg@teste.com, role "manutencao" ou emails de manutencao)
+    if (user?.role === "manutencao" || user?.email?.toLowerCase().includes("manutencao")) {
+      return to === "/manutencao" || to === "/manutencao/ci-manutencao";
+    }
+
     // Usuário de soltura estrito (soltura_vcg, soltura_vcm ou role "soltura") visualiza ESTRITAMENTE o menu Soltura e seus submenus
     if ((user?.role === "soltura" || user?.email?.toLowerCase().includes("soltura")) && !user?.email?.toLowerCase().includes("teste")) {
       return to === "/soltura" || to === "/soltura/historico";
     }
 
-    // Usuário teste@teste.com (ou contas de teste) visualiza ESTRITAMENTE os menus solicitados
-    if (user?.email?.toLowerCase() === "teste@teste.com" || user?.email?.toLowerCase()?.includes("teste")) {
+    // Usuário teste@teste.com visualiza ESTRITAMENTE os menus solicitados
+    if (user?.email?.toLowerCase() === "teste@teste.com") {
       const allowed = [
         "/abastecimento",
         "/abastecimento-carro",

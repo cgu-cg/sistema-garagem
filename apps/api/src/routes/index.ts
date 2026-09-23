@@ -46,6 +46,7 @@ router.delete("/groups/:id", authenticate, authorize("ADMIN"), groupsController.
 
 // Buses
 router.get("/buses", authenticate, busesController.list);
+router.get("/buses/inventory", authenticate, controleOperacionalController.listVeiculos);
 router.post("/buses", authenticate, authorize("ADMIN"), validate(createBusSchema), busesController.create);
 
 // Abastecimento

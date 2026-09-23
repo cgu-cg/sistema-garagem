@@ -89,6 +89,7 @@ export const api = {
 
   // Buses
   listBuses: () => request("/buses"),
+  getBusesInventory: () => request("/buses/inventory"),
   createBus: (data: any) =>
     request("/buses", { method: "POST", body: JSON.stringify(data) }),
 

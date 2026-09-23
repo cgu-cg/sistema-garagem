@@ -483,36 +483,62 @@ export async function queryDetalhesVeiculo(idVeiculo: number, dateStr: string) {
   };
 }
 
-// 8. Consulta de veículos para o Controle Operacional
+export function normalizeGaragemVeiculo(garagemRaw: any, idCarro: number | string): "VCM" | "VCG" {
+  if (garagemRaw !== null && garagemRaw !== undefined) {
+    const str = String(garagemRaw).trim().toUpperCase();
+    if (str === "1" || str.includes("VCM") || str.includes("MORENA")) return "VCM";
+    if (str === "2" || str.includes("VCG") || str.includes("CAMPO GRANDE")) return "VCG";
+  }
+  // Fallbacks de negócio: o 2002 é VSF alocado fisicamente na Garagem 1 (VCM)
+  const clean = String(idCarro).replace(/\D/g, "");
+  if (clean === "2002") return "VCM";
+  if (clean.startsWith("1")) return "VCM";
+  return "VCG";
+}
+
+// 8. Consulta de veículos (Controle Operacional / CI Manutenção / Soltura)
 export async function queryVeiculosSelect() {
   const pool = await getPool();
   if (pool) {
     try {
       const result = await pool.request().query(`
-        SELECT idCarro 
+        SELECT idCarro, garagem 
         FROM Veiculos 
         WHERE ativo=1 and idCarro < 6000 and idCarro not in (1999,2999,3999,4999) 
         ORDER BY idCarro
       `);
-      return result.recordset;
+      return result.recordset.map((row: any) => ({
+        idCarro: row.idCarro,
+        prefixo: String(row.idCarro),
+        garagem: row.garagem,
+        garagemNome: normalizeGaragemVeiculo(row.garagem, row.idCarro),
+      }));
     } catch (error) {
       console.error("[SQL Server] Erro ao consultar veículos, retornando mocks:", error);
     }
   }
 
-  return [
-    { idCarro: 101 },
-    { idCarro: 102 },
-    { idCarro: 103 },
-    { idCarro: 104 },
-    { idCarro: 1201 },
-    { idCarro: 1202 },
-    { idCarro: 1204 },
-    { idCarro: 1301 },
-    { idCarro: 2319 },
-    { idCarro: 3003 },
-    { idCarro: 4178 },
+  const mockVeiculos = [
+    { idCarro: 101, garagem: 1 },
+    { idCarro: 102, garagem: 1 },
+    { idCarro: 103, garagem: 1 },
+    { idCarro: 104, garagem: 1 },
+    { idCarro: 1201, garagem: 1 },
+    { idCarro: 1202, garagem: 1 },
+    { idCarro: 1204, garagem: 1 },
+    { idCarro: 1301, garagem: 1 },
+    { idCarro: 2002, garagem: 1 }, // VSF na Garagem 1 (VCM)
+    { idCarro: 2319, garagem: 2 },
+    { idCarro: 3003, garagem: 2 },
+    { idCarro: 4178, garagem: 2 },
   ];
+
+  return mockVeiculos.map((v) => ({
+    idCarro: v.idCarro,
+    prefixo: String(v.idCarro),
+    garagem: v.garagem,
+    garagemNome: normalizeGaragemVeiculo(v.garagem, v.idCarro),
+  }));
 }
 
 // 9. Consulta de linhas para o Controle Operacional

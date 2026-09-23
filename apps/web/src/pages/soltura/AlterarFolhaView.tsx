@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { SolturaItem } from "@/data/solturaData";
 import { Button } from "@/components/ui/button";
-import { PlusCircle, Search, RotateCcw, Trash2, FileText } from "lucide-react";
+import { PlusCircle, Search, Trash2, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -14,8 +14,6 @@ interface AlterarFolhaViewProps {
   onUpdateMultipleFields?: (itemId: string, updates: Partial<SolturaItem>) => void;
   onAddSchedule?: (newItem: SolturaItem) => void;
   onDeleteSchedule?: (itemId: string) => void;
-  onResetSchedule?: () => void;
-  hasCustomModifications?: boolean;
   onSelectGaragem?: (garagem: "VCG" | "VCM") => void;
   onSelectEscalaTipo?: (escala: "SEG_SEX" | "SABADO" | "DOM_FER") => void;
   onSelectTurnoTipo?: (turno: "MATUTINO" | "VESPERTINO") => void;
@@ -30,8 +28,6 @@ export function AlterarFolhaView({
   onUpdateMultipleFields,
   onAddSchedule,
   onDeleteSchedule,
-  onResetSchedule,
-  hasCustomModifications,
   onSelectGaragem,
   onSelectEscalaTipo,
   onSelectTurnoTipo
@@ -146,9 +142,6 @@ export function AlterarFolhaView({
             <h2 className="text-base sm:text-lg font-bold text-foreground">
               Horário de Saída de Veículos • {escalaTipo === "SEG_SEX" ? `Segunda a Sexta (${turnoTipo === "MATUTINO" ? "Matutino" : "Vespertino"})` : escalaTipo === "SABADO" ? "Sábado" : "Dom / Feriado"}
             </h2>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
-              {isVCGMatutino ? "CGU.REG.OP.0001 • Rev 1" : "Folha Operacional"}
-            </span>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
             Edição direta de Linha, Tabela, Carro Programado e Horários da grade da folha física. As alterações atualizam a tela de Soltura (/soltura) em tempo real.
@@ -227,30 +220,6 @@ export function AlterarFolhaView({
                 <span>🌙 Vespertino</span>
               </button>
             </div>
-          )}
-
-          {/* Botão para Restaurar Folha Padrão / Sincronizar com Oficial */}
-          {onResetSchedule && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                if (window.confirm("Deseja restaurar esta grade de horários para a folha oficial de fábrica da empresa? Todas as edições manuais salvas localmente serão revertidas.")) {
-                  onResetSchedule();
-                }
-              }}
-              className={cn(
-                "h-8 px-3 text-xs font-semibold rounded-full gap-1.5 cursor-pointer",
-                hasCustomModifications
-                  ? "border-amber-500/50 text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              )}
-              title="Restaura a grade para os horários oficiais originais idênticos ao documento impresso"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>{hasCustomModifications ? "Restaurar Folha Padrão" : "Sincronizar Oficial"}</span>
-            </Button>
           )}
 
           <Button

@@ -97,6 +97,27 @@ async function main() {
     },
   });
 
+  const groupManutencao = await prisma.group.upsert({
+    where: { name: "Manutenção" },
+    update: {
+      description: "Acesso ao menu Manutenção (CI Manutenção)",
+      permissions: JSON.stringify([
+        "/manutencao",
+        "/manutencao/ci-manutencao",
+        "/ci-manutencao",
+      ]),
+    },
+    create: {
+      name: "Manutenção",
+      description: "Acesso ao menu Manutenção (CI Manutenção)",
+      permissions: JSON.stringify([
+        "/manutencao",
+        "/manutencao/ci-manutencao",
+        "/ci-manutencao",
+      ]),
+    },
+  });
+
   const groupOperacional = await prisma.group.upsert({
     where: { name: "Controle Operacional" },
     update: {
@@ -121,6 +142,26 @@ async function main() {
       email: "admin@teste.com",
       password,
       role: "ADMIN",
+    },
+  });
+
+  // manutencao_vcg@teste.com — Manutenção, VCG (acesso exclusivo a /manutencao e /manutencao/ci-manutencao)
+  await prisma.user.upsert({
+    where: { email: "manutencao_vcg@teste.com" },
+    update: {
+      name: "Manutenção VCG",
+      password,
+      role: "manutencao",
+      garagem: "VCG",
+      groups: { set: [{ id: groupManutencao.id }] },
+    },
+    create: {
+      name: "Manutenção VCG",
+      email: "manutencao_vcg@teste.com",
+      password,
+      role: "manutencao",
+      garagem: "VCG",
+      groups: { connect: [{ id: groupManutencao.id }] },
     },
   });
 
