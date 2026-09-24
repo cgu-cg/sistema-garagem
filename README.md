@@ -18,6 +18,8 @@ Inicie a aplicação localmente:
 npm run dev
 ```
 
+## 🚀 Deploy em Produção
+
 ### Atualizar Repositório
 Puxe as alterações mais recentes da branch remota:
 ```bash
@@ -25,8 +27,6 @@ git pull
 ```
 
 ---
-
-## 🐳 Gerenciamento via Docker
 
 ### Subir Containers
 Reconstrói as imagens (`web` e `api`) e inicia os serviços em segundo plano:
