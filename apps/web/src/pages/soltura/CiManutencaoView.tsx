@@ -581,13 +581,33 @@ export function CiManutencaoView({
   };
 
   // Função para Impressão direta da folha A4 com alta fidelidade ao modelo de visualização
-  const handlePrintRelatorio = () => {
+  const handlePrintRelatorio = async () => {
     if (!relatorioFolhaRef.current) {
       window.print();
       return;
     }
     try {
-      const printContent = relatorioFolhaRef.current.outerHTML;
+      toast.info("Preparando impressão de alta fidelidade...");
+      const element = relatorioFolhaRef.current;
+
+      const canvas = await html2canvas(element, {
+        scale: 2.5,
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        backgroundColor: "#ffffff",
+        onclone: (clonedDoc) => {
+          const clonedElement = clonedDoc.querySelector('[data-folha-ci="true"]') as HTMLElement;
+          if (clonedElement) {
+            clonedElement.style.boxShadow = "none";
+            clonedElement.style.border = "none";
+            clonedElement.style.margin = "0";
+          }
+        },
+      });
+
+      const imgData = canvas.toDataURL("image/png");
+
       const iframe = document.createElement("iframe");
       iframe.style.position = "fixed";
       iframe.style.right = "0";
@@ -596,11 +616,6 @@ export function CiManutencaoView({
       iframe.style.height = "0";
       iframe.style.border = "0";
       document.body.appendChild(iframe);
-
-      // Clona todos os estilos Tailwind e tags style/link da página para o iframe
-      const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
-        .map(el => el.outerHTML)
-        .join("\n");
 
       const doc = iframe.contentWindow?.document;
       if (doc) {
@@ -611,7 +626,6 @@ export function CiManutencaoView({
           <head>
             <meta charset="utf-8" />
             <title>${formatCiFilename(dataOperacao)}</title>
-            ${styles}
             <style>
               @page {
                 size: A4 portrait;
@@ -625,47 +639,58 @@ export function CiManutencaoView({
               html, body {
                 margin: 0 !important;
                 padding: 0 !important;
-                background: #ffffff !important;
-                color: #000000 !important;
-              }
-              [data-folha-ci="true"] {
                 width: 210mm !important;
-                min-height: 297mm !important;
                 height: 297mm !important;
-                padding: 8mm 10mm !important;
-                margin: 0 auto !important;
-                box-shadow: none !important;
-                border: none !important;
-                background-color: #ffffff !important;
+                background: #ffffff !important;
+                overflow: hidden !important;
               }
-              table {
-                border-collapse: collapse !important;
-                width: 100% !important;
+              .print-container {
+                width: 210mm !important;
+                height: 297mm !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                margin: 0 !important;
+                padding: 0 !important;
               }
-              th, td {
-                border: 1px solid #000000 !important;
+              img {
+                width: 210mm !important;
+                height: 297mm !important;
+                display: block !important;
+                object-fit: fill !important;
               }
             </style>
           </head>
           <body>
-            ${printContent}
+            <div class="print-container">
+              <img id="ci-print-img" src="${imgData}" />
+            </div>
+            <script>
+              const img = document.getElementById("ci-print-img");
+              function doPrint() {
+                window.focus();
+                window.print();
+              }
+              if (img && img.complete) {
+                setTimeout(doPrint, 300);
+              } else if (img) {
+                img.onload = () => setTimeout(doPrint, 300);
+              }
+            </script>
           </body>
           </html>
         `);
         doc.close();
 
         setTimeout(() => {
-          iframe.contentWindow?.focus();
-          iframe.contentWindow?.print();
-          setTimeout(() => {
-            if (document.body.contains(iframe)) {
-              document.body.removeChild(iframe);
-            }
-          }, 2000);
-        }, 500);
+          if (document.body.contains(iframe)) {
+            document.body.removeChild(iframe);
+          }
+        }, 10000);
       }
     } catch (err) {
       console.error("Erro na impressão do relatório CI:", err);
+      toast.error("Erro ao preparar impressão.");
       window.print();
     }
   };
