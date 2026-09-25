@@ -25,6 +25,8 @@ model User {
   abastecimentoCarroSessions AbastecimentoCarroSession[]
   groups                     Group[]
   reservasTerminais          ReservaTerminal[]
+  ciBloqueios                CiBloqueio[]
+  manutencaoCarros           ManutencaoCarro[]
 
   @@map("users")
 }
@@ -183,4 +185,55 @@ model ReservaTerminal {
 
   @@index([garagem, terminal])
   @@map("reservas_terminais")
+}
+
+model CiBloqueio {
+  id                   String   @id @map("id") @db.NVarChar(100)
+  prefixo              String   @map("prefixo") @db.NVarChar(10)
+  garagem              String   @map("garagem") @db.NVarChar(10)
+  consorciada          String   @map("consorciada") @db.NVarChar(10)
+  categoria            String   @map("categoria") @db.NVarChar(20)
+  subTipo              String?  @map("sub_tipo") @db.NVarChar(50)
+  horarioReforco       String?  @map("horario_reforco") @db.NVarChar(20)
+  motivo               String   @map("motivo") @db.NVarChar(255)
+  dataBloqueio         String   @map("data_bloqueio") @db.NVarChar(20)
+  horaBloqueio         String?  @map("hora_bloqueio") @db.NVarChar(10)
+  gravidade            String?  @default("ALTA") @map("gravidade") @db.NVarChar(10)
+  responsavel          String?  @map("responsavel") @db.NVarChar(100)
+  observacoes          String?  @map("observacoes") @db.NVarChar(255)
+  status               String?  @default("BLOQUEADO") @map("status") @db.NVarChar(20)
+  dataLiberacao        String?  @map("data_liberacao") @db.NVarChar(50)
+  motivoLiberacao      String?  @map("motivo_liberacao") @db.NVarChar(255)
+  responsavelLiberacao String?  @map("responsavel_liberacao") @db.NVarChar(100)
+  userId               Int?     @map("user_id")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([prefixo])
+  @@index([status])
+  @@index([garagem])
+  @@map("ci_bloqueios")
+}
+
+model ManutencaoCarro {
+  id          String   @id @map("id") @db.NVarChar(100)
+  prefixo     String   @map("prefixo") @db.NVarChar(10)
+  consorciada String   @map("consorciada") @db.NVarChar(10)
+  observacao  String   @default("") @map("observacao") @db.NVarChar(255)
+  bloqueado   Boolean  @default(false) @map("bloqueado")
+  emExecucao  Boolean  @default(false) @map("em_execucao")
+  liberado    Boolean  @default(false) @map("liberado")
+  data        String   @map("data") @db.NVarChar(20)
+  userId      Int?     @map("user_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([data])
+  @@index([prefixo])
+  @@index([data, prefixo])
+  @@map("manutencao_carros")
 }

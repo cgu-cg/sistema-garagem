@@ -17,14 +17,12 @@ import {
   X,
   Building2,
   ChevronDown,
-  Search,
   Bell,
   Calendar,
   Wrench,
   CalendarClock
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
@@ -100,7 +98,7 @@ const navItems: NavItem[] = [
     children: [
       {
         to: "/manutencao",
-        label: "Controle de Frota",
+        label: "Controle de Manutenção",
         roles: ["ADMIN", "COLABORADOR", "manutencao"]
       },
       {
@@ -143,7 +141,6 @@ export function Layout() {
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
   const [openSubMenus, setOpenSubMenus] = useState<Record<string, boolean>>({
     "/soltura": true,
     "/manutencao": true,
@@ -286,7 +283,7 @@ export function Layout() {
     if (location.pathname.startsWith("/catracas")) return "Conferência Catracas";
     if (location.pathname.startsWith("/abastecimento-carro")) return "Abastecimento por Carro";
     if (location.pathname.startsWith("/abastecimento")) return "Leitura de Tanques";
-    if (location.pathname === "/manutencao") return "Manutenção - Controle de Frota";
+    if (location.pathname === "/manutencao") return "Manutenção - Controle de Manutenção";
     if (location.pathname.startsWith("/manutencao") || location.pathname.startsWith("/ci-manutencao") || location.pathname.startsWith("/soltura/ci-manutencao")) return "Manutenção - CI Manutenção";
     if (location.pathname.startsWith("/soltura/alterar-folha") || location.pathname.startsWith("/soltura-adm") || location.pathname.startsWith("/alterar-folha")) return "Soltura - Alterar Folha de Soltura";
     if (location.pathname.startsWith("/escala-carros") || location.pathname.startsWith("/soltura/alterar-carro-programado") || location.pathname.startsWith("/alterar-carro-programado") || location.pathname.startsWith("/soltura/carro-realizado")) return "Escala Carros - Alterar Carro Programado";
@@ -298,9 +295,9 @@ export function Layout() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F4F5F7] dark:bg-[#070A11] text-foreground flex flex-col md:flex-row font-sans selection:bg-emerald-500/20">
+    <div className="h-screen print:h-auto print:overflow-visible bg-[#F4F5F7] dark:bg-[#070A11] text-foreground flex flex-col md:flex-row font-sans selection:bg-emerald-500/20 overflow-hidden">
       {/* Mobile Top Header */}
-      <header className="md:hidden sticky top-0 z-40 bg-white/95 dark:bg-[#0B0F19]/95 backdrop-blur border-b border-slate-200/80 dark:border-slate-800/80 px-4 h-15 flex items-center justify-between shadow-xs">
+      <header className="md:hidden shrink-0 print:hidden sticky top-0 z-40 bg-white/95 dark:bg-[#0B0F19]/95 backdrop-blur border-b border-slate-200/80 dark:border-slate-800/80 px-4 h-15 flex items-center justify-between shadow-xs">
         <div className="flex items-center gap-2.5">
           <Button
             variant="ghost"
@@ -708,9 +705,9 @@ export function Layout() {
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden print:h-auto print:overflow-visible">
         {/* Desktop Top Header Bar */}
-        <header className="hidden md:flex h-16 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/90 dark:bg-[#0B0F19]/90 backdrop-blur-md px-6 items-center justify-between sticky top-0 z-20 shadow-2xs">
+        <header className="hidden md:flex print:hidden h-16 shrink-0 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/90 dark:bg-[#0B0F19]/90 backdrop-blur-md px-6 items-center justify-between sticky top-0 z-20 shadow-2xs">
           <div className="flex items-center gap-4 min-w-0">
             <div>
               <h1 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
@@ -720,21 +717,6 @@ export function Layout() {
                 Garagem Operacional Integrada
               </p>
             </div>
-          </div>
-
-          {/* Center Search Input */}
-          <div className="hidden lg:flex items-center w-72 max-w-sm relative">
-            <Search className="w-4 h-4 absolute left-3 text-slate-400" />
-            <Input
-              type="text"
-              placeholder="Buscar no sistema..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 pr-12 h-9 text-xs rounded-full bg-slate-100/80 dark:bg-slate-900/90 border-slate-200 dark:border-slate-800 focus-visible:ring-emerald-500"
-            />
-            <kbd className="absolute right-3 px-1.5 py-0.5 text-[10px] font-medium text-slate-400 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
-              ⌘K
-            </kbd>
           </div>
 
           {/* Right Action Icons & Badges */}

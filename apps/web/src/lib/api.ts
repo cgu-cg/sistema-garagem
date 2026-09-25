@@ -232,6 +232,56 @@ export const api = {
     request("/solturas/reservas-terminais", { method: "POST", body: JSON.stringify(data) }),
   deleteReservaTerminal: (id: number) =>
     request(`/solturas/reservas-terminais/${id}`, { method: "DELETE" }),
+
+  // CI Manutenção & Bloqueios de Veículos
+  listCiBloqueios: (params?: { garagem?: string; status?: string; data?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.garagem) query.set("garagem", params.garagem);
+    if (params?.status) query.set("status", params.status);
+    if (params?.data) query.set("data", params.data);
+    const qs = query.toString();
+    return request(`/ci-bloqueios${qs ? `?${qs}` : ""}`);
+  },
+  createOrUpdateCiBloqueio: (data: any) =>
+    request("/ci-bloqueios", { method: "POST", body: JSON.stringify(data) }),
+  releaseCiBloqueio: (data: { id?: string; prefixo?: string; motivoLiberacao?: string; responsavelLiberacao?: string }) =>
+    request("/ci-bloqueios/release", { method: "POST", body: JSON.stringify(data) }),
+  deleteCiBloqueio: (id: string) =>
+    request(`/ci-bloqueios/${id}`, { method: "DELETE" }),
+  syncCiBloqueios: (items: any[]) =>
+    request("/ci-bloqueios/sync", { method: "POST", body: JSON.stringify({ items }) }),
+
+  // Manutenção (Controle de Frota)
+  listManutencao: (data?: string) => {
+    const qs = data ? `?data=${encodeURIComponent(data)}` : "";
+    return request(`/manutencao${qs}`);
+  },
+  createOrUpdateManutencao: (data: any) =>
+    request("/manutencao", { method: "POST", body: JSON.stringify(data) }),
+  updateManutencao: (id: string, data: any) =>
+    request(`/manutencao/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteManutencao: (id: string) =>
+    request(`/manutencao/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  syncManutencao: (data: string, items: any[]) =>
+    request("/manutencao/sync", { method: "POST", body: JSON.stringify({ data, items }) }),
+  resetManutencao: (data: string) =>
+    request("/manutencao/reset", { method: "POST", body: JSON.stringify({ data }) }),
+
+  // Generic HTTP helpers
+  get: <T = any>(path: string, options?: { params?: Record<string, string> } & RequestInit): Promise<T> => {
+    let url = path;
+    if (options?.params) {
+      const search = new URLSearchParams(options.params).toString();
+      if (search) url += (url.includes("?") ? "&" : "?") + search;
+    }
+    return request(url, { ...options, method: "GET" });
+  },
+  post: <T = any>(path: string, body?: any, options?: RequestInit): Promise<T> =>
+    request(path, { ...options, method: "POST", body: body instanceof FormData ? body : JSON.stringify(body) }),
+  put: <T = any>(path: string, body?: any, options?: RequestInit): Promise<T> =>
+    request(path, { ...options, method: "PUT", body: body instanceof FormData ? body : JSON.stringify(body) }),
+  delete: <T = any>(path: string, options?: RequestInit): Promise<T> =>
+    request(path, { ...options, method: "DELETE" }),
 };
 
 

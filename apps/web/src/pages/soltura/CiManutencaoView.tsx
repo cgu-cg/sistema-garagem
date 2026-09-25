@@ -1,10 +1,14 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { BloqueioCarro } from "@/data/solturaData";
 import { INVENTORY_CARS } from "@/data/inventoryCars";
 import { 
   saveCIBloqueiosToStorage, 
   getConsorciadaByCarro,
-  getGaragemFisicaByCarro 
+  getGaragemFisicaByCarro,
+  fetchCIBloqueiosFromApi,
+  persistCIBloqueio,
+  releaseCIBloqueioApi,
+  deleteCIBloqueioApi
 } from "./ciManager";
 import { useAuth } from "@/stores/auth";
 import { api } from "@/lib/api";
@@ -19,52 +23,358 @@ import {
   DialogHeader, 
   DialogTitle 
 } from "@/components/ui/dialog";
+import { 
+  Popover, 
+  PopoverAnchor, 
+  PopoverContent 
+} from "@/components/ui/popover";
 import { toast } from "sonner";
 import { 
   Bus, 
-  ShieldAlert, 
   Wrench, 
   X, 
   CheckCircle2, 
-  AlertTriangle, 
   Trash2, 
   Check, 
-  Printer, 
-  Clock, 
-  Layers, 
   Calendar, 
-  FileText,
-  ChevronRight 
+  FileText, 
+  Plus, 
+  Search, 
+  ChevronDown, 
+  RotateCcw,
+  Printer,
+  Download
 } from "lucide-react";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 import { cn } from "@/lib/utils";
 
-interface CiManutencaoViewProps {
+export interface CiManutencaoViewProps {
   ciList: BloqueioCarro[];
   setCiList: React.Dispatch<React.SetStateAction<BloqueioCarro[]>>;
   garagemFiltro?: "VCG" | "VCM" | "TODAS";
+  dataOperacao?: string;
+  setDataOperacao?: (d: string) => void;
 }
 
-type TabCategory = "PREVENTIVA" | "OFICINA" | "REFORCO" | "BLOQUEADO";
+export type TabCategory = "PREVENTIVA" | "OFICINA" | "REFORCO" | "BLOQUEADO";
 
+export interface CarOption {
+  prefixo: string;
+  garagem: "VCM" | "VCG";
+}
+
+interface CarSearchSelectProps {
+  value: string;
+  onChange: (prefixo: string) => void;
+  allowedCars: CarOption[];
+  placeholder?: string;
+  className?: string;
+  inputClassName?: string;
+  autoFocus?: boolean;
+  required?: boolean;
+  disabled?: boolean;
+}
+
+/**
+ * Componente de seleção de veículos com campo de busca integrado (digita e filtra em tempo real)
+ */
+export function CarSearchSelect({
+  value,
+  onChange,
+  allowedCars,
+  placeholder = "Carro",
+  className,
+  inputClassName,
+  autoFocus = false,
+  required = false,
+  disabled = false,
+}: CarSearchSelectProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState(value || "");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Sincroniza o texto do input quando o value externo mudar
+  useEffect(() => {
+    setSearch(value || "");
+  }, [value]);
+
+  // Lista de carros filtrada pela busca digitada
+  const filteredCars = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return allowedCars;
+    return allowedCars.filter(c => c.prefixo.toLowerCase().includes(q));
+  }, [allowedCars, search]);
+
+  // Seleciona um veículo
+  const handleSelectCar = (prefixo: string) => {
+    onChange(prefixo);
+    setSearch(prefixo);
+    setIsOpen(false);
+  };
+
+  // Limpa a seleção
+  const handleClear = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onChange("");
+    setSearch("");
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
+  };
+
+  // Trata teclas especiais (Enter, Esc)
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (filteredCars.length > 0) {
+        handleSelectCar(filteredCars[0].prefixo);
+      }
+    } else if (e.key === "Escape") {
+      setIsOpen(false);
+      setSearch(value || "");
+    } else if (e.key === "ArrowDown" && !isOpen) {
+      setIsOpen(true);
+    }
+  };
+
+  return (
+    <Popover open={isOpen} onOpenChange={setIsOpen}>
+      <PopoverAnchor asChild>
+        <div className={cn("relative flex items-center w-full", className)}>
+          <div className="absolute left-2 text-muted-foreground/60 pointer-events-none">
+            <Search className="w-3.5 h-3.5" />
+          </div>
+
+          <Input
+            ref={inputRef}
+            type="text"
+            value={search}
+            disabled={disabled}
+            required={required}
+            autoFocus={autoFocus}
+            placeholder={placeholder}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              if (!isOpen) setIsOpen(true);
+              
+              const exactMatch = allowedCars.find(c => c.prefixo === e.target.value.trim());
+              if (exactMatch) {
+                onChange(exactMatch.prefixo);
+              }
+            }}
+            onFocus={() => setIsOpen(true)}
+            onKeyDown={handleKeyDown}
+            className={cn(
+              "pl-7 pr-12 font-mono text-xs font-bold bg-background h-8 transition-all",
+              value && "border-primary/50 bg-primary/5 text-foreground",
+              inputClassName
+            )}
+          />
+
+          <div className="absolute right-1 flex items-center gap-0.5">
+            {/* Botão Limpar */}
+            {(search || value) && !disabled && (
+              <button
+                type="button"
+                onClick={handleClear}
+                tabIndex={-1}
+                className="p-1 rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                title="Limpar seleção"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+
+            {/* Indicador de Dropdown */}
+            <button
+              type="button"
+              tabIndex={-1}
+              onClick={() => {
+                if (!disabled) {
+                  setIsOpen(!isOpen);
+                  inputRef.current?.focus();
+                }
+              }}
+              className="p-1 rounded-md text-muted-foreground/60 hover:text-foreground transition-colors cursor-pointer"
+            >
+              <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-150", isOpen && "rotate-180")} />
+            </button>
+          </div>
+        </div>
+      </PopoverAnchor>
+
+      <PopoverContent
+        align="start"
+        sideOffset={4}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        className="w-[var(--radix-popover-anchor-width)] min-w-[190px] max-h-56 overflow-y-auto p-1.5 z-50 bg-popover text-popover-foreground border rounded-xl shadow-xl space-y-0.5"
+      >
+        {filteredCars.length === 0 ? (
+          <div className="py-3 text-center text-xs text-muted-foreground">
+            <Bus className="w-4 h-4 mx-auto mb-1 opacity-40" />
+            Nenhum carro encontrado para <strong>"{search}"</strong>
+          </div>
+        ) : (
+          filteredCars.map((c) => {
+            const isSelected = c.prefixo === value;
+            return (
+              <button
+                key={c.prefixo}
+                type="button"
+                onClick={() => handleSelectCar(c.prefixo)}
+                className={cn(
+                  "w-full text-left px-2 py-1.5 rounded-lg text-xs flex items-center justify-between transition-colors cursor-pointer group",
+                  isSelected
+                    ? "bg-primary text-primary-foreground font-bold shadow-2xs"
+                    : "hover:bg-muted text-foreground"
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-bold text-xs">{c.prefixo}</span>
+                  <span
+                    className={cn(
+                      "text-[9px] font-mono px-1.5 py-0.2 rounded font-semibold",
+                      isSelected
+                        ? "bg-primary-foreground/20 text-primary-foreground"
+                        : "bg-muted text-muted-foreground"
+                    )}
+                  >
+                    {c.garagem}
+                  </span>
+                </div>
+                {isSelected && <Check className="w-3.5 h-3.5 shrink-0" />}
+              </button>
+            );
+          })
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function LogoConsorcioSvg({ className }: { className?: string }) {
+  return (
+    <svg 
+      id="Camada_1" 
+      data-name="Camada 1" 
+      xmlns="http://www.w3.org/2000/svg" 
+      viewBox="0 0 300 114.38" 
+      className={className}
+      style={{ maxHeight: "32px", maxWidth: "130px", width: "auto", height: "32px", objectFit: "contain", display: "block" }}
+    >
+      <defs>
+        <style>{`.cls-1{fill:#fff}.cls-1,.cls-10,.cls-2,.cls-3,.cls-4,.cls-5,.cls-6,.cls-7,.cls-8,.cls-9{fill-rule:evenodd}.cls-2{fill:#d7dc47}.cls-3{fill:#7cb552}.cls-4{fill:#70ac51}.cls-5{fill:#82bb8b}.cls-6{fill:#599b51}.cls-7{fill:#528c81}.cls-8{fill:#37393a}.cls-11,.cls-9{fill:#595b5c}.cls-10{fill:#686969}`}</style>
+      </defs>
+      <title>Consórcio Guaicurus</title>
+      <path className="cls-1" d="M75.48 46.93c0 1.64-.8 3-1.78 3s-1.78-1.33-1.78-3 .79-3 1.78-3 1.78 1.32 1.78 3"/>
+      <path className="cls-1" d="M86.15 26.3l-21.24 4.92s-2.15 11 .34 16.65l2.66.41 3.83.37s-.17-4.36 2.32-4.32 1.42 4.32 1.42 4.32l2.51.21L81.08 43l.59-3.61z"/>
+      <path className="cls-2" d="M90.76 48.28C214.86 41.63 270.65 64.76 257 75.85c8.92 3.32 15.56 6.58 19.78 9.46 7-3.8 14.64-7.63 20.21-10.07 24.77-10.86-106.14-44.43-206.18-27"/>
+      <path className="cls-3" d="M257 75.85a13.46 13.46 0 0 1-3.08 1.81 87 87 0 0 0-11.32 6.25A460.21 460.21 0 0 1 262 94.15a154.89 154.89 0 0 1 14.75-8.84c-4.22-2.88-10.86-6.13-19.78-9.46"/>
+      <path className="cls-4" d="M257 75.85c13.7-11.09-42.09-34.21-166.19-27.56-3.13.54-6.24 1.14-9.31 1.79C164.13 51 225.06 63.94 257 75.85"/>
+      <path className="cls-5" d="M276.73 85.31A154.89 154.89 0 0 0 262 94.15c-6.75-3.79-13.19-7.18-19.43-10.24-6.85 4.36-13.49 9.37-17.72 12.41-25.08-10.82-43.39-30-122.65-41.76 37 6.51 93.78 22.23 135.18 59.82 0 0 15.12-12.91 40.37-19.24 6.28-1.57 5.72-5.23-1-9.83"/>
+      <path className="cls-6" d="M81.46 50.08l-.38.08c79.74 7 115.69 11.32 161.47 33.75a87 87 0 0 1 11.32-6.25 13.24 13.24 0 0 0 3.13-1.81C225.06 63.94 164.13 51 81.46 50.08"/>
+      <path className="cls-7" d="M81.08 50.16q4.78-1 9.68-1.87-12.62.71-26.18 1.77C176.38 60.7 196.19 84 224.83 96.32c4.23-3 10.87-8 17.72-12.41-45.78-22.43-81.73-26.79-161.47-33.75"/>
+      <path className="cls-1" d="M77.61 48.82l15.6 1.32 3.69.58-1.12-26.53-2.26 1-7 .92c-.15.11-5.3 5.63-5.22 6.11s-3.48 16.47-3.48 16.47z"/>
+      <path className="cls-8" d="M73.73 50.55a2.87 2.87 0 0 0 2.65-1.9l1.61.11s-.76 2.07-4.26 1.79"/>
+      <path className="cls-8" d="M75.48 50.5a2.9 2.9 0 0 0 2.64-1.68l1.61.09s-.73 1.83-4.25 1.59M73.7 48.85c-.55 0-1-.87-1-2s.4-2 .95-2 1 .86 1.05 2-.4 2-1 2.05m2.3-.51l-.11-.39-.07-.6v-.87l-.19-.94-.32-.79-.16-.4-.54-.64-.81-.41h-.89l-.5.42-.41.63-.18.8-.1 1.21v.87l-.09.33v.41s.44 2.62 2.33 2.55a3 3 0 0 0 2.21-2v-.13z"/>
+      <path className="cls-9" d="M5.37 71.09l-.55.2-.53.06a1.73 1.73 0 0 1-1.6-.9 5.93 5.93 0 0 1-.51-2.81 6 6 0 0 1 .51-2.77 1.65 1.65 0 0 1 1.53-.94l.59.06.56.21v1.27L5 65.21l-.36-.09a.92.92 0 0 0-.85.65 5 5 0 0 0-.27 1.93 4.25 4.25 0 0 0 .27 1.77.88.88 0 0 0 .83.59L5 70l.38-.24zM14.8 67.6a5.35 5.35 0 0 0 .26 1.93.88.88 0 0 0 .82.61.87.87 0 0 0 .82-.61 5.35 5.35 0 0 0 .3-1.93 5 5 0 0 0-.26-1.9.86.86 0 0 0-.82-.61.87.87 0 0 0-.82.6 5.27 5.27 0 0 0-.26 1.91m-1.33 0a5.06 5.06 0 0 1 .61-2.76 2 2 0 0 1 1.8-1 2 2 0 0 1 1.79 1 6.55 6.55 0 0 1 0 5.52 2 2 0 0 1-1.79 1 2 2 0 0 1-1.8-1 5.09 5.09 0 0 1-.61-2.76M27 71.21v-7.16h1.3v.72a1.69 1.69 0 0 1 .63-.59 1.75 1.75 0 0 1 .87-.2 1.48 1.48 0 0 1 1.17.44 2 2 0 0 1 .39 1.34v5.45h-1.28V66.4a1.9 1.9 0 0 0-.19-1 .78.78 0 0 0-.66-.25.79.79 0 0 0-.66.26 1.26 1.26 0 0 0-.23.81v5zM40.05 69.7l.56.35.55.13a.92.92 0 0 0 .68-.25.79.79 0 0 0 .26-.63 1.86 1.86 0 0 0-.72-1.15l-.14-.15a5 5 0 0 1-.94-1.11 1.86 1.86 0 0 1-.25-1 2 2 0 0 1 .56-1.47 1.91 1.91 0 0 1 1.39-.5l.58.06.55.22v1.35l-.46-.37-.57-.11-.61.23-.23.59A1.64 1.64 0 0 0 42 67l.2.2a4.4 4.4 0 0 1 .9 1.08 2.25 2.25 0 0 1 .25 1.07 1.91 1.91 0 0 1-.56 1.47 2 2 0 0 1-1.48.53l-.6-.06-.65-.2zM53.18 63.08l1.2-2.52h1.3L54 63.08zM53 67.6a5.35 5.35 0 0 0 .26 1.93.86.86 0 0 0 1.64 0 5.1 5.1 0 0 0 .27-1.93 5 5 0 0 0-.27-1.9.86.86 0 0 0-1.64 0 5.27 5.27 0 0 0-.26 1.9m-1.33 0a5.06 5.06 0 0 1 .61-2.76 2.17 2.17 0 0 1 3.59 0 6.55 6.55 0 0 1 0 5.52 2.17 2.17 0 0 1-3.59 0 5.09 5.09 0 0 1-.61-2.76M65.21 71.21v-7.16h1.27v1a1.86 1.86 0 0 1 1.73-1.18v1.39H68a1.49 1.49 0 0 0-1.12.38 1.72 1.72 0 0 0-.37 1.2v4.32zM79.5 71.09l-.53.2-.54.06a1.72 1.72 0 0 1-1.6-.9 5.93 5.93 0 0 1-.51-2.81 5.83 5.83 0 0 1 .52-2.77 1.63 1.63 0 0 1 1.51-.94l.59.06.56.21v1.27l-.36-.26-.35-.09a.91.91 0 0 0-.85.65 5 5 0 0 0-.29 1.93 4.82 4.82 0 0 0 .27 1.77.9.9 0 0 0 .84.59l.38-.08.36-.24zM88 64.05h1.31v7.16H88zm-.18-2.13l.25-.61.6-.25.58.25.24.61-.24.6-.58.24-.6-.24zM99.41 67.6a5.14 5.14 0 0 0 .26 1.93.86.86 0 0 0 .81.61.88.88 0 0 0 .83-.61 5.35 5.35 0 0 0 .26-1.93 5.21 5.21 0 0 0-.26-1.9.87.87 0 0 0-.83-.61.85.85 0 0 0-.81.6 4.86 4.86 0 0 0-.26 1.91m-1.33 0a5.07 5.07 0 0 1 .6-2.76 2.17 2.17 0 0 1 3.59 0 6.45 6.45 0 0 1 0 5.52 2.17 2.17 0 0 1-3.59 0 5.1 5.1 0 0 1-.6-2.76"/>
+      <path className="cls-1" d="M110.37 49.44c0 2.62-1 4.74-2.1 4.74s-2.1-2.12-2.1-4.74.93-4.74 2.1-4.74 2.1 2.12 2.1 4.74M145.93 52.72c0 3.81-1.36 6.88-3.05 6.88s-3-3.07-3-6.88 1.36-6.87 3-6.87 3.05 3.08 3.05 6.87"/>
+      <path className="cls-1" d="M93.21 50.14c0 .29 13 1.84 13 1.84s.33-7.85 1.73-7.07 2 .35 2.31 1.78a19.83 19.83 0 0 1 .34 2.43c.1.85.2 1.4.34 2.21s.08 1.24.43 1.43a33.73 33.73 0 0 0 3.48.66l18.66 2.8 4.11.38a7 7 0 0 0 .56-1.62c.2-.58 1.51-4.12 1.61-4.84s2.73-3 2.73-3 4.31-.07 3.73.41.14 1.33.05 2.24.6 2.25.53 3 .82 1.63.6 2.27 2.12 1.88 2 2.08L151 58.2l12.46 1.46 7.35 1.21 9.75.19 10.44-.19 13.34-1.14 8.86-.87.42-1.2.41-2.35V50.4l-.65-13.3-.68-3.64-1.53-6.91a4.59 4.59 0 0 1 .79-.67 2.88 2.88 0 0 0 .88-.71l.2-1.29-.34-1.72-3.26-6.71-1.44-1.67-1.31-.9-1.68-.25-1.77-1.32-5.61-2.12L189.55 7s-5.44-2.35-6.94-3a43.17 43.17 0 0 0-6.79-2.3 37.76 37.76 0 0 0-4.48-.7h-9.18l-10.37 1.13-7.13 1.23s-1.61.6-2.09.81-4 2.14-4 2.14l-38.39 15.8-6.51 3.11S92 39.1 93.21 50.14"/>
+      <path className="cls-10" d="M144.47 4.53V3.4c-2.53.74-50.94 21.47-51 21.58l-.19-.19.13.5zM138.5 10c5.3-2.42 20.55-6.08 20.55-6.08-3-.43-18 4.44-18 4.44l-47.74 18-.15-.25.15.56z"/>
+      <path className="cls-8" d="M208.73 15.75l3.56 8s.2 1.67-.6 1.9a5.07 5.07 0 0 1-1.05.2 95.73 95.73 0 0 0-5-12.63c.29.13 2.52 1.18 3.12 2.5M145.92 5.53C147.25 5.1 159.46.89 168 2.22a5.62 5.62 0 0 1 4.79 3.86s6.39 20.78 7.48 24.67S191.18 44.83 193 45.92a8.82 8.82 0 0 0 1.87.53c.71 0 14.64 1 16.84-.83 0 0 2.13-9.47.32-15.33 0 0-.35-1.24-1-3.14.7-.36 2.59-1.75 1.89-3.64-.82-2.19-3.59-8.12-3.59-8.12a10.77 10.77 0 0 0-4.23-3.09c-.37-.68-.76-1.33-1.13-1.89 0 0-3.12-6.47-17.76-8.68 0 0-24.35-4.83-41.74 1.66V4.9s.12 1.06 1.44.63"/>
+      <path className="cls-8" d="M146 64.7a8.73 8.73 0 0 0 4.27-5.7v-.37l.81.09c-1.4 4-3.6 5.46-5.12 6m-5.4-10.56a10.82 10.82 0 0 0 1.3 4.59 2 2 0 0 0 1.69 1.05c1.5-.11 2.51-2.93 2.26-6.3a10.69 10.69 0 0 0-1.29-4.59 2 2 0 0 0-1.68-1.06c-1.5.1-2.52 2.93-2.28 6.31m-31.79 2.23a4.49 4.49 0 0 0 2.52-2.94H111.62c-.82 2.19-2.14 2.76-2.85 2.89m-1.92-6.3c0 1.92.66 3.45 1.38 3.41s1.28-1.61 1.24-3.52-.65-3.46-1.37-3.43-1.28 1.62-1.25 3.54m106.23-13.69s.06.87.14 2.24c-.06-.74-.11-1.25-.14-1.42 0 0-.15 9.47-2.2 13.57v.12c-2.46.91-14.59.77-17.42.73-1.28-1.74-9.68-12.91-13.69-12.69 0 0 4.67 11.31 7.22 12.6a29.7 29.7 0 0 0 5.26 1.29l1.38-1-.15-.2c12.76.65 16.41-.12 17.4-.49v.25l.56 1.08a15.18 15.18 0 0 0 2.14-1.8c0 3.52-.29 6.51-1 7.27-1.84 2.13-36.95 3.13-42.1 2.22l-20-2.31s-.91.44-1-1.63c0 0-.33-14.53-8.19-13.6 0 0-4.21-.26-4.07 10.23 0 0 .18 3-.26 3L112 52.9s-.55.06-.7-1.28c0 0 0-11.23-4.85-7.9 0 0-1.13.75-1 7.66v.14l-12.24-1.61-.56.18v.44l12.83 1.72c.14.85.85 4.31 3 4.22h.08a4.81 4.81 0 0 0 5.1-2.7h.21c-1.19 2.73-3.33 2.57-3.33 2.57 3.5.32 4.91-1.46 5.36-2.31 7.28.93 21 2.73 21.6 2.87l.09.12v.48a15.07 15.07 0 0 0 2 4.86c1.06 1.65 2.63 3.07 4.88 2.91a5.16 5.16 0 0 0 .68-.22c7 .33 9.45-4.39 10-5.84 5.77.67 14.5 1.67 15.25 1.73 1.11.09 15.28.39 20.22 0s21.61-.93 22.63-2.28 1.44-12.9-.25-22.31"/><path className="cls-8" d="M185.4 55.37s-3.08-.55-4.22-.21a5.93 5.93 0 0 0 4.38 3.51zM92.6 35.83l12.05 1q-5.48.78-11.48 1.84s35-3.3 39.54-3.16c11.21.36 31.16-.51 43.45 11.21 0 0 2.46-.2 2.57-2.13 0 0-.35-1.89-.79-4.45-.32-5.88-.92-16-1.26-18v-.11l-.07-.15a3.12 3.12 0 0 0-1.53-1.24 9.48 9.48 0 0 1-2.14-.89 2.3 2.3 0 0 1-1.44-.86c-.63-.86-2.77-7.76-2.77-7.76-.74-2.61 2.42-3.23 2.42-3.23C169.72-.47 139 12.24 139 12.24L93.31 27.72l-.16.16-.27 5.61 13.27-3.57c-.75 1.61-13.55 5.91-13.55 5.91"/><path className="cls-9" d="M18.48 93.8c0 .67.07 1.32.1 2s0 1.25 0 1.83c0 4.69-.77 8.15-2.28 10.39s-3.88 3.35-7 3.35-5.64-1.27-7.09-3.8S0 100.82 0 95s.73-10.11 2.2-12.63 3.87-3.79 7.21-3.79a9.15 9.15 0 0 1 5.72 1.67 8.78 8.78 0 0 1 3 5.08l-3.83 1.83a6.39 6.39 0 0 0-1.67-3.48 4.42 4.42 0 0 0-3.17-1.14 4 4 0 0 0-4 2.68q-1.15 2.69-1.16 9.69c0 4.63.39 7.84 1.16 9.66a4 4 0 0 0 4 2.71 4.1 4.1 0 0 0 3.75-2.06 12 12 0 0 0 1.25-6.15v-1.51H9.85V93.8zM22.83 102.44V79h4.25v23.79a4.84 4.84 0 0 0 1 3.4 4.14 4.14 0 0 0 3.15 1.09 4.12 4.12 0 0 0 3.15-1.09 4.93 4.93 0 0 0 1-3.4V79h4.27v23.44c0 3.09-.68 5.35-2 6.78s-3.49 2.12-6.41 2.12-5.06-.7-6.4-2.12-2-3.69-2-6.78M52.17 87.25l-2.89 13.84H55zM42.65 111l7.48-32h4l7.48 32h-4.3l-1.53-6.28h-7.29L47 111z"/><path className="cls-11" d="M64.88 78.99h4.31v31.96h-4.31z"/><path className="cls-9" d="M88.2 110.23a9 9 0 0 1-2.17.85 9.62 9.62 0 0 1-2.31.26 8 8 0 0 1-7.34-4c-1.62-2.66-2.43-6.7-2.43-12.08s.86-9.64 2.59-12.46a8.45 8.45 0 0 1 7.67-4.22 9.49 9.49 0 0 1 2.11.22 9.89 9.89 0 0 1 1.88.63v4.1a8.45 8.45 0 0 0-1.76-.68 6.23 6.23 0 0 0-1.59-.23 5.28 5.28 0 0 0-5 3c-1 2-1.58 5.2-1.58 9.58q0 6.12 1.5 9.06a4.89 4.89 0 0 0 4.63 3 5.8 5.8 0 0 0 1.81-.29 10.45 10.45 0 0 0 2-.91zM91.79 102.44V79H96v23.79a4.88 4.88 0 0 0 1 3.4 4.16 4.16 0 0 0 3.16 1.09 4.09 4.09 0 0 0 3.14-1.09 4.88 4.88 0 0 0 1-3.4V79h4.27v23.44q0 4.64-2 6.78c-1.35 1.42-3.48 2.12-6.4 2.12s-5.06-.7-6.41-2.12-2-3.69-2-6.78M118.43 92.9h1.33a4.81 4.81 0 0 0 3.72-1.23c.72-.81 1.08-2.26 1.08-4.33 0-1.72-.34-2.92-1-3.58s-2-1-3.88-1h-1.21zm0 2.45V111h-4.31V79h5.21q5.19 0 7.39 1.93c1.46 1.29 2.2 3.42 2.2 6.42a9 9 0 0 1-1.51 5.53 6.4 6.4 0 0 1-4.52 2.35l7.6 15.74h-4.61l-7.32-15.61zM133.36 102.44V79h4.25v23.79a4.88 4.88 0 0 0 1 3.4 5.11 5.11 0 0 0 6.31 0 4.93 4.93 0 0 0 1-3.4V79h4.27v23.44c0 3.09-.69 5.35-2 6.78s-3.49 2.12-6.4 2.12-5.06-.7-6.4-2.12-2-3.69-2-6.78M154.88 105.35a14.66 14.66 0 0 0 2.83 1.39 7.35 7.35 0 0 0 2.43.45 4.27 4.27 0 0 0 3.12-1.15 4.16 4.16 0 0 0 1.17-3.08q0-2.8-4.45-6.45l-.79-.66a17.21 17.21 0 0 1-4-4.34 9.07 9.07 0 0 1-1.12-4.51 8.38 8.38 0 0 1 2.3-6 7.53 7.53 0 0 1 5.69-2.41 11.81 11.81 0 0 1 2.87.35 11.47 11.47 0 0 1 2.74 1.1v4.29a10.49 10.49 0 0 0-2.45-1.33 7 7 0 0 0-2.36-.42 4.46 4.46 0 0 0-3.25 1.19 4.24 4.24 0 0 0-1.23 3.23q0 2.76 4.7 6.53l.69.53a15.17 15.17 0 0 1 3.87 4.24 9.35 9.35 0 0 1 1.14 4.66 8.2 8.2 0 0 1-2.34 6 8 8 0 0 1-6 2.37 9.85 9.85 0 0 1-2.71-.38 14 14 0 0 1-2.86-1.21z"/><path className="cls-8" d="M91 25.7a100.49 100.49 0 0 0-1.34 11.62V49.6h-.85s-.29-14.83 1.59-23.68zM87.6 26.17a3.27 3.27 0 0 0-.52 1.34c-.11.78-.92 13-1.15 21.72h-.44s-.12-23.9 2.11-23.06"/><path className="cls-8" d="M86.83 26.15l-.53.12-20.58 4.76 21.11-4.55v-.33zM86.49 28.99l-20.71 3.07-.53 3.59 20.56 3.4.68-10.06zM85.63 49.44L75.87 49s.15-5.81-2.44-5.4a1.69 1.69 0 0 0-1.27 1.67v3.56l-4.39-.27-3.19-.81 3.36.4 3.82.22s-.67-4.66 1.3-5.1a2 2 0 0 1 2.47 1.39 8.7 8.7 0 0 1 .74 3.71c.15 2.75 0 .3 0 .3l9.67.3s.1.45-.31.43"/><path className="cls-10" d="M64.91 31.22s-1.79 11.6.34 16.24c0 0-2.75-5.44-.34-16.24"/>
+    </svg>
+  );
+}
+
+// 1. PREVENTIVAS (Bloco 1 do Print 01 e Print 02)
+const PREVENTIVAS_CARDS = [
+  { id: "PREVENTIVA", label: "PREVENTIVAS", desc: "Preventivas Periódicas" },
+  { id: "LUBRIFICACAO", label: "LUBRIFICAÇÃO", desc: "Lubrificação Geral" },
+  { id: "TROCA_OLEO", label: "TROCA DE ÓLEO", desc: "Troca de Óleo e Filtros" },
+  { id: "REVISAO_GERAL", label: "REVISÃO GERAL", desc: "Revisão Geral Preventiva" },
+  { id: "SISEP", label: "SISEP", desc: "Vistoria e Reparo SISEP" },
+] as const;
+
+// 2. SETORES DA OFICINA (Bloco 2 do Print 01 e Print 02 - 8 cards)
 const SETORES_OFICINA = [
-  { id: "MECANICA", label: "Mecânica", chips: ["Suspensão", "Mecânica Geral", "Freio", "Diferencial", "Câmbio"] },
-  { id: "ELEVADOR", label: "Elevador", chips: ["Elevador Acessibilidade", "Trava de Segurança", "Plataforma"] },
-  { id: "ELETRICA", label: "Elétrica", chips: ["Módulo Eletrônico", "Chicote ARLA 32", "Sensor de Nível", "Tensor", "Alternador"] },
-  { id: "BORRACHARIA", label: "Borracharia", chips: ["Pneu Furado", "Troca de Roda", "Alinhamento"] },
-  { id: "FUNILARIA", label: "Funilaria / Pintura", chips: ["Sinistro", "Para-choque", "Retoque Pintura", "Chapeação"] },
-  { id: "TACOGRAFO", label: "Tacógrafo", chips: ["Aferição", "Troca de Disco", "Lacre Rompido"] },
-  { id: "BILHETAGEM", label: "Bilhetagem", chips: ["Validador", "Catraca Travada", "Cabo de Antena WiFi"] },
-  { id: "LIMPEZA", label: "Limpeza", chips: ["Higienização Pesada", "Lavagem de Motor", "Polimento"] },
+  { id: "MECANICA", label: "MECÂNICA", chips: ["Bomba ARLA", "Mecânica Geral", "Suspensão", "Freio", "Diferencial", "Câmbio"] },
+  { id: "ELEVADOR", label: "ELEVADOR", chips: ["Elevador Acessibilidade", "Trava de Segurança", "Plataforma", "Cilindro"] },
+  { id: "ELETRICA", label: "ELÉTRICA", chips: ["Módulo", "Chicote ARLA 32", "Meia Luz", "Alternador", "Motor de Partida", "Bateria"] },
+  { id: "BORRACHARIA", label: "BORRACHARIA", chips: ["Pneu Furado", "Troca de Roda", "Alinhamento", "Balanceamento"] },
+  { id: "FUNILARIA", label: "FUNILARIA / PINTURA", chips: ["Sinistro", "Para-choque", "Retoque Pintura", "Chapeação", "Grade Dianteira"] },
+  { id: "TACOGRAFO", label: "TACÓGRAFO", chips: ["Aferição", "Troca de Disco", "Lacre Rompido", "Sensor de Velocidade"] },
+  { id: "BILHETAGEM", label: "BILHETAGEM", chips: ["Validador", "Catraca Travada", "Cabo WiFi", "Antena"] },
+  { id: "LIMPEZA", label: "LIMPEZA", chips: ["Higienização Pesada", "Lavagem Motor", "Polimento", "Bancos"] },
+] as const;
+
+// 3. REFORÇO COM HORÁRIO (Bloco 3 do Print 01 e Print 02 - 12 horários fixos em duas colunas)
+const FIXED_REFORCO_SLOTS = [
+  // Coluna 1 (Esquerda - 6 horários)
+  { id: "ref-1", horario: "07:15 - A", defaultMotivo: "" },
+  { id: "ref-2", horario: "07:15 - A", defaultMotivo: "" },
+  { id: "ref-3", horario: "07:32 - A", defaultMotivo: "" },
+  { id: "ref-4", horario: "07:40 - A", defaultMotivo: "" },
+  { id: "ref-5", horario: "07:40 - M", defaultMotivo: "" },
+  { id: "ref-6", horario: "07:40 - A", defaultMotivo: "" },
+  // Coluna 2 (Direita - 6 horários)
+  { id: "ref-7", horario: "07:40 - C", defaultMotivo: "" },
+  { id: "ref-8", horario: "07:45 - C", defaultMotivo: "" },
+  { id: "ref-9", horario: "07:45 - A", defaultMotivo: "" },
+  { id: "ref-10", horario: "07:50 - C", defaultMotivo: "" },
+  { id: "ref-11", horario: "07:50 - C", defaultMotivo: "" },
+  { id: "ref-12", horario: "07:50 - A", defaultMotivo: "" },
+] as const;
+
+// 4. BLOQUEADOS POR CONSORCIADA (Bloco 4 do Print 01 e Print 02 - Grid 2x2 com bordas vermelhas)
+const CONSORCIADAS_BLOQUEIOS = [
+  { id: "VSF", label: "BLOQUEADOS VSF", prefixDigit: "2", subtitle: "Viação São Francisco" },
+  { id: "VCG", label: "BLOQUEADOS VCG", prefixDigit: "4", subtitle: "Viação Cidade Morena" },
+  { id: "JTU", label: "BLOQUEADOS JTU", prefixDigit: "3", subtitle: "Jaguar Transporte Urbano" },
+  { id: "VCM", label: "BLOQUEADOS VCM", prefixDigit: "1", subtitle: "Viação Campo Grande" },
 ] as const;
 
 const BLOQUEIOS_MOTIVOS_RAPIDOS = [
-  "Motor", "Transmissão", "Revisão Geral", "Sinistro", "Mecânica (Pastilhas e Disco de Freio)",
+  "Motor", "Transmissão", "Revisão Geral", "Sinistro", "Pastilhas e Disco de Freio",
   "Falta de Peça Para-brisa", "Posto de Molas", "Módulo", "Suspensão", "Câmbio", "Freio", "Elétrica"
 ];
 
-export function CiManutencaoView({ ciList, setCiList }: CiManutencaoViewProps) {
+export function CiManutencaoView({ 
+  ciList, 
+  setCiList, 
+  dataOperacao: propDataOperacao, 
+  setDataOperacao: propSetDataOperacao 
+}: CiManutencaoViewProps) {
   const { user } = useAuth();
   const isAdmin = user?.role === "ADMIN";
+
+  // Identificação e Gestão da Data de Operação (Padrão Controle de Frota)
+  const getTodayString = () => {
+    const d = new Date();
+    const ano = d.getFullYear();
+    const mes = String(d.getMonth() + 1).padStart(2, "0");
+    const dia = String(d.getDate()).padStart(2, "0");
+    return `${ano}-${mes}-${dia}`;
+  };
+  const [internalDataOperacao, setInternalDataOperacao] = useState<string>(getTodayString);
+  const dataOperacao = propDataOperacao || internalDataOperacao;
+  const setDataOperacao = propSetDataOperacao || setInternalDataOperacao;
+  const dateInputRef = useRef<HTMLInputElement>(null);
+
+  const formatarDataBr = useCallback((isoDate?: string) => {
+    if (!isoDate) return "";
+    if (isoDate.includes("/")) return isoDate;
+    try {
+      const [ano, mes, dia] = isoDate.split("-");
+      if (ano && mes && dia) return `${dia}/${mes}/${ano}`;
+    } catch {}
+    return isoDate;
+  }, []);
+
+  const formattedData = useMemo(() => {
+    return formatarDataBr(dataOperacao) || dataOperacao;
+  }, [dataOperacao, formatarDataBr]);
 
   // Identificação da Garagem Física do Usuário Logado:
   // - VCM (Garagem 1)
@@ -126,77 +436,701 @@ export function CiManutencaoView({ ciList, setCiList }: CiManutencaoViewProps) {
     return fleetCars.filter(c => c.garagem === activeGaragemScope);
   }, [fleetCars, activeGaragemScope]);
 
+  // Lista ordenada de carros permitidos para os dropdowns / selects
+  const sortedAllowedCars = useMemo(() => {
+    return [...allowedCars].sort((a, b) => {
+      const numA = parseInt(a.prefixo, 10);
+      const numB = parseInt(b.prefixo, 10);
+      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      return a.prefixo.localeCompare(b.prefixo);
+    });
+  }, [allowedCars]);
+
   // Conjunto de prefixos permitidos para verificação O(1)
   const allowedPrefixes = useMemo(() => {
     return new Set(allowedCars.map(c => c.prefixo));
   }, [allowedCars]);
 
-  // Modo de visualização: Grade de Carros (Print 1) ou Planilha Espelho Impressa (Print 2)
-  const [viewMode, setViewMode] = useState<"GRID" | "PLANILHA">("GRID");
+  // Itens da CI ativos na data de operação selecionada:
+  // - PREVENTIVAS, SETORES DA OFICINA e REFORÇO: pertencem estritamente à data em que foram lançados (não se repetem de um dia no outro)
+  // - BLOQUEADOS: carros bloqueados de frota se repetem dia após dia até que sejam liberados
+  const ciListNaData = useMemo(() => {
+    return ciList.filter(c => {
+      // Se o bloqueio for lançado em data futura em relação à data consultada, não existia ainda
+      if (c.data && c.data > dataOperacao) {
+        return false;
+      }
 
-  // Filtros de busca e status do grid
-  const [searchCarQuery, setSearchCarQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"ALL" | "BLOQUEADOS" | "APTOS" | "PREVENTIVAS" | "OFICINA">("ALL");
+      // PREVENTIVA, SETORES DA OFICINA e REFORÇO: pertencem estritamente à data de operação selecionada!
+      // NÃO se repetem de um dia no outro nesses cards!
+      if (
+        c.categoriaPlanilha === "PREVENTIVA" || 
+        c.categoriaPlanilha === "OFICINA" || 
+        c.categoriaPlanilha === "REFORCO"
+      ) {
+        return c.data === dataOperacao;
+      }
 
-  // Carro Selecionado para o Modal de CI (Print 2)
-  const [selectedCarro, setSelectedCarro] = useState<string | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
+      // Se o veículo foi liberado:
+      if (c.status === "LIBERADO") {
+        if (c.dataLiberacao) {
+          let dateLibIso = "";
+          if (c.dataLiberacao.includes("/")) {
+            const match = c.dataLiberacao.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+            if (match) {
+              dateLibIso = `${match[3]}-${match[2]}-${match[1]}`;
+            }
+          } else if (c.dataLiberacao.includes("-")) {
+            const match = c.dataLiberacao.match(/(\d{4})-(\d{2})-(\d{2})/);
+            if (match) {
+              dateLibIso = match[0];
+            }
+          }
+          // Se a data de liberação for posterior à data consultada, no dia consultado ele ainda estava bloqueado!
+          if (dateLibIso && dateLibIso > dataOperacao) {
+            return true;
+          }
+        }
+        return false;
+      }
 
-  // Aba selecionada dentro do modal
-  const [modalCategory, setModalCategory] = useState<TabCategory>("OFICINA");
+      // APENAS OS BLOQUEADOS DE FATO (carros com defeito/impedimento de frota) se repetem dia após dia até a liberação!
+      return true;
+    });
+  }, [ciList, dataOperacao]);
 
-  // Estados do Formulário dentro do Modal
-  const [formSetor, setFormSetor] = useState<(typeof SETORES_OFICINA)[number]["id"]>("MECANICA");
-  const [formTipoPreventiva, setFormTipoPreventiva] = useState<"PREVENTIVA" | "LUBRIFICACAO" | "TROCA_OLEO" | "REVISAO_GERAL" | "SISEP">("REVISAO_GERAL");
-  const [formHoraReforco, setFormHoraReforco] = useState("07:15");
-  const [formLetraReforco, setFormLetraReforco] = useState<"A" | "B" | "C" | "D" | "M">("A");
-  const [formMotivoReforco, setFormMotivoReforco] = useState<string>("LUBRIFICAÇÃO");
-  const [formOutroMotivoReforco, setFormOutroMotivoReforco] = useState("");
-  const [formConsorciada, setFormConsorciada] = useState<"VSF" | "VCG" | "JTU" | "VCM">("VCG");
-  const [formMotivo, setFormMotivo] = useState("");
-  const [formDataBloqueio, setFormDataBloqueio] = useState(() => new Date().toISOString().split("T")[0]);
-  const [formResponsavel, setFormResponsavel] = useState("Oficina Mecânica");
-  const [formGravidade, setFormGravidade] = useState<"ALTA" | "MEDIA" | "BAIXA">("ALTA");
+  // Modal de Relatório Oficial da CI Manutenção (CGU.REG.MT0005)
+  const [modalRelatorioOpen, setModalRelatorioOpen] = useState(false);
+  const relatorioFolhaRef = useRef<HTMLDivElement>(null);
 
-  // Horário completo composto (ex: 07:15 - A)
-  const formHorarioReforco = useMemo(() => {
-    return `${formHoraReforco.trim() || "07:15"} - ${formLetraReforco}`;
-  }, [formHoraReforco, formLetraReforco]);
+  // Auxiliar para formatação da data do bloqueio na folha oficial (ex: 2026-09-25 -> 25/set)
+  const formatDataBloqueio = (d?: string) => {
+    if (!d) return "";
+    if (d.includes("/")) return d;
+    try {
+      const [y, m, day] = d.split("-");
+      if (y && m && day) {
+        const meses = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+        const mesNome = meses[parseInt(m, 10) - 1] || m;
+        return `${day}/${mesNome}`;
+      }
+    } catch {
+      // fallback
+    }
+    return d;
+  };
 
-  const parseAndSetHorarioReforco = (val: string) => {
-    if (!val) return;
-    const parts = val.split("-").map(s => s.trim());
-    if (parts[0]) setFormHoraReforco(parts[0]);
-    if (parts[1]) {
-      const l = parts[1].toUpperCase();
-      if (["A", "B", "C", "D", "M"].includes(l)) {
-        setFormLetraReforco(l as any);
+  // Separação dos dados para preenchimento estrito da folha oficial CGU.REG.MT0005 (filtrados na data selecionada)
+  const relatorioData = useMemo(() => {
+    const active = ciListNaData.filter(c => c.status !== "LIBERADO");
+    const preventivas = active.filter(c => c.categoriaPlanilha === "PREVENTIVA");
+    const oficina = active.filter(c => c.categoriaPlanilha === "OFICINA");
+    const reforco = active.filter(c => c.categoriaPlanilha === "REFORCO");
+    const bloqueados = active.filter(c => c.categoriaPlanilha === "BLOQUEADO" || !c.categoriaPlanilha);
+
+    const bloqVSF = bloqueados.filter(c => c.consorciada === "VSF" || (!c.consorciada && c.prefixo.startsWith("2")));
+    const bloqVCG = bloqueados.filter(c => c.consorciada === "VCG" || (!c.consorciada && c.prefixo.startsWith("4")));
+    const bloqJTU = bloqueados.filter(c => c.consorciada === "JTU" || (!c.consorciada && c.prefixo.startsWith("3")));
+    const bloqVCM = bloqueados.filter(c => c.consorciada === "VCM" || (!c.consorciada && c.prefixo.startsWith("1")));
+
+    return {
+      preventivas,
+      oficina,
+      reforco,
+      bloqVSF,
+      bloqVCG,
+      bloqJTU,
+      bloqVCM,
+    };
+  }, [ciListNaData]);
+
+  // Data da Informação no padrão oficial: DIA_DA_SEMANA DD/MM/AAAA baseado na data selecionada
+  const dataInformacaoFormatada = useMemo(() => {
+    try {
+      const [y, m, d] = dataOperacao.split("-").map(Number);
+      if (y && m && d) {
+        const dateObj = new Date(y, m - 1, d, 12, 0, 0);
+        const diasSemana = [
+          "DOMINGO",
+          "SEGUNDA-FEIRA",
+          "TERÇA-FEIRA",
+          "QUARTA-FEIRA",
+          "QUINTA-FEIRA",
+          "SEXTA-FEIRA",
+          "SÁBADO",
+        ];
+        const diaSemana = diasSemana[dateObj.getDay()];
+        const dia = String(d).padStart(2, "0");
+        const mes = String(m).padStart(2, "0");
+        const ano = y;
+        return `${diaSemana} ${dia}/${mes}/${ano}`;
+      }
+    } catch {}
+    return dataOperacao;
+  }, [dataOperacao]);
+
+  // Auxiliar para nome de arquivo no padrão oficial: CI-aa-mm-yyyy (ex: CI-25-09-2026)
+  const formatCiFilename = (dateIso: string) => {
+    try {
+      const [y, m, d] = dateIso.split("-");
+      if (y && m && d) {
+        return `CI-${d}-${m}-${y}`;
+      }
+    } catch {}
+    return `CI-${dateIso}`;
+  };
+
+  // Função para Impressão direta da folha A4 com alta fidelidade ao modelo de visualização
+  const handlePrintRelatorio = () => {
+    if (!relatorioFolhaRef.current) {
+      window.print();
+      return;
+    }
+    try {
+      const printContent = relatorioFolhaRef.current.outerHTML;
+      const iframe = document.createElement("iframe");
+      iframe.style.position = "fixed";
+      iframe.style.right = "0";
+      iframe.style.bottom = "0";
+      iframe.style.width = "0";
+      iframe.style.height = "0";
+      iframe.style.border = "0";
+      document.body.appendChild(iframe);
+
+      // Clona todos os estilos Tailwind e tags style/link da página para o iframe
+      const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+        .map(el => el.outerHTML)
+        .join("\n");
+
+      const doc = iframe.contentWindow?.document;
+      if (doc) {
+        doc.open();
+        doc.write(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>${formatCiFilename(dataOperacao)}</title>
+            ${styles}
+            <style>
+              @page {
+                size: A4 portrait;
+                margin: 0;
+              }
+              * {
+                box-sizing: border-box !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+              }
+              html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+                background: #ffffff !important;
+                color: #000000 !important;
+              }
+              [data-folha-ci="true"] {
+                width: 210mm !important;
+                min-height: 297mm !important;
+                height: 297mm !important;
+                padding: 8mm 10mm !important;
+                margin: 0 auto !important;
+                box-shadow: none !important;
+                border: none !important;
+                background-color: #ffffff !important;
+              }
+              table {
+                border-collapse: collapse !important;
+                width: 100% !important;
+              }
+              th, td {
+                border: 1px solid #000000 !important;
+              }
+            </style>
+          </head>
+          <body>
+            ${printContent}
+          </body>
+          </html>
+        `);
+        doc.close();
+
+        setTimeout(() => {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+          setTimeout(() => {
+            if (document.body.contains(iframe)) {
+              document.body.removeChild(iframe);
+            }
+          }, 2000);
+        }, 500);
+      }
+    } catch (err) {
+      console.error("Erro na impressão do relatório CI:", err);
+      window.print();
+    }
+  };
+
+  // Função para Baixar PDF oficial com layout exatamente igual à visualização
+  const handleDownloadPdf = async () => {
+    if (!relatorioFolhaRef.current) return;
+    try {
+      toast.info("Gerando PDF oficial de alta resolução...");
+      const element = relatorioFolhaRef.current;
+
+      const canvas = await html2canvas(element, {
+        scale: 2.5,
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        backgroundColor: "#ffffff",
+        onclone: (clonedDoc) => {
+          const clonedElement = clonedDoc.querySelector('[data-folha-ci="true"]') as HTMLElement;
+          if (clonedElement) {
+            clonedElement.style.boxShadow = "none";
+            clonedElement.style.border = "none";
+            clonedElement.style.margin = "0";
+          }
+        },
+      });
+
+      const imgData = canvas.toDataURL("image/jpeg", 0.98);
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4",
+        compress: true,
+      });
+
+      // O elemento possui proporção e dimensões exatas de A4 (210mm x 297mm) com padding interno
+      pdf.addImage(imgData, "JPEG", 0, 0, 210, 297, undefined, "FAST");
+
+      // Nome do documento seguindo o padrão oficial: CI-aa-mm-yyyy (ex: CI-25-09-2026.pdf)
+      pdf.save(`${formatCiFilename(dataOperacao)}.pdf`);
+      toast.success("PDF baixado com sucesso!");
+    } catch (err) {
+      console.error("Erro ao gerar PDF do relatório CI:", err);
+      toast.error("Erro ao gerar PDF.");
+    }
+  };
+
+  // Estado do Modal de Inclusão/Edição Rápida de Veículos na CI (Print 03)
+  const [quickAddModal, setQuickAddModal] = useState<{
+    isOpen: boolean;
+    category: "PREVENTIVA" | "OFICINA" | "BLOQUEADO";
+    subType: string;
+    title: string;
+    chips: readonly string[] | string[];
+    isEditing?: boolean;
+    existingId?: string;
+  }>({
+    isOpen: false,
+    category: "PREVENTIVA",
+    subType: "PREVENTIVA",
+    title: "",
+    chips: [],
+    isEditing: false,
+    existingId: undefined
+  });
+
+  const [quickAddCarro, setQuickAddCarro] = useState<string>("");
+  const [quickAddMotivo, setQuickAddMotivo] = useState<string>("");
+  const [quickAddData, setQuickAddData] = useState<string>(() => new Date().toISOString().split("T")[0]);
+  const [quickAddObs, setQuickAddObs] = useState<string>("");
+
+  // Estado local para armazenar escolhas de Motivo e Obs dos slots de reforço antes de vincular o carro
+  const [reforcoDrafts, setReforcoDrafts] = useState<Record<string, { motivo?: string; obs?: string }>>(() => {
+    try {
+      const saved = localStorage.getItem(`reforco_drafts_${dataOperacao}`);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {};
+  });
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`reforco_drafts_${dataOperacao}`);
+      if (saved) {
+        setReforcoDrafts(JSON.parse(saved));
+      } else {
+        setReforcoDrafts({});
+      }
+    } catch {
+      setReforcoDrafts({});
+    }
+  }, [dataOperacao]);
+
+  // Estados do Seletor Moderno de Veículos no Modal de Inclusão (Estilo Controle de Frota)
+  const [quickAddSelectorOpen, setQuickAddSelectorOpen] = useState(false);
+  const [quickAddFilterCompany, setQuickAddFilterCompany] = useState<string>("TODAS");
+  const quickAddCarSelectorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (quickAddCarSelectorRef.current && !quickAddCarSelectorRef.current.contains(event.target as Node)) {
+        setQuickAddSelectorOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const getCarStatusInCI = (prefixo: string) => {
+    const found = ciListNaData.find(c => c.prefixo === prefixo && c.status !== "LIBERADO");
+    if (!found) return null;
+    if (found.categoriaPlanilha === "BLOQUEADO" || !found.categoriaPlanilha) return "BLOQUEADO";
+    if (found.categoriaPlanilha === "OFICINA") return "OFICINA";
+    if (found.categoriaPlanilha === "PREVENTIVA") return "PREVENTIVA";
+    return "BLOQUEADO";
+  };
+
+  const quickAddFilteredCars = useMemo(() => {
+    return sortedAllowedCars.filter(car => {
+      if (quickAddFilterCompany !== "TODAS") {
+        const cons = getConsorciadaByCarro(car.prefixo);
+        if (quickAddFilterCompany !== cons) return false;
+      }
+      if (quickAddCarro.trim()) {
+        const q = quickAddCarro.trim().toLowerCase();
+        if (!car.prefixo.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [sortedAllowedCars, quickAddFilterCompany, quickAddCarro]);
+
+  // Sincronizar dados atualizados do banco oficial SQL Server
+  const handleRefreshData = () => {
+    fetchCIBloqueiosFromApi({
+      garagem: activeGaragemScope === "TODAS" ? undefined : activeGaragemScope,
+    }).then(data => {
+      if (Array.isArray(data)) {
+        setCiList(data);
+        toast.success("Dados da CI sincronizados com sucesso!");
+      }
+    });
+  };
+
+  // Carregar dados atualizados do banco oficial SQL Server na montagem ou troca de garagem
+  useEffect(() => {
+    fetchCIBloqueiosFromApi({
+      garagem: activeGaragemScope === "TODAS" ? undefined : activeGaragemScope,
+    }).then(data => {
+      if (Array.isArray(data)) {
+        setCiList(data);
+      }
+    });
+  }, [activeGaragemScope, setCiList]);
+
+  // Funções de Suporte para Lançamento Rápido via botão '+' dos Cards
+  const openQuickAddModal = (
+    category: "PREVENTIVA" | "OFICINA" | "BLOQUEADO",
+    subType: string,
+    title: string,
+    chips: readonly string[] | string[] = []
+  ) => {
+    setQuickAddModal({
+      isOpen: true,
+      category,
+      subType,
+      title,
+      chips: [...chips],
+      isEditing: false,
+      existingId: undefined
+    });
+    setQuickAddCarro("");
+    setQuickAddData(dataOperacao);
+    setQuickAddObs("");
+    setQuickAddFilterCompany(category === "BLOQUEADO" && ["VSF", "VCG", "JTU", "VCM"].includes(subType) ? subType : "TODAS");
+    setQuickAddSelectorOpen(false);
+
+    if (category === "PREVENTIVA") {
+      const cardInfo = PREVENTIVAS_CARDS.find(p => p.id === subType);
+      setQuickAddMotivo(cardInfo ? cardInfo.label : subType);
+    } else if (category === "OFICINA") {
+      setQuickAddMotivo(chips[0] || `Setor ${subType}`);
+    } else if (category === "BLOQUEADO") {
+      setQuickAddMotivo(chips[0] || "Motor");
+    }
+  };
+
+  const handleConfirmQuickAdd = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickAddCarro) {
+      toast.error("Por favor, selecione um carro.");
+      return;
+    }
+
+    const { category, subType, isEditing, existingId } = quickAddModal;
+    const cardInfo = PREVENTIVAS_CARDS.find(p => p.id === subType);
+    const motivoFinal = category === "PREVENTIVA" ? (cardInfo ? cardInfo.label : subType) : (quickAddMotivo.trim() || "Manutenção");
+    const carroGaragemFisica = fleetCars.find(c => c.prefixo === quickAddCarro)?.garagem || getGaragemFisicaByCarro(quickAddCarro);
+    const autoConsorciada = getConsorciadaByCarro(quickAddCarro);
+
+    let mappedTipo: BloqueioCarro["tipo"] = "EM_MANUTENCAO";
+    if (category === "PREVENTIVA") mappedTipo = "REFORCO_REVISAO";
+    else if (motivoFinal.toLowerCase().includes("motor")) mappedTipo = "BLOQUEADO_MOTOR";
+    else if (motivoFinal.toLowerCase().includes("freio")) mappedTipo = "BLOQUEADO_FREIO";
+    else if (motivoFinal.toLowerCase().includes("mola") || motivoFinal.toLowerCase().includes("suspens")) mappedTipo = "BLOQUEADO_MOLA";
+    else if (motivoFinal.toLowerCase().includes("câmbio") || motivoFinal.toLowerCase().includes("cambio") || motivoFinal.toLowerCase().includes("transmiss")) mappedTipo = "BLOQUEADO_CAMBIO";
+    else if (motivoFinal.toLowerCase().includes("elétrica") || motivoFinal.toLowerCase().includes("eletrica") || motivoFinal.toLowerCase().includes("módulo") || motivoFinal.toLowerCase().includes("modulo")) mappedTipo = "BLOQUEADO_MODULO";
+    else if (motivoFinal.toLowerCase().includes("sinistro")) mappedTipo = "BLOQUEADO_SINISTRO";
+
+    // Se estiver editando um veículo existente
+    if (isEditing) {
+      let found = false;
+      const updatedList = ciList.map(item => {
+        const matches = existingId ? item.id === existingId : (item.prefixo === quickAddCarro && item.status !== "LIBERADO");
+        if (matches) {
+          found = true;
+          return {
+            ...item,
+            data: quickAddData,
+            motivo: motivoFinal,
+            tipo: mappedTipo,
+            os: quickAddObs.trim() || undefined,
+            consorciada: category === "BLOQUEADO" ? (subType as any) : (item.consorciada || autoConsorciada),
+            setorOficina: category === "OFICINA" ? (subType as any) : item.setorOficina,
+            tipoPreventiva: category === "PREVENTIVA" ? (subType as any) : item.tipoPreventiva,
+          };
+        }
+        return item;
+      });
+
+      if (!found) {
+        const newCI: BloqueioCarro = {
+          id: existingId || `ci-${Date.now()}-${quickAddCarro}`,
+          prefixo: quickAddCarro,
+          garagem: carroGaragemFisica,
+          consorciada: category === "BLOQUEADO" ? (subType as any) : autoConsorciada,
+          categoriaPlanilha: category,
+          setorOficina: category === "OFICINA" ? (subType as any) : undefined,
+          tipoPreventiva: category === "PREVENTIVA" ? (subType as any) : undefined,
+          tipo: mappedTipo,
+          motivo: motivoFinal,
+          data: quickAddData,
+          hora: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+          gravidade: "ALTA",
+          responsavel: category === "OFICINA" ? `Oficina ${subType}` : (category === "PREVENTIVA" ? "Oficina Preventiva" : "Oficina Central"),
+          os: quickAddObs.trim() || undefined,
+          status: "BLOQUEADO"
+        };
+        const cleanList = ciList.filter(item => item.prefixo !== quickAddCarro || item.status === "LIBERADO");
+        const finalList = [newCI, ...cleanList];
+        setCiList(finalList);
+        saveCIBloqueiosToStorage(finalList);
+        persistCIBloqueio(newCI);
+      } else {
+        setCiList(updatedList);
+        saveCIBloqueiosToStorage(updatedList);
+        const editedItem = updatedList.find(item => existingId ? item.id === existingId : item.prefixo === quickAddCarro);
+        if (editedItem) persistCIBloqueio(editedItem);
+      }
+
+      toast.success(`Carro ${quickAddCarro} atualizado com sucesso!`);
+      setQuickAddModal(prev => ({ ...prev, isOpen: false }));
+      return;
+    }
+
+    const newCI: BloqueioCarro = {
+      id: `ci-${Date.now()}-${quickAddCarro}`,
+      prefixo: quickAddCarro,
+      garagem: carroGaragemFisica,
+      consorciada: category === "BLOQUEADO" ? (subType as any) : autoConsorciada,
+      categoriaPlanilha: category,
+      setorOficina: category === "OFICINA" ? (subType as any) : undefined,
+      tipoPreventiva: category === "PREVENTIVA" ? (subType as any) : undefined,
+      tipo: mappedTipo,
+      motivo: motivoFinal,
+      data: quickAddData,
+      hora: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+      gravidade: "ALTA",
+      responsavel: category === "OFICINA" ? `Oficina ${subType}` : (category === "PREVENTIVA" ? "Oficina Preventiva" : "Oficina Central"),
+      os: quickAddObs.trim() || undefined,
+      status: "BLOQUEADO"
+    };
+
+    const cleanList = ciList.filter(item => item.prefixo !== quickAddCarro || item.status === "LIBERADO");
+    const updatedList = [newCI, ...cleanList];
+
+    setCiList(updatedList);
+    saveCIBloqueiosToStorage(updatedList);
+    persistCIBloqueio(newCI);
+    toast.success(`Carro ${quickAddCarro} inserido com sucesso em ${quickAddModal.title}!`);
+    setQuickAddModal(prev => ({ ...prev, isOpen: false }));
+  };
+
+  const handleQuickRemove = (carro: string) => {
+    if (!confirm(`Deseja remover o Carro ${carro} da CI?`)) return;
+    const target = ciList.find(item => item.prefixo === carro);
+    if (target) {
+      deleteCIBloqueioApi(target.id || carro);
+    }
+    const updatedList = ciList.filter(item => item.prefixo !== carro);
+    setCiList(updatedList);
+    saveCIBloqueiosToStorage(updatedList);
+    toast.info(`Carro ${carro} removido da CI.`);
+  };
+
+  // Funções para Gerenciamento dos Slots Fixos de Reforço com Horário
+  const getReforcoSlotData = (slotId: string, _horario?: string, defaultMotivo: string = "", _index?: number) => {
+    const slotStorageId = `ci-reforco-${slotId}-${dataOperacao}`;
+    const legacySlotStorageId = `ci-reforco-${slotId}`;
+
+    // Busca o item associado estritamente a este slot único
+    const item = ciListNaData.find(c => 
+      c.status !== "LIBERADO" && 
+      c.categoriaPlanilha === "REFORCO" && 
+      (c.id === slotStorageId || c.id === legacySlotStorageId || (c as any).reforcoSlotId === slotId)
+    );
+
+    const draft = reforcoDrafts[slotId];
+
+    // O motivo vem do registro salvo, ou do draft escolhido pelo usuário, ou do defaultMotivo
+    const motivo = item?.motivo !== undefined && item.motivo !== ""
+      ? item.motivo 
+      : (draft?.motivo !== undefined ? draft.motivo : defaultMotivo);
+
+    const obs = item?.os !== undefined && item.os !== ""
+      ? item.os 
+      : (draft?.obs !== undefined ? draft.obs : "");
+
+    const prefixo = item ? item.prefixo : "";
+
+    return {
+      prefixo,
+      motivo: motivo || "",
+      obs: obs || "",
+      hasCar: Boolean(prefixo)
+    };
+  };
+
+  const handleReforcoSlotPrefixoChange = (slotId: string, horario: string, novoPrefixo: string, motivo: string, obs: string) => {
+    const slotStorageId = `ci-reforco-${slotId}-${dataOperacao}`;
+    const legacySlotStorageId = `ci-reforco-${slotId}`;
+
+    if (!novoPrefixo || novoPrefixo === "—") {
+      deleteCIBloqueioApi(slotStorageId);
+      deleteCIBloqueioApi(legacySlotStorageId);
+      const updatedList = ciList.filter(c => 
+        c.id !== slotStorageId && 
+        c.id !== legacySlotStorageId && 
+        (c as any).reforcoSlotId !== slotId
+      );
+      setCiList(updatedList);
+      saveCIBloqueiosToStorage(updatedList);
+      toast.info(`Carro desvinculado do horário ${horario}.`);
+      return;
+    }
+
+    const carroGaragemFisica = fleetCars.find(c => c.prefixo === novoPrefixo)?.garagem || getGaragemFisicaByCarro(novoPrefixo);
+    const autoConsorciada = getConsorciadaByCarro(novoPrefixo);
+
+    // Prioriza o motivo passado ou o que foi configurado no draft daquele slot
+    const motivoFinal = motivo || reforcoDrafts[slotId]?.motivo || "";
+    const obsFinal = obs || reforcoDrafts[slotId]?.obs || "";
+
+    const newReforcoItem: BloqueioCarro & { reforcoSlotId?: string } = {
+      id: slotStorageId,
+      prefixo: novoPrefixo,
+      garagem: carroGaragemFisica,
+      consorciada: autoConsorciada,
+      categoriaPlanilha: "REFORCO",
+      horarioReforco: horario,
+      reforcoSlotId: slotId,
+      tipo: "REFORCO_REVISAO",
+      motivo: motivoFinal,
+      data: dataOperacao,
+      hora: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+      gravidade: "ALTA",
+      responsavel: "Pista / Reforço",
+      os: obsFinal,
+      status: "BLOQUEADO"
+    };
+
+    // Remove qualquer outro registro que estivesse usando esse slot ou esse carro ativo
+    const cleanList = ciList.filter(c => 
+      c.id !== slotStorageId && 
+      c.id !== legacySlotStorageId && 
+      (c as any).reforcoSlotId !== slotId && 
+      (c.prefixo !== novoPrefixo || c.status === "LIBERADO")
+    );
+    const updatedList = [newReforcoItem, ...cleanList];
+
+    setCiList(updatedList);
+    saveCIBloqueiosToStorage(updatedList);
+    persistCIBloqueio(newReforcoItem);
+    toast.success(`Carro ${novoPrefixo} vinculado ao horário ${horario}!`);
+  };
+
+  const handleReforcoSlotFieldChange = (slotId: string, horario: string, _prefixo: string, novoMotivo: string, novaObs: string) => {
+    // 1. Atualiza sempre o estado de draft do slot para que a seleção apareça imediatamente
+    setReforcoDrafts(prev => {
+      const next = {
+        ...prev,
+        [slotId]: {
+          motivo: novoMotivo,
+          obs: novaObs,
+        }
+      };
+      try {
+        localStorage.setItem(`reforco_drafts_${dataOperacao}`, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+
+    // 2. Se já houver um registro salvo para esse slotId, atualiza o registro existente
+    const slotStorageId = `ci-reforco-${slotId}-${dataOperacao}`;
+    const legacySlotStorageId = `ci-reforco-${slotId}`;
+
+    const existingIndex = ciList.findIndex(item => 
+      item.id === slotStorageId || 
+      item.id === legacySlotStorageId || 
+      (item.categoriaPlanilha === "REFORCO" && (item as any).reforcoSlotId === slotId)
+    );
+
+    if (existingIndex >= 0) {
+      let targetUpdated: BloqueioCarro | null = null;
+      const updatedList = ciList.map((item, idx) => {
+        if (idx === existingIndex) {
+          targetUpdated = {
+            ...item,
+            id: slotStorageId,
+            reforcoSlotId: slotId,
+            data: item.data || dataOperacao,
+            horarioReforco: horario,
+            motivo: novoMotivo,
+            os: novaObs
+          } as BloqueioCarro;
+          return targetUpdated;
+        }
+        return item;
+      });
+
+      setCiList(updatedList);
+      saveCIBloqueiosToStorage(updatedList);
+      if (targetUpdated) {
+        persistCIBloqueio(targetUpdated);
       }
     }
   };
 
-  // Estado para dar baixa / liberar veículo
-  const [isReleasing, setIsReleasing] = useState(false);
-  const [releaseMotivo, setReleaseMotivo] = useState("Reparo concluído e testado na pista");
-  const [releaseResponsavel, setReleaseResponsavel] = useState("Encarregado de Oficina");
-
-  // Mapa rápido de carros com registro de CI ativo
+  // Mapa rápido de carros com registro de CI ativo na data selecionada
   const activeCiMap = useMemo(() => {
     const map = new Map<string, BloqueioCarro>();
-    ciList.forEach(item => {
+    ciListNaData.forEach(item => {
       if (item.status !== "LIBERADO") {
         map.set(item.prefixo, item);
       }
     });
     return map;
-  }, [ciList]);
+  }, [ciListNaData]);
 
-  // Estatísticas Rápidas baseadas na frota da garagem do usuário
+  // Estatísticas Rápidas baseadas na frota da garagem do usuário (Padrão Bento Grid Controle de Frota)
   const stats = useMemo(() => {
-    const totalFrota = allowedCars.length;
+    const totalFrota = allowedCars.length || 1;
     let bloqueadosCount = 0;
     let preventivasCount = 0;
     let oficinasCount = 0;
+    let reforcosCount = 0;
     let totalNaCI = 0;
 
     activeCiMap.forEach((ci, carro) => {
@@ -204,152 +1138,99 @@ export function CiManutencaoView({ ciList, setCiList }: CiManutencaoViewProps) {
       totalNaCI++;
       if (ci.categoriaPlanilha === "PREVENTIVA") preventivasCount++;
       else if (ci.categoriaPlanilha === "OFICINA") oficinasCount++;
+      else if (ci.categoriaPlanilha === "REFORCO") reforcosCount++;
       else bloqueadosCount++;
     });
 
+    // Em Execução: Oficinas + Preventivas
+    const emExecucao = oficinasCount + preventivasCount;
+    // Aptos para pista: frota total menos retidos na CI
     const aptos = Math.max(0, totalFrota - totalNaCI);
 
-    return { totalFrota, totalNaCI, bloqueadosCount, preventivasCount, oficinasCount, aptos };
+    const pctBloqueados = Math.round((totalNaCI / totalFrota) * 100);
+    const pctEmExecucao = Math.round((emExecucao / totalFrota) * 100);
+    const pctLiberados = Math.round((aptos / totalFrota) * 100);
+
+    return { 
+      totalFrota: allowedCars.length, 
+      totalNaCI, 
+      bloqueados: bloqueadosCount, 
+      bloqueadosCount,
+      preventivasCount, 
+      oficinasCount, 
+      reforcosCount, 
+      emExecucao,
+      aptos,
+      pctBloqueados,
+      pctEmExecucao,
+      pctLiberados
+    };
   }, [allowedCars, allowedPrefixes, activeCiMap]);
 
-  // Ao clicar em um cartão do carro na grade
+  // Ao clicar em um carro nos cards: abrir modal rápido de edição (Print 03)
   const handleCarClick = (carro: string) => {
-    setSelectedCarro(carro);
-    const autoConsorciada = getConsorciadaByCarro(carro);
-    setFormConsorciada(autoConsorciada);
-
-    const existingCI = activeCiMap.get(carro);
-    if (existingCI) {
-      // Carregar dados existentes para visualização/edição
-      setModalCategory(existingCI.categoriaPlanilha || "OFICINA");
-      setFormMotivo(existingCI.motivo || "");
-      setFormResponsavel(existingCI.responsavel || "Oficina Mecânica");
-      setFormDataBloqueio(existingCI.data || new Date().toISOString().split("T")[0]);
-      setFormGravidade(existingCI.gravidade || "ALTA");
-      if (existingCI.setorOficina) setFormSetor(existingCI.setorOficina);
-      if (existingCI.tipoPreventiva) setFormTipoPreventiva(existingCI.tipoPreventiva);
-      if (existingCI.horarioReforco) parseAndSetHorarioReforco(existingCI.horarioReforco);
-      if (existingCI.consorciada) setFormConsorciada(existingCI.consorciada);
-      if (existingCI.categoriaPlanilha === "REFORCO") {
-        const cleanMotivo = (existingCI.motivo || "").replace(/\s*\([^)]*\)\s*$/, "").trim();
-        if (["LUBRIFICAÇÃO", "TROCA DE ÓLEO", "REVISÃO"].includes(cleanMotivo.toUpperCase())) {
-          setFormMotivoReforco(cleanMotivo.toUpperCase());
-          setFormOutroMotivoReforco("");
-        } else {
-          setFormMotivoReforco("OUTRO");
-          setFormOutroMotivoReforco(cleanMotivo);
-        }
-      } else {
-        setFormMotivoReforco("LUBRIFICAÇÃO");
-        setFormOutroMotivoReforco("");
-      }
-    } else {
-      // Valores padrão para novo cadastro
-      setModalCategory("OFICINA");
-      setFormSetor("MECANICA");
-      setFormTipoPreventiva("REVISAO_GERAL");
-      setFormHoraReforco("07:15");
-      setFormLetraReforco("A");
-      setFormMotivoReforco("LUBRIFICAÇÃO");
-      setFormOutroMotivoReforco("");
-      setFormMotivo("");
-      setFormResponsavel("Oficina Mecânica");
-      setFormGravidade("ALTA");
-      setFormDataBloqueio(new Date().toISOString().split("T")[0]);
-    }
-
-    setIsReleasing(false);
-    setDialogOpen(true);
-  };
-
-  // Salvar / Atualizar Registro de CI
-  const handleSaveCI = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedCarro) return;
-
-    if (modalCategory === "REFORCO" && formMotivoReforco === "OUTRO" && !formOutroMotivoReforco.trim()) {
-      toast.error("Por favor, informe o motivo do reforço.");
+    const existingCI = activeCiMap.get(carro) || ciListNaData.find(c => c.prefixo === carro && c.status !== "LIBERADO");
+    
+    if (!existingCI) {
+      openQuickAddModal("OFICINA", "MECANICA", "Adicionar à Oficina", SETORES_OFICINA[0]?.chips || []);
+      setQuickAddCarro(carro);
       return;
     }
 
-    let finalMotivo = formMotivo.trim();
-    if (modalCategory === "REFORCO") {
-      const desc = formMotivoReforco === "OUTRO" ? formOutroMotivoReforco.trim() : formMotivoReforco;
-      finalMotivo = `${desc} (${formHorarioReforco})`;
-    } else if (!finalMotivo) {
-      if (modalCategory === "PREVENTIVA") {
-        const labels: Record<typeof formTipoPreventiva, string> = {
-          PREVENTIVA: "Preventiva Periódica",
-          LUBRIFICACAO: "Lubrificação Geral",
-          TROCA_OLEO: "Troca de Óleo e Filtros",
-          REVISAO_GERAL: "Revisão Geral Preventiva",
-          SISEP: "Manutenção SISEP"
-        };
-        finalMotivo = labels[formTipoPreventiva];
-      } else if (modalCategory === "OFICINA") {
-        finalMotivo = `Setor ${formSetor}`;
-      } else {
-        finalMotivo = "Bloqueio Consorciada";
-      }
+    const cat = existingCI.categoriaPlanilha || (existingCI.tipoPreventiva ? "PREVENTIVA" : existingCI.setorOficina ? "OFICINA" : "BLOQUEADO");
+    let subType = "";
+    let title = "";
+    let chips: readonly string[] | string[] = [];
+
+    if (cat === "PREVENTIVA") {
+      subType = existingCI.tipoPreventiva || "REVISAO_GERAL";
+      title = `Editar Preventiva • Carro ${carro}`;
+      chips = [];
+    } else if (cat === "OFICINA") {
+      subType = existingCI.setorOficina || "MECANICA";
+      const setorInfo = SETORES_OFICINA.find(s => s.id === subType);
+      title = `Editar Setor ${setorInfo?.label || subType} • Carro ${carro}`;
+      chips = setorInfo?.chips || [];
+    } else {
+      subType = existingCI.consorciada || getConsorciadaByCarro(carro);
+      title = `Editar Bloqueado ${subType} • Carro ${carro}`;
+      chips = [...BLOQUEIOS_MOTIVOS_RAPIDOS];
     }
 
-    // Mapeamento do tipo de bloqueio para manter compatibilidade com as regras de soltura
-    let mappedTipo: BloqueioCarro["tipo"] = "EM_MANUTENCAO";
-    if (modalCategory === "PREVENTIVA") mappedTipo = "REFORCO_REVISAO";
-    else if (finalMotivo.toLowerCase().includes("motor")) mappedTipo = "BLOQUEADO_MOTOR";
-    else if (finalMotivo.toLowerCase().includes("freio")) mappedTipo = "BLOQUEADO_FREIO";
-    else if (finalMotivo.toLowerCase().includes("mola") || finalMotivo.toLowerCase().includes("suspens")) mappedTipo = "BLOQUEADO_MOLA";
-    else if (finalMotivo.toLowerCase().includes("câmbio") || finalMotivo.toLowerCase().includes("cambio") || finalMotivo.toLowerCase().includes("transmiss")) mappedTipo = "BLOQUEADO_CAMBIO";
-    else if (finalMotivo.toLowerCase().includes("elétrica") || finalMotivo.toLowerCase().includes("eletrica") || finalMotivo.toLowerCase().includes("módulo") || finalMotivo.toLowerCase().includes("modulo")) mappedTipo = "BLOQUEADO_MODULO";
-    else if (finalMotivo.toLowerCase().includes("sinistro")) mappedTipo = "BLOQUEADO_SINISTRO";
-
-    const carroGaragemFisica = fleetCars.find(c => c.prefixo === selectedCarro)?.garagem || getGaragemFisicaByCarro(selectedCarro);
-
-    const newCI: BloqueioCarro = {
-      id: `ci-${Date.now()}-${selectedCarro}`,
-      prefixo: selectedCarro,
-      garagem: carroGaragemFisica,
-      consorciada: formConsorciada,
-      categoriaPlanilha: modalCategory,
-      setorOficina: modalCategory === "OFICINA" ? formSetor : undefined,
-      tipoPreventiva: modalCategory === "PREVENTIVA" ? formTipoPreventiva : undefined,
-      horarioReforco: modalCategory === "REFORCO" ? formHorarioReforco : undefined,
-      tipo: mappedTipo,
-      motivo: finalMotivo,
-      data: formDataBloqueio,
-      hora: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
-      gravidade: formGravidade,
-      responsavel: formResponsavel.trim() || "Oficina Central",
-      os: activeCiMap.get(selectedCarro)?.os,
-      status: "BLOQUEADO"
-    };
-
-    // Atualiza a lista removendo bloqueio ativo anterior desse carro e inserindo o novo
-    const cleanList = ciList.filter(item => item.prefixo !== selectedCarro || item.status === "LIBERADO");
-    const updatedList = [newCI, ...cleanList];
-
-    setCiList(updatedList);
-    saveCIBloqueiosToStorage(updatedList);
-    toast.success(`Carro ${selectedCarro} lançado na CI com sucesso!`);
-    setDialogOpen(false);
+    setQuickAddModal({
+      isOpen: true,
+      category: cat as any,
+      subType,
+      title,
+      chips,
+      isEditing: true,
+      existingId: existingCI.id,
+    });
+    setQuickAddCarro(carro);
+    setQuickAddData(existingCI.data || dataOperacao);
+    setQuickAddMotivo(existingCI.motivo || "");
+    setQuickAddObs(existingCI.os || "");
+    setQuickAddFilterCompany(existingCI.consorciada || "TODAS");
+    setQuickAddSelectorOpen(false);
   };
 
-  // Liberar Carro da CI (Dar Baixa)
-  const handleReleaseCar = () => {
-    if (!selectedCarro) return;
+  // Liberar Carro da CI diretamente a partir do Quick Modal
+  const handleReleaseQuickCarro = () => {
+    if (!quickAddCarro) return;
 
     const agora = new Date();
     const dataLib = agora.toLocaleDateString("pt-BR");
     const horaLib = `${String(agora.getHours()).padStart(2, "0")}:${String(agora.getMinutes()).padStart(2, "0")}`;
 
     const updatedList = ciList.map(item => {
-      if (item.prefixo === selectedCarro && item.status !== "LIBERADO") {
+      const matches = quickAddModal.existingId ? item.id === quickAddModal.existingId : (item.prefixo === quickAddCarro && item.status !== "LIBERADO");
+      if (matches) {
         return {
           ...item,
           status: "LIBERADO" as const,
           dataLiberacao: `${dataLib} às ${horaLib}`,
-          motivoLiberacao: releaseMotivo,
-          responsavelLiberacao: releaseResponsavel
+          motivoLiberacao: "Liberado pela CI Manutenção",
+          responsavelLiberacao: user?.name || "Oficina"
         };
       }
       return item;
@@ -357,149 +1238,57 @@ export function CiManutencaoView({ ciList, setCiList }: CiManutencaoViewProps) {
 
     setCiList(updatedList);
     saveCIBloqueiosToStorage(updatedList);
-    toast.success(`Carro ${selectedCarro} liberado da CI com sucesso! Agora está APTO para a soltura.`);
-    setDialogOpen(false);
-    setIsReleasing(false);
+    releaseCIBloqueioApi({
+      prefixo: quickAddCarro,
+      motivoLiberacao: "Liberado pela CI Manutenção",
+      responsavelLiberacao: user?.name || "Oficina"
+    });
+    toast.success(`Carro ${quickAddCarro} liberado da CI com sucesso! Agora está APTO para a soltura.`);
+    setQuickAddModal(prev => ({ ...prev, isOpen: false }));
   };
 
-  // Excluir CI do Carro
-  const handleDeleteCI = () => {
-    if (!selectedCarro) return;
-    if (!confirm(`Deseja remover o registro de CI do Carro ${selectedCarro}?`)) return;
+  // Excluir CI do Carro diretamente a partir do Quick Modal
+  const handleDeleteQuickCarro = () => {
+    if (!quickAddCarro) return;
+    if (!confirm(`Deseja remover o registro de CI do Carro ${quickAddCarro}?`)) return;
 
-    const updatedList = ciList.filter(item => item.prefixo !== selectedCarro);
+    const targetItem = ciList.find(item => quickAddModal.existingId ? item.id === quickAddModal.existingId : item.prefixo === quickAddCarro);
+    if (targetItem) {
+      deleteCIBloqueioApi(targetItem.id || quickAddCarro);
+    }
+    const updatedList = ciList.filter(item => quickAddModal.existingId ? item.id !== quickAddModal.existingId : item.prefixo !== quickAddCarro);
     setCiList(updatedList);
     saveCIBloqueiosToStorage(updatedList);
-    toast.info(`Registro de CI do Carro ${selectedCarro} removido.`);
-    setDialogOpen(false);
+    toast.info(`Registro de CI do Carro ${quickAddCarro} removido.`);
+    setQuickAddModal(prev => ({ ...prev, isOpen: false }));
   };
-
-  // Retorna informações visuais de status para o cartão do carro
-  const getCarVisualInfo = (carro: string) => {
-    const ci = activeCiMap.get(carro);
-    if (!ci) {
-      return {
-        type: "apto",
-        label: "Apto",
-        cardClass: "bg-card border-border/80 hover:border-emerald-500/50 hover:bg-emerald-500/5",
-        iconClass: "text-emerald-600 dark:text-emerald-400",
-        badgeClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20"
-      };
-    }
-
-    if (ci.categoriaPlanilha === "PREVENTIVA") {
-      return {
-        type: "preventiva",
-        label: ci.tipoPreventiva ? ci.tipoPreventiva.replace("_", " ") : "Preventiva",
-        cardClass: "bg-blue-50/50 dark:bg-blue-950/20 border-blue-400/60 dark:border-blue-800 hover:border-blue-500",
-        iconClass: "text-blue-600 dark:text-blue-400",
-        badgeClass: "bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/25"
-      };
-    }
-
-    if (ci.categoriaPlanilha === "OFICINA") {
-      const setorNome = ci.setorOficina || "Oficina";
-      return {
-        type: "oficina",
-        label: setorNome,
-        cardClass: "bg-amber-50/50 dark:bg-amber-950/20 border-amber-400/60 dark:border-amber-800 hover:border-amber-500",
-        iconClass: "text-amber-600 dark:text-amber-400",
-        badgeClass: "bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/25"
-      };
-    }
-
-    if (ci.categoriaPlanilha === "REFORCO") {
-      return {
-        type: "reforco",
-        label: ci.horarioReforco || "Reforço",
-        cardClass: "bg-purple-50/50 dark:bg-purple-950/20 border-purple-400/60 dark:border-purple-800 hover:border-purple-500",
-        iconClass: "text-purple-600 dark:text-purple-400",
-        badgeClass: "bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/25"
-      };
-    }
-
-    return {
-      type: "bloqueado",
-      label: "Bloqueado",
-      cardClass: "bg-rose-50/50 dark:bg-rose-950/20 border-rose-400/60 dark:border-rose-800 hover:border-rose-500",
-      iconClass: "text-rose-600 dark:text-rose-400",
-      badgeClass: "bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/25"
-    };
-  };
-
-  // Filtragem da Grade de Carros (baseada nos carros permitidos para a garagem)
-  const filteredCars = useMemo(() => {
-    return allowedCars
-      .map(c => c.prefixo)
-      .filter(carro => {
-        // Filtro de Busca
-        if (searchCarQuery.trim() && !carro.includes(searchCarQuery.trim())) {
-          return false;
-        }
-
-        const ci = activeCiMap.get(carro);
-
-        // Filtros de Status
-        if (statusFilter === "BLOQUEADOS" && (!ci || ci.categoriaPlanilha === "PREVENTIVA")) return false;
-        if (statusFilter === "APTOS" && ci) return false;
-        if (statusFilter === "PREVENTIVAS" && (!ci || ci.categoriaPlanilha !== "PREVENTIVA")) return false;
-        if (statusFilter === "OFICINA" && (!ci || ci.categoriaPlanilha !== "OFICINA")) return false;
-
-        return true;
-      });
-  }, [allowedCars, searchCarQuery, statusFilter, activeCiMap]);
-
-  // Carro ativo sob análise no popup
-  const currentCI = selectedCarro ? activeCiMap.get(selectedCarro) : undefined;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       
-      {/* ========================================================= */}
-      {/* CABEÇALHO DA TELA DE CI */}
-      {/* ========================================================= */}
-      <div className="bg-card border rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4 print:hidden">
-        <div className="flex items-start gap-3.5">
-          <div className="w-12 h-12 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0 border border-rose-500/20">
-            <ShieldAlert className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[11px] font-mono uppercase px-2 py-0.5 rounded bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 font-bold">
-                CI - SOLICITAÇÃO DE VEÍCULOS
-              </span>
-              <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-muted text-muted-foreground">
-                CGU.REG.MT0005
-              </span>
-
-              {/* Badge indicando a garagem fixa do usuário logado */}
-              {userGaragemFixa && !isAdmin && (
-                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25">
-                  GARAGEM: {userGaragemFixa === "VCM" ? "GARAGEM 1 (VCM)" : "GARAGEM 2 (VCG)"}
-                </span>
-              )}
-            </div>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground mt-1">
-              Controle de CI & Bloqueios da Frota
-            </h1>
-            <p className="text-xs sm:text-sm text-muted-foreground">
-              Selecione qualquer veículo na grade para registrar ou liberar solicitações de manutenção e bloqueios.
-            </p>
-          </div>
+      {/* ==========================================================
+          1. HEADER PRINCIPAL (MESMO PADRÃO DO CONTROLE DE FROTA)
+          ========================================================== */}
+      <div className="print:hidden flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
+            Controle de CI & Bloqueios da Frota
+          </h1>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        {/* Botões em formato de Pílula (Pill Buttons) */}
+        <div className="flex flex-wrap items-center gap-2.5">
           {/* Seletor de Garagem Exclusivo para Administrador */}
           {isAdmin && (
-            <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-xl border text-xs mr-1">
-              <span className="text-[10px] font-bold text-muted-foreground px-1 uppercase font-mono">Filtro:</span>
+            <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-full border text-xs mr-1">
+              <span className="text-[10px] font-bold text-muted-foreground px-2 uppercase font-mono">Filtro:</span>
               {(["TODAS", "VCG", "VCM"] as const).map(g => (
                 <button
                   key={g}
                   type="button"
                   onClick={() => setAdminGaragemFiltro(g)}
                   className={cn(
-                    "px-2 py-0.5 rounded-lg font-mono text-[11px] font-bold transition-all",
+                    "px-2.5 py-1 rounded-full font-mono text-[11px] font-bold transition-all cursor-pointer",
                     adminGaragemFiltro === g
                       ? "bg-background text-foreground shadow-xs border"
                       : "text-muted-foreground hover:text-foreground"
@@ -511,980 +1300,1272 @@ export function CiManutencaoView({ ciList, setCiList }: CiManutencaoViewProps) {
             </div>
           )}
 
-          <Button
-            variant={viewMode === "GRID" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setViewMode("GRID")}
-            className="gap-1.5 h-9 text-xs font-semibold"
+          {/* Seletor de Data Completa em Pílula (Idêntico ao do Controle de Frota) */}
+          <div 
+            onClick={() => {
+              try {
+                dateInputRef.current?.showPicker();
+              } catch {
+                dateInputRef.current?.focus();
+              }
+            }}
+            className="relative inline-flex items-center gap-2 bg-gray-50 dark:bg-slate-900 px-3.5 py-1.5 rounded-full border border-gray-200 dark:border-slate-700 shadow-2xs hover:bg-gray-100 dark:hover:bg-slate-800/80 transition-colors group shrink-0 cursor-pointer h-9"
+            title="Clique para escolher uma data no calendário"
           >
-            <Layers className="w-3.5 h-3.5" />
-            Grade de Carros
-          </Button>
+            <Calendar className="w-3.5 h-3.5 text-gray-500 shrink-0 group-hover:text-emerald-600 transition-colors pointer-events-none" />
+            <span className="text-xs font-mono font-bold text-gray-900 dark:text-white pointer-events-none select-none">
+              {formattedData}
+            </span>
+            <input
+              ref={dateInputRef}
+              type="date"
+              value={dataOperacao}
+              onChange={(e) => {
+                if (e.target.value) setDataOperacao(e.target.value);
+              }}
+              onClick={(e) => {
+                try {
+                  e.currentTarget.showPicker();
+                } catch {}
+              }}
+              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0"
+              title="Clique para escolher uma data no calendário"
+              aria-label="Escolher data no calendário"
+            />
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setDataOperacao(getTodayString());
+              }}
+              className="relative z-20 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline px-1 border-l border-gray-200 dark:border-slate-700 pl-2 cursor-pointer"
+              title="Voltar para a data de hoje"
+            >
+              Hoje
+            </button>
+          </div>
 
           <Button
-            variant={viewMode === "PLANILHA" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setViewMode("PLANILHA")}
-            className="gap-1.5 h-9 text-xs font-semibold"
-          >
-            <FileText className="w-3.5 h-3.5" />
-            Planilha Oficial CGU
-          </Button>
-
-          <Button
+            onClick={() => setModalRelatorioOpen(true)}
             variant="outline"
             size="sm"
-            onClick={() => window.print()}
-            className="gap-1.5 h-9 text-xs"
+            className="rounded-full px-5 py-2 h-9 border border-gray-200 dark:border-slate-700 bg-white dark:bg-[#0E1420] text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-800 shadow-xs font-semibold text-xs flex items-center gap-2 cursor-pointer"
           >
-            <Printer className="w-3.5 h-3.5" />
-            Imprimir
+            <FileText className="w-3.5 h-3.5 text-gray-500" />
+            Visualizar Relatório
+          </Button>
+
+          <Button
+            onClick={handleRefreshData}
+            variant="ghost"
+            size="sm"
+            className="rounded-full px-3 py-2 h-9 text-xs text-gray-500 hover:text-gray-900 dark:hover:text-white cursor-pointer"
+            title="Sincronizar com banco de dados"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
           </Button>
         </div>
       </div>
 
       {/* ========================================================= */}
-      {/* CARDS DE RESUMO OPERACIONAL COM AÇÃO 'CONFERIR >' */}
+      {/* PRANCHETA DIGITAL (LAYOUT PRINT 01 & PRINT 02) */}
       {/* ========================================================= */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 print:hidden">
+      <div className="space-y-6">
         
-        {/* CARD 1: Frota Total */}
-        <button
-          type="button"
-          onClick={() => setStatusFilter("ALL")}
-          className={cn(
-            "group text-left p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between shadow-2xs hover:shadow-md",
-            statusFilter === "ALL"
-              ? "bg-primary/5 border-primary ring-2 ring-primary/40 shadow-xs"
-              : "bg-card border-border/80 hover:border-primary/40"
-          )}
-        >
-          <div>
-            <span className="text-xs text-muted-foreground font-semibold flex items-center gap-1.5">
-              <Bus className="w-3.5 h-3.5 text-primary" />
-              Frota Total
-            </span>
-            <div className="flex items-baseline gap-1 mt-1">
-              <span className="text-2xl font-bold text-foreground">{stats.totalFrota}</span>
-              <span className="text-xs text-muted-foreground">veículos</span>
+        {/* ========================================================= */}
+        {/* BLOCO 1: PREVENTIVAS (5 Cards em formato de prancheta) */}
+        {/* ========================================================= */}
+        <div className="bg-card border rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
+          <div className="flex items-center justify-between pb-1 border-b">
+            <div className="flex items-center gap-2">
+              <h2 className="text-base sm:text-lg font-bold tracking-tight uppercase text-foreground">
+                1. Preventivas
+              </h2>
+              <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                {stats.preventivasCount} lançamentos
+              </span>
             </div>
-          </div>
-          <div className="flex items-center justify-between text-xs pt-2 mt-2 border-t border-border/40">
-            <span className="text-[11px] font-medium text-muted-foreground">
-              {statusFilter === "ALL" ? "Exibindo todos" : "Ver todos"}
+            <span className="text-[11px] text-muted-foreground hidden sm:inline-block">
+              Clique em <strong className="text-emerald-600 dark:text-emerald-400">+</strong> em cada card para adicionar veículos da frota
             </span>
-            <span className={cn(
-              "flex items-center gap-0.5 text-[11px] font-semibold transition-transform group-hover:translate-x-0.5",
-              statusFilter === "ALL" ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
-            )}>
-              Conferir <ChevronRight className="w-3 h-3" />
-            </span>
-          </div>
-        </button>
-
-        {/* CARD 2: Na CI / Retidos */}
-        <button
-          type="button"
-          onClick={() => setStatusFilter(statusFilter === "BLOQUEADOS" ? "ALL" : "BLOQUEADOS")}
-          className={cn(
-            "group text-left p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between shadow-2xs hover:shadow-md",
-            statusFilter === "BLOQUEADOS"
-              ? "bg-rose-500/15 border-rose-500 ring-2 ring-rose-500/50 shadow-xs"
-              : "bg-rose-500/10 border-rose-500/20 hover:border-rose-500/50"
-          )}
-        >
-          <div>
-            <span className="text-xs text-rose-700 dark:text-rose-300 font-semibold flex items-center gap-1.5">
-              <ShieldAlert className="w-3.5 h-3.5 text-rose-500" />
-              Na CI / Retidos
-            </span>
-            <div className="flex items-baseline gap-1 mt-1">
-              <span className="text-2xl font-bold text-rose-600 dark:text-rose-400">{stats.totalNaCI}</span>
-              <span className="text-xs text-rose-700/70 dark:text-rose-300/70">veículos</span>
-            </div>
-          </div>
-          <div className="flex items-center justify-between text-xs pt-2 mt-2 border-t border-rose-500/20">
-            <span className="text-[11px] font-medium text-rose-700/80 dark:text-rose-300/80">
-              {statusFilter === "BLOQUEADOS" ? "Filtro ativo" : "Filtrar"}
-            </span>
-            <span className="flex items-center gap-0.5 text-[11px] font-semibold text-rose-600 dark:text-rose-400 group-hover:underline transition-transform group-hover:translate-x-0.5">
-              Conferir <ChevronRight className="w-3 h-3" />
-            </span>
-          </div>
-        </button>
-
-        {/* CARD 3: Preventivas / Revisão */}
-        <button
-          type="button"
-          onClick={() => setStatusFilter(statusFilter === "PREVENTIVAS" ? "ALL" : "PREVENTIVAS")}
-          className={cn(
-            "group text-left p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between shadow-2xs hover:shadow-md",
-            statusFilter === "PREVENTIVAS"
-              ? "bg-blue-500/15 border-blue-500 ring-2 ring-blue-500/50 shadow-xs"
-              : "bg-blue-500/10 border-blue-500/20 hover:border-blue-500/50"
-          )}
-        >
-          <div>
-            <span className="text-xs text-blue-700 dark:text-blue-300 font-semibold flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-blue-500" />
-              Preventivas / Revisão
-            </span>
-            <div className="flex items-baseline gap-1 mt-1">
-              <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">{stats.preventivasCount}</span>
-              <span className="text-xs text-blue-700/70 dark:text-blue-300/70">carros</span>
-            </div>
-          </div>
-          <div className="flex items-center justify-between text-xs pt-2 mt-2 border-t border-blue-500/20">
-            <span className="text-[11px] font-medium text-blue-700/80 dark:text-blue-300/80">
-              {statusFilter === "PREVENTIVAS" ? "Filtro ativo" : "Filtrar"}
-            </span>
-            <span className="flex items-center gap-0.5 text-[11px] font-semibold text-blue-600 dark:text-blue-400 group-hover:underline transition-transform group-hover:translate-x-0.5">
-              Conferir <ChevronRight className="w-3 h-3" />
-            </span>
-          </div>
-        </button>
-
-        {/* CARD 4: Setores / Oficinas */}
-        <button
-          type="button"
-          onClick={() => setStatusFilter(statusFilter === "OFICINA" ? "ALL" : "OFICINA")}
-          className={cn(
-            "group text-left p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between shadow-2xs hover:shadow-md",
-            statusFilter === "OFICINA"
-              ? "bg-amber-500/15 border-amber-500 ring-2 ring-amber-500/50 shadow-xs"
-              : "bg-amber-500/10 border-amber-500/20 hover:border-amber-500/50"
-          )}
-        >
-          <div>
-            <span className="text-xs text-amber-700 dark:text-amber-300 font-semibold flex items-center gap-1.5">
-              <Wrench className="w-3.5 h-3.5 text-amber-500" />
-              Setores / Oficinas
-            </span>
-            <div className="flex items-baseline gap-1 mt-1">
-              <span className="text-2xl font-bold text-amber-600 dark:text-amber-400">{stats.oficinasCount}</span>
-              <span className="text-xs text-amber-700/70 dark:text-amber-300/70">em oficina</span>
-            </div>
-          </div>
-          <div className="flex items-center justify-between text-xs pt-2 mt-2 border-t border-amber-500/20">
-            <span className="text-[11px] font-medium text-amber-700/80 dark:text-amber-300/80">
-              {statusFilter === "OFICINA" ? "Filtro ativo" : "Filtrar"}
-            </span>
-            <span className="flex items-center gap-0.5 text-[11px] font-semibold text-amber-600 dark:text-amber-400 group-hover:underline transition-transform group-hover:translate-x-0.5">
-              Conferir <ChevronRight className="w-3 h-3" />
-            </span>
-          </div>
-        </button>
-
-        {/* CARD 5: Aptos / Liberados */}
-        <button
-          type="button"
-          onClick={() => setStatusFilter(statusFilter === "APTOS" ? "ALL" : "APTOS")}
-          className={cn(
-            "group text-left p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between shadow-2xs hover:shadow-md",
-            statusFilter === "APTOS"
-              ? "bg-emerald-500/15 border-emerald-500 ring-2 ring-emerald-500/50 shadow-xs"
-              : "bg-emerald-500/10 border-emerald-500/20 hover:border-emerald-500/50"
-          )}
-        >
-          <div>
-            <span className="text-xs text-emerald-700 dark:text-emerald-300 font-semibold flex items-center gap-1.5">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-              Aptos / Liberados
-            </span>
-            <div className="flex items-baseline gap-1 mt-1">
-              <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{stats.aptos}</span>
-              <span className="text-xs text-emerald-700/70 dark:text-emerald-300/70">prontos p/ pista</span>
-            </div>
-          </div>
-          <div className="flex items-center justify-between text-xs pt-2 mt-2 border-t border-emerald-500/20">
-            <span className="text-[11px] font-medium text-emerald-700/80 dark:text-emerald-300/80">
-              {statusFilter === "APTOS" ? "Filtro ativo" : "Filtrar"}
-            </span>
-            <span className="flex items-center gap-0.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 group-hover:underline transition-transform group-hover:translate-x-0.5">
-              Conferir <ChevronRight className="w-3 h-3" />
-            </span>
-          </div>
-        </button>
-
-      </div>
-
-      {/* ========================================================= */}
-      {/* MODO 1: GRADE DE CARROS */}
-      {/* ========================================================= */}
-      <div className={cn("space-y-4 print:hidden", viewMode !== "GRID" && "hidden")}>
-          
-          {/* BARRA DE BUSCA E STATUS DO FILTRO */}
-          <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
-            {/* Input de Busca */}
-            <div className="relative w-full sm:w-80">
-              <Input
-                placeholder="Buscar número do carro..."
-                value={searchCarQuery}
-                onChange={(e) => setSearchCarQuery(e.target.value)}
-                className="w-full bg-background pr-8 h-9 text-xs"
-              />
-              {searchCarQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchCarQuery("")}
-                  className="absolute right-2.5 top-2.5 text-muted-foreground/60 hover:text-muted-foreground"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-
-            {/* Indicador de Filtro Ativo */}
-            {statusFilter !== "ALL" && (
-              <div className="flex items-center gap-2 text-xs bg-muted/40 px-3 py-1.5 rounded-lg border w-full sm:w-auto justify-between sm:justify-start">
-                <span className="text-muted-foreground">
-                  Filtrando: <strong className="text-foreground">
-                    {statusFilter === "BLOQUEADOS" && "Na CI / Retidos"}
-                    {statusFilter === "PREVENTIVAS" && "Preventivas / Revisão"}
-                    {statusFilter === "OFICINA" && "Setores / Oficinas"}
-                    {statusFilter === "APTOS" && "Aptos / Liberados"}
-                  </strong> ({filteredCars.length} veículos)
-                </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setStatusFilter("ALL")}
-                  className="h-6 px-2 text-xs text-primary hover:underline font-semibold"
-                >
-                  Ver todos
-                </Button>
-              </div>
-            )}
           </div>
 
-          {/* GRADE DE CARTÕES DE CARROS (PRINT 1) */}
-          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-2">
-            {filteredCars.map(carro => {
-              const visual = getCarVisualInfo(carro);
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            {PREVENTIVAS_CARDS.map(card => {
+              const items = ciListNaData.filter(c => c.status !== "LIBERADO" && c.categoriaPlanilha === "PREVENTIVA" && c.tipoPreventiva === card.id);
               return (
-                <button
-                  key={carro}
-                  type="button"
-                  onClick={() => handleCarClick(carro)}
-                  className={cn(
-                    "flex flex-col items-center justify-center p-2 rounded-xl shadow-2xs transition-all duration-150 hover:scale-[1.02] focus:outline-hidden focus:ring-2 focus:ring-primary/40 text-center relative overflow-hidden h-20 border",
-                    visual.cardClass
-                  )}
-                >
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <Bus className={cn("h-3.5 w-3.5 shrink-0", visual.iconClass)} />
-                    <span className="font-bold text-sm tracking-tight font-mono text-foreground">
-                      {carro}
-                    </span>
+                <div key={card.id} className="bg-muted/20 border border-border/80 rounded-xl p-3 flex flex-col justify-between min-h-[140px] hover:border-emerald-500/40 transition-colors">
+                  <div>
+                    <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                      <span className="font-bold text-xs tracking-tight text-foreground">{card.label}</span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openQuickAddModal("PREVENTIVA", card.id, card.label)}
+                        className="h-6 w-6 p-0 rounded-full border-emerald-500/40 text-emerald-600 hover:bg-emerald-600 hover:text-white dark:text-emerald-400 cursor-pointer"
+                        title={`Adicionar veículo em ${card.label}`}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+
+                    <div className="pt-2 flex flex-wrap gap-1.5">
+                      {items.length === 0 ? (
+                        <span className="text-[11px] text-muted-foreground/60 italic py-2 block">Nenhum veículo</span>
+                      ) : (
+                        items.map(item => (
+                          <div
+                            key={item.id || item.prefixo}
+                            className="group inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 font-mono text-xs font-bold shadow-2xs hover:bg-emerald-500/25 transition-all"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => handleCarClick(item.prefixo)}
+                              className="hover:underline cursor-pointer"
+                              title="Clique para ver detalhes / dar baixa"
+                            >
+                              {item.prefixo}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleQuickRemove(item.prefixo)}
+                              className="opacity-60 hover:opacity-100 hover:text-rose-500 transition-opacity p-0.5 rounded cursor-pointer"
+                              title="Remover veículo"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
                   </div>
-                  <span className={cn("text-[9px] font-semibold px-2 py-0.5 rounded-full inline-block leading-tight truncate max-w-[90%]", visual.badgeClass)}>
-                    {visual.label}
-                  </span>
-                </button>
+                  <div className="pt-2 border-t border-border/40 text-[10px] text-muted-foreground font-mono flex items-center justify-between">
+                    <span>Lançados:</span>
+                    <strong className="text-foreground">{items.length} {items.length === 1 ? "carro" : "carros"}</strong>
+                  </div>
+                </div>
               );
             })}
           </div>
-
-          {filteredCars.length === 0 && (
-            <div className="py-16 text-center text-muted-foreground bg-card rounded-2xl border">
-              <Bus className="h-10 w-10 mx-auto text-muted-foreground/40 mb-2" />
-              <p className="font-medium text-sm">Nenhum veículo encontrado com os filtros aplicados.</p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setSearchCarQuery("");
-                  setStatusFilter("ALL");
-                }}
-                className="mt-3 text-xs"
-              >
-                Limpar Filtros
-              </Button>
-            </div>
-          )}
         </div>
 
-      {/* ========================================================= */}
-      {/* MODO 2: ESPELHO DA PLANILHA OFICIAL IMPRESSA (PRINT 2) */}
-      {/* ========================================================= */}
-      <div className={cn(
-        "bg-white text-slate-900 border rounded-2xl p-6 shadow-sm space-y-4 print:space-y-2.5",
-        "print:p-0 print:border-none print:shadow-none print:m-0 print:w-full print:block print:text-black",
-        viewMode === "PLANILHA" ? "block" : "hidden print:block"
-      )}>
-          
-          {/* Cabeçalho da Planilha Oficial (CGU.REG.MT0005) */}
-          <div className="border border-slate-400 divide-y divide-slate-400">
-            <div className="flex items-center justify-between p-3 bg-slate-50">
-              <div className="flex items-center gap-3">
-                <Bus className="w-8 h-8 text-slate-700" />
-                <div>
-                  <h3 className="text-base font-extrabold tracking-tight uppercase">CONSÓRCIO GUAICURUS</h3>
-                  <p className="text-[10px] text-slate-600 font-mono">OPERADOR DO TRANSPORTE COLETIVO</p>
-                </div>
-              </div>
-              <div className="text-center flex-1">
-                <h2 className="text-lg font-black uppercase tracking-wider">
-                  CI - Solicitação de veículos
-                </h2>
-              </div>
-              <div className="text-right text-[11px] font-mono">
-                <strong>Número:</strong> CGU.REG.MT0005
-              </div>
+        {/* ========================================================= */}
+        {/* BLOCO 2: SETORES DA OFICINA (8 Cards do Print 01 e Print 02) */}
+        {/* ========================================================= */}
+        <div className="bg-card border rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
+          <div className="flex items-center justify-between pb-1 border-b">
+            <div className="flex items-center gap-2">
+              <h2 className="text-base sm:text-lg font-bold tracking-tight uppercase text-foreground">
+                2. Setores da Oficina
+              </h2>
+              <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                {stats.oficinasCount} veículos em oficina
+              </span>
             </div>
-
-            <div className="grid grid-cols-4 text-center text-[11px] divide-x divide-slate-400 py-1.5 font-semibold bg-slate-100">
-              <div>DATA DA CRIAÇÃO: 10/10/2024</div>
-              <div>REVISÃO Nº: 1</div>
-              <div>DATA DA REVISÃO: 09/10/2025</div>
-              <div>DATA: {new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric" }).toUpperCase()}</div>
-            </div>
+            <span className="text-[11px] text-muted-foreground hidden sm:inline-block">
+              Cada card lista o prefixo e o motivo/defeito registrado
+            </span>
           </div>
 
-          {/* QUADRO 1: PREVENTIVAS */}
-          <div className="border border-slate-400">
-            <div className="bg-slate-200 text-center text-xs font-bold py-1 border-b border-slate-400 uppercase tracking-wide">
-              Preventivas
-            </div>
-            <div className="grid grid-cols-5 text-center text-[11px] font-bold bg-slate-100 divide-x divide-slate-400 border-b border-slate-400 py-1">
-              <div>Preventiva</div>
-              <div>Lubrificação</div>
-              <div>Troca de óleo</div>
-              <div>REVISÃO GERAL</div>
-              <div>SISEP</div>
-            </div>
-            <div className="grid grid-cols-5 text-center text-xs divide-x divide-slate-400 min-h-[48px] p-1 font-mono">
-              <div>{ciList.filter(c => c.status !== "LIBERADO" && c.categoriaPlanilha === "PREVENTIVA" && c.tipoPreventiva === "PREVENTIVA").map(c => c.prefixo).join(", ") || "—"}</div>
-              <div>{ciList.filter(c => c.status !== "LIBERADO" && c.categoriaPlanilha === "PREVENTIVA" && c.tipoPreventiva === "LUBRIFICACAO").map(c => c.prefixo).join(", ") || "—"}</div>
-              <div>{ciList.filter(c => c.status !== "LIBERADO" && c.categoriaPlanilha === "PREVENTIVA" && c.tipoPreventiva === "TROCA_OLEO").map(c => c.prefixo).join(", ") || "—"}</div>
-              <div className="font-bold text-blue-700">{ciList.filter(c => c.status !== "LIBERADO" && c.categoriaPlanilha === "PREVENTIVA" && c.tipoPreventiva === "REVISAO_GERAL").map(c => c.prefixo).join(", ") || "—"}</div>
-              <div>{ciList.filter(c => c.status !== "LIBERADO" && c.categoriaPlanilha === "PREVENTIVA" && c.tipoPreventiva === "SISEP").map(c => c.prefixo).join(", ") || "—"}</div>
-            </div>
-          </div>
-
-          {/* QUADRO 2: SETORES DA OFICINA */}
-          <div className="border border-slate-400">
-            <div className="grid grid-cols-8 text-center text-[10px] font-bold bg-slate-200 divide-x divide-slate-400 border-b border-slate-400 py-1 uppercase">
-              <div>Mecânica</div>
-              <div>Elevador</div>
-              <div>Elétrica</div>
-              <div>Borracharia</div>
-              <div>Funilaria / Pintura</div>
-              <div>Tacógrafo</div>
-              <div>Bilhetagem</div>
-              <div>Limpeza</div>
-            </div>
-            <div className="grid grid-cols-8 text-center text-[10px] divide-x divide-slate-400 min-h-[80px] p-1">
-              {SETORES_OFICINA.map(setor => {
-                const itens = ciList.filter(c => c.status !== "LIBERADO" && c.categoriaPlanilha === "OFICINA" && c.setorOficina === setor.id);
-                return (
-                  <div key={setor.id} className="space-y-1">
-                    {itens.length === 0 && <span className="text-slate-400">—</span>}
-                    {itens.map(item => (
-                      <div key={item.id || item.prefixo} className="border-b border-slate-200 pb-1">
-                        <strong className="font-mono text-xs block">{item.prefixo}</strong>
-                        <span className="text-[9px] text-slate-600 block">{item.motivo}</span>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* QUADRO 3: REFORÇO COM HORÁRIO */}
-          <div className="border border-slate-400">
-            <div className="bg-slate-200 text-center text-xs font-bold py-1 border-b border-slate-400 uppercase tracking-wide">
-              Reforço com horário
-            </div>
-            <div className="grid grid-cols-2 divide-x divide-slate-400 text-xs">
-              <div className="p-2 space-y-1">
-                {ciList.filter(c => c.status !== "LIBERADO" && c.categoriaPlanilha === "REFORCO").slice(0, 5).map(item => (
-                  <div key={item.id} className="flex items-center justify-between border-b border-slate-200 py-0.5 text-[11px]">
-                    <span className="font-bold font-mono">{item.horarioReforco || "07:15 - A"}</span>
-                    <span>{item.motivo}</span>
-                    <strong className="font-mono text-xs">{item.prefixo}</strong>
-                  </div>
-                ))}
-              </div>
-              <div className="p-2 space-y-1">
-                {ciList.filter(c => c.status !== "LIBERADO" && c.categoriaPlanilha === "REFORCO").slice(5).map(item => (
-                  <div key={item.id} className="flex items-center justify-between border-b border-slate-200 py-0.5 text-[11px]">
-                    <span className="font-bold font-mono">{item.horarioReforco || "07:40 - M"}</span>
-                    <span>{item.motivo}</span>
-                    <strong className="font-mono text-xs">{item.prefixo}</strong>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* QUADRO 4: BLOQUEADOS POR CONSORCIADA (VSF, VCG, JTU, VCM) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            
-            {/* VSF */}
-            <div className="border border-slate-400">
-              <div className="bg-slate-200 text-center text-xs font-bold py-1 border-b border-slate-400 uppercase">
-                BLOQUEADOS VSF (Viação São Francisco)
-              </div>
-              <table className="w-full text-[11px] text-left">
-                <thead>
-                  <tr className="border-b border-slate-400 bg-slate-100 font-bold">
-                    <th className="p-1 w-20">PREFIXO</th>
-                    <th className="p-1">MOTIVO</th>
-                    <th className="p-1 w-24">DATA BLOQUEIO</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 font-mono text-xs">
-                  {ciList.filter(c => c.status !== "LIBERADO" && (c.categoriaPlanilha === "BLOQUEADO" || !c.categoriaPlanilha) && (c.consorciada === "VSF" || (!c.consorciada && c.prefixo.startsWith("2")))).map(c => (
-                    <tr key={c.id || c.prefixo}>
-                      <td className="p-1 font-bold">{c.prefixo}</td>
-                      <td className="p-1 font-sans text-[11px]">{c.motivo}</td>
-                      <td className="p-1 text-[10px]">{c.data}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* VCG */}
-            <div className="border border-slate-400">
-              <div className="bg-slate-200 text-center text-xs font-bold py-1 border-b border-slate-400 uppercase">
-                BLOQUEADOS VCG (Viação Cidade Morena)
-              </div>
-              <table className="w-full text-[11px] text-left">
-                <thead>
-                  <tr className="border-b border-slate-400 bg-slate-100 font-bold">
-                    <th className="p-1 w-20">PREFIXO</th>
-                    <th className="p-1">MOTIVO</th>
-                    <th className="p-1 w-24">DATA BLOQUEIO</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 font-mono text-xs">
-                  {ciList.filter(c => c.status !== "LIBERADO" && (c.categoriaPlanilha === "BLOQUEADO" || !c.categoriaPlanilha) && (c.consorciada === "VCG" || (!c.consorciada && c.prefixo.startsWith("4")))).map(c => (
-                    <tr key={c.id || c.prefixo}>
-                      <td className="p-1 font-bold">{c.prefixo}</td>
-                      <td className="p-1 font-sans text-[11px]">{c.motivo}</td>
-                      <td className="p-1 text-[10px]">{c.data}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* JTU */}
-            <div className="border border-slate-400">
-              <div className="bg-slate-200 text-center text-xs font-bold py-1 border-b border-slate-400 uppercase">
-                BLOQUEADOS JTU (Jaguar Transporte Urbano)
-              </div>
-              <table className="w-full text-[11px] text-left">
-                <thead>
-                  <tr className="border-b border-slate-400 bg-slate-100 font-bold">
-                    <th className="p-1 w-20">PREFIXO</th>
-                    <th className="p-1">MOTIVO</th>
-                    <th className="p-1 w-24">DATA BLOQUEIO</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 font-mono text-xs">
-                  {ciList.filter(c => c.status !== "LIBERADO" && (c.categoriaPlanilha === "BLOQUEADO" || !c.categoriaPlanilha) && (c.consorciada === "JTU" || (!c.consorciada && c.prefixo.startsWith("3")))).map(c => (
-                    <tr key={c.id || c.prefixo}>
-                      <td className="p-1 font-bold">{c.prefixo}</td>
-                      <td className="p-1 font-sans text-[11px]">{c.motivo}</td>
-                      <td className="p-1 text-[10px]">{c.data}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* VCM */}
-            <div className="border border-slate-400">
-              <div className="bg-slate-200 text-center text-xs font-bold py-1 border-b border-slate-400 uppercase">
-                BLOQUEADOS VCM (Viação Campo Grande)
-              </div>
-              <table className="w-full text-[11px] text-left">
-                <thead>
-                  <tr className="border-b border-slate-400 bg-slate-100 font-bold">
-                    <th className="p-1 w-20">PREFIXO</th>
-                    <th className="p-1">MOTIVO</th>
-                    <th className="p-1 w-24">DATA BLOQUEIO</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 font-mono text-xs">
-                  {ciList.filter(c => c.status !== "LIBERADO" && (c.categoriaPlanilha === "BLOQUEADO" || !c.categoriaPlanilha) && (c.consorciada === "VCM" || (!c.consorciada && c.prefixo.startsWith("1")))).map(c => (
-                    <tr key={c.id || c.prefixo}>
-                      <td className="p-1 font-bold">{c.prefixo}</td>
-                      <td className="p-1 font-sans text-[11px]">{c.motivo}</td>
-                      <td className="p-1 text-[10px]">{c.data}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-          </div>
-
-          {/* Assinatura no Rodapé */}
-          <div className="pt-6 flex justify-end">
-            <div className="text-center w-64 border-t border-slate-600 pt-1 text-xs">
-              <strong>Manutenção / Encarregado</strong>
-            </div>
-          </div>
-
-        </div>
-
-      {/* ========================================================= */}
-      {/* POPUP / DIALOG DO CARRO (PRINT 2 - RESOLVER A PLANILHA) */}
-      {/* ========================================================= */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl sm:max-w-3xl max-h-[92vh] overflow-y-auto print:hidden">
-          <DialogHeader>
-            <div className="flex items-center justify-between pr-6">
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center border border-primary/20">
-                  <Bus className="w-6 h-6" />
-                </div>
-                <div>
-                  <DialogTitle className="text-xl font-bold flex items-center gap-2">
-                    <span>Carro {selectedCarro}</span>
-                    <span className="text-xs font-mono px-2 py-0.5 rounded-md bg-muted text-muted-foreground font-bold">
-                      {formConsorciada}
-                    </span>
-                  </DialogTitle>
-                  <DialogDescription className="text-xs">
-                    CI - Solicitação de veículos • Consórcio Guaicurus
-                  </DialogDescription>
-                </div>
-              </div>
-
-              {/* Badge de Status Atual */}
-              {currentCI ? (
-                <span className="text-xs font-bold px-3 py-1 rounded-full bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/25 flex items-center gap-1.5">
-                  <ShieldAlert className="w-3.5 h-3.5 text-rose-500" />
-                  Na CI: {currentCI.motivo}
-                </span>
-              ) : (
-                <span className="text-xs font-bold px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                  Apto para Soltura
-                </span>
-              )}
-            </div>
-          </DialogHeader>
-
-          {/* SE O CARRO JÁ ESTÁ NA CI: EXIBIR DETALHES E OPÇÃO DE BAIXA/LIBERAÇÃO */}
-          {currentCI && (
-            <div className="bg-rose-50/60 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 rounded-xl p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
-                  <strong className="text-xs font-bold text-rose-800 dark:text-rose-300">
-                    Bloqueio Ativo Registrado na CI
-                  </strong>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleDeleteCI}
-                    className="h-7 text-xs gap-1 text-rose-600 border-rose-200 hover:bg-rose-50 dark:hover:bg-rose-950"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    Excluir CI
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => setIsReleasing(!isReleasing)}
-                    className="h-7 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    {isReleasing ? "Cancelar Baixa" : "Liberar Carro (Dar Baixa)"}
-                  </Button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs pt-1 border-t border-rose-200/60 dark:border-rose-900/40">
-                <div>
-                  <span className="text-muted-foreground block text-[11px]">Categoria:</span>
-                  <strong className="font-semibold">{currentCI.categoriaPlanilha || "Bloqueio Consorciada"}</strong>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block text-[11px]">Motivo:</span>
-                  <strong className="font-semibold">{currentCI.motivo}</strong>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block text-[11px]">Data de Entrada:</span>
-                  <strong className="font-semibold">{currentCI.data}</strong>
-                </div>
-                <div>
-                  <span className="text-muted-foreground block text-[11px]">Responsável:</span>
-                  <strong className="font-semibold">{currentCI.responsavel || "Oficina Central"}</strong>
-                </div>
-              </div>
-
-              {/* Sub-painel para confirmar liberação imediata */}
-              {isReleasing && (
-                <div className="bg-background border rounded-lg p-3 space-y-2.5 animate-in fade-in-50 duration-150">
-                  <strong className="text-xs font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
-                    <Check className="w-4 h-4 text-emerald-500" />
-                    Confirmar Liberação do Veículo para a Pista
-                  </strong>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <div>
-                      <Label className="text-[11px]">Motivo do Encerramento / Laudo</Label>
-                      <Input
-                        value={releaseMotivo}
-                        onChange={(e) => setReleaseMotivo(e.target.value)}
-                        className="h-8 text-xs mt-1"
-                        placeholder="Ex: Peça substituída e aprovada em teste"
-                      />
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2.5">
+            {SETORES_OFICINA.map(setor => {
+              const items = ciListNaData.filter(c => c.status !== "LIBERADO" && c.categoriaPlanilha === "OFICINA" && c.setorOficina === setor.id);
+              return (
+                <div key={setor.id} className="bg-muted/20 border border-border/80 rounded-xl p-2.5 flex flex-col justify-between min-h-[170px] hover:border-emerald-500/40 transition-colors">
+                  <div>
+                    <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                      <span className="font-bold text-[11px] uppercase tracking-tight text-foreground truncate max-w-[80%]" title={setor.label}>
+                        {setor.label}
+                      </span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openQuickAddModal("OFICINA", setor.id, `Setor ${setor.label}`, setor.chips)}
+                        className="h-5 w-5 p-0 rounded-full border-emerald-500/40 text-emerald-600 hover:bg-emerald-600 hover:text-white dark:text-emerald-400 cursor-pointer"
+                        title={`Adicionar veículo em ${setor.label}`}
+                      >
+                        <Plus className="w-3 h-3" />
+                      </Button>
                     </div>
-                    <div>
-                      <Label className="text-[11px]">Encarregado / Responsável</Label>
-                      <Input
-                        value={releaseResponsavel}
-                        onChange={(e) => setReleaseResponsavel(e.target.value)}
-                        className="h-8 text-xs mt-1"
-                        placeholder="Ex: Chefe de Oficina"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex justify-end gap-2 pt-1">
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={handleReleaseCar}
-                      className="h-8 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      Concluir Baixa & Liberar Carro
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
 
-          {/* FORMULÁRIO COMPLETO DAS 4 SEÇÕES DA PLANILHA FÍSICA (PRINT 2) */}
-          <form onSubmit={handleSaveCI} className="space-y-4">
-            
-            {/* Seletor de Categoria da Planilha (4 Quadrantes do Print 2) */}
-            <div className="space-y-1.5">
-              <Label className="text-xs font-bold">
-                Seção da Planilha de Solicitação de Veículos <span className="text-rose-500">*</span>
-              </Label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {(
-                  [
-                    { id: "OFICINA", label: "Setores da Oficina", icon: Wrench },
-                    { id: "PREVENTIVA", label: "Preventivas", icon: Calendar },
-                    { id: "REFORCO", label: "Reforço com Horário", icon: Clock },
-                    { id: "BLOQUEADO", label: "Bloqueio Consorciada", icon: ShieldAlert },
-                  ] as const
-                ).map(cat => {
-                  const Icon = cat.icon;
-                  return (
-                    <button
-                      key={cat.id}
-                      type="button"
-                      onClick={() => setModalCategory(cat.id)}
-                      className={cn(
-                        "p-2.5 rounded-xl border text-left transition-all flex flex-col gap-1",
-                        modalCategory === cat.id
-                          ? "bg-primary text-primary-foreground border-primary shadow-xs"
-                          : "bg-card hover:bg-muted/60 text-muted-foreground border-border"
+                    <div className="pt-2 space-y-1">
+                      {items.length === 0 ? (
+                        <span className="text-[10px] text-muted-foreground/60 italic block py-2 text-center">—</span>
+                      ) : (
+                        items.map(item => (
+                          <div
+                            key={item.id || item.prefixo}
+                            className="px-2 py-1 rounded-lg bg-background border border-border/70 text-xs shadow-2xs hover:border-emerald-500/40 transition-all flex items-center justify-between gap-1 group min-w-0"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => handleCarClick(item.prefixo)}
+                              className="font-mono font-bold text-xs text-foreground hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline cursor-pointer truncate text-left flex-1 min-w-0"
+                              title={`${item.prefixo}${item.motivo ? ` - ${item.motivo}` : ""}`}
+                            >
+                              <span>{item.prefixo}</span>
+                              {item.motivo && (
+                                <span className="font-sans font-medium text-[11px] text-muted-foreground ml-0.5">
+                                  -{item.motivo}
+                                </span>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleQuickRemove(item.prefixo)}
+                              className="text-muted-foreground hover:text-rose-500 p-0.5 transition-colors cursor-pointer shrink-0"
+                              title="Remover"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))
                       )}
-                    >
-                      <Icon className="w-4 h-4 shrink-0" />
-                      <span className="text-xs font-bold leading-tight">{cat.label}</span>
-                    </button>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-border/40 text-[9px] text-muted-foreground font-mono text-center">
+                    {items.length} {items.length === 1 ? "veículo" : "veículos"}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ========================================================= */}
+        {/* BLOCO 3: REFORÇO COM HORÁRIO (2 Tabelas com Horários Fixos) */}
+        {/* ========================================================= */}
+        <div className="bg-card border rounded-2xl p-4 sm:p-5 shadow-xs space-y-4">
+          <div className="flex items-center justify-between pb-1 border-b">
+            <div className="flex items-center gap-2">
+              <div>
+                <h2 className="text-base sm:text-lg font-bold tracking-tight uppercase text-foreground">
+                  3. Reforço com Horário
+                </h2>
+                <p className="text-[11px] text-muted-foreground">
+                  Horários fixos oficiais da prancheta. Selecione o prefixo e informe motivo/observação em cada linha.
+                </p>
+              </div>
+            </div>
+            <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+              12 Horários Fixos
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            
+            {/* Tabela Coluna 1 (Slots 0 a 5) */}
+            <div className="border rounded-xl overflow-hidden bg-background">
+              <div className="bg-muted/50 px-3 py-2 border-b text-xs font-bold grid grid-cols-12 gap-2 text-muted-foreground uppercase font-mono">
+                <span className="col-span-3">Horário</span>
+                <span className="col-span-3">Motivo</span>
+                <span className="col-span-3">Prefixo</span>
+                <span className="col-span-3">Obs</span>
+              </div>
+              <div className="divide-y divide-border/60">
+                {FIXED_REFORCO_SLOTS.slice(0, 6).map((slot, idx) => {
+                  const slotData = getReforcoSlotData(slot.id, slot.horario, slot.defaultMotivo, idx);
+                  return (
+                    <div key={slot.id} className="p-2 grid grid-cols-12 gap-2 items-center text-xs hover:bg-muted/20 transition-colors">
+                      {/* Horário Fixo */}
+                      <div className="col-span-3 font-mono font-bold text-xs flex items-center">
+                        <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 whitespace-nowrap">
+                          {slot.horario}
+                        </span>
+                      </div>
+
+                      {/* Motivo */}
+                      <div className="col-span-3">
+                        <select
+                          value={slotData.motivo}
+                          onChange={(e) => handleReforcoSlotFieldChange(slot.id, slot.horario, slotData.prefixo, e.target.value, slotData.obs)}
+                          className="w-full h-8 px-2 rounded-md border bg-background text-[11px] font-medium focus:outline-hidden"
+                        >
+                          <option value="">—</option>
+                          <option value="LUBRIFICAÇÃO">LUBRIFICAÇÃO</option>
+                          <option value="TROCA DE ÓLEO">TROCA DE ÓLEO</option>
+                          <option value="INSPEÇÃO">INSPEÇÃO</option>
+                          <option value="REVISÃO">REVISÃO</option>
+                          <option value="PREVENTIVA">PREVENTIVA</option>
+                          {slotData.motivo && !["LUBRIFICAÇÃO", "TROCA DE ÓLEO", "INSPEÇÃO", "REVISÃO", "PREVENTIVA"].includes(slotData.motivo) && (
+                            <option value={slotData.motivo}>{slotData.motivo}</option>
+                          )}
+                        </select>
+                      </div>
+
+                      {/* Prefixo (Select com Busca de Carros da Garagem) */}
+                      <div className="col-span-3">
+                        <CarSearchSelect
+                          value={slotData.prefixo}
+                          onChange={(novoPrefixo) => handleReforcoSlotPrefixoChange(slot.id, slot.horario, novoPrefixo, slotData.motivo, slotData.obs)}
+                          allowedCars={sortedAllowedCars}
+                          placeholder="Carro"
+                        />
+                      </div>
+
+                      {/* Obs */}
+                      <div className="col-span-3">
+                        <Input
+                          value={slotData.obs}
+                          placeholder="Ex: POSTO .M"
+                          onChange={(e) => handleReforcoSlotFieldChange(slot.id, slot.horario, slotData.prefixo, slotData.motivo, e.target.value)}
+                          className="h-8 text-[11px] bg-background"
+                        />
+                      </div>
+                    </div>
                   );
                 })}
               </div>
             </div>
 
-            {/* SEÇÃO 1: SETORES DA OFICINA COM MOTIVO */}
-            {modalCategory === "OFICINA" && (
-              <div className="p-3.5 rounded-xl border bg-muted/20 space-y-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-bold">Setor / Oficina Responsável</Label>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                    {SETORES_OFICINA.map(s => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => {
-                          setFormSetor(s.id);
-                          setFormResponsavel(`Oficina ${s.label}`);
-                        }}
-                        className={cn(
-                          "px-2.5 py-1.5 rounded-lg border text-xs font-semibold text-center transition-all",
-                          formSetor === s.id
-                            ? "bg-amber-500 text-white border-amber-600 shadow-2xs font-bold"
-                            : "bg-background text-muted-foreground hover:text-foreground"
-                        )}
-                      >
-                        {s.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Motivos rápidos sugeridos do setor */}
-                <div className="space-y-1">
-                  <Label className="text-[11px] text-muted-foreground">Motivos comuns deste setor (clique para preencher):</Label>
-                  <div className="flex flex-wrap gap-1">
-                    {SETORES_OFICINA.find(s => s.id === formSetor)?.chips.map(chip => (
-                      <button
-                        key={chip}
-                        type="button"
-                        onClick={() => setFormMotivo(chip)}
-                        className="text-[10px] px-2 py-0.5 rounded-md bg-background border hover:bg-muted text-muted-foreground hover:text-foreground"
-                      >
-                        + {chip}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+            {/* Tabela Coluna 2 (Slots 6 a 11) */}
+            <div className="border rounded-xl overflow-hidden bg-background">
+              <div className="bg-muted/50 px-3 py-2 border-b text-xs font-bold grid grid-cols-12 gap-2 text-muted-foreground uppercase font-mono">
+                <span className="col-span-3">Horário</span>
+                <span className="col-span-3">Motivo</span>
+                <span className="col-span-3">Prefixo</span>
+                <span className="col-span-3">Obs</span>
               </div>
-            )}
+              <div className="divide-y divide-border/60">
+                {FIXED_REFORCO_SLOTS.slice(6, 12).map((slot, idx) => {
+                  const slotData = getReforcoSlotData(slot.id, slot.horario, slot.defaultMotivo, idx + 6);
+                  return (
+                    <div key={slot.id} className="p-2 grid grid-cols-12 gap-2 items-center text-xs hover:bg-muted/20 transition-colors">
+                      {/* Horário Fixo */}
+                      <div className="col-span-3 font-mono font-bold text-xs flex items-center">
+                        <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 whitespace-nowrap">
+                          {slot.horario}
+                        </span>
+                      </div>
 
-            {/* SEÇÃO 2: PREVENTIVAS */}
-            {modalCategory === "PREVENTIVA" && (
-              <div className="p-3.5 rounded-xl border bg-muted/20 space-y-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-bold">Tipo de Preventiva (Colunas da Planilha)</Label>
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
-                    {(
-                      [
-                        { id: "PREVENTIVA", label: "Preventiva" },
-                        { id: "LUBRIFICACAO", label: "Lubrificação" },
-                        { id: "TROCA_OLEO", label: "Troca de Óleo" },
-                        { id: "REVISAO_GERAL", label: "Revisão Geral" },
-                        { id: "SISEP", label: "SISEP" },
-                      ] as const
-                    ).map(tp => (
-                      <button
-                        key={tp.id}
-                        type="button"
-                        onClick={() => {
-                          setFormTipoPreventiva(tp.id);
-                          setFormMotivo(tp.label);
-                        }}
-                        className={cn(
-                          "px-2 py-1.5 rounded-lg border text-xs font-semibold text-center transition-all",
-                          formTipoPreventiva === tp.id
-                            ? "bg-blue-600 text-white border-blue-700 shadow-2xs font-bold"
-                            : "bg-background text-muted-foreground hover:text-foreground"
-                        )}
-                      >
-                        {tp.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
+                      {/* Motivo */}
+                      <div className="col-span-3">
+                        <select
+                          value={slotData.motivo}
+                          onChange={(e) => handleReforcoSlotFieldChange(slot.id, slot.horario, slotData.prefixo, e.target.value, slotData.obs)}
+                          className="w-full h-8 px-2 rounded-md border bg-background text-[11px] font-medium focus:outline-hidden"
+                        >
+                          <option value="">—</option>
+                          <option value="LUBRIFICAÇÃO">LUBRIFICAÇÃO</option>
+                          <option value="TROCA DE ÓLEO">TROCA DE ÓLEO</option>
+                          <option value="INSPEÇÃO">INSPEÇÃO</option>
+                          <option value="REVISÃO">REVISÃO</option>
+                          <option value="PREVENTIVA">PREVENTIVA</option>
+                          {slotData.motivo && !["LUBRIFICAÇÃO", "TROCA DE ÓLEO", "INSPEÇÃO", "REVISÃO", "PREVENTIVA"].includes(slotData.motivo) && (
+                            <option value={slotData.motivo}>{slotData.motivo}</option>
+                          )}
+                        </select>
+                      </div>
 
-            {/* SEÇÃO 3: REFORÇO COM HORÁRIO */}
-            {modalCategory === "REFORCO" && (
-              <div className="p-3.5 rounded-xl border bg-muted/20 space-y-3">
-                {/* Inputs de Horário e Letra (A, B, C, D, M) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-bold">Horário do Reforço</Label>
-                    <Input
-                      type="time"
-                      value={formHoraReforco}
-                      onChange={(e) => setFormHoraReforco(e.target.value)}
-                      className="h-9 text-xs font-mono font-bold bg-background"
-                    />
-                  </div>
+                      {/* Prefixo (Select com Busca de Carros da Garagem) */}
+                      <div className="col-span-3">
+                        <CarSearchSelect
+                          value={slotData.prefixo}
+                          onChange={(novoPrefixo) => handleReforcoSlotPrefixoChange(slot.id, slot.horario, novoPrefixo, slotData.motivo, slotData.obs)}
+                          allowedCars={sortedAllowedCars}
+                          placeholder="Carro"
+                        />
+                      </div>
 
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-bold">Letra / Turno do Reforço</Label>
-                    <select
-                      value={formLetraReforco}
-                      onChange={(e) => setFormLetraReforco(e.target.value as any)}
-                      className="w-full h-9 px-3 rounded-lg border bg-background text-xs font-bold font-mono focus:outline-hidden"
-                    >
-                      <option value="A">A</option>
-                      <option value="B">B</option>
-                      <option value="C">C</option>
-                      <option value="D">D</option>
-                      <option value="M">M</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Motivo do Reforço com cards rápidos e opção OUTRO */}
-                <div className="space-y-1.5 pt-1">
-                  <Label className="text-xs font-bold">Motivo do Reforço</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {(["LUBRIFICAÇÃO", "TROCA DE ÓLEO", "REVISÃO", "OUTRO"] as const).map(mot => (
-                      <button
-                        key={mot}
-                        type="button"
-                        onClick={() => {
-                          setFormMotivoReforco(mot);
-                          if (mot !== "OUTRO") {
-                            setFormMotivo(mot);
-                          } else {
-                            setFormMotivo(formOutroMotivoReforco);
-                          }
-                        }}
-                        className={cn(
-                          "px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer",
-                          formMotivoReforco === mot
-                            ? "bg-emerald-600 text-white border-emerald-700 shadow-2xs font-bold dark:bg-emerald-600"
-                            : "bg-background text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                        )}
-                      >
-                        {mot}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Input condicional exibido apenas quando OUTRO for selecionado */}
-                  {formMotivoReforco === "OUTRO" && (
-                    <div className="pt-2 space-y-1.5">
-                      <Label className="text-xs font-semibold text-foreground">
-                        Descreva o Motivo do Reforço <span className="text-rose-500">*</span>
-                      </Label>
-                      <Input
-                        value={formOutroMotivoReforco}
-                        onChange={(e) => {
-                          setFormOutroMotivoReforco(e.target.value);
-                          setFormMotivo(e.target.value);
-                        }}
-                        placeholder="Digite o motivo do reforço..."
-                        className="text-xs h-9 bg-background"
-                        autoFocus
-                        required
-                      />
+                      {/* Obs */}
+                      <div className="col-span-3">
+                        <Input
+                          value={slotData.obs}
+                          placeholder="Ex: POSTO .M"
+                          onChange={(e) => handleReforcoSlotFieldChange(slot.id, slot.horario, slotData.prefixo, slotData.motivo, e.target.value)}
+                          className="h-8 text-[11px] bg-background"
+                        />
+                      </div>
                     </div>
-                  )}
-                </div>
+                  );
+                })}
               </div>
-            )}
+            </div>
 
-            {/* SEÇÃO 4: BLOQUEADOS POR CONSORCIADA */}
-            {modalCategory === "BLOQUEADO" && (
-              <div className="p-3.5 rounded-xl border bg-muted/20 space-y-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-bold">Consorciada Guaicurus (Garagem)</Label>
-                  <div className="grid grid-cols-4 gap-2">
-                    {(
-                      [
-                        { id: "VSF", label: "VSF (São Francisco)" },
-                        { id: "VCG", label: "VCG (Cidade Morena)" },
-                        { id: "JTU", label: "JTU (Jaguar)" },
-                        { id: "VCM", label: "VCM (Campo Grande)" },
-                      ] as const
-                    ).map(cons => (
-                      <button
-                        key={cons.id}
+          </div>
+        </div>
+
+        {/* ========================================================= */}
+        {/* BLOCO 4: BLOQUEADOS POR CONSORCIADA (Grid 2x2 com bordas vermelhas do Print 01) */}
+        {/* ========================================================= */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between pb-1 border-b">
+            <div className="flex items-center gap-2">
+              <h2 className="text-base sm:text-lg font-bold tracking-tight uppercase text-foreground">
+                4. Bloqueados por Consorciada
+              </h2>
+              <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/20">
+                {stats.bloqueadosCount} veículos bloqueados
+              </span>
+            </div>
+            <span className="text-[11px] text-muted-foreground hidden sm:inline-block">
+              VSF, VCG, JTU e VCM • Clique em <strong>Lançar Bloqueio</strong> para registrar
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {CONSORCIADAS_BLOQUEIOS.map(cons => {
+              const items = ciListNaData.filter(c => 
+                c.status !== "LIBERADO" && 
+                (c.categoriaPlanilha === "BLOQUEADO" || !c.categoriaPlanilha) && 
+                (c.consorciada === cons.id || (!c.consorciada && c.prefixo.startsWith(cons.prefixDigit)))
+              );
+
+              return (
+                <div 
+                  key={cons.id} 
+                  className="border-2 border-rose-400/80 dark:border-rose-800/80 bg-rose-50/25 dark:bg-rose-950/15 rounded-2xl p-4 shadow-xs flex flex-col justify-between min-h-[220px]"
+                >
+                  <div>
+                    <div className="flex items-center justify-between pb-3 border-b border-rose-300/60 dark:border-rose-900/60">
+                      <div>
+                        <h3 className="font-bold text-sm text-rose-800 dark:text-rose-300 tracking-tight uppercase">
+                          {cons.label}
+                        </h3>
+                        <p className="text-[10px] text-muted-foreground">{cons.subtitle}</p>
+                      </div>
+
+                      <Button
                         type="button"
-                        onClick={() => setFormConsorciada(cons.id)}
-                        className={cn(
-                          "px-2 py-1.5 rounded-lg border text-xs font-semibold text-center transition-all",
-                          formConsorciada === cons.id
-                            ? "bg-rose-600 text-white border-rose-700 shadow-2xs font-bold"
-                            : "bg-background text-muted-foreground hover:text-foreground"
-                        )}
+                        size="sm"
+                        onClick={() => openQuickAddModal("BLOQUEADO", cons.id, cons.label, BLOQUEIOS_MOTIVOS_RAPIDOS)}
+                        className="h-7 text-xs gap-1 bg-rose-600 hover:bg-rose-700 text-white font-semibold shadow-xs cursor-pointer"
                       >
-                        {cons.label}
-                      </button>
-                    ))}
+                        <Plus className="w-3.5 h-3.5" />
+                        Lançar Bloqueio
+                      </Button>
+                    </div>
+
+                    <div className="pt-2">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="border-b border-rose-300/40 dark:border-rose-900/40 text-[10px] uppercase font-bold text-muted-foreground">
+                            <th className="py-1 px-1.5 w-20">Prefixo</th>
+                            <th className="py-1 px-1.5">Motivo</th>
+                            <th className="py-1 px-1.5 w-24">Data Bloq.</th>
+                            <th className="py-1 px-1.5 w-10 text-right">Ação</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-rose-200/50 dark:divide-rose-900/40 font-mono text-xs">
+                          {items.length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className="py-5 text-center text-[11px] text-muted-foreground/60 italic font-sans">
+                                Nenhum veículo bloqueado nesta consorciada
+                              </td>
+                            </tr>
+                          ) : (
+                            items.map(item => (
+                              <tr key={item.id || item.prefixo} className="hover:bg-rose-500/5 transition-colors">
+                                <td className="py-1.5 px-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCarClick(item.prefixo)}
+                                    className="font-bold font-mono text-foreground hover:text-rose-600 hover:underline cursor-pointer"
+                                    title="Ver detalhes / liberar carro"
+                                  >
+                                    {item.prefixo}
+                                  </button>
+                                </td>
+                                <td className="py-1.5 px-1.5 font-sans text-[11px] text-foreground font-medium">
+                                  {item.motivo}
+                                </td>
+                                <td className="py-1.5 px-1.5 text-[10px] text-muted-foreground font-mono">
+                                  {formatarDataBr(item.data || dataOperacao)}
+                                </td>
+                                <td className="py-1.5 px-1.5 text-right">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleQuickRemove(item.prefixo)}
+                                    className="text-muted-foreground hover:text-rose-600 transition-colors p-1 rounded"
+                                    title="Remover / Liberar"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-rose-300/40 dark:border-rose-900/40 text-[10px] text-muted-foreground font-mono flex items-center justify-between">
+                    <span>Total na consorciada:</span>
+                    <strong className="text-rose-700 dark:text-rose-300">{items.length} {items.length === 1 ? "veículo" : "veículos"}</strong>
                   </div>
                 </div>
+              );
+            })}
+          </div>
+        </div>
 
-                {/* Chips de motivos de bloqueio comuns do print 2 */}
+      </div>
+
+      {/* ========================================================= */}
+      {/* MODAL OFICIAL: VISUALIZAR RELATÓRIO CI MANUTENÇÃO */}
+      {/* Segue estritamente o layout do formulário CGU.REG.MT0005 */}
+      {/* ========================================================= */}
+      <Dialog open={modalRelatorioOpen} onOpenChange={setModalRelatorioOpen}>
+        <DialogContent className="max-w-5xl w-[98vw] max-h-[96vh] flex flex-col p-0 rounded-3xl overflow-hidden bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-800 print:hidden shadow-2xl">
+          
+          {/* Header com Ações: Título, Data, Imprimir e Baixar PDF */}
+          <div className="p-4 sm:p-5 border-b border-gray-200 dark:border-slate-800 bg-white dark:bg-[#0E1420] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <DialogTitle className="text-base sm:text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <FileText className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                CI - Solicitação de veículos
+              </DialogTitle>
+              <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
+                Código: <span className="font-mono font-bold text-gray-900 dark:text-white">CGU.REG.MT0005</span> • Relatório Oficial da Manutenção
+              </p>
+            </div>
+
+            {/* Botões de Ação */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                onClick={handlePrintRelatorio}
+                variant="outline"
+                size="sm"
+                className="rounded-full px-4 py-1.5 h-8 text-xs font-bold border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-1.5 cursor-pointer shadow-xs"
+                title="Imprimir folha de relatório formatada"
+              >
+                <Printer className="w-3.5 h-3.5 text-gray-600 dark:text-slate-300" />
+                Imprimir
+              </Button>
+
+              <Button
+                type="button"
+                onClick={handleDownloadPdf}
+                size="sm"
+                className="rounded-full px-4 py-1.5 h-8 text-xs font-bold bg-[#164E3A] hover:bg-[#113C2D] text-white flex items-center gap-1.5 cursor-pointer shadow-xs"
+                title="Baixar arquivo em PDF"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Baixar PDF
+              </Button>
+            </div>
+          </div>
+
+          {/* Área de Visualização com Scroll (Fundo Cinza e Folha A4 Branca com Proporção Real) */}
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-200 dark:bg-slate-950 flex justify-center">
+            
+            {/* Folha A4 Física Realista */}
+            <div 
+              ref={relatorioFolhaRef}
+              data-folha-ci="true"
+              className="bg-white text-black font-sans shadow-2xl flex flex-col justify-between"
+              style={{
+                width: "210mm",
+                minHeight: "297mm",
+                padding: "8mm 10mm",
+                boxSizing: "border-box",
+                backgroundColor: "#ffffff",
+                color: "#000000",
+              }}
+            >
+              <div className="space-y-1">
+                
+                {/* 1. CABEÇALHO OFICIAL COM LOGO E METADADOS */}
+                <div className="border border-black">
+                  <div className="flex items-center justify-between px-3 py-1.5 border-b border-black">
+                    <div className="w-[160px] flex items-center">
+                      <LogoConsorcioSvg className="h-8 max-w-[130px] object-contain logo-consorcio-print" />
+                    </div>
+                    <div className="flex-1 text-center pr-10">
+                      <h1 className="text-base sm:text-lg font-black tracking-wide uppercase text-black">
+                        CI - Solicitação de veículos
+                      </h1>
+                    </div>
+                  </div>
+
+                  {/* Metadados: Data da Criação, Revisão Nº, Data da Revisão, Data da Informação, Número */}
+                  <table className="w-full border-collapse text-center text-[9px] leading-tight">
+                    <tbody>
+                      <tr className="bg-[#f2f2f2] font-bold uppercase text-black divide-x divide-black border-b border-black">
+                        <td className="py-0.5 w-[20%]">Data da Criação</td>
+                        <td className="py-0.5 w-[15%]">REVISÃO Nº</td>
+                        <td className="py-0.5 w-[20%]">DATA DA REVISÃO</td>
+                        <td className="py-0.5 w-[25%]">DATA DA INFORMAÇÃO</td>
+                        <td className="py-0.5 w-[20%]">Número</td>
+                      </tr>
+                      <tr className="font-bold divide-x divide-black text-[9.5px]">
+                        <td className="py-0.5 font-mono">10/10/2024</td>
+                        <td className="py-0.5 font-mono">1</td>
+                        <td className="py-0.5 font-mono">09/10/2025</td>
+                        <td className="py-0.5 font-mono font-bold text-[8.5px] uppercase">{dataInformacaoFormatada}</td>
+                        <td className="py-0.5 font-mono">CGU.REG.MT0005</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* 2. TABELA: PREVENTIVAS */}
+                <table className="w-full border-collapse border border-black text-[9.5px] leading-tight">
+                  <thead>
+                    <tr>
+                      <th colSpan={5} className="bg-[#e6e6e6] border border-black py-0.5 text-center font-bold text-[10.5px] uppercase tracking-wide text-black">
+                        Preventivas
+                      </th>
+                    </tr>
+                    <tr className="bg-[#f2f2f2] text-center font-bold text-[9px] uppercase text-black">
+                      <th className="border border-black py-0.5 w-[20%]">Preventiva</th>
+                      <th className="border border-black py-0.5 w-[20%]">Lubrificação</th>
+                      <th className="border border-black py-0.5 w-[20%]">Troca de óleo</th>
+                      <th className="border border-black py-0.5 w-[20%]">REVISÃO GERAL</th>
+                      <th className="border border-black py-0.5 w-[20%]">SISEP</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[0, 1, 2, 3].map((rIdx) => {
+                      const prevList = relatorioData.preventivas.filter(c => c.tipoPreventiva === "PREVENTIVA");
+                      const lubList = relatorioData.preventivas.filter(c => c.tipoPreventiva === "LUBRIFICACAO");
+                      const oleoList = relatorioData.preventivas.filter(c => c.tipoPreventiva === "TROCA_OLEO");
+                      const geralList = relatorioData.preventivas.filter(c => c.tipoPreventiva === "REVISAO_GERAL");
+                      const sisepList = relatorioData.preventivas.filter(c => c.tipoPreventiva === "SISEP");
+
+                      const lubItem1 = lubList[rIdx * 2];
+                      const lubItem2 = lubList[rIdx * 2 + 1];
+
+                      return (
+                        <tr key={rIdx} className="h-[18px] text-center font-mono font-bold text-[9.5px]">
+                          <td className="border border-black px-1">{prevList[rIdx]?.prefixo || ""}</td>
+                          <td className="border border-black px-1">
+                            <div className="flex justify-around items-center">
+                              <span>{lubItem1?.prefixo || ""}</span>
+                              <span>{lubItem2?.prefixo || ""}</span>
+                            </div>
+                          </td>
+                          <td className="border border-black px-1">{oleoList[rIdx]?.prefixo || ""}</td>
+                          <td className="border border-black px-1">{geralList[rIdx]?.prefixo || ""}</td>
+                          <td className="border border-black px-1">{sisepList[rIdx]?.prefixo || ""}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+
+                {/* 3. TABELA: SETORES DA OFICINA (8 SETORES COM SUBCOLUNAS) */}
+                <table className="w-full border-collapse border border-black text-[9px] leading-tight">
+                  <thead>
+                    <tr className="bg-[#e6e6e6] text-center font-bold text-[9.5px] uppercase text-black">
+                      <th colSpan={2} className="border border-black py-0.5">Mecânica</th>
+                      <th className="border border-black py-0.5">Elevador</th>
+                      <th colSpan={2} className="border border-black py-0.5">Elétrica</th>
+                      <th className="border border-black py-0.5">Borracharia</th>
+                      <th colSpan={2} className="border border-black py-0.5">Funilaria / Pintura</th>
+                      <th className="border border-black py-0.5">Tacógrafo</th>
+                      <th colSpan={2} className="border border-black py-0.5">Bilhetagem</th>
+                      <th className="border border-black py-0.5">Limpeza</th>
+                    </tr>
+                    <tr className="bg-[#f2f2f2] text-center font-bold text-[8px] uppercase text-black">
+                      <th className="border border-black py-0.5 w-[5%]">PREFIXO</th>
+                      <th className="border border-black py-0.5 w-[11%]">MOTIVO</th>
+                      <th className="border border-black py-0.5 w-[6%]">PREFIXO</th>
+                      <th className="border border-black py-0.5 w-[5%]">PREFIXO</th>
+                      <th className="border border-black py-0.5 w-[11%]">MOTIVO</th>
+                      <th className="border border-black py-0.5 w-[6%]">PREFIXO</th>
+                      <th className="border border-black py-0.5 w-[5%]">PREFIXO</th>
+                      <th className="border border-black py-0.5 w-[11%]">MOTIVO</th>
+                      <th className="border border-black py-0.5 w-[6%]">PREFIXO</th>
+                      <th className="border border-black py-0.5 w-[5%]">PREFIXO</th>
+                      <th className="border border-black py-0.5 w-[11%]">MOTIVO</th>
+                      <th className="border border-black py-0.5 w-[6%]">PREFIXO</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.from({ length: 9 }).map((_, rIdx) => {
+                      const mec = relatorioData.oficina.filter(c => c.setorOficina === "MECANICA")[rIdx];
+                      const elev = relatorioData.oficina.filter(c => c.setorOficina === "ELEVADOR")[rIdx];
+                      const elet = relatorioData.oficina.filter(c => c.setorOficina === "ELETRICA")[rIdx];
+                      const borr = relatorioData.oficina.filter(c => c.setorOficina === "BORRACHARIA")[rIdx];
+                      const fun = relatorioData.oficina.filter(c => c.setorOficina === "FUNILARIA")[rIdx];
+                      const tac = relatorioData.oficina.filter(c => c.setorOficina === "TACOGRAFO")[rIdx];
+                      const bilh = relatorioData.oficina.filter(c => c.setorOficina === "BILHETAGEM")[rIdx];
+                      const limp = relatorioData.oficina.filter(c => c.setorOficina === "LIMPEZA")[rIdx];
+
+                      return (
+                        <tr key={rIdx} className="h-[15px] text-[8.5px]">
+                          {/* Mecânica */}
+                          <td className="border border-black text-center font-mono font-bold px-0.5">{mec?.prefixo || ""}</td>
+                          <td className="border border-black text-left px-1 uppercase font-semibold text-[7.5px] truncate max-w-[80px]">{mec?.motivo || ""}</td>
+
+                          {/* Elevador */}
+                          <td className="border border-black text-center font-mono font-bold px-0.5">{elev?.prefixo || ""}</td>
+
+                          {/* Elétrica */}
+                          <td className="border border-black text-center font-mono font-bold px-0.5">{elet?.prefixo || ""}</td>
+                          <td className="border border-black text-left px-1 uppercase font-semibold text-[7.5px] truncate max-w-[80px]">{elet?.motivo || ""}</td>
+
+                          {/* Borracharia */}
+                          <td className="border border-black text-center font-mono font-bold px-0.5">{borr?.prefixo || ""}</td>
+
+                          {/* Funilaria / Pintura */}
+                          <td className="border border-black text-center font-mono font-bold px-0.5">{fun?.prefixo || ""}</td>
+                          <td className="border border-black text-left px-1 uppercase font-semibold text-[7.5px] truncate max-w-[80px]">{fun?.motivo || ""}</td>
+
+                          {/* Tacógrafo */}
+                          <td className="border border-black text-center font-mono font-bold px-0.5">{tac?.prefixo || ""}</td>
+
+                          {/* Bilhetagem */}
+                          <td className="border border-black text-center font-mono font-bold px-0.5">{bilh?.prefixo || ""}</td>
+                          <td className="border border-black text-left px-1 uppercase font-semibold text-[7.5px] truncate max-w-[80px]">{bilh?.motivo || ""}</td>
+
+                          {/* Limpeza */}
+                          <td className="border border-black text-center font-mono font-bold px-0.5">{limp?.prefixo || ""}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+
+                {/* 4. TABELA: REFORÇO COM HORÁRIO */}
+                <table className="w-full border-collapse border border-black text-[9px] leading-tight">
+                  <thead>
+                    <tr>
+                      <th colSpan={8} className="bg-[#e6e6e6] border border-black py-0.5 text-center font-bold text-[10px] uppercase tracking-wide text-black">
+                        Reforço com horário
+                      </th>
+                    </tr>
+                    <tr className="bg-[#f2f2f2] text-center font-bold text-[8.5px] uppercase text-black">
+                      {/* Lado Esquerdo */}
+                      <th className="border border-black py-0.5 w-[11%]">HORÁRIO</th>
+                      <th className="border border-black py-0.5 w-[18%]">MOTIVO</th>
+                      <th colSpan={2} className="border border-black py-0.5 w-[21%]">PREFIXO</th>
+                      {/* Lado Direito */}
+                      <th className="border border-black py-0.5 w-[11%]">HORÁRIO</th>
+                      <th className="border border-black py-0.5 w-[17%]">MOTIVO</th>
+                      <th className="border border-black py-0.5 w-[11%]">PREFIXO</th>
+                      <th className="border border-black py-0.5 w-[11%]">INSPEÇÃO</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.from({ length: 6 }).map((_, rIdx) => {
+                      const slotEsq = FIXED_REFORCO_SLOTS[rIdx];
+                      const slotDir = FIXED_REFORCO_SLOTS[rIdx + 6];
+                      const dataEsq = getReforcoSlotData(slotEsq.id, slotEsq.horario, "", rIdx);
+                      const dataDir = getReforcoSlotData(slotDir.id, slotDir.horario, "", rIdx + 6);
+
+                      return (
+                        <tr key={rIdx} className="h-[15px] text-[8.5px] text-center">
+                          {/* Lado Esquerdo */}
+                          <td className="border border-black font-mono font-bold">{slotEsq.horario}</td>
+                          <td className="border border-black uppercase font-semibold text-[8px]">{dataEsq.motivo || ""}</td>
+                          <td className="border border-black font-mono font-bold w-[10.5%]">{dataEsq.prefixo || ""}</td>
+                          <td className="border border-black font-mono font-bold w-[10.5%]">{dataEsq.obs || ""}</td>
+
+                          {/* Lado Direito */}
+                          <td className="border border-black font-mono font-bold">{slotDir.horario}</td>
+                          <td className="border border-black uppercase font-semibold text-[8px]">{dataDir.motivo || ""}</td>
+                          <td className="border border-black font-mono font-bold">{dataDir.prefixo || ""}</td>
+                          <td className="border border-black font-mono font-bold text-[8px]">{dataDir.obs || ""}</td>
+                        </tr>
+                      );
+                    })}
+
+                    {/* Linha Extra: 6 Repetições de PREFIXO / MOTIVO */}
+                    <tr className="bg-[#f2f2f2] text-center font-bold text-[7.5px] uppercase text-black">
+                      <th className="border border-black py-0.5">PREFIXO</th>
+                      <th className="border border-black py-0.5">MOTIVO</th>
+                      <th className="border border-black py-0.5">PREFIXO</th>
+                      <th className="border border-black py-0.5">MOTIVO</th>
+                      <th className="border border-black py-0.5">PREFIXO</th>
+                      <th className="border border-black py-0.5">MOTIVO</th>
+                      <th className="border border-black py-0.5">PREFIXO</th>
+                      <th className="border border-black py-0.5">MOTIVO</th>
+                    </tr>
+                    <tr className="h-[15px] text-[8.5px] text-center">
+                      <td className="border border-black font-mono font-bold"></td>
+                      <td className="border border-black"></td>
+                      <td className="border border-black font-mono font-bold"></td>
+                      <td className="border border-black"></td>
+                      <td className="border border-black font-mono font-bold"></td>
+                      <td className="border border-black"></td>
+                      <td className="border border-black font-mono font-bold"></td>
+                      <td className="border border-black"></td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                {/* 5. TABELA: BLOQUEADOS POR CONSORCIADA (GRID 2x2: VSF, VCG, JTU, VCM) */}
                 <div className="space-y-1">
-                  <Label className="text-[11px] text-muted-foreground">Motivos de bloqueio da folha:</Label>
-                  <div className="flex flex-wrap gap-1">
-                    {BLOQUEIOS_MOTIVOS_RAPIDOS.map(mot => (
-                      <button
-                        key={mot}
-                        type="button"
-                        onClick={() => setFormMotivo(mot)}
-                        className="text-[10px] px-2 py-0.5 rounded-md bg-background border hover:bg-muted text-muted-foreground hover:text-foreground"
-                      >
-                        + {mot}
-                      </button>
-                    ))}
+                  
+                  {/* Linha Superior: BLOQUEADOS VSF e BLOQUEADOS VCG (11 linhas cada) */}
+                  <div style={{ display: "flex", gap: "4px", width: "100%" }}>
+                    {/* VSF */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <table className="w-full border-collapse border border-black text-[8.5px] leading-tight">
+                        <thead>
+                          <tr>
+                            <th colSpan={3} className="bg-[#e6e6e6] border border-black py-0.5 text-center font-bold text-[9px] uppercase tracking-wide text-black">
+                              BLOQUEADOS VSF
+                            </th>
+                          </tr>
+                          <tr className="bg-[#f2f2f2] text-center font-bold text-[8px] uppercase text-black">
+                            <th className="border border-black py-0.5 w-[20%]">PREFIXO</th>
+                            <th className="border border-black py-0.5 w-[55%]">MOTIVO</th>
+                            <th className="border border-black py-0.5 w-[25%]">DATA BLOQUEIO</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Array.from({ length: 11 }).map((_, idx) => {
+                            const item = relatorioData.bloqVSF[idx];
+                            return (
+                              <tr key={idx} className="h-[14px]">
+                                <td className="border border-black text-center font-mono font-bold px-1">{item?.prefixo || ""}</td>
+                                <td className="border border-black text-left px-1 uppercase font-semibold text-[8px] truncate max-w-[130px]">{item?.motivo || ""}</td>
+                                <td className="border border-black text-center font-mono px-1 text-[8px]">{formatDataBloqueio(item?.data) || ""}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* VCG */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <table className="w-full border-collapse border border-black text-[8.5px] leading-tight">
+                        <thead>
+                          <tr>
+                            <th colSpan={3} className="bg-[#e6e6e6] border border-black py-0.5 text-center font-bold text-[9px] uppercase tracking-wide text-black">
+                              BLOQUEADOS VCG
+                            </th>
+                          </tr>
+                          <tr className="bg-[#f2f2f2] text-center font-bold text-[8px] uppercase text-black">
+                            <th className="border border-black py-0.5 w-[20%]">PREFIXO</th>
+                            <th className="border border-black py-0.5 w-[55%]">MOTIVO</th>
+                            <th className="border border-black py-0.5 w-[25%]">DATA BLOQUEIO</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Array.from({ length: 11 }).map((_, idx) => {
+                            const item = relatorioData.bloqVCG[idx];
+                            return (
+                              <tr key={idx} className="h-[14px]">
+                                <td className="border border-black text-center font-mono font-bold px-1">{item?.prefixo || ""}</td>
+                                <td className="border border-black text-left px-1 uppercase font-semibold text-[8px] truncate max-w-[130px]">{item?.motivo || ""}</td>
+                                <td className="border border-black text-center font-mono px-1 text-[8px]">{formatDataBloqueio(item?.data) || ""}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
+
+                  {/* Linha Inferior: BLOQUEADOS JTU e BLOQUEADOS VCM (8 linhas cada) */}
+                  <div style={{ display: "flex", gap: "4px", width: "100%" }}>
+                    {/* JTU */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <table className="w-full border-collapse border border-black text-[8.5px] leading-tight">
+                        <thead>
+                          <tr>
+                            <th colSpan={3} className="bg-[#e6e6e6] border border-black py-0.5 text-center font-bold text-[9px] uppercase tracking-wide text-black">
+                              BLOQUEADOS JTU
+                            </th>
+                          </tr>
+                          <tr className="bg-[#f2f2f2] text-center font-bold text-[8px] uppercase text-black">
+                            <th className="border border-black py-0.5 w-[20%]">PREFIXO</th>
+                            <th className="border border-black py-0.5 w-[55%]">MOTIVO</th>
+                            <th className="border border-black py-0.5 w-[25%]">DATA BLOQUEIO</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Array.from({ length: 8 }).map((_, idx) => {
+                            const item = relatorioData.bloqJTU[idx];
+                            return (
+                              <tr key={idx} className="h-[14px]">
+                                <td className="border border-black text-center font-mono font-bold px-1">{item?.prefixo || ""}</td>
+                                <td className="border border-black text-left px-1 uppercase font-semibold text-[8px] truncate max-w-[130px]">{item?.motivo || ""}</td>
+                                <td className="border border-black text-center font-mono px-1 text-[8px]">{formatDataBloqueio(item?.data) || ""}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* VCM */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <table className="w-full border-collapse border border-black text-[8.5px] leading-tight">
+                        <thead>
+                          <tr>
+                            <th colSpan={3} className="bg-[#e6e6e6] border border-black py-0.5 text-center font-bold text-[9px] uppercase tracking-wide text-black">
+                              BLOQUEADOS VCM
+                            </th>
+                          </tr>
+                          <tr className="bg-[#f2f2f2] text-center font-bold text-[8px] uppercase text-black">
+                            <th className="border border-black py-0.5 w-[20%]">PREFIXO</th>
+                            <th className="border border-black py-0.5 w-[55%]">MOTIVO</th>
+                            <th className="border border-black py-0.5 w-[25%]">DATA BLOQUEIO</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Array.from({ length: 8 }).map((_, idx) => {
+                            const item = relatorioData.bloqVCM[idx];
+                            return (
+                              <tr key={idx} className="h-[14px]">
+                                <td className="border border-black text-center font-mono font-bold px-1">{item?.prefixo || ""}</td>
+                                <td className="border border-black text-left px-1 uppercase font-semibold text-[8px] truncate max-w-[130px]">{item?.motivo || ""}</td>
+                                <td className="border border-black text-center font-mono px-1 text-[8px]">{formatDataBloqueio(item?.data) || ""}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* 6. ASSINATURA NO RODAPÉ */}
+                <div className="pt-2 flex items-center justify-start text-[10px] font-bold">
+                  <span>Manutenção: _____________________________________</span>
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+
+        </DialogContent>
+      </Dialog>
+
+
+
+
+
+      {/* ========================================================= */}
+      {/* MODAL RÁPIDO DO BOTÃO '+' DOS CARDS (PRINT 01 E 02) */}
+      {/* ========================================================= */}
+      <Dialog 
+        open={quickAddModal.isOpen} 
+        onOpenChange={(open) => setQuickAddModal(prev => ({ ...prev, isOpen: open }))}
+      >
+        <DialogContent className="max-w-md sm:max-w-lg print:hidden">
+          <DialogHeader>
+            <DialogTitle className="text-base sm:text-lg font-bold flex items-center gap-2">
+              {quickAddModal.isEditing ? (
+                <Wrench className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+              ) : (
+                <Plus className="w-5 h-5 text-primary" />
+              )}
+              <span>{quickAddModal.title || (quickAddModal.isEditing ? `Editar Carro ${quickAddCarro}` : "Adicionar Veículo na CI")}</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              {quickAddModal.isEditing
+                ? "Atualize os dados da solicitação ou dê baixa/libere o veículo da CI."
+                : "Selecione o veículo da garagem ativa e informe os detalhes da solicitação."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleConfirmQuickAdd} className="space-y-3.5 pt-1">
+            {/* Campo de Seleção / Busca Moderna de Veículos (Padrão Controle de Frota) */}
+            <div className="relative" ref={quickAddCarSelectorRef}>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-bold text-gray-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <Bus className="w-3.5 h-3.5 text-gray-500" />
+                  Prefixo do Carro <span className="text-rose-500">*</span>
+                </label>
+                <span className="text-[10px] font-medium text-gray-500 dark:text-slate-400">
+                  {quickAddModal.isEditing ? (
+                    <span className="font-semibold text-emerald-600 dark:text-emerald-400">Em Edição</span>
+                  ) : (
+                    `${sortedAllowedCars.length} veículos da Garagem ${activeGaragemScope === "TODAS" ? "VCG/VCM" : activeGaragemScope}`
+                  )}
+                </span>
+              </div>
+
+              {/* Input customizado com Botão Dropdown */}
+              <div className="relative">
+                <Input
+                  value={quickAddCarro}
+                  disabled={quickAddModal.isEditing}
+                  onChange={(e) => {
+                    if (quickAddModal.isEditing) return;
+                    setQuickAddCarro(e.target.value.replace(/\D/g, ""));
+                    setQuickAddSelectorOpen(true);
+                  }}
+                  onClick={() => {
+                    if (!quickAddModal.isEditing) {
+                      setQuickAddSelectorOpen(prev => !prev);
+                    }
+                  }}
+                  placeholder="Carro..."
+                  className={cn(
+                    "font-mono font-bold text-sm rounded-xl pl-9 pr-20 h-11 border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-emerald-500/20",
+                    quickAddModal.isEditing ? "opacity-90 bg-muted/50 cursor-not-allowed" : "cursor-pointer"
+                  )}
+                  maxLength={5}
+                  required
+                />
+                <Bus className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+
+                {!quickAddModal.isEditing && (
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                    {quickAddCarro && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setQuickAddCarro("");
+                          setQuickAddSelectorOpen(false);
+                        }}
+                        className="p-1 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
+                        title="Limpar campo"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setQuickAddSelectorOpen(prev => !prev);
+                      }}
+                      className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                      title="Abrir lista de veículos"
+                    >
+                      <ChevronDown className={cn("w-4 h-4 transition-transform duration-200", quickAddSelectorOpen && "rotate-180 text-emerald-600")} />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Painel Suspenso (Dropdown Moderno com Rolagem de Scroll Nativa) */}
+              {quickAddSelectorOpen && (
+                <div className="absolute z-50 left-0 right-0 mt-1.5 bg-white dark:bg-[#0E1420] border border-gray-200 dark:border-slate-700 rounded-2xl shadow-xl overflow-hidden animate-in fade-in-50 zoom-in-95 duration-150">
+                  {/* Cabeçalho do Dropdown com Filtro Rápido de Empresa */}
+                  <div className="p-2 border-b border-gray-100 dark:border-slate-800 bg-gray-50/70 dark:bg-slate-950/40 flex items-center justify-between gap-1">
+                    <span className="text-[11px] font-semibold text-gray-500 dark:text-slate-400 pl-1">
+                      Filtrar por Empresa:
+                    </span>
+                    <div className="flex items-center gap-1">
+                      {(activeGaragemScope === "VCG" ? ["TODAS", "VCG", "JTU", "VSF"] : activeGaragemScope === "VCM" ? ["TODAS", "VCM"] : ["TODAS", "VCG", "JTU", "VSF", "VCM"]).map(emp => (
+                        <button
+                          key={emp}
+                          type="button"
+                          onClick={() => setQuickAddFilterCompany(emp)}
+                          className={cn(
+                            "px-2 py-0.5 rounded-full text-[10px] font-bold transition-all cursor-pointer",
+                            quickAddFilterCompany === emp
+                              ? "bg-gray-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs"
+                              : "text-gray-500 hover:bg-gray-200/60 dark:hover:bg-slate-800"
+                          )}
+                        >
+                          {emp}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Lista de Carros com Rolagem Suave por Scroll do Mouse */}
+                  <div className="max-h-56 overflow-y-auto divide-y divide-gray-100 dark:divide-slate-800/60">
+                    {quickAddFilteredCars.length === 0 ? (
+                      <div className="py-6 text-center text-xs text-gray-400 dark:text-slate-500">
+                        Nenhum veículo encontrado para a busca "{quickAddCarro}"
+                      </div>
+                    ) : (
+                      quickAddFilteredCars.map(car => {
+                        const cons = getConsorciadaByCarro(car.prefixo);
+                        const statusCI = getCarStatusInCI(car.prefixo);
+                        const isSelected = quickAddCarro === car.prefixo;
+
+                        return (
+                          <button
+                            key={car.prefixo}
+                            type="button"
+                            onClick={() => {
+                              setQuickAddCarro(car.prefixo);
+                              setQuickAddSelectorOpen(false);
+                            }}
+                            className={cn(
+                              "w-full text-left px-3.5 py-2.5 flex items-center justify-between transition-colors cursor-pointer group",
+                              isSelected
+                                ? "bg-emerald-50 dark:bg-emerald-950/40"
+                                : "hover:bg-gray-50 dark:hover:bg-slate-800/60"
+                            )}
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <span className="font-mono font-bold text-sm text-gray-900 dark:text-white group-hover:text-emerald-600 transition-colors">
+                                {car.prefixo}
+                              </span>
+                              <span className={cn(
+                                "text-[10px] font-bold px-2 py-0.5 rounded-md border",
+                                cons === "VCG" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800" :
+                                cons === "JTU" ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border-blue-200 dark:border-blue-800" :
+                                cons === "VSF" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800" :
+                                "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+                              )}>
+                                {cons}
+                              </span>
+                              <span className="text-[10px] text-gray-400 dark:text-slate-500">
+                                Garagem {car.garagem}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                              {statusCI === "BLOQUEADO" && (
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200 dark:border-rose-900">
+                                  Já Bloqueado
+                                </span>
+                              )}
+                              {statusCI === "OFICINA" && (
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-900">
+                                  Em Oficina
+                                </span>
+                              )}
+                              {statusCI === "PREVENTIVA" && (
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200 dark:border-blue-900">
+                                  Preventiva
+                                </span>
+                              )}
+                              {isSelected && (
+                                <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Rodapé do Dropdown com quantidade */}
+                  <div className="p-2 border-t border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-950/20 text-center text-[10px] text-gray-400">
+                    Mostrando {quickAddFilteredCars.length} de {sortedAllowedCars.length} veículos cadastrados
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Chips Rápidos de Motivo / Defeito (apenas para Oficinas e Bloqueados; em Preventivas não é necessário) */}
+            {quickAddModal.category !== "PREVENTIVA" && quickAddModal.chips && quickAddModal.chips.length > 0 && (
+              <div className="space-y-1">
+                <Label className="text-[11px] text-muted-foreground">Motivos sugeridos (clique para aplicar):</Label>
+                <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                  {quickAddModal.chips.map(chip => (
+                    <button
+                      key={chip}
+                      type="button"
+                      onClick={() => setQuickAddMotivo(chip)}
+                      className={cn(
+                        "text-[10px] px-2 py-0.5 rounded-md border transition-all cursor-pointer",
+                        quickAddMotivo === chip
+                          ? "bg-primary text-primary-foreground border-primary font-bold shadow-2xs"
+                          : "bg-background text-muted-foreground hover:text-foreground hover:bg-muted"
+                      )}
+                    >
+                      {chip}
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
 
-            {/* CAMPO DE MOTIVO DETALHADO (Apenas para Oficinas, Preventivas e Bloqueados; na aba Reforço o motivo já é definido nos cards/outro) */}
-            {modalCategory !== "REFORCO" && (
+            {/* Campo de Motivo (apenas para Oficinas e Bloqueados; em Preventivas o motivo é automático) */}
+            {quickAddModal.category !== "PREVENTIVA" && (
               <div className="space-y-1.5">
                 <Label className="text-xs font-bold">
-                  Motivo / Defeito / Observações da Solicitação <span className="text-rose-500">*</span>
+                  Motivo / Defeito <span className="text-rose-500">*</span>
                 </Label>
                 <Input
-                  value={formMotivo}
-                  onChange={(e) => setFormMotivo(e.target.value)}
-                  placeholder="Ex: Suspensão, Módulo, Motor, Sinistro, Revisão Geral..."
+                  value={quickAddMotivo}
+                  onChange={(e) => setQuickAddMotivo(e.target.value)}
+                  placeholder="Ex: Suspensão, Módulo, Freio..."
                   className="text-xs h-9"
                   required
                 />
               </div>
             )}
 
-            {/* CAMPOS COMPLEMENTARES: DATA DO BLOQUEIO E RESPONSÁVEL */}
+            {/* Data e Observações adicionais */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label className="text-xs">Data da Solicitação / Bloqueio</Label>
+                <Label className="text-xs">Data da Solicitação</Label>
                 <Input
                   type="date"
-                  value={formDataBloqueio}
-                  onChange={(e) => setFormDataBloqueio(e.target.value)}
+                  value={quickAddData}
+                  onChange={(e) => setQuickAddData(e.target.value)}
                   className="text-xs h-8"
+                  required
                 />
               </div>
 
               <div className="space-y-1">
-                <Label className="text-xs">Responsável / Oficina</Label>
+                <Label className="text-xs">Observações (opcional)</Label>
                 <Input
-                  value={formResponsavel}
-                  onChange={(e) => setFormResponsavel(e.target.value)}
-                  placeholder="Ex: Mecânica Geral"
+                  value={quickAddObs}
+                  onChange={(e) => setQuickAddObs(e.target.value)}
+                  placeholder="Ex: OS 1234, Box 2"
                   className="text-xs h-8"
                 />
               </div>
             </div>
 
-            <DialogFooter className="pt-3 border-t flex flex-row items-center justify-between sm:justify-between">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setDialogOpen(false)}
-                className="text-xs"
-              >
-                Fechar
-              </Button>
+            <DialogFooter className="pt-3 border-t flex flex-row items-center justify-between sm:justify-between gap-2">
+              {quickAddModal.isEditing ? (
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleDeleteQuickCarro}
+                    className="h-8 text-xs gap-1 cursor-pointer"
+                    title="Excluir da CI"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Excluir</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleReleaseQuickCarro}
+                    className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold cursor-pointer"
+                    title="Dar baixa e liberar para soltura"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Liberar (Baixa)</span>
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setQuickAddModal(prev => ({ ...prev, isOpen: false }))}
+                  className="text-xs"
+                >
+                  Cancelar
+                </Button>
+              )}
 
               <div className="flex items-center gap-2">
+                {quickAddModal.isEditing && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setQuickAddModal(prev => ({ ...prev, isOpen: false }))}
+                    className="text-xs"
+                  >
+                    Cancelar
+                  </Button>
+                )}
                 <Button
                   type="submit"
                   size="sm"
-                  className="bg-primary text-primary-foreground text-xs font-semibold gap-1.5 shadow-xs"
+                  className="bg-primary text-primary-foreground text-xs font-semibold gap-1.5 shadow-xs cursor-pointer"
                 >
                   <Check className="w-4 h-4" />
-                  Salvar Solicitação do Carro {selectedCarro}
+                  {quickAddModal.isEditing ? "Salvar Alterações" : "Adicionar à CI"}
                 </Button>
               </div>
             </DialogFooter>
-
           </form>
-
         </DialogContent>
       </Dialog>
 

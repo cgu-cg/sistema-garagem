@@ -25,6 +25,8 @@ import * as solturaController from "../controllers/soltura";
 import * as reservasTerminaisController from "../controllers/reservasTerminais";
 import * as catracasController from "../controllers/catracas";
 import * as controleOperacionalController from "../controllers/controleOperacional";
+import * as ciBloqueiosController from "../controllers/ciBloqueios";
+import * as manutencaoController from "../controllers/manutencao";
 
 const router: Router = Router();
 
@@ -86,6 +88,21 @@ router.get("/controle-operacional/linhas", authenticate, controleOperacionalCont
 router.post("/controle-operacional", authenticate, authorize("ADMIN", "operacional"), controleOperacionalController.create);
 router.delete("/controle-operacional/:id", authenticate, authorize("ADMIN"), controleOperacionalController.remove);
 router.put("/controle-operacional/:id", authenticate, authorize("ADMIN", "operacional"), controleOperacionalController.update);
+
+// CI Manutenção & Bloqueios de Veículos (Soltura & Manutenção)
+router.get("/ci-bloqueios", authenticate, ciBloqueiosController.list);
+router.post("/ci-bloqueios", authenticate, ciBloqueiosController.createOrUpdate);
+router.post("/ci-bloqueios/release", authenticate, ciBloqueiosController.release);
+router.post("/ci-bloqueios/sync", authenticate, ciBloqueiosController.sync);
+router.delete("/ci-bloqueios/:id", authenticate, ciBloqueiosController.remove);
+
+// Manutenção (Controle de Frota)
+router.get("/manutencao", authenticate, manutencaoController.list);
+router.post("/manutencao", authenticate, manutencaoController.createOrUpdate);
+router.put("/manutencao/:id", authenticate, manutencaoController.update);
+router.delete("/manutencao/:id", authenticate, manutencaoController.remove);
+router.post("/manutencao/sync", authenticate, manutencaoController.sync);
+router.post("/manutencao/reset", authenticate, manutencaoController.reset);
 
 export default router;
 

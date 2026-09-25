@@ -635,3 +635,236 @@ WHERE id = 1;
 -- 15.4 - EXCLUSÃO (DELETE): Excluir grupo
 DELETE FROM groups
 WHERE id = 1;
+
+
+----------------------------------------------------------------------------------------------------
+-- 16. PÁGINA: FOLHA DE MANUTENÇÃO DE FROTA (/manutencao)
+--     TABELA: manutencao_carros
+--     ARQUIVO BACKEND: apps/api/src/controllers/manutencao.ts
+--     FINALIDADE: Controle diário dos veículos em manutenção (Bloqueado, Em Execução, Liberado)
+----------------------------------------------------------------------------------------------------
+
+-- 16.1 - DDL: Estrutura da Tabela e Índices no SQL Server
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name = 'manutencao_carros' AND xtype = 'U')
+BEGIN
+    CREATE TABLE manutencao_carros (
+        id NVARCHAR(100) NOT NULL PRIMARY KEY,
+        prefixo NVARCHAR(10) NOT NULL,
+        consorciada NVARCHAR(10) NOT NULL,
+        observacao NVARCHAR(255) DEFAULT '',
+        bloqueado BIT DEFAULT 0,
+        em_execucao BIT DEFAULT 0,
+        liberado BIT DEFAULT 0,
+        data NVARCHAR(20) NOT NULL,
+        user_id INT NULL,
+        created_at DATETIME DEFAULT GETDATE(),
+        updated_at DATETIME DEFAULT GETDATE()
+    );
+
+    CREATE INDEX idx_manutencao_carros_data ON manutencao_carros(data);
+    CREATE INDEX idx_manutencao_carros_prefixo ON manutencao_carros(prefixo);
+    CREATE INDEX idx_manutencao_carros_data_prefixo ON manutencao_carros(data, prefixo);
+END;
+
+-- 16.2 - CONSULTA (SELECT): Listar veículos na folha de manutenção para uma data específica
+DECLARE @dataManutencao NVARCHAR(20) = '2026-09-09';
+
+SELECT 
+    id,
+    prefixo,
+    consorciada,
+    observacao,
+    bloqueado,
+    em_execucao,
+    liberado,
+    data,
+    user_id,
+    created_at,
+    updated_at
+FROM manutencao_carros
+WHERE data = @dataManutencao
+ORDER BY prefixo ASC;
+
+-- 16.3 - INSERÇÃO / UPSERT: Cadastrar ou atualizar veículo na folha de manutenção
+-- (Formato padrão de ID: 'manut-YYYY-MM-DD-PREFIXO')
+DECLARE @idManut NVARCHAR(100) = 'manut-2026-09-09-4178';
+DECLARE @prefManut NVARCHAR(10) = '4178';
+DECLARE @consorciadaManut NVARCHAR(10) = 'VCG';
+DECLARE @obsManut NVARCHAR(255) = 'ELEVADOR COM DEFEITO';
+DECLARE @bloqueadoVal BIT = 1;
+DECLARE @emExecucaoVal BIT = 1;
+DECLARE @liberadoVal BIT = 0;
+DECLARE @userIdManut INT = 1;
+
+IF EXISTS (SELECT 1 FROM manutencao_carros WHERE id = @idManut)
+BEGIN
+    UPDATE manutencao_carros
+    SET prefixo = @prefManut,
+        consorciada = @consorciadaManut,
+        observacao = @obsManut,
+        bloqueado = @bloqueadoVal,
+        em_execucao = @emExecucaoVal,
+        liberado = @liberadoVal,
+        user_id = @userIdManut,
+        updated_at = GETDATE()
+    WHERE id = @idManut;
+END
+ELSE
+BEGIN
+    INSERT INTO manutencao_carros (
+        id, prefixo, consorciada, observacao, bloqueado, 
+        em_execucao, liberado, data, user_id, created_at, updated_at
+    )
+    VALUES (
+        @idManut, @prefManut, @consorciadaManut, @obsManut, @bloqueadoVal,
+        @emExecucaoVal, @liberadoVal, @dataManutencao, @userIdManut, GETDATE(), GETDATE()
+    );
+END;
+
+-- 16.4 - ATUALIZAÇÃO (UPDATE): Alterar status rápido de um veículo (ex: marcar como liberado)
+UPDATE manutencao_carros
+SET bloqueado = 0,
+    em_execucao = 0,
+    liberado = 1,
+    observacao = 'Liberado após teste de bancada',
+    updated_at = GETDATE()
+WHERE id = 'manut-2026-09-09-4178';
+
+-- 16.5 - EXCLUSÃO (DELETE): Remover veículo da folha de manutenção da data
+DELETE FROM manutencao_carros
+WHERE id = 'manut-2026-09-09-4178';
+
+-- 16.6 - RESET: Restaurar a folha de manutenção do dia importando veículos ativos da CI
+DELETE FROM manutencao_carros
+WHERE data = @dataManutencao;
+
+INSERT INTO manutencao_carros (
+    id, prefixo, consorciada, observacao, bloqueado, 
+    em_execucao, liberado, data, created_at, updated_at
+)
+SELECT 
+    'manut-' + @dataManutencao + '-' + prefixo AS id,
+    prefixo,
+    consorciada,
+    motivo AS observacao,
+    1 AS bloqueado,
+    CASE WHEN status = 'EM_MANUTENCAO' THEN 1 ELSE 0 END AS em_execucao,
+    0 AS liberado,
+    @dataManutencao AS data,
+    GETDATE(),
+    GETDATE()
+FROM ci_bloqueios
+WHERE status <> 'LIBERADO';
+
+
+----------------------------------------------------------------------------------------------------
+-- 17. PÁGINA: CI MANUTENÇÃO - COMUNICAÇÃO INTERNA DE BLOQUEIOS (/manutencao/ci-manutencao)
+--     TABELA: ci_bloqueios
+--     ARQUIVO BACKEND: apps/api/src/controllers/ciBloqueios.ts
+--     FINALIDADE: Documento Oficial de Solicitação/Bloqueio de Veículos (CGU.REG.MT0005)
+----------------------------------------------------------------------------------------------------
+
+-- 17.1 - DDL: Estrutura da Tabela e Índices no SQL Server
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name = 'ci_bloqueios' AND xtype = 'U')
+BEGIN
+    CREATE TABLE ci_bloqueios (
+        id NVARCHAR(100) NOT NULL PRIMARY KEY,
+        prefixo NVARCHAR(10) NOT NULL,
+        garagem NVARCHAR(10) NOT NULL,
+        consorciada NVARCHAR(10) NOT NULL,
+        categoria NVARCHAR(20) NOT NULL,
+        sub_tipo NVARCHAR(50) NULL,
+        horario_reforco NVARCHAR(20) NULL,
+        motivo NVARCHAR(255) NOT NULL,
+        data_bloqueio NVARCHAR(20) NOT NULL,
+        hora_bloqueio NVARCHAR(10) NULL,
+        gravidade NVARCHAR(10) DEFAULT 'ALTA',
+        responsavel NVARCHAR(100) NULL,
+        observacoes NVARCHAR(255) NULL,
+        status NVARCHAR(20) DEFAULT 'BLOQUEADO',
+        data_liberacao NVARCHAR(50) NULL,
+        motivo_liberacao NVARCHAR(255) NULL,
+        responsavel_liberacao NVARCHAR(100) NULL,
+        user_id INT NULL,
+        created_at DATETIME DEFAULT GETDATE(),
+        updated_at DATETIME DEFAULT GETDATE()
+    );
+
+    CREATE INDEX idx_ci_bloqueios_prefixo ON ci_bloqueios(prefixo);
+    CREATE INDEX idx_ci_bloqueios_status ON ci_bloqueios(status);
+    CREATE INDEX idx_ci_bloqueios_garagem ON ci_bloqueios(garagem);
+END;
+
+-- 17.2 - CONSULTA (SELECT): Listar bloqueios com filtros de Garagem, Status e Categoria
+-- Parâmetros opcionais de filtro:
+DECLARE @filtroGaragem NVARCHAR(10) = 'VCG'; -- 'VCG', 'VCM' ou 'TODAS'
+DECLARE @filtroStatus NVARCHAR(20) = 'BLOQUEADO'; -- 'BLOQUEADO', 'EM_MANUTENCAO', 'LIBERADO'
+DECLARE @filtroCategoria NVARCHAR(20) = 'OFICINA'; -- 'OFICINA', 'PREVENTIVA', 'BLOQUEADO', 'REFORCO'
+
+SELECT 
+    id,
+    prefixo,
+    garagem,
+    consorciada,
+    categoria,
+    sub_tipo,
+    horario_reforco,
+    motivo,
+    data_bloqueio,
+    hora_bloqueio,
+    gravidade,
+    responsavel,
+    observacoes,
+    status,
+    data_liberacao,
+    motivo_liberacao,
+    responsavel_liberacao,
+    created_at,
+    updated_at
+FROM ci_bloqueios
+WHERE (@filtroGaragem = 'TODAS' OR garagem = @filtroGaragem)
+  AND (@filtroStatus IS NULL OR status = @filtroStatus)
+  AND (@filtroCategoria IS NULL OR categoria = @filtroCategoria)
+ORDER BY 
+    CASE WHEN status = 'BLOQUEADO' THEN 1 WHEN status = 'EM_MANUTENCAO' THEN 2 ELSE 3 END ASC,
+    data_bloqueio DESC, 
+    prefixo ASC;
+
+-- 17.3 - INSERÇÃO (INSERT): Registrar novo bloqueio de veículo na CI
+INSERT INTO ci_bloqueios (
+    id, prefixo, garagem, consorciada, categoria, sub_tipo, 
+    horario_reforco, motivo, data_bloqueio, hora_bloqueio, 
+    gravidade, responsavel, observacoes, status, user_id, 
+    created_at, updated_at
+)
+VALUES (
+    'ci-doc-4228', '4228', 'VCG', 'VCG', 'OFICINA', 'MECANICA',
+    NULL, 'Suspensão com barulho excessivo', '2026-09-25', '10:30',
+    'ALTA', 'Mecânica Geral', 'OS 89452', 'BLOQUEADO', 1,
+    GETDATE(), GETDATE()
+);
+
+-- 17.4 - ATUALIZAÇÃO (UPDATE): Dar Baixa / Liberar Veículo da CI
+-- Registra data/hora da liberação, motivo e o responsável que autorizou a saída
+UPDATE ci_bloqueios
+SET status = 'LIBERADO',
+    data_liberacao = '25/09/2026 às 11:45',
+    motivo_liberacao = 'Suspensão reparada e aprovada no teste de rodagem',
+    responsavel_liberacao = 'Encarregado de Oficina',
+    updated_at = GETDATE()
+WHERE prefixo = '4228' 
+  AND status = 'BLOQUEADO';
+
+-- 17.5 - ATUALIZAÇÃO (UPDATE): Modificar dados de um bloqueio existente
+UPDATE ci_bloqueios
+SET sub_tipo = 'ELETRICA',
+    motivo = 'Troca de chicote elétrico do alternador',
+    gravidade = 'ALTA',
+    responsavel = 'Auto Elétrica Central',
+    updated_at = GETDATE()
+WHERE id = 'ci-doc-4228';
+
+-- 17.6 - EXCLUSÃO (DELETE): Remover bloqueio da CI por ID ou Prefixo
+DELETE FROM ci_bloqueios
+WHERE id = 'ci-doc-4228';
+

@@ -51,7 +51,7 @@ import { CiManutencaoView } from "./CiManutencaoView";
 import { AlterarFolhaView } from "./AlterarFolhaView";
 import { AlterarCarroProgramadoView } from "./AlterarCarroProgramadoView";
 import { CarroRealizadoView } from "./CarroRealizadoView";
-import { getInitialCIBloqueios, checkCarroBloqueado, subscribeCIUpdates } from "./ciManager";
+import { getInitialCIBloqueios, checkCarroBloqueado, subscribeCIUpdates, fetchCIBloqueiosFromApi } from "./ciManager";
 import {
   getInitialCustomSchedules,
   saveCustomSchedulesToStorage,
@@ -232,10 +232,10 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     }
   }, [location.pathname, defaultTab]);
 
-  // Na Folha de Soltura (/soltura), a data é sempre e estritamente a data de hoje local.
+  // Na Folha de Soltura (/soltura) e na CI Manutenção (/soltura/ci-manutencao), a data inicia na data de hoje local.
   // No Histórico (/soltura/historico), inicia por padrão em ontem para consulta imediata de outros dias.
   useEffect(() => {
-    if (viewMode === "FOLHA") {
+    if (viewMode === "FOLHA" || viewMode === "CI_MANUTENCAO" || viewMode === "CI_BLOQUEIOS") {
       setDataOperacao(getHojeLocal());
     } else if (viewMode === "HISTORICO") {
       setDataOperacao(getOntemLocal());
@@ -249,13 +249,26 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   // Base de CIs Bloqueados sincronizada e persistida
   const [ciList, setCiList] = useState<BloqueioCarro[]>(() => getInitialCIBloqueios());
 
+  // Carregar CIs Bloqueados diretamente do banco oficial SQL Server
+  useEffect(() => {
+    fetchCIBloqueiosFromApi({ garagem }).then((data) => {
+      if (Array.isArray(data)) {
+        setCiList(data);
+      }
+    });
+  }, [garagem]);
+
   useEffect(() => {
     const unsubscribe = subscribeCIUpdates((updated) => {
-      setCiList(updated);
+      if (Array.isArray(updated)) {
+        setCiList(updated);
+      }
     });
 
     const handleManutUpdate = () => {
-      setCiList(getInitialCIBloqueios());
+      fetchCIBloqueiosFromApi({ garagem }).then(data => {
+        if (Array.isArray(data)) setCiList(data);
+      });
     };
     window.addEventListener("manutencao_updated", handleManutUpdate);
 
@@ -263,7 +276,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       unsubscribe();
       window.removeEventListener("manutencao_updated", handleManutUpdate);
     };
-  }, []);
+  }, [garagem]);
 
   // Chave de armazenamento por Turno e Escala (usada como cache de contingência)
   const getDispatchStorageKey = (g: string, e: string, t: TurnoTipo, d: string) => {
@@ -1701,6 +1714,13 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                     }).finally(() => {
                       setIsSyncingDb(false);
                     });
+
+                    // Sincronizar Bloqueios da CI do banco
+                    fetchCIBloqueiosFromApi({ garagem }).then((ciData) => {
+                      if (Array.isArray(ciData)) {
+                        setCiList(ciData);
+                      }
+                    }).catch(() => {});
                   }}
                   className="h-8 px-3 text-xs gap-1.5 rounded-xl border font-semibold shadow-2xs hover:bg-muted/80 transition-all cursor-pointer"
                   title="Atualizar dados diretamente do banco SQL Server"
@@ -2459,6 +2479,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           ciList={ciList}
           setCiList={setCiList}
           garagemFiltro={garagem}
+          dataOperacao={dataOperacao}
+          setDataOperacao={setDataOperacao}
         />
       )}
 

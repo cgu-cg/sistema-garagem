@@ -1,5 +1,6 @@
 import { BloqueioCarro } from "@/data/solturaData";
 import { getInitialCIBloqueios, saveCIBloqueiosToStorage, getGaragemFisicaByCarro } from "@/pages/soltura/ciManager";
+import { api } from "@/lib/api";
 
 export interface ManutencaoCarroItem {
   id: string;
@@ -15,7 +16,16 @@ export interface ManutencaoCarroItem {
 
 export const STORAGE_KEY_MANUTENCAO_PREFIX = "manutencao_carros_v2_";
 export const LEGACY_STORAGE_KEY_PREFIX = "manutencao_carros_v1_";
-const DEFAULT_REF_DATE = "2026-09-09";
+
+export function getTodayString(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export const DEFAULT_REF_DATE = getTodayString();
 
 export function getConsorciadaByPrefix(prefixo: string): "VSF" | "JTU" | "VCG" | "VCM" {
   const clean = prefixo.replace(/\D/g, "");
@@ -152,6 +162,24 @@ export const SEED_MANUTENCAO_OFICIAL: ManutencaoCarroItem[] = [
  * 4. Carros que NÃO estão na CI NÃO PODEM estar com bloqueado: true.
  * 5. Carros novos da CI são inseridos imediatamente na lista de manutenção.
  */
+export function isRealBloqueadoCI(ci: BloqueioCarro): boolean {
+  if (!ci) return false;
+  // Carros de PREVENTIVA, OFICINA e REFORÇO são serviços diários pontuais daquele dia e NÃO são bloqueios de frota
+  if (ci.categoriaPlanilha === "PREVENTIVA" || ci.categoriaPlanilha === "OFICINA" || ci.categoriaPlanilha === "REFORCO") {
+    return false;
+  }
+  if (ci.tipoPreventiva || ci.setorOficina || ci.horarioReforco) {
+    return false;
+  }
+  return ci.categoriaPlanilha === "BLOQUEADO" || !ci.categoriaPlanilha;
+}
+
+/**
+ * Reconcilia e sincroniza com rigor absoluto a lista de manutenção com os carros bloqueados da CI:
+ * 1. Apenas veículos com bloqueio real ativo de frota na CI (categoriaPlanilha === "BLOQUEADO") recebem bloqueado: true.
+ * 2. Carros de Preventivas, Setores da Oficina e Reforço não entram como bloqueados da frota.
+ * 3. Carros com status "LIBERADO" na CI ou que não constam como bloqueio real não permanecem como bloqueados gerados automaticamente.
+ */
 export function syncItemsWithCI(
   items: ManutencaoCarroItem[], 
   ciList: BloqueioCarro[], 
@@ -159,7 +187,7 @@ export function syncItemsWithCI(
 ): ManutencaoCarroItem[] {
   const ciMap = new Map<string, BloqueioCarro>();
   ciList.forEach(ci => {
-    if (ci.prefixo) {
+    if (ci.prefixo && isRealBloqueadoCI(ci)) {
       const clean = ci.prefixo.replace(/\D/g, "");
       if (clean) {
         ciMap.set(clean, ci);
@@ -168,59 +196,64 @@ export function syncItemsWithCI(
   });
 
   const processedPrefixes = new Set<string>();
+  const updatedItems: ManutencaoCarroItem[] = [];
 
-  // 1. Atualizar carros já presentes na lista de manutenção
-  const updatedItems: ManutencaoCarroItem[] = items.map(item => {
+  // 1. Processar itens já presentes na folha de manutenção
+  items.forEach(item => {
     const clean = (item.prefixo || "").replace(/\D/g, "");
-    if (!clean) return item;
-    processedPrefixes.add(clean);
+    if (!clean) return;
+
     const ci = ciMap.get(clean);
 
-    if (ci) {
-      const isLiberadoCI = ci.status === "LIBERADO";
-      const isEmExecucaoCI = !isLiberadoCI && ci.status === "EM_MANUTENCAO";
-      const isBloqueadoCI = !isLiberadoCI && !isEmExecucaoCI;
-
-      return {
-        ...item,
-        consorciada: ci.consorciada || item.consorciada || getConsorciadaByPrefix(clean),
-        observacao: ci.motivo || item.observacao,
-        bloqueado: isBloqueadoCI,
-        emExecucao: isEmExecucaoCI,
-        liberado: isLiberadoCI,
-        data: item.data || data
-      };
-    } else {
-      // Se não consta na CI com bloqueio, não deve estar retido como bloqueado ou em execução
-      if (item.bloqueado || item.emExecucao) {
-        return {
-          ...item,
-          bloqueado: false,
-          emExecucao: false,
-          liberado: true
-        };
-      }
-      return item;
+    // Se o operador já colocou o carro em execução ou liberado na folha, preserva a decisão do operador
+    if (item.emExecucao || item.liberado) {
+      processedPrefixes.add(clean);
+      updatedItems.push(item);
+      return;
     }
+
+    // Se o item foi gerado automaticamente da CI (manut-ci-*) mas NÃO é um bloqueio real ativo da CI, descarta
+    if (item.id && item.id.startsWith("manut-ci-") && !ci) {
+      return;
+    }
+
+    // Se o carro consta como bloqueado real na CI
+    if (ci) {
+      if (ci.status !== "LIBERADO") {
+        processedPrefixes.add(clean);
+        updatedItems.push({
+          ...item,
+          consorciada: ci.consorciada || item.consorciada || getConsorciadaByPrefix(clean),
+          observacao: item.observacao || ci.motivo || "",
+          bloqueado: true,
+          emExecucao: false,
+          liberado: false,
+          data: item.data || data
+        });
+      }
+      return;
+    }
+
+    // Se é um carro registrado manualmente na folha de manutenção, preserva
+    processedPrefixes.add(clean);
+    updatedItems.push(item);
   });
 
-  // 2. Inserir carros da CI que ainda não faziam parte da lista de manutenção
+  // 2. Inserir carros da CI que ainda não constam na lista (APENAS BLOQUEADOS REAIS ATIVOS)
   ciList.forEach(ci => {
+    if (ci.status === "LIBERADO" || !isRealBloqueadoCI(ci)) return;
     const clean = (ci.prefixo || "").replace(/\D/g, "");
     if (!clean) return;
-    if (!processedPrefixes.has(clean)) {
-      const isLiberadoCI = ci.status === "LIBERADO";
-      const isEmExecucaoCI = !isLiberadoCI && ci.status === "EM_MANUTENCAO";
-      const isBloqueadoCI = !isLiberadoCI && !isEmExecucaoCI;
 
+    if (!processedPrefixes.has(clean)) {
       updatedItems.push({
         id: `manut-ci-${clean}`,
         prefixo: clean,
         consorciada: ci.consorciada || getConsorciadaByPrefix(clean),
         observacao: ci.motivo || "",
-        bloqueado: isBloqueadoCI,
-        emExecucao: isEmExecucaoCI,
-        liberado: isLiberadoCI,
+        bloqueado: true,
+        emExecucao: ci.status === "EM_MANUTENCAO",
+        liberado: false,
         data: data
       });
       processedPrefixes.add(clean);
@@ -231,15 +264,14 @@ export function syncItemsWithCI(
 }
 
 /**
- * Lê os itens de manutenção da data selecionada, garantindo que os carros
- * bloqueados sejam EXATAMENTE os mesmos da CI Manutenção.
+ * Lê os itens de manutenção da data selecionada.
+ * Apenas os bloqueados reais pegam da CI. Em manutenção e liberados começam vazios se não foram adicionados pelo usuário.
  */
-export function getManutencaoData(data: string = DEFAULT_REF_DATE): ManutencaoCarroItem[] {
+export function getManutencaoData(data: string = getTodayString()): ManutencaoCarroItem[] {
   const currentCI = getInitialCIBloqueios();
   let baseList: ManutencaoCarroItem[] = [];
 
   try {
-    // Tenta ler da versão 2
     const keyV2 = `${STORAGE_KEY_MANUTENCAO_PREFIX}${data}`;
     const savedV2 = localStorage.getItem(keyV2);
     if (savedV2) {
@@ -248,34 +280,33 @@ export function getManutencaoData(data: string = DEFAULT_REF_DATE): ManutencaoCa
         baseList = parsed;
       }
     }
-
-    // Se não encontrou na v2, checa legado v1 para migrar
-    if (baseList.length === 0) {
-      const keyV1 = `${LEGACY_STORAGE_KEY_PREFIX}${data}`;
-      const savedV1 = localStorage.getItem(keyV1);
-      if (savedV1) {
-        const parsedV1 = JSON.parse(savedV1);
-        if (Array.isArray(parsedV1) && parsedV1.length > 0) {
-          baseList = parsedV1;
-        }
-      }
-    }
   } catch (e) {
     console.error("Erro ao carregar dados de manutenção do localStorage:", e);
   }
 
-  // Se não existir, utiliza a semente oficial
+  // Se a lista estiver vazia, gera apenas com os carros bloqueados reais da CI (sem criar em manutenção ou liberados sozinhos)
   if (baseList.length === 0) {
-    baseList = SEED_MANUTENCAO_OFICIAL.map(item => ({
-      ...item,
-      data: data
-    }));
+    baseList = currentCI
+      .filter(ci => ci.status !== "LIBERADO" && ci.prefixo && isRealBloqueadoCI(ci))
+      .map(ci => {
+        const clean = ci.prefixo.replace(/\D/g, "");
+        return {
+          id: `manut-ci-${clean}`,
+          prefixo: clean,
+          consorciada: ci.consorciada || getConsorciadaByPrefix(clean),
+          observacao: ci.motivo || "",
+          bloqueado: true,
+          emExecucao: false,
+          liberado: false,
+          data: data
+        };
+      });
   }
 
-  // Sincroniza estritamente com os CIs ativos da oficina
+  // Sincroniza estritamente os bloqueados com a CI
   const synchronized = syncItemsWithCI(baseList, currentCI, data);
 
-  // Persiste a versão reconciliada na chave atualizada
+  // Persiste no cache
   try {
     localStorage.setItem(`${STORAGE_KEY_MANUTENCAO_PREFIX}${data}`, JSON.stringify(synchronized));
   } catch {}
@@ -284,7 +315,43 @@ export function getManutencaoData(data: string = DEFAULT_REF_DATE): ManutencaoCa
 }
 
 /**
- * Salva os itens de manutenção da data e sincroniza bidirecionalmente com a CI e Soltura.
+ * Busca a folha de manutenção diretamente do banco de dados (API REST / SQL Server)
+ */
+export async function fetchManutencaoDataFromApi(data: string = getTodayString()): Promise<ManutencaoCarroItem[]> {
+  try {
+    const response = await api.get<any[]>("/manutencao", {
+      params: { data }
+    });
+
+    if (response && Array.isArray(response)) {
+      const dbItems: ManutencaoCarroItem[] = response.map((it: any) => ({
+        id: String(it.id),
+        prefixo: String(it.prefixo),
+        consorciada: (it.consorciada as any) || getConsorciadaByPrefix(it.prefixo),
+        observacao: String(it.observacao || ""),
+        bloqueado: Boolean(it.bloqueado),
+        emExecucao: Boolean(it.emExecucao),
+        liberado: Boolean(it.liberado),
+        data: String(it.data || data)
+      }));
+
+      // Atualiza o cache local com a verdade absoluta do banco de dados (mesmo se vazio)
+      const key = `${STORAGE_KEY_MANUTENCAO_PREFIX}${data}`;
+      try {
+        localStorage.setItem(key, JSON.stringify(dbItems));
+      } catch {}
+
+      return dbItems;
+    }
+  } catch (error) {
+    console.warn("[Manutenção] Falha ao carregar do banco de dados, usando fallback local:", error);
+  }
+
+  return getManutencaoData(data);
+}
+
+/**
+ * Salva os itens de manutenção da data e sincroniza bidirecionalmente com a CI, Soltura e Banco de Dados.
  */
 export function saveManutencaoData(data: string, items: ManutencaoCarroItem[]): void {
   try {
@@ -303,9 +370,40 @@ export function saveManutencaoData(data: string, items: ManutencaoCarroItem[]): 
 
     // Sincroniza bidirecionalmente com a base de CIs
     syncManutencaoToCI(items);
+
+    // Persiste no banco de dados via API REST
+    api.post("/manutencao/sync", { data, items }).catch((err: any) => {
+      console.error("[Manutenção] Erro ao sincronizar folha com o banco de dados:", err);
+    });
   } catch (e) {
     console.error("Erro ao salvar dados de manutenção:", e);
   }
+}
+
+/**
+ * Remove um veículo diretamente do banco de dados e da folha
+ */
+export async function deleteManutencaoCarroApi(id: string): Promise<void> {
+  try {
+    await api.delete(`/manutencao/${encodeURIComponent(id)}`);
+  } catch (e) {
+    console.error("[Manutenção] Erro ao excluir veículo no banco de dados:", e);
+  }
+}
+
+/**
+ * Restaura a base de dados oficial no banco de dados
+ */
+export async function resetManutencaoSeedApi(data: string): Promise<ManutencaoCarroItem[]> {
+  try {
+    const res = await api.post<any>("/manutencao/reset", { data });
+    if (res?.records && Array.isArray(res.records)) {
+      return res.records;
+    }
+  } catch (e) {
+    console.error("[Manutenção] Erro ao resetar semente no banco de dados:", e);
+  }
+  return SEED_MANUTENCAO_OFICIAL.map(it => ({ ...it, data }));
 }
 
 /**
@@ -326,8 +424,8 @@ export function syncManutencaoToCI(manutencaoItems: ManutencaoCarroItem[]): void
       const clean = item.prefixo.replace(/\D/g, "");
       const existing = ciMap.get(clean);
 
-      // CASO 1: LIBERADO
-      if (item.liberado || (!item.bloqueado && !item.emExecucao)) {
+      // CASO 1: LIBERADO (Apenas se o carro foi explicitamente liberado na folha)
+      if (item.liberado) {
         if (existing && existing.status !== "LIBERADO") {
           hasChanges = true;
           existing.status = "LIBERADO";
@@ -394,7 +492,7 @@ export function syncManutencaoToCI(manutencaoItems: ManutencaoCarroItem[]): void
 
     if (hasChanges) {
       const updatedCI = Array.from(ciMap.values());
-      saveCIBloqueiosToStorage(updatedCI);
+      saveCIBloqueiosToStorage(updatedCI, false);
     }
   } catch (e) {
     console.error("Erro ao sincronizar manutenção com CI:", e);
