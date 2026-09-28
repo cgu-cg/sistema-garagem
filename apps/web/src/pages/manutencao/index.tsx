@@ -9,6 +9,8 @@ import {
   fetchManutencaoDataFromApi,
   deleteManutencaoCarroApi,
   resetManutencaoSeedApi,
+  clearEmManutencaoList,
+  clearLiberadosList,
   getTodayString,
   STORAGE_KEY_MANUTENCAO_PREFIX
 } from "./manutencaoManager";
@@ -33,7 +35,7 @@ import {
   DropdownMenuSeparator
 } from "@/components/ui/dropdown-menu";
 import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import html2canvas from "html2canvas";
 import { 
   Search, 
   Printer, 
@@ -44,7 +46,6 @@ import {
   Edit2, 
   Trash2, 
   Bus, 
-  AlertTriangle, 
   CheckCircle2, 
   MoreVertical, 
   Ban, 
@@ -52,7 +53,9 @@ import {
   Download,
   ChevronDown,
   X,
-  Check
+  Check,
+  ArrowRightLeft,
+  Eraser
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -92,6 +95,7 @@ export function ManutencaoPage() {
   // Data selecionada (inicia sempre na data atual do dia)
   const [dataOperacao, setDataOperacao] = useState<string>(getTodayString);
   const dateInputRef = useRef<HTMLInputElement>(null);
+  const relatorioManutencaoRef = useRef<HTMLDivElement>(null);
   
   // Lista de carros de manutenção do dia
   const [items, setItems] = useState<ManutencaoCarroItem[]>(() => getManutencaoData(getTodayString()));
@@ -131,6 +135,36 @@ export function ManutencaoPage() {
   // Modal de Edição de Observação
   const [editItem, setEditItem] = useState<ManutencaoCarroItem | null>(null);
   const [editObs, setEditObs] = useState("");
+
+  // Modal de Confirmação de Transferência de Situação entre Quadros
+  const [confirmTransferModal, setConfirmTransferModal] = useState<{
+    isOpen: boolean;
+    prefixo: string;
+    itemExistente: ManutencaoCarroItem;
+    fromStatus: "BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO";
+    toStatus: "BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO";
+    novaObservacao: string;
+  } | null>(null);
+
+  // Modal de Confirmação de Limpeza de Lista (Em Manutenção ou Liberado)
+  const [clearConfirmModal, setClearConfirmModal] = useState<"EM_EXECUCAO" | "LIBERADO" | null>(null);
+
+  // Auxiliares de formatação de situação do carro
+  const getStatusLabel = (status: "BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO") => {
+    if (status === "EM_EXECUCAO") return "Em Manutenção";
+    if (status === "LIBERADO") return "Liberado";
+    return "Bloqueado";
+  };
+
+  const getStatusBadgeStyle = (status: "BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO") => {
+    if (status === "EM_EXECUCAO") {
+      return "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-800";
+    }
+    if (status === "LIBERADO") {
+      return "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800";
+    }
+    return "bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border-rose-300 dark:border-rose-800";
+  };
 
   // Estilização dinâmica do modal de inserção de acordo com o card de origem
   const modalStyle = useMemo(() => {
@@ -330,25 +364,6 @@ export function ManutencaoPage() {
     return itemsByGaragem.filter(it => matchesEmpresa(it, selectedEmpresa));
   }, [itemsByGaragem, selectedEmpresa]);
 
-  // Veículos disponíveis para sugestão e cadastro no modal, estritamente da garagem do usuário
-  const availableInventoryCars = useMemo(() => {
-    return INVENTORY_CARS.filter(car => {
-      // Restringe à Garagem Física
-      if (activeGaragem !== "TODAS") {
-        if (getGaragemFisicaByCarro(car) !== activeGaragem) return false;
-      }
-      // Se houver empresa selecionada (ex: VCG, JTU ou VSF), restringe também
-      if (selectedEmpresa !== "TODAS") {
-        const cons = getConsorciadaByPrefix(car);
-        if (selectedEmpresa === "VCG" && cons !== "VCG") return false;
-        if (selectedEmpresa === "JTU" && cons !== "JTU") return false;
-        if (selectedEmpresa === "VSF" && cons !== "VSF") return false;
-        if (selectedEmpresa === "VCM" && cons !== "VCM") return false;
-      }
-      return true;
-    });
-  }, [activeGaragem, selectedEmpresa]);
-
   // Veículos pertencentes à Garagem Física do usuário (para cadastro)
   const carsOfGaragem = useMemo(() => {
     return INVENTORY_CARS.filter(car => {
@@ -385,47 +400,6 @@ export function ManutencaoPage() {
     if (found.liberado) return "LIBERADO";
     return null;
   };
-
-  // Cálculos de Resumo dos 4 cards de KPI com base na frota completa da garagem relacionada ao login
-  const stats = useMemo(() => {
-    let bloqueados = 0;
-    let emExecucao = 0;
-    let liberados = 0;
-
-    itemsByEmpresa.forEach(item => {
-      if (item.emExecucao && !item.liberado) {
-        emExecucao++;
-      } else if (item.bloqueado && !item.liberado) {
-        bloqueados++;
-      } else {
-        liberados++;
-      }
-    });
-
-    // Frota completa da garagem ativa do login (e filtrada pela empresa se selecionada)
-    const totalFrota = availableInventoryCars.length || 1;
-
-    // Percentuais calculados com base na frota completa cadastrada da garagem
-    const pctBloqueados = Math.round((bloqueados / totalFrota) * 100);
-    const pctEmExecucao = Math.round((emExecucao / totalFrota) * 100);
-
-    // Veículos aptos para a pista (frota total menos retidos em oficina/bloqueio)
-    const prontosParaPista = Math.max(0, totalFrota - bloqueados - emExecucao);
-    const pctLiberados = Math.round((prontosParaPista / totalFrota) * 100);
-
-    return {
-      bloqueados,
-      emExecucao,
-      liberados,
-      prontosParaPista,
-      totalPlanilha: itemsByEmpresa.length,
-      totalFrota: availableInventoryCars.length,
-      total: availableInventoryCars.length,
-      pctBloqueados,
-      pctEmExecucao,
-      pctLiberados
-    };
-  }, [itemsByEmpresa, availableInventoryCars]);
 
   // Transição de status a partir do menu de 3 pontinhos
   const handleSetStatus = (itemId: string, newStatus: "BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO") => {
@@ -514,7 +488,7 @@ export function ManutencaoPage() {
     toast.success(`Observação do carro ${editItem.prefixo} atualizada.`);
   };
 
-  // Adicionar novo carro à folha
+  // Adicionar novo carro à folha ou solicitar transferência se já existir em outra situação
   const handleAddCarro = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanPrefix = newPrefixo.trim();
@@ -529,9 +503,36 @@ export function ManutencaoPage() {
       return;
     }
 
-    const jaExiste = items.some(it => it.prefixo === cleanPrefix);
-    if (jaExiste) {
-      toast.error(`O carro ${cleanPrefix} já está presente na lista desta data.`);
+    // Verifica se o carro já existe na folha desta data
+    const existingItem = items.find(it => it.prefixo === cleanPrefix);
+    if (existingItem) {
+      // Identifica a situação atual na folha
+      let fromStatus: "BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO" = "BLOQUEADO";
+      if (existingItem.emExecucao && !existingItem.liberado) {
+        fromStatus = "EM_EXECUCAO";
+      } else if (existingItem.liberado) {
+        fromStatus = "LIBERADO";
+      } else if (existingItem.bloqueado) {
+        fromStatus = "BLOQUEADO";
+      }
+
+      const toStatus = modalStatusOrigem;
+
+      // Se já está na mesma situação do card atual
+      if (fromStatus === toStatus) {
+        toast.info(`O veículo ${cleanPrefix} já está registrado como "${getStatusLabel(fromStatus)}" nesta data.`);
+        return;
+      }
+
+      // Se está em outra situação, abre o popup de confirmação para transferir!
+      setConfirmTransferModal({
+        isOpen: true,
+        prefixo: cleanPrefix,
+        itemExistente: existingItem,
+        fromStatus,
+        toStatus,
+        novaObservacao: newObservacao.trim().toUpperCase()
+      });
       return;
     }
 
@@ -551,13 +552,70 @@ export function ManutencaoPage() {
     setItems(updated);
     saveManutencaoData(dataOperacao, updated);
 
-    toast.success(`Carro ${cleanPrefix} adicionado à folha de manutenção.`);
+    toast.success(`Carro ${cleanPrefix} adicionado à folha de manutenção como "${getStatusLabel(modalStatusOrigem)}".`);
     setModalAddOpen(false);
     setNewPrefixo("");
     setNewObservacao("");
     setNewBloqueado(false);
     setNewEmExecucao(false);
     setNewLiberado(true);
+  };
+
+  // Confirmar transferência de situação a partir do popup
+  const handleConfirmTransfer = () => {
+    if (!confirmTransferModal) return;
+    const { prefixo, itemExistente, toStatus, novaObservacao } = confirmTransferModal;
+
+    const isBloq = toStatus === "BLOQUEADO" || toStatus === "EM_EXECUCAO";
+    const isExec = toStatus === "EM_EXECUCAO";
+    const isLib = toStatus === "LIBERADO";
+
+    const updatedObs = novaObservacao.trim()
+      ? novaObservacao.trim().toUpperCase()
+      : itemExistente.observacao;
+
+    const updated = items.map(it => {
+      if (it.prefixo === prefixo) {
+        return {
+          ...it,
+          bloqueado: isBloq,
+          emExecucao: isExec,
+          liberado: isLib,
+          observacao: updatedObs,
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return it;
+    });
+
+    setItems(updated);
+    saveManutencaoData(dataOperacao, updated);
+
+    toast.success(
+      `Veículo ${prefixo} transferido de "${getStatusLabel(confirmTransferModal.fromStatus)}" para "${getStatusLabel(toStatus)}" com sucesso!`
+    );
+
+    setConfirmTransferModal(null);
+    setModalAddOpen(false);
+    setNewPrefixo("");
+    setNewObservacao("");
+  };
+
+  // Confirmar limpeza dos veículos do quadro (Em Manutenção ou Liberado)
+  const handleConfirmClear = () => {
+    if (!clearConfirmModal) return;
+    if (clearConfirmModal === "EM_EXECUCAO") {
+      const count = sortedEmExecucao.length;
+      const updated = clearEmManutencaoList(dataOperacao, items);
+      setItems(updated);
+      toast.success(`Lista de Em Manutenção limpa (${count} veículos retirados).`);
+    } else if (clearConfirmModal === "LIBERADO") {
+      const count = sortedLiberados.length;
+      const updated = clearLiberadosList(dataOperacao, items);
+      setItems(updated);
+      toast.success(`Lista de Liberados limpa (${count} veículos retirados).`);
+    }
+    setClearConfirmModal(null);
   };
 
   // Remover carro da folha
@@ -682,432 +740,106 @@ export function ManutencaoPage() {
     return ["VCG", "JTU", "VSF", "VCM"];
   }, [selectedEmpresa, activeGaragem]);
 
-  // Download do Relatório em PDF com visual idêntico ao de impressão (3 cards paralelos por empresa)
-  const handleDownloadPdf = () => {
+  // Nome do arquivo no padrão oficial solicitado: CI-aa-mm-yyyy (ex: CI-25-09-2026)
+  const formatDocumentoFilename = (dateIso: string) => {
     try {
-      const doc = new jsPDF({
+      const [y, m, d] = dateIso.split("-");
+      if (y && m && d) {
+        return `CI-${d}-${m}-${y}`;
+      }
+    } catch {}
+    return `CI-${dateIso}`;
+  };
+
+  // Download do Relatório em PDF com fidelidade 100% idêntica à visualização
+  const handleDownloadPdf = async () => {
+    if (!relatorioManutencaoRef.current) {
+      toast.error("Visualização do relatório não encontrada.");
+      return;
+    }
+    try {
+      toast.info("Gerando PDF oficial de alta resolução...");
+      const element = relatorioManutencaoRef.current;
+
+      const canvas = await html2canvas(element, {
+        scale: 2.5,
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        backgroundColor: "#ffffff",
+        onclone: (clonedDoc) => {
+          const clonedElement = clonedDoc.querySelector('[data-folha-manutencao="true"]') as HTMLElement;
+          if (clonedElement) {
+            clonedElement.style.boxShadow = "none";
+            clonedElement.style.border = "none";
+            clonedElement.style.margin = "0";
+            clonedElement.style.width = "210mm";
+          }
+        },
+      });
+
+      const imgData = canvas.toDataURL("image/jpeg", 0.98);
+      const pdf = new jsPDF({
         orientation: "portrait",
         unit: "mm",
         format: "a4",
+        compress: true,
       });
 
-      // Topo do Relatório Oficial (idêntico ao de impressão)
-      doc.setTextColor(0, 0, 0);
-      doc.setFontSize(13);
-      doc.setFont("helvetica", "bold");
-      doc.text("CARROS EM: MANUTENÇÃO, BLOQUEADO, LIBERADO", 105, 12, { align: "center" });
+      const imgWidth = 210;
+      const pageHeight = 297;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
 
-      doc.setFontSize(9);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(50, 50, 50);
-      doc.text(`DATA: ${formattedData}`, 105, 17.5, { align: "center" });
+      // Primeira página (ou folha única)
+      pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight, undefined, "FAST");
+      heightLeft -= pageHeight;
 
-      // Linha preta divisória superior
-      doc.setDrawColor(0, 0, 0);
-      doc.setLineWidth(0.5);
-      doc.line(12, 20.5, 198, 20.5);
+      // Adiciona páginas adicionais se o relatório for longo
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight, undefined, "FAST");
+        heightLeft -= pageHeight;
+      }
 
-      let currentY = 25;
-
-      empresasParaImprimir.forEach((emp) => {
-        const carrosEmp = itemsByGaragem.filter((it) => matchesEmpresa(it, emp));
-        const bloq = carrosEmp
-          .filter((it) => it.bloqueado && !it.emExecucao && !it.liberado)
-          .sort((a, b) => a.prefixo.localeCompare(b.prefixo, undefined, { numeric: true }));
-        const manut = carrosEmp
-          .filter((it) => it.emExecucao && !it.liberado)
-          .sort((a, b) => a.prefixo.localeCompare(b.prefixo, undefined, { numeric: true }));
-        const lib = carrosEmp
-          .filter((it) => it.liberado || (!it.bloqueado && !it.emExecucao))
-          .sort((a, b) => a.prefixo.localeCompare(b.prefixo, undefined, { numeric: true }));
-
-        const nomeEmpresa =
-          emp === "VCG"
-            ? "VCG - VIAÇÃO CIDADE MORENA"
-            : emp === "JTU"
-            ? "JTU - JAGUAR TRANSPORTE URBANO"
-            : emp === "VSF"
-            ? "VSF - VIAÇÃO SÃO FRANCISCO"
-            : emp === "VCM"
-            ? "VCM - VIAÇÃO CAMPO GRANDE"
-            : emp;
-
-        // Se faltar espaço para o bloco da empresa na folha atual, abre nova página
-        if (currentY > 235) {
-          doc.addPage();
-          currentY = 15;
-        }
-
-        // Barra de Título da Empresa
-        doc.setFillColor(241, 245, 249);
-        doc.setDrawColor(148, 163, 184);
-        doc.setLineWidth(0.3);
-        doc.roundedRect(12, currentY, 186, 7.5, 1.5, 1.5, "FD");
-
-        // Badge com a sigla da empresa
-        doc.setFillColor(226, 232, 240);
-        doc.setDrawColor(148, 163, 184);
-        doc.roundedRect(14, currentY + 1.2, 12, 5, 1, 1, "FD");
-        doc.setTextColor(15, 23, 42);
-        doc.setFontSize(7.5);
-        doc.setFont("helvetica", "bold");
-        doc.text(emp, 20, currentY + 4.7, { align: "center" });
-
-        // Nome completo da empresa
-        doc.setFontSize(8.5);
-        doc.text(nomeEmpresa, 28, currentY + 5);
-
-        // Total de veículos
-        doc.setFontSize(8);
-        doc.setTextColor(71, 85, 105);
-        doc.text(`Total: ${carrosEmp.length} veículos`, 194, currentY + 5, { align: "right" });
-
-        const startTableY = currentY + 9.5;
-        const colWidth = 59.3;
-        const gap = 4;
-        const col1X = 12;
-        const col2X = col1X + colWidth + gap;
-        const col3X = col2X + colWidth + gap;
-
-        // Preparar linhas de Bloqueados
-        const bloqRows = bloq.length > 0
-          ? bloq.map((c) => [c.prefixo, (c.observacao || "—").toUpperCase()])
-          : [["—", "Nenhum veículo"]];
-
-        // Preparar linhas de Em Manutenção
-        const manutRows = manut.length > 0
-          ? manut.map((c) => [c.prefixo, (c.observacao || "—").toUpperCase()])
-          : [["—", "Nenhum veículo"]];
-
-        // Preparar linhas de Liberados
-        const libRows = lib.length > 0
-          ? lib.map((c) => [c.prefixo, (c.observacao || "—").toUpperCase()])
-          : [["—", "Nenhum veículo"]];
-
-        // 1. Tabela Bloqueados (Coluna 1)
-        autoTable(doc, {
-          startY: startTableY,
-          margin: { left: col1X, right: 210 - (col1X + colWidth) },
-          tableWidth: colWidth,
-          head: [[`BLOQUEADO (${bloq.length})`, ""]],
-          body: [["Carro", "Defeito"], ...bloqRows],
-          theme: "grid",
-          styles: {
-            fontSize: 7.2,
-            cellPadding: 1.2,
-            textColor: [0, 0, 0],
-            lineColor: [203, 213, 225],
-            lineWidth: 0.15,
-          },
-          headStyles: {
-            fillColor: [255, 228, 230], // rose suave
-            textColor: [159, 18, 57],
-            fontSize: 7.8,
-            fontStyle: "bold",
-            halign: "center",
-          },
-          didParseCell: (data) => {
-            if (data.section === "head") {
-              if (data.column.index === 0) {
-                data.cell.colSpan = 2;
-              }
-            } else if (data.section === "body" && data.row.index === 0) {
-              data.cell.styles.fillColor = [248, 250, 252];
-              data.cell.styles.fontStyle = "bold";
-              data.cell.styles.textColor = [71, 85, 105];
-              data.cell.styles.fontSize = 6.8;
-            } else if (data.section === "body" && data.column.index === 0) {
-              data.cell.styles.halign = "center";
-              data.cell.styles.fontStyle = "bold";
-            }
-          },
-          columnStyles: {
-            0: { cellWidth: 16 },
-            1: { cellWidth: "auto" },
-          },
-        });
-        const finalY1 = (doc as any).lastAutoTable?.finalY || startTableY;
-
-        // 2. Tabela Em Manutenção (Coluna 2)
-        autoTable(doc, {
-          startY: startTableY,
-          margin: { left: col2X, right: 210 - (col2X + colWidth) },
-          tableWidth: colWidth,
-          head: [[`EM MANUTENÇÃO (${manut.length})`, ""]],
-          body: [["Carro", "Defeito"], ...manutRows],
-          theme: "grid",
-          styles: {
-            fontSize: 7.2,
-            cellPadding: 1.2,
-            textColor: [0, 0, 0],
-            lineColor: [203, 213, 225],
-            lineWidth: 0.15,
-          },
-          headStyles: {
-            fillColor: [254, 243, 199], // amber suave
-            textColor: [146, 64, 14],
-            fontSize: 7.8,
-            fontStyle: "bold",
-            halign: "center",
-          },
-          didParseCell: (data) => {
-            if (data.section === "head") {
-              if (data.column.index === 0) {
-                data.cell.colSpan = 2;
-              }
-            } else if (data.section === "body" && data.row.index === 0) {
-              data.cell.styles.fillColor = [248, 250, 252];
-              data.cell.styles.fontStyle = "bold";
-              data.cell.styles.textColor = [71, 85, 105];
-              data.cell.styles.fontSize = 6.8;
-            } else if (data.section === "body" && data.column.index === 0) {
-              data.cell.styles.halign = "center";
-              data.cell.styles.fontStyle = "bold";
-            }
-          },
-          columnStyles: {
-            0: { cellWidth: 16 },
-            1: { cellWidth: "auto" },
-          },
-        });
-        const finalY2 = (doc as any).lastAutoTable?.finalY || startTableY;
-
-        // 3. Tabela Liberados (Coluna 3)
-        autoTable(doc, {
-          startY: startTableY,
-          margin: { left: col3X, right: 210 - (col3X + colWidth) },
-          tableWidth: colWidth,
-          head: [[`LIBERADO (${lib.length})`, ""]],
-          body: [["Carro", "Defeito"], ...libRows],
-          theme: "grid",
-          styles: {
-            fontSize: 7.2,
-            cellPadding: 1.2,
-            textColor: [0, 0, 0],
-            lineColor: [203, 213, 225],
-            lineWidth: 0.15,
-          },
-          headStyles: {
-            fillColor: [209, 250, 229], // emerald suave
-            textColor: [6, 95, 70],
-            fontSize: 7.8,
-            fontStyle: "bold",
-            halign: "center",
-          },
-          didParseCell: (data) => {
-            if (data.section === "head") {
-              if (data.column.index === 0) {
-                data.cell.colSpan = 2;
-              }
-            } else if (data.section === "body" && data.row.index === 0) {
-              data.cell.styles.fillColor = [248, 250, 252];
-              data.cell.styles.fontStyle = "bold";
-              data.cell.styles.textColor = [71, 85, 105];
-              data.cell.styles.fontSize = 6.8;
-            } else if (data.section === "body" && data.column.index === 0) {
-              data.cell.styles.halign = "center";
-              data.cell.styles.fontStyle = "bold";
-            }
-          },
-          columnStyles: {
-            0: { cellWidth: 16 },
-            1: { cellWidth: "auto" },
-          },
-        });
-        const finalY3 = (doc as any).lastAutoTable?.finalY || startTableY;
-
-        currentY = Math.max(finalY1, finalY2, finalY3) + 7;
-      });
-
-      let fileName = `MAN-${dataOperacao}.pdf`;
-      try {
-        const [ano, mes, dia] = dataOperacao.split("-");
-        if (ano && mes && dia) {
-          fileName = `MAN-${dia}-${mes}-${ano}.pdf`;
-        }
-      } catch {}
-
-      doc.save(fileName);
-      toast.success("Relatório em PDF gerado com sucesso!");
+      pdf.save(`${formatDocumentoFilename(dataOperacao)}.pdf`);
+      toast.success("PDF baixado com sucesso!");
     } catch (err) {
-      console.error(err);
+      console.error("Erro ao gerar PDF do relatório:", err);
       toast.error("Erro ao gerar PDF.");
     }
   };
 
-  // Impressão direta do Relatório Oficial (sem interferência de modais ou estilos de tela)
-  const handlePrintRelatorio = () => {
+  // Impressão direta da folha com layout 100% idêntico à visualização
+  const handlePrintRelatorio = async () => {
+    if (!relatorioManutencaoRef.current) {
+      window.print();
+      return;
+    }
     try {
-      let empresasHtml = "";
+      toast.info("Preparando impressão de alta fidelidade...");
+      const element = relatorioManutencaoRef.current;
 
-      empresasParaImprimir.forEach((emp) => {
-        const carrosEmp = itemsByGaragem.filter((it) => matchesEmpresa(it, emp));
-        const bloq = carrosEmp
-          .filter((it) => it.bloqueado && !it.emExecucao && !it.liberado)
-          .sort((a, b) => a.prefixo.localeCompare(b.prefixo, undefined, { numeric: true }));
-        const manut = carrosEmp
-          .filter((it) => it.emExecucao && !it.liberado)
-          .sort((a, b) => a.prefixo.localeCompare(b.prefixo, undefined, { numeric: true }));
-        const lib = carrosEmp
-          .filter((it) => it.liberado || (!it.bloqueado && !it.emExecucao))
-          .sort((a, b) => a.prefixo.localeCompare(b.prefixo, undefined, { numeric: true }));
-
-        const nomeEmpresa =
-          emp === "VCG"
-            ? "VCG - VIAÇÃO CIDADE MORENA"
-            : emp === "JTU"
-            ? "JTU - JAGUAR TRANSPORTE URBANO"
-            : emp === "VSF"
-            ? "VSF - VIAÇÃO SÃO FRANCISCO"
-            : emp === "VCM"
-            ? "VCM - VIAÇÃO CAMPO GRANDE"
-            : emp;
-
-        const renderRows = (list: typeof bloq) => {
-          if (list.length === 0) {
-            return `<tr><td colspan="2" style="text-align: center; color: #888; font-style: italic; padding: 6px;">Nenhum veículo</td></tr>`;
+      const canvas = await html2canvas(element, {
+        scale: 2.5,
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        backgroundColor: "#ffffff",
+        onclone: (clonedDoc) => {
+          const clonedElement = clonedDoc.querySelector('[data-folha-manutencao="true"]') as HTMLElement;
+          if (clonedElement) {
+            clonedElement.style.boxShadow = "none";
+            clonedElement.style.border = "none";
+            clonedElement.style.margin = "0";
+            clonedElement.style.width = "210mm";
           }
-          return list
-            .map(
-              (c) => `
-            <tr>
-              <td style="width: 55px; text-align: center; font-weight: bold; font-family: monospace; padding: 3px 4px; border-bottom: 1px solid #e5e7eb; border-right: 1px solid #e5e7eb;">${c.prefixo}</td>
-              <td style="padding: 3px 4px; border-bottom: 1px solid #e5e7eb; text-transform: uppercase; font-weight: 500; font-size: 10px; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${c.observacao || "—"}</td>
-            </tr>
-          `
-            )
-            .join("");
-        };
-
-        empresasHtml += `
-          <div style="border: 1.5px solid #64748b; border-radius: 6px; padding: 8px; margin-bottom: 14px; page-break-inside: avoid; background: #fff;">
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #cbd5e1; padding-bottom: 5px; margin-bottom: 8px;">
-              <div style="font-weight: 800; font-size: 12.5px; text-transform: uppercase; color: #0f172a;">
-                <span style="background: #e2e8f0; color: #0f172a; padding: 2px 6px; border-radius: 4px; margin-right: 6px; font-family: monospace; border: 1px solid #94a3b8; font-weight: bold;">${emp}</span>
-                ${nomeEmpresa}
-              </div>
-              <div style="font-size: 11px; font-weight: bold; color: #475569;">
-                Total: ${carrosEmp.length} veículos
-              </div>
-            </div>
-            
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
-              <!-- BLOQUEADO -->
-              <div style="border: 1px solid #cbd5e1; border-radius: 4px; overflow: hidden; background: #fff;">
-                <div style="background: #ffe4e6; color: #9f1239; font-weight: 800; font-size: 11px; padding: 4px 6px; display: flex; justify-content: space-between; border-bottom: 1px solid #cbd5e1;">
-                  <span>BLOQUEADO</span>
-                  <span style="font-family: monospace;">(${bloq.length})</span>
-                </div>
-                <table style="width: 100%; border-collapse: collapse; font-size: 10.5px;">
-                  <thead>
-                    <tr style="background: #f8fafc; border-bottom: 1px solid #cbd5e1; font-size: 9.5px; color: #475569; font-weight: bold;">
-                      <th style="padding: 2px 4px; text-align: center; width: 55px; border-right: 1px solid #cbd5e1;">Carro</th>
-                      <th style="padding: 2px 4px; text-align: left;">Defeito</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${renderRows(bloq)}
-                  </tbody>
-                </table>
-              </div>
-
-              <!-- EM MANUTENÇÃO -->
-              <div style="border: 1px solid #cbd5e1; border-radius: 4px; overflow: hidden; background: #fff;">
-                <div style="background: #fef3c7; color: #92400e; font-weight: 800; font-size: 11px; padding: 4px 6px; display: flex; justify-content: space-between; border-bottom: 1px solid #cbd5e1;">
-                  <span>EM MANUTENÇÃO</span>
-                  <span style="font-family: monospace;">(${manut.length})</span>
-                </div>
-                <table style="width: 100%; border-collapse: collapse; font-size: 10.5px;">
-                  <thead>
-                    <tr style="background: #f8fafc; border-bottom: 1px solid #cbd5e1; font-size: 9.5px; color: #475569; font-weight: bold;">
-                      <th style="padding: 2px 4px; text-align: center; width: 55px; border-right: 1px solid #cbd5e1;">Carro</th>
-                      <th style="padding: 2px 4px; text-align: left;">Defeito</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${renderRows(manut)}
-                  </tbody>
-                </table>
-              </div>
-
-              <!-- LIBERADO -->
-              <div style="border: 1px solid #cbd5e1; border-radius: 4px; overflow: hidden; background: #fff;">
-                <div style="background: #d1fae5; color: #065f46; font-weight: 800; font-size: 11px; padding: 4px 6px; display: flex; justify-content: space-between; border-bottom: 1px solid #cbd5e1;">
-                  <span>LIBERADO</span>
-                  <span style="font-family: monospace;">(${lib.length})</span>
-                </div>
-                <table style="width: 100%; border-collapse: collapse; font-size: 10.5px;">
-                  <thead>
-                    <tr style="background: #f8fafc; border-bottom: 1px solid #cbd5e1; font-size: 9.5px; color: #475569; font-weight: bold;">
-                      <th style="padding: 2px 4px; text-align: center; width: 55px; border-right: 1px solid #cbd5e1;">Carro</th>
-                      <th style="padding: 2px 4px; text-align: left;">Defeito</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${renderRows(lib)}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        `;
+        },
       });
 
-      const printHtml = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="utf-8" />
-          <title>CARROS EM: MANUTENÇÃO, BLOQUEADO, LIBERADO</title>
-          <style>
-            @page {
-              size: A4 portrait;
-              margin: 7mm 8mm;
-            }
-            * {
-              box-sizing: border-box;
-              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            }
-            html, body {
-              background-color: #ffffff !important;
-              color: #000000 !important;
-              margin: 0;
-              padding: 0;
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
-            }
-            .header-print {
-              text-align: center;
-              border-bottom: 2.5px solid #000;
-              padding-bottom: 6px;
-              margin-bottom: 12px;
-            }
-            .header-print h1 {
-              margin: 0;
-              font-size: 16px;
-              font-weight: 900;
-              letter-spacing: 0.5px;
-              text-transform: uppercase;
-              color: #000;
-            }
-            .header-print p {
-              margin: 4px 0 0 0;
-              font-size: 11.5px;
-              font-weight: 800;
-              color: #1e293b;
-              letter-spacing: 0.5px;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="header-print">
-            <h1>CARROS EM: MANUTENÇÃO, BLOQUEADO, LIBERADO</h1>
-            <p>DATA: ${formattedData}</p>
-          </div>
-          ${empresasHtml}
-        </body>
-        </html>
-      `;
+      const imgData = canvas.toDataURL("image/png");
 
       const iframe = document.createElement("iframe");
       iframe.style.position = "fixed";
@@ -1121,21 +853,72 @@ export function ManutencaoPage() {
       const doc = iframe.contentWindow?.document;
       if (doc) {
         doc.open();
-        doc.write(printHtml);
+        doc.write(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>${formatDocumentoFilename(dataOperacao)}</title>
+            <style>
+              @page {
+                size: A4 portrait;
+                margin: 0;
+              }
+              * {
+                box-sizing: border-box !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+              }
+              html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 210mm !important;
+                background: #ffffff !important;
+              }
+              .print-container {
+                width: 210mm !important;
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: center !important;
+                margin: 0 !important;
+                padding: 0 !important;
+              }
+              img {
+                width: 210mm !important;
+                display: block !important;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="print-container">
+              <img id="man-print-img" src="${imgData}" />
+            </div>
+            <script>
+              const img = document.getElementById("man-print-img");
+              function doPrint() {
+                window.focus();
+                window.print();
+              }
+              if (img && img.complete) {
+                setTimeout(doPrint, 300);
+              } else if (img) {
+                img.onload = () => setTimeout(doPrint, 300);
+              }
+            </script>
+          </body>
+          </html>
+        `);
         doc.close();
 
         setTimeout(() => {
-          iframe.contentWindow?.focus();
-          iframe.contentWindow?.print();
-          setTimeout(() => {
-            if (document.body.contains(iframe)) {
-              document.body.removeChild(iframe);
-            }
-          }, 1500);
-        }, 250);
+          if (document.body.contains(iframe)) {
+            document.body.removeChild(iframe);
+          }
+        }, 10000);
       }
     } catch (err) {
-      console.error("Erro na impressão:", err);
+      console.error("Erro na impressão do relatório:", err);
+      toast.error("Erro ao preparar impressão.");
       window.print();
     }
   };
@@ -1178,103 +961,7 @@ export function ManutencaoPage() {
       </div>
 
       {/* ==========================================================
-          2. CARDS DE KPI BENTO GRID (4 COLUNAS - ESTILO DONEZO)
-          Cards informativos limpos sem filtros
-          ========================================================== */}
-      <div className="print:hidden grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        
-        {/* Card 1: BLOQUEADOS (Mesmo fundo neutro dos outros cards, texto em vermelho) */}
-        <div className="rounded-3xl p-6 shadow-xs relative flex flex-col justify-between h-40 bg-white dark:bg-[#0E1420] border border-gray-100/90 dark:border-slate-800/80">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-gray-500 dark:text-slate-400">
-              Veículos Bloqueados
-            </span>
-          </div>
-          <div>
-            <div className="text-4xl sm:text-5xl font-bold tracking-tight text-rose-600 dark:text-rose-400">
-              {stats.bloqueados}
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/40">
-              <AlertTriangle className="w-3 h-3 text-rose-500" />
-              {stats.pctBloqueados}% da frota retida
-            </span>
-          </div>
-        </div>
-
-        {/* Card 2: EM EXECUÇÃO (Branco / Laranja) */}
-        <div className="rounded-3xl p-6 shadow-xs relative flex flex-col justify-between h-40 bg-white dark:bg-[#0E1420] border border-gray-100/90 dark:border-slate-800/80">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-gray-500 dark:text-slate-400">
-              Em Execução
-            </span>
-          </div>
-          <div>
-            <div className="text-4xl sm:text-5xl font-bold tracking-tight text-orange-600 dark:text-orange-400">
-              {stats.emExecucao}
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-800/40">
-              <Wrench className="w-3 h-3 text-orange-500" />
-              {stats.pctEmExecucao}% em oficina ativa
-            </span>
-          </div>
-        </div>
-
-        {/* Card 3: LIBERADOS (Branco / Verde Esmeralda) */}
-        <div className="rounded-3xl p-6 shadow-xs relative flex flex-col justify-between h-40 bg-white dark:bg-[#0E1420] border border-gray-100/90 dark:border-slate-800/80">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-gray-500 dark:text-slate-400">
-              Veículos Liberados
-            </span>
-          </div>
-          <div>
-            <div className="text-4xl sm:text-5xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">
-              {stats.liberados}
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40">
-              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-              {stats.pctLiberados}% prontos para pista
-            </span>
-          </div>
-        </div>
-
-        {/* Card 4: FROTA TOTAL DA GARAGEM */}
-        <div className="rounded-3xl p-6 shadow-xs relative flex flex-col justify-between h-40 bg-white dark:bg-[#0E1420] border border-gray-100/90 dark:border-slate-800/80">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-gray-500 dark:text-slate-400">
-              Frota Total da Garagem
-            </span>
-          </div>
-          <div>
-            <div className="text-4xl sm:text-5xl font-bold tracking-tight text-gray-900 dark:text-white">
-              {stats.totalFrota}
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-slate-300">
-              <Bus className="w-3 h-3 text-gray-500" />
-              {activeGaragem === "VCG" ? (
-                selectedEmpresa === "TODAS" ? "VSF, JTU e VCG" :
-                selectedEmpresa === "VCG" ? "VCG" :
-                selectedEmpresa === "JTU" ? "JTU" : "VSF"
-              ) : activeGaragem === "VCM" ? (
-                "VCM"
-              ) : (
-                selectedEmpresa === "TODAS" ? "Consórcio Guaicurus" : selectedEmpresa
-              )}
-            </span>
-          </div>
-        </div>
-
-      </div>
-
-      {/* ==========================================================
-          3. CARD PRINCIPAL DA PLANILHA OFICIAL DE MANUTENÇÃO
+          CABEÇALHO E QUADROS DA PLANILHA OFICIAL DE MANUTENÇÃO
           ========================================================== */}
       <div className="bg-white dark:bg-[#0E1420] border border-gray-100/90 dark:border-slate-800/80 rounded-3xl p-5 sm:p-7 shadow-xs space-y-5 print:hidden">
         
@@ -1524,13 +1211,24 @@ export function ManutencaoPage() {
                   {sortedEmExecucao.length}
                 </span>
               </div>
-              <button
-                onClick={() => handleOpenAddModal("EM_EXECUCAO")}
-                className="w-7 h-7 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/50 text-amber-700 dark:text-amber-200 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
-                title="Adicionar carro em manutenção"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setClearConfirmModal("EM_EXECUCAO")}
+                  disabled={sortedEmExecucao.length === 0}
+                  className="w-7 h-7 rounded-lg bg-amber-100/80 hover:bg-amber-200 dark:bg-amber-900/40 text-amber-700 dark:text-amber-200 flex items-center justify-center transition-colors shadow-2xs cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Limpar lista de Em Manutenção"
+                >
+                  <Eraser className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => handleOpenAddModal("EM_EXECUCAO")}
+                  className="w-7 h-7 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/50 text-amber-700 dark:text-amber-200 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+                  title="Adicionar carro em manutenção"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {/* Tabela de Em Manutenção */}
@@ -1616,13 +1314,24 @@ export function ManutencaoPage() {
                   {sortedLiberados.length}
                 </span>
               </div>
-              <button
-                onClick={() => handleOpenAddModal("LIBERADO")}
-                className="w-7 h-7 rounded-lg bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-200 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
-                title="Adicionar carro liberado"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setClearConfirmModal("LIBERADO")}
+                  disabled={sortedLiberados.length === 0}
+                  className="w-7 h-7 rounded-lg bg-emerald-100/80 hover:bg-emerald-200 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-200 flex items-center justify-center transition-colors shadow-2xs cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Limpar lista de Liberados"
+                >
+                  <Eraser className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => handleOpenAddModal("LIBERADO")}
+                  className="w-7 h-7 rounded-lg bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-200 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+                  title="Adicionar carro liberado"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {/* Tabela de Liberados */}
@@ -1923,6 +1632,106 @@ export function ManutencaoPage() {
       </Dialog>
 
       {/* ==========================================================
+          MODAL: CONFIRMAÇÃO DE TRANSFERÊNCIA DE SITUAÇÃO
+          Exibido quando o usuário tenta adicionar um carro que já está em outro quadro
+          ========================================================== */}
+      <Dialog 
+        open={!!confirmTransferModal} 
+        onOpenChange={(open) => {
+          if (!open) setConfirmTransferModal(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md rounded-3xl border-2 border-amber-500/30 dark:border-amber-500/20 bg-white dark:bg-[#0E1420] shadow-2xl p-6">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2.5 text-base font-bold text-gray-900 dark:text-white">
+              <div className="w-9 h-9 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                <ArrowRightLeft className="w-5 h-5" />
+              </div>
+              <span>Transferir Situação do Veículo</span>
+            </DialogTitle>
+          </DialogHeader>
+
+          {confirmTransferModal && (
+            <div className="space-y-4 pt-2">
+              <div className="p-3.5 rounded-2xl bg-gray-50 dark:bg-slate-900/80 border border-gray-200/80 dark:border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-base font-black text-gray-900 dark:text-white">
+                      Carro {confirmTransferModal.prefixo}
+                    </span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-gray-200 dark:bg-slate-800 text-gray-700 dark:text-slate-300">
+                      {getConsorciadaByPrefix(confirmTransferModal.prefixo)}
+                    </span>
+                  </div>
+                  <span className="text-xs text-gray-400">
+                    Garagem {getGaragemFisicaByCarro(confirmTransferModal.prefixo)}
+                  </span>
+                </div>
+
+                {/* Transição Visual de Situação */}
+                <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-white dark:bg-slate-950 border border-gray-100 dark:border-slate-800/80 text-xs">
+                  <div className="flex flex-col gap-1 items-start">
+                    <span className="text-[10px] uppercase font-bold text-gray-400">Situação Atual</span>
+                    <span className={cn("text-xs font-bold px-2.5 py-0.5 rounded-full border shadow-2xs", getStatusBadgeStyle(confirmTransferModal.fromStatus))}>
+                      {getStatusLabel(confirmTransferModal.fromStatus)}
+                    </span>
+                  </div>
+
+                  <ArrowRightLeft className="w-4 h-4 text-gray-400 shrink-0" />
+
+                  <div className="flex flex-col gap-1 items-end">
+                    <span className="text-[10px] uppercase font-bold text-gray-400">Nova Situação</span>
+                    <span className={cn("text-xs font-bold px-2.5 py-0.5 rounded-full border shadow-2xs", getStatusBadgeStyle(confirmTransferModal.toStatus))}>
+                      {getStatusLabel(confirmTransferModal.toStatus)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="text-xs text-gray-600 dark:text-slate-300 leading-relaxed">
+                  O veículo <strong className="text-gray-900 dark:text-white">{confirmTransferModal.prefixo}</strong> já está registrado como <strong className="text-amber-700 dark:text-amber-400 font-bold">{getStatusLabel(confirmTransferModal.fromStatus)}</strong>.
+                  <p className="mt-1 font-medium">
+                    Deseja retirar o veículo de <u>{getStatusLabel(confirmTransferModal.fromStatus)}</u> e transferi-lo para <u>{getStatusLabel(confirmTransferModal.toStatus)}</u>?
+                  </p>
+                </div>
+
+                {confirmTransferModal.novaObservacao && (
+                  <div className="text-[11px] p-2 rounded-lg bg-gray-100/80 dark:bg-slate-800/60 text-gray-600 dark:text-slate-300 border border-gray-200/50 dark:border-slate-700/50">
+                    <span className="font-bold text-gray-700 dark:text-slate-200">Novo Defeito/Obs:</span> {confirmTransferModal.novaObservacao}
+                  </div>
+                )}
+              </div>
+
+              <DialogFooter className="flex-col sm:flex-row gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-full w-full sm:w-auto"
+                  onClick={() => setConfirmTransferModal(null)}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleConfirmTransfer}
+                  className={cn(
+                    "rounded-full w-full sm:w-auto text-white font-bold shadow-md transition-transform active:scale-95 cursor-pointer",
+                    confirmTransferModal.toStatus === "EM_EXECUCAO"
+                      ? "bg-amber-600 hover:bg-amber-700"
+                      : confirmTransferModal.toStatus === "LIBERADO"
+                      ? "bg-[#164E3A] hover:bg-[#113C2D]"
+                      : "bg-rose-600 hover:bg-rose-700"
+                  )}
+                >
+                  <Check className="w-4 h-4 mr-1.5" />
+                  Sim, Transferir para {getStatusLabel(confirmTransferModal.toStatus)}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ==========================================================
           MODAL: EDITAR OBSERVAÇÃO DO VEÍCULO
           Estilizado dinamicamente com o status do veículo
           ========================================================== */}
@@ -2028,7 +1837,11 @@ export function ManutencaoPage() {
 
           {/* Corpo do Relatório com Estilo de Folha Realista */}
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-gray-100 dark:bg-slate-950">
-            <div className="max-w-3xl mx-auto bg-white text-black p-6 sm:p-8 rounded-2xl shadow-md border border-gray-300 space-y-5">
+            <div 
+              ref={relatorioManutencaoRef} 
+              data-folha-manutencao="true" 
+              className="w-[210mm] max-w-full mx-auto bg-white text-black p-6 sm:p-8 rounded-2xl shadow-md border border-gray-300 space-y-5"
+            >
               
               {/* Topo do Relatório */}
               <div className="text-center pb-3 border-b-2 border-black">
@@ -2082,7 +1895,7 @@ export function ManutencaoPage() {
                       </div>
 
                       {/* 3 Colunas: Bloqueado, Em Manutenção, Liberado */}
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                      <div className="grid grid-cols-3 gap-2.5">
                         
                         {/* Bloqueados */}
                         <div className="border border-rose-200 rounded-lg overflow-hidden bg-white">
@@ -2227,6 +2040,49 @@ export function ManutencaoPage() {
               onClick={() => setModalRelatorioOpen(false)}
             >
               Fechar Visualização
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ==========================================================
+          MODAL DE CONFIRMAÇÃO DE LIMPEZA DE LISTA
+          ========================================================== */}
+      <Dialog open={!!clearConfirmModal} onOpenChange={(open) => { if (!open) setClearConfirmModal(null); }}>
+        <DialogContent className="max-w-md p-6 bg-white dark:bg-[#0E1420] border border-gray-200 dark:border-slate-800 rounded-3xl shadow-xl">
+          <DialogHeader className="space-y-3">
+            <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/40">
+              <Eraser className="w-6 h-6" />
+            </div>
+            <div>
+              <DialogTitle className="text-lg font-bold text-gray-900 dark:text-white">
+                Limpar Lista de {clearConfirmModal === "EM_EXECUCAO" ? "Em Manutenção" : "Liberados"}?
+              </DialogTitle>
+              <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                {clearConfirmModal === "EM_EXECUCAO" ? (
+                  <>Esta ação removerá todos os <strong>{sortedEmExecucao.length} veículos</strong> que estão em manutenção na data <strong>{dataOperacao}</strong>. Os registros de dias anteriores não serão alterados.</>
+                ) : (
+                  <>Esta ação removerá todos os <strong>{sortedLiberados.length} veículos</strong> que estão liberados na data <strong>{dataOperacao}</strong>. Os registros de dias anteriores não serão alterados.</>
+                )}
+              </p>
+            </div>
+          </DialogHeader>
+
+          <DialogFooter className="mt-6 flex flex-row items-center justify-end gap-2.5">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setClearConfirmModal(null)}
+              className="rounded-xl text-xs font-semibold cursor-pointer"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={handleConfirmClear}
+              className="rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer shadow-xs"
+            >
+              Sim, Limpar Lista
             </Button>
           </DialogFooter>
         </DialogContent>

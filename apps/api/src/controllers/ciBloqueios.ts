@@ -29,7 +29,7 @@ async function ensureTableAndSeed() {
           categoria NVARCHAR(20) NOT NULL,
           sub_tipo NVARCHAR(50) NULL,
           horario_reforco NVARCHAR(20) NULL,
-          motivo NVARCHAR(255) NOT NULL,
+          motivo NVARCHAR(255) NULL,
           data_bloqueio NVARCHAR(20) NOT NULL,
           hora_bloqueio NVARCHAR(10) NULL,
           gravidade NVARCHAR(10) DEFAULT 'ALTA',
@@ -91,41 +91,47 @@ export async function list(req: AuthRequest, res: Response) {
     });
 
     // Formatar para manter compatibilidade com a interface BloqueioCarro do frontend
-    const mapped = records.map((r) => ({
-      id: r.id,
-      prefixo: r.prefixo,
-      garagem: r.garagem,
-      consorciada: r.consorciada,
-      categoriaPlanilha: r.categoria,
-      setorOficina: r.categoria === "OFICINA" ? r.subTipo : undefined,
-      tipoPreventiva: r.categoria === "PREVENTIVA" ? r.subTipo : undefined,
-      horarioReforco: r.horarioReforco,
-      tipo: r.motivo.toLowerCase().includes("motor")
-        ? "BLOQUEADO_MOTOR"
-        : r.motivo.toLowerCase().includes("freio")
-        ? "BLOQUEADO_FREIO"
-        : r.motivo.toLowerCase().includes("mola")
-        ? "BLOQUEADO_MOLA"
-        : r.motivo.toLowerCase().includes("câmbio")
-        ? "BLOQUEADO_CAMBIO"
-        : r.motivo.toLowerCase().includes("elétrica")
-        ? "BLOQUEADO_MODULO"
-        : r.motivo.toLowerCase().includes("sinistro")
-        ? "BLOQUEADO_SINISTRO"
-        : r.categoria === "PREVENTIVA"
-        ? "REFORCO_REVISAO"
-        : "EM_MANUTENCAO",
-      motivo: r.motivo,
-      data: r.dataBloqueio,
-      hora: r.horaBloqueio,
-      gravidade: r.gravidade || "ALTA",
-      responsavel: r.responsavel,
-      os: r.observacoes,
-      status: r.status,
-      dataLiberacao: r.dataLiberacao,
-      motivoLiberacao: r.motivoLiberacao,
-      responsavelLiberacao: r.responsavelLiberacao,
-    }));
+    const mapped = records.map((r) => {
+      const motivoLower = (r.motivo || "").toLowerCase();
+      let tipo = "EM_MANUTENCAO";
+      if (motivoLower.includes("motor")) {
+        tipo = "BLOQUEADO_MOTOR";
+      } else if (motivoLower.includes("freio")) {
+        tipo = "BLOQUEADO_FREIO";
+      } else if (motivoLower.includes("mola") || motivoLower.includes("suspens")) {
+        tipo = "BLOQUEADO_MOLA";
+      } else if (motivoLower.includes("câmbio") || motivoLower.includes("cambio") || motivoLower.includes("transmiss")) {
+        tipo = "BLOQUEADO_CAMBIO";
+      } else if (motivoLower.includes("elétrica") || motivoLower.includes("eletrica") || motivoLower.includes("módulo") || motivoLower.includes("modulo")) {
+        tipo = "BLOQUEADO_MODULO";
+      } else if (motivoLower.includes("sinistro")) {
+        tipo = "BLOQUEADO_SINISTRO";
+      } else if (r.categoria === "PREVENTIVA") {
+        tipo = "REFORCO_REVISAO";
+      }
+
+      return {
+        id: r.id,
+        prefixo: (r.prefixo || "").trim(),
+        garagem: r.garagem,
+        consorciada: r.consorciada,
+        categoriaPlanilha: r.categoria,
+        setorOficina: r.categoria === "OFICINA" ? r.subTipo : undefined,
+        tipoPreventiva: r.categoria === "PREVENTIVA" ? r.subTipo : undefined,
+        horarioReforco: r.horarioReforco,
+        tipo,
+        motivo: r.motivo || "",
+        data: r.dataBloqueio,
+        hora: r.horaBloqueio,
+        gravidade: r.gravidade || "ALTA",
+        responsavel: r.responsavel,
+        os: r.observacoes,
+        status: r.status,
+        dataLiberacao: r.dataLiberacao,
+        motivoLiberacao: r.motivoLiberacao,
+        responsavelLiberacao: r.responsavelLiberacao,
+      };
+    });
 
     return res.json(mapped);
   } catch (error: any) {
@@ -166,24 +172,38 @@ export async function createOrUpdate(req: AuthRequest, res: Response) {
       return res.status(400).json({ error: "Prefixo do veículo é obrigatório." });
     }
 
-    const cat = categoriaPlanilha || categoria || "OFICINA";
-    const sub = setorOficina || tipoPreventiva || subTipo || null;
+    const cleanPrefixo = String(prefixo).trim();
+    const cat = String(categoriaPlanilha || categoria || "OFICINA").trim().toUpperCase();
+    const rawSub = setorOficina || tipoPreventiva || subTipo;
+    const sub = rawSub ? String(rawSub).trim().toUpperCase() : null;
     const finalData = data || dataBloqueio || new Date().toISOString().split("T")[0];
     const finalHora = hora || horaBloqueio || new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-    const recordId = id || `ci-${Date.now()}-${prefixo}`;
+
+    // Se não forneceu ID, tenta localizar bloqueio ativo deste mesmo prefixo
+    let recordId = id;
+    if (!recordId) {
+      const existingActive = await prisma.ciBloqueio.findFirst({
+        where: {
+          prefixo: cleanPrefixo,
+          status: { not: "LIBERADO" }
+        },
+        orderBy: { createdAt: "desc" }
+      });
+      recordId = existingActive?.id || `ci-${Date.now()}-${cleanPrefixo}`;
+    }
 
     // Se já houver um registro de bloqueio ativo para este carro, atualiza; senão cria
     const saved = await prisma.ciBloqueio.upsert({
       where: { id: recordId },
       create: {
         id: recordId,
-        prefixo: String(prefixo),
+        prefixo: cleanPrefixo,
         garagem: garagem || "VCG",
         consorciada: consorciada || "VCG",
         categoria: cat,
         subTipo: sub,
         horarioReforco: horarioReforco || null,
-        motivo: motivo || "Em Manutenção",
+        motivo: motivo !== undefined && motivo !== null ? String(motivo).trim() : "",
         dataBloqueio: finalData,
         horaBloqueio: finalHora,
         gravidade: gravidade || "ALTA",
@@ -193,13 +213,13 @@ export async function createOrUpdate(req: AuthRequest, res: Response) {
         userId: req.userId || null,
       },
       update: {
-        prefixo: String(prefixo),
+        prefixo: cleanPrefixo,
         garagem: garagem || "VCG",
         consorciada: consorciada || "VCG",
         categoria: cat,
         subTipo: sub,
         horarioReforco: horarioReforco || null,
-        motivo: motivo || "Em Manutenção",
+        motivo: motivo !== undefined && motivo !== null ? String(motivo).trim() : "",
         dataBloqueio: finalData,
         horaBloqueio: finalHora,
         gravidade: gravidade || "ALTA",
@@ -307,7 +327,7 @@ export async function sync(req: AuthRequest, res: Response) {
           categoria: item.categoriaPlanilha || item.categoria || "OFICINA",
           subTipo: item.setorOficina || item.tipoPreventiva || item.subTipo || null,
           horarioReforco: item.horarioReforco || null,
-          motivo: item.motivo || "Em Manutenção",
+          motivo: item.motivo !== undefined ? item.motivo : "Em Manutenção",
           dataBloqueio: item.data || item.dataBloqueio || new Date().toISOString().split("T")[0],
           horaBloqueio: item.hora || item.horaBloqueio || null,
           gravidade: item.gravidade || "ALTA",
@@ -317,7 +337,7 @@ export async function sync(req: AuthRequest, res: Response) {
         },
         update: {
           status: item.status || "BLOQUEADO",
-          motivo: item.motivo || "Em Manutenção",
+          motivo: item.motivo !== undefined ? item.motivo : "Em Manutenção",
           horarioReforco: item.horarioReforco || null,
         },
       });

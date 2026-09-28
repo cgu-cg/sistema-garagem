@@ -42,11 +42,8 @@ import {
   Search, 
   ChevronDown, 
   RotateCcw,
-  Printer,
-  Download
+  Printer
 } from "lucide-react";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
 import { cn } from "@/lib/utils";
 
 export interface CiManutencaoViewProps {
@@ -309,6 +306,9 @@ const SETORES_OFICINA = [
   { id: "LIMPEZA", label: "LIMPEZA", chips: ["Higienização Pesada", "Lavagem Motor", "Polimento", "Bancos"] },
 ] as const;
 
+// Setores da Oficina onde o campo Motivo / Defeito NÃO é obrigatório
+const SETORES_SEM_MOTIVO_OBRIGATORIO = ["ELEVADOR", "BORRACHARIA", "TACOGRAFO", "LIMPEZA"] as const;
+
 // 3. REFORÇO COM HORÁRIO (Bloco 3 do Print 01 e Print 02 - 12 horários fixos em duas colunas)
 const FIXED_REFORCO_SLOTS = [
   // Coluna 1 (Esquerda - 6 horários)
@@ -339,6 +339,29 @@ const BLOQUEIOS_MOTIVOS_RAPIDOS = [
   "Motor", "Transmissão", "Revisão Geral", "Sinistro", "Pastilhas e Disco de Freio",
   "Falta de Peça Para-brisa", "Posto de Molas", "Módulo", "Suspensão", "Câmbio", "Freio", "Elétrica"
 ];
+
+// Utilitário para normalizar qualquer string de data para o padrão ISO "YYYY-MM-DD"
+function normalizeIsoDate(d?: string): string {
+  if (!d) return "";
+  const trimmed = String(d).trim();
+  if (trimmed.includes("T")) return trimmed.split("T")[0];
+  if (trimmed.includes("/")) {
+    const parts = trimmed.split("/");
+    if (parts.length === 3) {
+      if (parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, "0")}-${parts[2].padStart(2, "0")}`;
+      return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+    }
+  }
+  return trimmed;
+}
+
+// Utilitário para comparar identificadores de setores de forma insensível a maiúsculas/minúsculas e acentos
+function isSetorMatch(cSetor?: string, targetSetorId?: string): boolean {
+  if (!cSetor || !targetSetorId) return false;
+  const s1 = String(cSetor).trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const s2 = String(targetSetorId).trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return s1 === s2;
+}
 
 export function CiManutencaoView({ 
   ciList, 
@@ -455,39 +478,37 @@ export function CiManutencaoView({
   // - PREVENTIVAS, SETORES DA OFICINA e REFORÇO: pertencem estritamente à data em que foram lançados (não se repetem de um dia no outro)
   // - BLOQUEADOS: carros bloqueados de frota se repetem dia após dia até que sejam liberados
   const ciListNaData = useMemo(() => {
+    const targetDate = normalizeIsoDate(dataOperacao);
     return ciList.filter(c => {
+      const itemDate = normalizeIsoDate(c.data);
+
       // Se o bloqueio for lançado em data futura em relação à data consultada, não existia ainda
-      if (c.data && c.data > dataOperacao) {
+      if (itemDate && targetDate && itemDate > targetDate) {
         return false;
       }
 
       // PREVENTIVA, SETORES DA OFICINA e REFORÇO: pertencem estritamente à data de operação selecionada!
       // NÃO se repetem de um dia no outro nesses cards!
-      if (
-        c.categoriaPlanilha === "PREVENTIVA" || 
-        c.categoriaPlanilha === "OFICINA" || 
-        c.categoriaPlanilha === "REFORCO"
-      ) {
-        return c.data === dataOperacao;
+      const cat = (c.categoriaPlanilha || "").toUpperCase();
+      const isOficinaOrPrev = (
+        cat === "PREVENTIVA" || 
+        cat === "OFICINA" || 
+        cat === "REFORCO" ||
+        Boolean(c.setorOficina) ||
+        Boolean(c.tipoPreventiva) ||
+        Boolean(c.horarioReforco)
+      );
+
+      if (isOficinaOrPrev) {
+        return itemDate === targetDate;
       }
 
       // Se o veículo foi liberado:
       if (c.status === "LIBERADO") {
         if (c.dataLiberacao) {
-          let dateLibIso = "";
-          if (c.dataLiberacao.includes("/")) {
-            const match = c.dataLiberacao.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-            if (match) {
-              dateLibIso = `${match[3]}-${match[2]}-${match[1]}`;
-            }
-          } else if (c.dataLiberacao.includes("-")) {
-            const match = c.dataLiberacao.match(/(\d{4})-(\d{2})-(\d{2})/);
-            if (match) {
-              dateLibIso = match[0];
-            }
-          }
+          const dateLibIso = normalizeIsoDate(c.dataLiberacao);
           // Se a data de liberação for posterior à data consultada, no dia consultado ele ainda estava bloqueado!
-          if (dateLibIso && dateLibIso > dataOperacao) {
+          if (dateLibIso && targetDate && dateLibIso > targetDate) {
             return true;
           }
         }
@@ -580,45 +601,33 @@ export function CiManutencaoView({
     return `CI-${dateIso}`;
   };
 
-  // Função para Impressão direta da folha A4 com alta fidelidade ao modelo de visualização
-  const handlePrintRelatorio = async () => {
-    if (!relatorioFolhaRef.current) {
-      window.print();
-      return;
-    }
+
+
+  // Função para Impressão direta da folha A4 em HTML REAL VETORIAL (100% idêntico à visualização da tela)
+  const handlePrintRelatorio = () => {
+    if (!relatorioFolhaRef.current) return;
     try {
-      toast.info("Preparando impressão de alta fidelidade...");
+      toast.info("Abrindo impressão de alta fidelidade...");
       const element = relatorioFolhaRef.current;
-
-      const canvas = await html2canvas(element, {
-        scale: 2.5,
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
-        backgroundColor: "#ffffff",
-        onclone: (clonedDoc) => {
-          const clonedElement = clonedDoc.querySelector('[data-folha-ci="true"]') as HTMLElement;
-          if (clonedElement) {
-            clonedElement.style.boxShadow = "none";
-            clonedElement.style.border = "none";
-            clonedElement.style.margin = "0";
-          }
-        },
-      });
-
-      const imgData = canvas.toDataURL("image/png");
+      const htmlContent = element.outerHTML;
 
       const iframe = document.createElement("iframe");
       iframe.style.position = "fixed";
-      iframe.style.right = "0";
-      iframe.style.bottom = "0";
-      iframe.style.width = "0";
-      iframe.style.height = "0";
+      iframe.style.top = "-10000px";
+      iframe.style.left = "-10000px";
+      iframe.style.width = "210mm";
+      iframe.style.minHeight = "297mm";
       iframe.style.border = "0";
+      iframe.setAttribute("title", "Impressão CI");
       document.body.appendChild(iframe);
 
       const doc = iframe.contentWindow?.document;
       if (doc) {
+        // Coleta todas as folhas de estilo ativas da página para o iframe
+        const styleSheets = Array.from(document.querySelectorAll("style, link[rel='stylesheet']"))
+          .map(el => el.outerHTML)
+          .join("\n");
+
         doc.open();
         doc.write(`
           <!DOCTYPE html>
@@ -626,10 +635,11 @@ export function CiManutencaoView({
           <head>
             <meta charset="utf-8" />
             <title>${formatCiFilename(dataOperacao)}</title>
+            ${styleSheets}
             <style>
               @page {
                 size: A4 portrait;
-                margin: 0;
+                margin: 0mm;
               }
               * {
                 box-sizing: border-box !important;
@@ -640,42 +650,30 @@ export function CiManutencaoView({
                 margin: 0 !important;
                 padding: 0 !important;
                 width: 210mm !important;
-                height: 297mm !important;
+                min-height: 297mm !important;
                 background: #ffffff !important;
-                overflow: hidden !important;
+                color: #000000 !important;
               }
-              .print-container {
+              [data-folha-ci="true"] {
+                box-shadow: none !important;
+                border: none !important;
+                margin: 0 auto !important;
                 width: 210mm !important;
-                height: 297mm !important;
-                display: flex !important;
-                align-items: center !important;
-                justify-content: center !important;
-                margin: 0 !important;
-                padding: 0 !important;
-              }
-              img {
-                width: 210mm !important;
-                height: 297mm !important;
-                display: block !important;
-                object-fit: fill !important;
+                min-height: 297mm !important;
+                padding: 5mm 8mm !important;
+                box-sizing: border-box !important;
+                background-color: #ffffff !important;
+                color: #000000 !important;
               }
             </style>
           </head>
           <body>
-            <div class="print-container">
-              <img id="ci-print-img" src="${imgData}" />
-            </div>
+            ${htmlContent}
             <script>
-              const img = document.getElementById("ci-print-img");
-              function doPrint() {
-                window.focus();
+              window.focus();
+              setTimeout(() => {
                 window.print();
-              }
-              if (img && img.complete) {
-                setTimeout(doPrint, 300);
-              } else if (img) {
-                img.onload = () => setTimeout(doPrint, 300);
-              }
+              }, 300);
             </script>
           </body>
           </html>
@@ -686,57 +684,15 @@ export function CiManutencaoView({
           if (document.body.contains(iframe)) {
             document.body.removeChild(iframe);
           }
-        }, 10000);
+        }, 15000);
       }
     } catch (err) {
       console.error("Erro na impressão do relatório CI:", err);
       toast.error("Erro ao preparar impressão.");
-      window.print();
     }
   };
 
-  // Função para Baixar PDF oficial com layout exatamente igual à visualização
-  const handleDownloadPdf = async () => {
-    if (!relatorioFolhaRef.current) return;
-    try {
-      toast.info("Gerando PDF oficial de alta resolução...");
-      const element = relatorioFolhaRef.current;
 
-      const canvas = await html2canvas(element, {
-        scale: 2.5,
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
-        backgroundColor: "#ffffff",
-        onclone: (clonedDoc) => {
-          const clonedElement = clonedDoc.querySelector('[data-folha-ci="true"]') as HTMLElement;
-          if (clonedElement) {
-            clonedElement.style.boxShadow = "none";
-            clonedElement.style.border = "none";
-            clonedElement.style.margin = "0";
-          }
-        },
-      });
-
-      const imgData = canvas.toDataURL("image/jpeg", 0.98);
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "mm",
-        format: "a4",
-        compress: true,
-      });
-
-      // O elemento possui proporção e dimensões exatas de A4 (210mm x 297mm) com padding interno
-      pdf.addImage(imgData, "JPEG", 0, 0, 210, 297, undefined, "FAST");
-
-      // Nome do documento seguindo o padrão oficial: CI-aa-mm-yyyy (ex: CI-25-09-2026.pdf)
-      pdf.save(`${formatCiFilename(dataOperacao)}.pdf`);
-      toast.success("PDF baixado com sucesso!");
-    } catch (err) {
-      console.error("Erro ao gerar PDF do relatório CI:", err);
-      toast.error("Erro ao gerar PDF.");
-    }
-  };
 
   // Estado do Modal de Inclusão/Edição Rápida de Veículos na CI (Print 03)
   const [quickAddModal, setQuickAddModal] = useState<{
@@ -761,9 +717,10 @@ export function CiManutencaoView({
   const [quickAddMotivo, setQuickAddMotivo] = useState<string>("");
   const [quickAddData, setQuickAddData] = useState<string>(() => new Date().toISOString().split("T")[0]);
   const [quickAddObs, setQuickAddObs] = useState<string>("");
+  const [isOutroMotivo, setIsOutroMotivo] = useState<boolean>(false);
 
-  // Estado local para armazenar escolhas de Motivo e Obs dos slots de reforço antes de vincular o carro
-  const [reforcoDrafts, setReforcoDrafts] = useState<Record<string, { motivo?: string; obs?: string }>>(() => {
+  // Estado local para armazenar escolhas de Prefixo, Motivo e Obs dos slots de reforço antes de confirmar no botão de salvar
+  const [reforcoDrafts, setReforcoDrafts] = useState<Record<string, { prefixo?: string; motivo?: string; obs?: string }>>(() => {
     try {
       const saved = localStorage.getItem(`reforco_drafts_${dataOperacao}`);
       if (saved) return JSON.parse(saved);
@@ -866,12 +823,14 @@ export function CiManutencaoView({
     setQuickAddObs("");
     setQuickAddFilterCompany(category === "BLOQUEADO" && ["VSF", "VCG", "JTU", "VCM"].includes(subType) ? subType : "TODAS");
     setQuickAddSelectorOpen(false);
+    setIsOutroMotivo(false);
 
     if (category === "PREVENTIVA") {
       const cardInfo = PREVENTIVAS_CARDS.find(p => p.id === subType);
       setQuickAddMotivo(cardInfo ? cardInfo.label : subType);
     } else if (category === "OFICINA") {
-      setQuickAddMotivo(chips[0] || `Setor ${subType}`);
+      const isOpcional = SETORES_SEM_MOTIVO_OBRIGATORIO.includes(subType.toUpperCase() as any);
+      setQuickAddMotivo(isOpcional ? "" : (chips[0] || `Setor ${subType}`));
     } else if (category === "BLOQUEADO") {
       setQuickAddMotivo(chips[0] || "Motor");
     }
@@ -885,10 +844,31 @@ export function CiManutencaoView({
     }
 
     const { category, subType, isEditing, existingId } = quickAddModal;
+    const cleanCar = quickAddCarro.trim();
+    const cleanData = normalizeIsoDate(quickAddData) || normalizeIsoDate(dataOperacao) || getTodayString();
     const cardInfo = PREVENTIVAS_CARDS.find(p => p.id === subType);
-    const motivoFinal = category === "PREVENTIVA" ? (cardInfo ? cardInfo.label : subType) : (quickAddMotivo.trim() || "Manutenção");
-    const carroGaragemFisica = fleetCars.find(c => c.prefixo === quickAddCarro)?.garagem || getGaragemFisicaByCarro(quickAddCarro);
-    const autoConsorciada = getConsorciadaByCarro(quickAddCarro);
+    const isSetorSemDefeito = category === "PREVENTIVA" || (
+      category === "OFICINA" && SETORES_SEM_MOTIVO_OBRIGATORIO.includes(subType.toUpperCase() as any)
+    );
+
+    if (!isSetorSemDefeito) {
+      if (isOutroMotivo && !quickAddMotivo.trim()) {
+        toast.error("Por favor, digite o motivo / defeito.");
+        return;
+      }
+      if (!quickAddMotivo.trim()) {
+        toast.error("Por favor, selecione um motivo / defeito.");
+        return;
+      }
+    }
+
+    const motivoFinal = category === "PREVENTIVA"
+      ? (cardInfo ? cardInfo.label : subType)
+      : isSetorSemDefeito
+        ? ""
+        : (quickAddMotivo.trim() || `Setor ${subType}`);
+    const carroGaragemFisica = fleetCars.find(c => c.prefixo === cleanCar)?.garagem || getGaragemFisicaByCarro(cleanCar);
+    const autoConsorciada = getConsorciadaByCarro(cleanCar);
 
     let mappedTipo: BloqueioCarro["tipo"] = "EM_MANUTENCAO";
     if (category === "PREVENTIVA") mappedTipo = "REFORCO_REVISAO";
@@ -903,18 +883,21 @@ export function CiManutencaoView({
     if (isEditing) {
       let found = false;
       const updatedList = ciList.map(item => {
-        const matches = existingId ? item.id === existingId : (item.prefixo === quickAddCarro && item.status !== "LIBERADO");
+        const matches = existingId 
+          ? item.id === existingId 
+          : ((item.prefixo || "").trim() === cleanCar && item.status !== "LIBERADO");
         if (matches) {
           found = true;
           return {
             ...item,
-            data: quickAddData,
+            data: cleanData,
             motivo: motivoFinal,
             tipo: mappedTipo,
             os: quickAddObs.trim() || undefined,
+            categoriaPlanilha: category,
+            setorOficina: category === "OFICINA" ? (subType as any) : undefined,
+            tipoPreventiva: category === "PREVENTIVA" ? (subType as any) : undefined,
             consorciada: category === "BLOQUEADO" ? (subType as any) : (item.consorciada || autoConsorciada),
-            setorOficina: category === "OFICINA" ? (subType as any) : item.setorOficina,
-            tipoPreventiva: category === "PREVENTIVA" ? (subType as any) : item.tipoPreventiva,
           };
         }
         return item;
@@ -922,8 +905,8 @@ export function CiManutencaoView({
 
       if (!found) {
         const newCI: BloqueioCarro = {
-          id: existingId || `ci-${Date.now()}-${quickAddCarro}`,
-          prefixo: quickAddCarro,
+          id: existingId || `ci-${Date.now()}-${cleanCar}`,
+          prefixo: cleanCar,
           garagem: carroGaragemFisica,
           consorciada: category === "BLOQUEADO" ? (subType as any) : autoConsorciada,
           categoriaPlanilha: category,
@@ -931,14 +914,14 @@ export function CiManutencaoView({
           tipoPreventiva: category === "PREVENTIVA" ? (subType as any) : undefined,
           tipo: mappedTipo,
           motivo: motivoFinal,
-          data: quickAddData,
+          data: cleanData,
           hora: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
           gravidade: "ALTA",
           responsavel: category === "OFICINA" ? `Oficina ${subType}` : (category === "PREVENTIVA" ? "Oficina Preventiva" : "Oficina Central"),
           os: quickAddObs.trim() || undefined,
           status: "BLOQUEADO"
         };
-        const cleanList = ciList.filter(item => item.prefixo !== quickAddCarro || item.status === "LIBERADO");
+        const cleanList = ciList.filter(item => (item.prefixo || "").trim() !== cleanCar || item.status === "LIBERADO");
         const finalList = [newCI, ...cleanList];
         setCiList(finalList);
         saveCIBloqueiosToStorage(finalList);
@@ -946,18 +929,18 @@ export function CiManutencaoView({
       } else {
         setCiList(updatedList);
         saveCIBloqueiosToStorage(updatedList);
-        const editedItem = updatedList.find(item => existingId ? item.id === existingId : item.prefixo === quickAddCarro);
+        const editedItem = updatedList.find(item => existingId ? item.id === existingId : (item.prefixo || "").trim() === cleanCar);
         if (editedItem) persistCIBloqueio(editedItem);
       }
 
-      toast.success(`Carro ${quickAddCarro} atualizado com sucesso!`);
+      toast.success(`Carro ${cleanCar} atualizado com sucesso!`);
       setQuickAddModal(prev => ({ ...prev, isOpen: false }));
       return;
     }
 
     const newCI: BloqueioCarro = {
-      id: `ci-${Date.now()}-${quickAddCarro}`,
-      prefixo: quickAddCarro,
+      id: `ci-${Date.now()}-${cleanCar}`,
+      prefixo: cleanCar,
       garagem: carroGaragemFisica,
       consorciada: category === "BLOQUEADO" ? (subType as any) : autoConsorciada,
       categoriaPlanilha: category,
@@ -965,7 +948,7 @@ export function CiManutencaoView({
       tipoPreventiva: category === "PREVENTIVA" ? (subType as any) : undefined,
       tipo: mappedTipo,
       motivo: motivoFinal,
-      data: quickAddData,
+      data: cleanData,
       hora: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
       gravidade: "ALTA",
       responsavel: category === "OFICINA" ? `Oficina ${subType}` : (category === "PREVENTIVA" ? "Oficina Preventiva" : "Oficina Central"),
@@ -973,13 +956,13 @@ export function CiManutencaoView({
       status: "BLOQUEADO"
     };
 
-    const cleanList = ciList.filter(item => item.prefixo !== quickAddCarro || item.status === "LIBERADO");
+    const cleanList = ciList.filter(item => (item.prefixo || "").trim() !== cleanCar || item.status === "LIBERADO");
     const updatedList = [newCI, ...cleanList];
 
     setCiList(updatedList);
     saveCIBloqueiosToStorage(updatedList);
     persistCIBloqueio(newCI);
-    toast.success(`Carro ${quickAddCarro} inserido com sucesso em ${quickAddModal.title}!`);
+    toast.success(`Carro ${cleanCar} inserido com sucesso em ${quickAddModal.title}!`);
     setQuickAddModal(prev => ({ ...prev, isOpen: false }));
   };
 
@@ -1000,7 +983,7 @@ export function CiManutencaoView({
     const slotStorageId = `ci-reforco-${slotId}-${dataOperacao}`;
     const legacySlotStorageId = `ci-reforco-${slotId}`;
 
-    // Busca o item associado estritamente a este slot único
+    // Busca o item associado estritamente a este slot único na lista da CI
     const item = ciListNaData.find(c => 
       c.status !== "LIBERADO" && 
       c.categoriaPlanilha === "REFORCO" && 
@@ -1009,65 +992,108 @@ export function CiManutencaoView({
 
     const draft = reforcoDrafts[slotId];
 
-    // O motivo vem do registro salvo, ou do draft escolhido pelo usuário, ou do defaultMotivo
-    const motivo = item?.motivo !== undefined && item.motivo !== ""
-      ? item.motivo 
-      : (draft?.motivo !== undefined ? draft.motivo : defaultMotivo);
+    // O prefixo vem do draft (se editado) ou do item salvo
+    const prefixo = draft?.prefixo !== undefined ? draft.prefixo : (item ? item.prefixo : "");
 
-    const obs = item?.os !== undefined && item.os !== ""
-      ? item.os 
-      : (draft?.obs !== undefined ? draft.obs : "");
+    // O motivo vem do draft (se editado) ou do item salvo, ou defaultMotivo
+    const motivo = draft?.motivo !== undefined 
+      ? draft.motivo 
+      : (item?.motivo !== undefined && item.motivo !== "" ? item.motivo : defaultMotivo);
 
-    const prefixo = item ? item.prefixo : "";
+    // A obs vem do draft (se editado) ou do item salvo
+    const obs = draft?.obs !== undefined 
+      ? draft.obs 
+      : (item?.os !== undefined ? item.os : "");
+
+    const isSaved = Boolean(item && item.prefixo && item.motivo);
+    const isDirty = draft !== undefined && (
+      (draft.prefixo !== undefined && draft.prefixo !== (item?.prefixo || "")) ||
+      (draft.motivo !== undefined && draft.motivo !== (item?.motivo || "")) ||
+      (draft.obs !== undefined && draft.obs !== (item?.os || ""))
+    );
 
     return {
-      prefixo,
+      prefixo: prefixo || "",
       motivo: motivo || "",
       obs: obs || "",
-      hasCar: Boolean(prefixo)
+      isSaved,
+      isDirty,
+      hasCar: Boolean(prefixo),
+      savedItem: item
     };
   };
 
-  const handleReforcoSlotPrefixoChange = (slotId: string, horario: string, novoPrefixo: string, motivo: string, obs: string) => {
+  const handleReforcoSlotDraftChange = (slotId: string, patch: { prefixo?: string; motivo?: string; obs?: string }) => {
+    setReforcoDrafts(prev => {
+      const current = prev[slotId] || {};
+      const nextSlot = { ...current, ...patch };
+      const next = { ...prev, [slotId]: nextSlot };
+      try {
+        localStorage.setItem(`reforco_drafts_${dataOperacao}`, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+  };
+
+  const handleSaveReforcoSlot = (slotId: string, horario: string) => {
+    const slotData = getReforcoSlotData(slotId, horario);
+    const cleanPrefixo = (slotData.prefixo || "").trim();
+    const cleanMotivo = (slotData.motivo || "").trim();
+    const cleanObs = (slotData.obs || "").trim();
     const slotStorageId = `ci-reforco-${slotId}-${dataOperacao}`;
     const legacySlotStorageId = `ci-reforco-${slotId}`;
 
-    if (!novoPrefixo || novoPrefixo === "—") {
-      deleteCIBloqueioApi(slotStorageId);
-      deleteCIBloqueioApi(legacySlotStorageId);
-      const updatedList = ciList.filter(c => 
-        c.id !== slotStorageId && 
-        c.id !== legacySlotStorageId && 
-        (c as any).reforcoSlotId !== slotId
-      );
-      setCiList(updatedList);
-      saveCIBloqueiosToStorage(updatedList);
-      toast.info(`Carro desvinculado do horário ${horario}.`);
+    // Se o usuário limpou o carro e clicou no botão para desvincular um horário que já estava salvo
+    if (!cleanPrefixo || cleanPrefixo === "—") {
+      if (slotData.isSaved) {
+        deleteCIBloqueioApi(slotStorageId);
+        deleteCIBloqueioApi(legacySlotStorageId);
+        const updatedList = ciList.filter(c => 
+          c.id !== slotStorageId && 
+          c.id !== legacySlotStorageId && 
+          (c as any).reforcoSlotId !== slotId
+        );
+        setCiList(updatedList);
+        saveCIBloqueiosToStorage(updatedList);
+        setReforcoDrafts(prev => {
+          const next = { ...prev };
+          delete next[slotId];
+          try {
+            localStorage.setItem(`reforco_drafts_${dataOperacao}`, JSON.stringify(next));
+          } catch {}
+          return next;
+        });
+        toast.info(`Carro desvinculado do horário ${horario}.`);
+        return;
+      }
+      toast.error(`Por favor, selecione um carro para o horário ${horario}.`);
       return;
     }
 
-    const carroGaragemFisica = fleetCars.find(c => c.prefixo === novoPrefixo)?.garagem || getGaragemFisicaByCarro(novoPrefixo);
-    const autoConsorciada = getConsorciadaByCarro(novoPrefixo);
+    // Validação solicitada pelo usuário: só salva se adicionar motivo e prefixo (obs opcional)
+    if (!cleanMotivo) {
+      toast.error(`Por favor, selecione um motivo para o horário ${horario}.`);
+      return;
+    }
 
-    // Prioriza o motivo passado ou o que foi configurado no draft daquele slot
-    const motivoFinal = motivo || reforcoDrafts[slotId]?.motivo || "";
-    const obsFinal = obs || reforcoDrafts[slotId]?.obs || "";
+    const carroGaragemFisica = fleetCars.find(c => c.prefixo === cleanPrefixo)?.garagem || getGaragemFisicaByCarro(cleanPrefixo);
+    const autoConsorciada = getConsorciadaByCarro(cleanPrefixo);
 
     const newReforcoItem: BloqueioCarro & { reforcoSlotId?: string } = {
       id: slotStorageId,
-      prefixo: novoPrefixo,
+      prefixo: cleanPrefixo,
       garagem: carroGaragemFisica,
       consorciada: autoConsorciada,
       categoriaPlanilha: "REFORCO",
       horarioReforco: horario,
       reforcoSlotId: slotId,
       tipo: "REFORCO_REVISAO",
-      motivo: motivoFinal,
-      data: dataOperacao,
+      motivo: cleanMotivo,
+      data: normalizeIsoDate(dataOperacao) || getTodayString(),
       hora: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
       gravidade: "ALTA",
       responsavel: "Pista / Reforço",
-      os: obsFinal,
+      os: cleanObs || undefined,
       status: "BLOQUEADO"
     };
 
@@ -1076,66 +1102,25 @@ export function CiManutencaoView({
       c.id !== slotStorageId && 
       c.id !== legacySlotStorageId && 
       (c as any).reforcoSlotId !== slotId && 
-      (c.prefixo !== novoPrefixo || c.status === "LIBERADO")
+      ((c.prefixo || "").trim() !== cleanPrefixo || c.status === "LIBERADO")
     );
     const updatedList = [newReforcoItem, ...cleanList];
 
     setCiList(updatedList);
     saveCIBloqueiosToStorage(updatedList);
     persistCIBloqueio(newReforcoItem);
-    toast.success(`Carro ${novoPrefixo} vinculado ao horário ${horario}!`);
-  };
 
-  const handleReforcoSlotFieldChange = (slotId: string, horario: string, _prefixo: string, novoMotivo: string, novaObs: string) => {
-    // 1. Atualiza sempre o estado de draft do slot para que a seleção apareça imediatamente
+    // Limpa o draft deste slot, pois agora o item está salvo oficialmente na CI
     setReforcoDrafts(prev => {
-      const next = {
-        ...prev,
-        [slotId]: {
-          motivo: novoMotivo,
-          obs: novaObs,
-        }
-      };
+      const next = { ...prev };
+      delete next[slotId];
       try {
         localStorage.setItem(`reforco_drafts_${dataOperacao}`, JSON.stringify(next));
-      } catch (e) {}
+      } catch {}
       return next;
     });
 
-    // 2. Se já houver um registro salvo para esse slotId, atualiza o registro existente
-    const slotStorageId = `ci-reforco-${slotId}-${dataOperacao}`;
-    const legacySlotStorageId = `ci-reforco-${slotId}`;
-
-    const existingIndex = ciList.findIndex(item => 
-      item.id === slotStorageId || 
-      item.id === legacySlotStorageId || 
-      (item.categoriaPlanilha === "REFORCO" && (item as any).reforcoSlotId === slotId)
-    );
-
-    if (existingIndex >= 0) {
-      let targetUpdated: BloqueioCarro | null = null;
-      const updatedList = ciList.map((item, idx) => {
-        if (idx === existingIndex) {
-          targetUpdated = {
-            ...item,
-            id: slotStorageId,
-            reforcoSlotId: slotId,
-            data: item.data || dataOperacao,
-            horarioReforco: horario,
-            motivo: novoMotivo,
-            os: novaObs
-          } as BloqueioCarro;
-          return targetUpdated;
-        }
-        return item;
-      });
-
-      setCiList(updatedList);
-      saveCIBloqueiosToStorage(updatedList);
-      if (targetUpdated) {
-        persistCIBloqueio(targetUpdated);
-      }
-    }
+    toast.success(`Horário ${horario} salvo com sucesso! Carro: ${cleanPrefixo}`);
   };
 
   // Mapa rápido de carros com registro de CI ativo na data selecionada
@@ -1233,7 +1218,10 @@ export function CiManutencaoView({
     });
     setQuickAddCarro(carro);
     setQuickAddData(existingCI.data || dataOperacao);
-    setQuickAddMotivo(existingCI.motivo || "");
+    const motivoAtual = existingCI.motivo || "";
+    const isChipExistente = chips.some(c => c.toLowerCase() === motivoAtual.toLowerCase());
+    setIsOutroMotivo(Boolean(motivoAtual && !isChipExistente));
+    setQuickAddMotivo(motivoAtual);
     setQuickAddObs(existingCI.os || "");
     setQuickAddFilterCompany(existingCI.consorciada || "TODAS");
     setQuickAddSelectorOpen(false);
@@ -1417,7 +1405,11 @@ export function CiManutencaoView({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             {PREVENTIVAS_CARDS.map(card => {
-              const items = ciListNaData.filter(c => c.status !== "LIBERADO" && c.categoriaPlanilha === "PREVENTIVA" && c.tipoPreventiva === card.id);
+              const items = ciListNaData.filter(c => 
+                c.status !== "LIBERADO" && 
+                (c.categoriaPlanilha === "PREVENTIVA" || (!c.categoriaPlanilha && Boolean(c.tipoPreventiva))) && 
+                isSetorMatch(c.tipoPreventiva, card.id)
+              );
               return (
                 <div key={card.id} className="bg-muted/20 border border-border/80 rounded-xl p-3 flex flex-col justify-between min-h-[140px] hover:border-emerald-500/40 transition-colors">
                   <div>
@@ -1495,7 +1487,11 @@ export function CiManutencaoView({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2.5">
             {SETORES_OFICINA.map(setor => {
-              const items = ciListNaData.filter(c => c.status !== "LIBERADO" && c.categoriaPlanilha === "OFICINA" && c.setorOficina === setor.id);
+              const items = ciListNaData.filter(c => 
+                c.status !== "LIBERADO" && 
+                (c.categoriaPlanilha === "OFICINA" || (!c.categoriaPlanilha && Boolean(c.setorOficina))) && 
+                isSetorMatch(c.setorOficina, setor.id)
+              );
               return (
                 <div key={setor.id} className="bg-muted/20 border border-border/80 rounded-xl p-2.5 flex flex-col justify-between min-h-[170px] hover:border-emerald-500/40 transition-colors">
                   <div>
@@ -1584,20 +1580,21 @@ export function CiManutencaoView({
             
             {/* Tabela Coluna 1 (Slots 0 a 5) */}
             <div className="border rounded-xl overflow-hidden bg-background">
-              <div className="bg-muted/50 px-3 py-2 border-b text-xs font-bold grid grid-cols-12 gap-2 text-muted-foreground uppercase font-mono">
-                <span className="col-span-3">Horário</span>
+              <div className="bg-muted/50 px-2.5 py-2 border-b text-[11px] font-bold grid grid-cols-12 gap-1.5 sm:gap-2 text-muted-foreground uppercase font-mono items-center">
+                <span className="col-span-2">Horário</span>
                 <span className="col-span-3">Motivo</span>
                 <span className="col-span-3">Prefixo</span>
                 <span className="col-span-3">Obs</span>
+                <span className="col-span-1 text-center">Salvar</span>
               </div>
               <div className="divide-y divide-border/60">
                 {FIXED_REFORCO_SLOTS.slice(0, 6).map((slot, idx) => {
                   const slotData = getReforcoSlotData(slot.id, slot.horario, slot.defaultMotivo, idx);
                   return (
-                    <div key={slot.id} className="p-2 grid grid-cols-12 gap-2 items-center text-xs hover:bg-muted/20 transition-colors">
+                    <div key={slot.id} className="p-2 grid grid-cols-12 gap-1.5 sm:gap-2 items-center text-xs hover:bg-muted/20 transition-colors">
                       {/* Horário Fixo */}
-                      <div className="col-span-3 font-mono font-bold text-xs flex items-center">
-                        <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 whitespace-nowrap">
+                      <div className="col-span-2 font-mono font-bold text-xs flex items-center">
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 whitespace-nowrap text-[11px]">
                           {slot.horario}
                         </span>
                       </div>
@@ -1606,8 +1603,8 @@ export function CiManutencaoView({
                       <div className="col-span-3">
                         <select
                           value={slotData.motivo}
-                          onChange={(e) => handleReforcoSlotFieldChange(slot.id, slot.horario, slotData.prefixo, e.target.value, slotData.obs)}
-                          className="w-full h-8 px-2 rounded-md border bg-background text-[11px] font-medium focus:outline-hidden"
+                          onChange={(e) => handleReforcoSlotDraftChange(slot.id, { motivo: e.target.value })}
+                          className="w-full h-8 px-1.5 sm:px-2 rounded-md border bg-background text-[11px] font-medium focus:outline-hidden"
                         >
                           <option value="">—</option>
                           <option value="LUBRIFICAÇÃO">LUBRIFICAÇÃO</option>
@@ -1625,20 +1622,45 @@ export function CiManutencaoView({
                       <div className="col-span-3">
                         <CarSearchSelect
                           value={slotData.prefixo}
-                          onChange={(novoPrefixo) => handleReforcoSlotPrefixoChange(slot.id, slot.horario, novoPrefixo, slotData.motivo, slotData.obs)}
+                          onChange={(novoPrefixo) => handleReforcoSlotDraftChange(slot.id, { prefixo: novoPrefixo })}
                           allowedCars={sortedAllowedCars}
                           placeholder="Carro"
                         />
                       </div>
 
-                      {/* Obs */}
+                      {/* Obs (Opcional) */}
                       <div className="col-span-3">
                         <Input
                           value={slotData.obs}
                           placeholder="Ex: POSTO .M"
-                          onChange={(e) => handleReforcoSlotFieldChange(slot.id, slot.horario, slotData.prefixo, slotData.motivo, e.target.value)}
+                          onChange={(e) => handleReforcoSlotDraftChange(slot.id, { obs: e.target.value })}
                           className="h-8 text-[11px] bg-background"
                         />
+                      </div>
+
+                      {/* Botão Redondo com Ícone de Certo */}
+                      <div className="col-span-1 flex items-center justify-center">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleSaveReforcoSlot(slot.id, slot.horario)}
+                          className={cn(
+                            "h-7 w-7 p-0 rounded-full cursor-pointer transition-all duration-150 shrink-0",
+                            slotData.isSaved && !slotData.isDirty
+                              ? "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-2xs"
+                              : (slotData.prefixo && slotData.motivo)
+                              ? "border-2 border-emerald-500 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-600 hover:text-white bg-emerald-500/10 shadow-2xs"
+                              : "border-border/80 text-muted-foreground/50 hover:border-emerald-500/50 hover:text-emerald-600 hover:bg-emerald-500/10"
+                          )}
+                          title={
+                            slotData.isSaved && !slotData.isDirty
+                              ? "Salvo na CI. Clique para atualizar se alterar algo."
+                              : "Salvar horário na CI (Requer Motivo e Prefixo)"
+                          }
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                        </Button>
                       </div>
                     </div>
                   );
@@ -1648,20 +1670,21 @@ export function CiManutencaoView({
 
             {/* Tabela Coluna 2 (Slots 6 a 11) */}
             <div className="border rounded-xl overflow-hidden bg-background">
-              <div className="bg-muted/50 px-3 py-2 border-b text-xs font-bold grid grid-cols-12 gap-2 text-muted-foreground uppercase font-mono">
-                <span className="col-span-3">Horário</span>
+              <div className="bg-muted/50 px-2.5 py-2 border-b text-[11px] font-bold grid grid-cols-12 gap-1.5 sm:gap-2 text-muted-foreground uppercase font-mono items-center">
+                <span className="col-span-2">Horário</span>
                 <span className="col-span-3">Motivo</span>
                 <span className="col-span-3">Prefixo</span>
                 <span className="col-span-3">Obs</span>
+                <span className="col-span-1 text-center">Salvar</span>
               </div>
               <div className="divide-y divide-border/60">
                 {FIXED_REFORCO_SLOTS.slice(6, 12).map((slot, idx) => {
                   const slotData = getReforcoSlotData(slot.id, slot.horario, slot.defaultMotivo, idx + 6);
                   return (
-                    <div key={slot.id} className="p-2 grid grid-cols-12 gap-2 items-center text-xs hover:bg-muted/20 transition-colors">
+                    <div key={slot.id} className="p-2 grid grid-cols-12 gap-1.5 sm:gap-2 items-center text-xs hover:bg-muted/20 transition-colors">
                       {/* Horário Fixo */}
-                      <div className="col-span-3 font-mono font-bold text-xs flex items-center">
-                        <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 whitespace-nowrap">
+                      <div className="col-span-2 font-mono font-bold text-xs flex items-center">
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 whitespace-nowrap text-[11px]">
                           {slot.horario}
                         </span>
                       </div>
@@ -1670,8 +1693,8 @@ export function CiManutencaoView({
                       <div className="col-span-3">
                         <select
                           value={slotData.motivo}
-                          onChange={(e) => handleReforcoSlotFieldChange(slot.id, slot.horario, slotData.prefixo, e.target.value, slotData.obs)}
-                          className="w-full h-8 px-2 rounded-md border bg-background text-[11px] font-medium focus:outline-hidden"
+                          onChange={(e) => handleReforcoSlotDraftChange(slot.id, { motivo: e.target.value })}
+                          className="w-full h-8 px-1.5 sm:px-2 rounded-md border bg-background text-[11px] font-medium focus:outline-hidden"
                         >
                           <option value="">—</option>
                           <option value="LUBRIFICAÇÃO">LUBRIFICAÇÃO</option>
@@ -1689,20 +1712,45 @@ export function CiManutencaoView({
                       <div className="col-span-3">
                         <CarSearchSelect
                           value={slotData.prefixo}
-                          onChange={(novoPrefixo) => handleReforcoSlotPrefixoChange(slot.id, slot.horario, novoPrefixo, slotData.motivo, slotData.obs)}
+                          onChange={(novoPrefixo) => handleReforcoSlotDraftChange(slot.id, { prefixo: novoPrefixo })}
                           allowedCars={sortedAllowedCars}
                           placeholder="Carro"
                         />
                       </div>
 
-                      {/* Obs */}
+                      {/* Obs (Opcional) */}
                       <div className="col-span-3">
                         <Input
                           value={slotData.obs}
                           placeholder="Ex: POSTO .M"
-                          onChange={(e) => handleReforcoSlotFieldChange(slot.id, slot.horario, slotData.prefixo, slotData.motivo, e.target.value)}
+                          onChange={(e) => handleReforcoSlotDraftChange(slot.id, { obs: e.target.value })}
                           className="h-8 text-[11px] bg-background"
                         />
+                      </div>
+
+                      {/* Botão Redondo com Ícone de Certo */}
+                      <div className="col-span-1 flex items-center justify-center">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleSaveReforcoSlot(slot.id, slot.horario)}
+                          className={cn(
+                            "h-7 w-7 p-0 rounded-full cursor-pointer transition-all duration-150 shrink-0",
+                            slotData.isSaved && !slotData.isDirty
+                              ? "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-2xs"
+                              : (slotData.prefixo && slotData.motivo)
+                              ? "border-2 border-emerald-500 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-600 hover:text-white bg-emerald-500/10 shadow-2xs"
+                              : "border-border/80 text-muted-foreground/50 hover:border-emerald-500/50 hover:text-emerald-600 hover:bg-emerald-500/10"
+                          )}
+                          title={
+                            slotData.isSaved && !slotData.isDirty
+                              ? "Salvo na CI. Clique para atualizar se alterar algo."
+                              : "Salvar horário na CI (Requer Motivo e Prefixo)"
+                          }
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                        </Button>
                       </div>
                     </div>
                   );
@@ -1735,8 +1783,8 @@ export function CiManutencaoView({
             {CONSORCIADAS_BLOQUEIOS.map(cons => {
               const items = ciListNaData.filter(c => 
                 c.status !== "LIBERADO" && 
-                (c.categoriaPlanilha === "BLOQUEADO" || !c.categoriaPlanilha) && 
-                (c.consorciada === cons.id || (!c.consorciada && c.prefixo.startsWith(cons.prefixDigit)))
+                (c.categoriaPlanilha === "BLOQUEADO" || (!c.categoriaPlanilha && !c.setorOficina && !c.tipoPreventiva && !c.horarioReforco)) && 
+                (c.consorciada === cons.id || (!c.consorciada && (c.prefixo || "").trim().startsWith(cons.prefixDigit)))
               );
 
               return (
@@ -1854,24 +1902,12 @@ export function CiManutencaoView({
               <Button
                 type="button"
                 onClick={handlePrintRelatorio}
-                variant="outline"
-                size="sm"
-                className="rounded-full px-4 py-1.5 h-8 text-xs font-bold border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-1.5 cursor-pointer shadow-xs"
-                title="Imprimir folha de relatório formatada"
-              >
-                <Printer className="w-3.5 h-3.5 text-gray-600 dark:text-slate-300" />
-                Imprimir
-              </Button>
-
-              <Button
-                type="button"
-                onClick={handleDownloadPdf}
                 size="sm"
                 className="rounded-full px-4 py-1.5 h-8 text-xs font-bold bg-[#164E3A] hover:bg-[#113C2D] text-white flex items-center gap-1.5 cursor-pointer shadow-xs"
-                title="Baixar arquivo em PDF"
+                title="Imprimir folha de relatório formatada ou Salvar como PDF"
               >
-                <Download className="w-3.5 h-3.5" />
-                Baixar PDF
+                <Printer className="w-3.5 h-3.5" />
+                Imprimir
               </Button>
             </div>
           </div>
@@ -1887,7 +1923,7 @@ export function CiManutencaoView({
               style={{
                 width: "210mm",
                 minHeight: "297mm",
-                padding: "8mm 10mm",
+                padding: "5mm 8mm",
                 boxSizing: "border-box",
                 backgroundColor: "#ffffff",
                 color: "#000000",
@@ -1897,19 +1933,19 @@ export function CiManutencaoView({
                 
                 {/* 1. CABEÇALHO OFICIAL COM LOGO E METADADOS */}
                 <div className="border border-black">
-                  <div className="flex items-center justify-between px-3 py-1.5 border-b border-black">
+                  <div className="flex items-center justify-between px-3 py-1 border-b border-black">
                     <div className="w-[160px] flex items-center">
-                      <LogoConsorcioSvg className="h-8 max-w-[130px] object-contain logo-consorcio-print" />
+                      <LogoConsorcioSvg className="h-7 max-w-[125px] object-contain logo-consorcio-print" />
                     </div>
                     <div className="flex-1 text-center pr-10">
-                      <h1 className="text-base sm:text-lg font-black tracking-wide uppercase text-black">
+                      <h1 className="text-base font-black tracking-wide uppercase text-black">
                         CI - Solicitação de veículos
                       </h1>
                     </div>
                   </div>
 
                   {/* Metadados: Data da Criação, Revisão Nº, Data da Revisão, Data da Informação, Número */}
-                  <table className="w-full border-collapse text-center text-[9px] leading-tight">
+                  <table data-tabela-metadados="true" className="w-full border-collapse text-center text-[8.5px] leading-tight">
                     <tbody>
                       <tr className="bg-[#f2f2f2] font-bold uppercase text-black divide-x divide-black border-b border-black">
                         <td className="py-0.5 w-[20%]">Data da Criação</td>
@@ -1918,11 +1954,11 @@ export function CiManutencaoView({
                         <td className="py-0.5 w-[25%]">DATA DA INFORMAÇÃO</td>
                         <td className="py-0.5 w-[20%]">Número</td>
                       </tr>
-                      <tr className="font-bold divide-x divide-black text-[9.5px]">
+                      <tr className="font-bold divide-x divide-black text-[9px]">
                         <td className="py-0.5 font-mono">10/10/2024</td>
                         <td className="py-0.5 font-mono">1</td>
                         <td className="py-0.5 font-mono">09/10/2025</td>
-                        <td className="py-0.5 font-mono font-bold text-[8.5px] uppercase">{dataInformacaoFormatada}</td>
+                        <td className="py-0.5 font-mono font-bold text-[8px] uppercase">{dataInformacaoFormatada}</td>
                         <td className="py-0.5 font-mono">CGU.REG.MT0005</td>
                       </tr>
                     </tbody>
@@ -1930,14 +1966,14 @@ export function CiManutencaoView({
                 </div>
 
                 {/* 2. TABELA: PREVENTIVAS */}
-                <table className="w-full border-collapse border border-black text-[9.5px] leading-tight">
+                <table className="w-full border-collapse border border-black text-[9px] leading-tight">
                   <thead>
                     <tr>
-                      <th colSpan={5} className="bg-[#e6e6e6] border border-black py-0.5 text-center font-bold text-[10.5px] uppercase tracking-wide text-black">
+                      <th colSpan={5} className="bg-[#e6e6e6] border border-black py-0.5 text-center font-bold text-[10px] uppercase tracking-wide text-black">
                         Preventivas
                       </th>
                     </tr>
-                    <tr className="bg-[#f2f2f2] text-center font-bold text-[9px] uppercase text-black">
+                    <tr className="bg-[#f2f2f2] text-center font-bold text-[8.5px] uppercase text-black">
                       <th className="border border-black py-0.5 w-[20%]">Preventiva</th>
                       <th className="border border-black py-0.5 w-[20%]">Lubrificação</th>
                       <th className="border border-black py-0.5 w-[20%]">Troca de óleo</th>
@@ -1957,17 +1993,17 @@ export function CiManutencaoView({
                       const lubItem2 = lubList[rIdx * 2 + 1];
 
                       return (
-                        <tr key={rIdx} className="h-[18px] text-center font-mono font-bold text-[9.5px]">
-                          <td className="border border-black px-1">{prevList[rIdx]?.prefixo || ""}</td>
-                          <td className="border border-black px-1">
+                        <tr key={rIdx} className="text-center font-mono font-bold text-[9px] h-[18px]">
+                          <td className="border border-black py-0.5 px-1 leading-normal align-middle">{prevList[rIdx]?.prefixo || "\u00A0"}</td>
+                          <td className="border border-black py-0.5 px-1 leading-normal align-middle">
                             <div className="flex justify-around items-center">
-                              <span>{lubItem1?.prefixo || ""}</span>
-                              <span>{lubItem2?.prefixo || ""}</span>
+                              <span>{lubItem1?.prefixo || "\u00A0"}</span>
+                              <span>{lubItem2?.prefixo || "\u00A0"}</span>
                             </div>
                           </td>
-                          <td className="border border-black px-1">{oleoList[rIdx]?.prefixo || ""}</td>
-                          <td className="border border-black px-1">{geralList[rIdx]?.prefixo || ""}</td>
-                          <td className="border border-black px-1">{sisepList[rIdx]?.prefixo || ""}</td>
+                          <td className="border border-black py-0.5 px-1 leading-normal align-middle">{oleoList[rIdx]?.prefixo || "\u00A0"}</td>
+                          <td className="border border-black py-0.5 px-1 leading-normal align-middle">{geralList[rIdx]?.prefixo || "\u00A0"}</td>
+                          <td className="border border-black py-0.5 px-1 leading-normal align-middle">{sisepList[rIdx]?.prefixo || "\u00A0"}</td>
                         </tr>
                       );
                     })}
@@ -1975,9 +2011,9 @@ export function CiManutencaoView({
                 </table>
 
                 {/* 3. TABELA: SETORES DA OFICINA (8 SETORES COM SUBCOLUNAS) */}
-                <table className="w-full border-collapse border border-black text-[9px] leading-tight">
+                <table className="w-full border-collapse border border-black text-[8.5px] leading-tight">
                   <thead>
-                    <tr className="bg-[#e6e6e6] text-center font-bold text-[9.5px] uppercase text-black">
+                    <tr className="bg-[#e6e6e6] text-center font-bold text-[9px] uppercase text-black">
                       <th colSpan={2} className="border border-black py-0.5">Mecânica</th>
                       <th className="border border-black py-0.5">Elevador</th>
                       <th colSpan={2} className="border border-black py-0.5">Elétrica</th>
@@ -1987,7 +2023,7 @@ export function CiManutencaoView({
                       <th colSpan={2} className="border border-black py-0.5">Bilhetagem</th>
                       <th className="border border-black py-0.5">Limpeza</th>
                     </tr>
-                    <tr className="bg-[#f2f2f2] text-center font-bold text-[8px] uppercase text-black">
+                    <tr className="bg-[#f2f2f2] text-center font-bold text-[7.5px] uppercase text-black">
                       <th className="border border-black py-0.5 w-[5%]">PREFIXO</th>
                       <th className="border border-black py-0.5 w-[11%]">MOTIVO</th>
                       <th className="border border-black py-0.5 w-[6%]">PREFIXO</th>
@@ -2014,34 +2050,34 @@ export function CiManutencaoView({
                       const limp = relatorioData.oficina.filter(c => c.setorOficina === "LIMPEZA")[rIdx];
 
                       return (
-                        <tr key={rIdx} className="h-[15px] text-[8.5px]">
+                        <tr key={rIdx} className="text-[8px] h-[17px]">
                           {/* Mecânica */}
-                          <td className="border border-black text-center font-mono font-bold px-0.5">{mec?.prefixo || ""}</td>
-                          <td className="border border-black text-left px-1 uppercase font-semibold text-[7.5px] truncate max-w-[80px]">{mec?.motivo || ""}</td>
+                          <td className="border border-black text-center font-mono font-bold py-0.5 px-0.5 leading-normal align-middle">{mec?.prefixo || "\u00A0"}</td>
+                          <td className="border border-black text-left py-0.5 px-1 uppercase font-semibold text-[7px] truncate max-w-[80px] leading-normal align-middle">{mec?.motivo || "\u00A0"}</td>
 
                           {/* Elevador */}
-                          <td className="border border-black text-center font-mono font-bold px-0.5">{elev?.prefixo || ""}</td>
+                          <td className="border border-black text-center font-mono font-bold py-0.5 px-0.5 leading-normal align-middle">{elev?.prefixo || "\u00A0"}</td>
 
                           {/* Elétrica */}
-                          <td className="border border-black text-center font-mono font-bold px-0.5">{elet?.prefixo || ""}</td>
-                          <td className="border border-black text-left px-1 uppercase font-semibold text-[7.5px] truncate max-w-[80px]">{elet?.motivo || ""}</td>
+                          <td className="border border-black text-center font-mono font-bold py-0.5 px-0.5 leading-normal align-middle">{elet?.prefixo || "\u00A0"}</td>
+                          <td className="border border-black text-left py-0.5 px-1 uppercase font-semibold text-[7px] truncate max-w-[80px] leading-normal align-middle">{elet?.motivo || "\u00A0"}</td>
 
                           {/* Borracharia */}
-                          <td className="border border-black text-center font-mono font-bold px-0.5">{borr?.prefixo || ""}</td>
+                          <td className="border border-black text-center font-mono font-bold py-0.5 px-0.5 leading-normal align-middle">{borr?.prefixo || "\u00A0"}</td>
 
                           {/* Funilaria / Pintura */}
-                          <td className="border border-black text-center font-mono font-bold px-0.5">{fun?.prefixo || ""}</td>
-                          <td className="border border-black text-left px-1 uppercase font-semibold text-[7.5px] truncate max-w-[80px]">{fun?.motivo || ""}</td>
+                          <td className="border border-black text-center font-mono font-bold py-0.5 px-0.5 leading-normal align-middle">{fun?.prefixo || "\u00A0"}</td>
+                          <td className="border border-black text-left py-0.5 px-1 uppercase font-semibold text-[7px] truncate max-w-[80px] leading-normal align-middle">{fun?.motivo || "\u00A0"}</td>
 
                           {/* Tacógrafo */}
-                          <td className="border border-black text-center font-mono font-bold px-0.5">{tac?.prefixo || ""}</td>
+                          <td className="border border-black text-center font-mono font-bold py-0.5 px-0.5 leading-normal align-middle">{tac?.prefixo || "\u00A0"}</td>
 
                           {/* Bilhetagem */}
-                          <td className="border border-black text-center font-mono font-bold px-0.5">{bilh?.prefixo || ""}</td>
-                          <td className="border border-black text-left px-1 uppercase font-semibold text-[7.5px] truncate max-w-[80px]">{bilh?.motivo || ""}</td>
+                          <td className="border border-black text-center font-mono font-bold py-0.5 px-0.5 leading-normal align-middle">{bilh?.prefixo || "\u00A0"}</td>
+                          <td className="border border-black text-left py-0.5 px-1 uppercase font-semibold text-[7px] truncate max-w-[80px] leading-normal align-middle">{bilh?.motivo || "\u00A0"}</td>
 
                           {/* Limpeza */}
-                          <td className="border border-black text-center font-mono font-bold px-0.5">{limp?.prefixo || ""}</td>
+                          <td className="border border-black text-center font-mono font-bold py-0.5 px-0.5 leading-normal align-middle">{limp?.prefixo || "\u00A0"}</td>
                         </tr>
                       );
                     })}
@@ -2049,14 +2085,14 @@ export function CiManutencaoView({
                 </table>
 
                 {/* 4. TABELA: REFORÇO COM HORÁRIO */}
-                <table className="w-full border-collapse border border-black text-[9px] leading-tight">
+                <table className="w-full border-collapse border border-black text-[8.5px] leading-tight">
                   <thead>
                     <tr>
-                      <th colSpan={8} className="bg-[#e6e6e6] border border-black py-0.5 text-center font-bold text-[10px] uppercase tracking-wide text-black">
+                      <th colSpan={8} className="bg-[#e6e6e6] border border-black py-0.5 text-center font-bold text-[9.5px] uppercase tracking-wide text-black">
                         Reforço com horário
                       </th>
                     </tr>
-                    <tr className="bg-[#f2f2f2] text-center font-bold text-[8.5px] uppercase text-black">
+                    <tr className="bg-[#f2f2f2] text-center font-bold text-[8px] uppercase text-black">
                       {/* Lado Esquerdo */}
                       <th className="border border-black py-0.5 w-[11%]">HORÁRIO</th>
                       <th className="border border-black py-0.5 w-[18%]">MOTIVO</th>
@@ -2076,18 +2112,18 @@ export function CiManutencaoView({
                       const dataDir = getReforcoSlotData(slotDir.id, slotDir.horario, "", rIdx + 6);
 
                       return (
-                        <tr key={rIdx} className="h-[15px] text-[8.5px] text-center">
+                        <tr key={rIdx} className="text-[8px] text-center h-[17.5px]">
                           {/* Lado Esquerdo */}
-                          <td className="border border-black font-mono font-bold">{slotEsq.horario}</td>
-                          <td className="border border-black uppercase font-semibold text-[8px]">{dataEsq.motivo || ""}</td>
-                          <td className="border border-black font-mono font-bold w-[10.5%]">{dataEsq.prefixo || ""}</td>
-                          <td className="border border-black font-mono font-bold w-[10.5%]">{dataEsq.obs || ""}</td>
+                          <td className="border border-black font-mono font-bold py-0.5 leading-normal align-middle">{slotEsq.horario}</td>
+                          <td className="border border-black uppercase font-semibold text-[7.5px] py-0.5 leading-normal align-middle">{dataEsq.motivo || "\u00A0"}</td>
+                          <td className="border border-black font-mono font-bold w-[10.5%] py-0.5 leading-normal align-middle">{dataEsq.prefixo || "\u00A0"}</td>
+                          <td className="border border-black font-mono font-bold w-[10.5%] py-0.5 leading-normal align-middle">{dataEsq.obs || "\u00A0"}</td>
 
                           {/* Lado Direito */}
-                          <td className="border border-black font-mono font-bold">{slotDir.horario}</td>
-                          <td className="border border-black uppercase font-semibold text-[8px]">{dataDir.motivo || ""}</td>
-                          <td className="border border-black font-mono font-bold">{dataDir.prefixo || ""}</td>
-                          <td className="border border-black font-mono font-bold text-[8px]">{dataDir.obs || ""}</td>
+                          <td className="border border-black font-mono font-bold py-0.5 leading-normal align-middle">{slotDir.horario}</td>
+                          <td className="border border-black uppercase font-semibold text-[7.5px] py-0.5 leading-normal align-middle">{dataDir.motivo || "\u00A0"}</td>
+                          <td className="border border-black font-mono font-bold py-0.5 leading-normal align-middle">{dataDir.prefixo || "\u00A0"}</td>
+                          <td className="border border-black font-mono font-bold text-[7.5px] py-0.5 leading-normal align-middle">{dataDir.obs || "\u00A0"}</td>
                         </tr>
                       );
                     })}
@@ -2103,15 +2139,15 @@ export function CiManutencaoView({
                       <th className="border border-black py-0.5">PREFIXO</th>
                       <th className="border border-black py-0.5">MOTIVO</th>
                     </tr>
-                    <tr className="h-[15px] text-[8.5px] text-center">
-                      <td className="border border-black font-mono font-bold"></td>
-                      <td className="border border-black"></td>
-                      <td className="border border-black font-mono font-bold"></td>
-                      <td className="border border-black"></td>
-                      <td className="border border-black font-mono font-bold"></td>
-                      <td className="border border-black"></td>
-                      <td className="border border-black font-mono font-bold"></td>
-                      <td className="border border-black"></td>
+                    <tr className="text-[8px] text-center h-[17.5px]">
+                      <td className="border border-black font-mono font-bold py-0.5 leading-normal align-middle">&nbsp;</td>
+                      <td className="border border-black py-0.5 leading-normal align-middle">&nbsp;</td>
+                      <td className="border border-black font-mono font-bold py-0.5 leading-normal align-middle">&nbsp;</td>
+                      <td className="border border-black py-0.5 leading-normal align-middle">&nbsp;</td>
+                      <td className="border border-black font-mono font-bold py-0.5 leading-normal align-middle">&nbsp;</td>
+                      <td className="border border-black py-0.5 leading-normal align-middle">&nbsp;</td>
+                      <td className="border border-black font-mono font-bold py-0.5 leading-normal align-middle">&nbsp;</td>
+                      <td className="border border-black py-0.5 leading-normal align-middle">&nbsp;</td>
                     </tr>
                   </tbody>
                 </table>
@@ -2123,14 +2159,14 @@ export function CiManutencaoView({
                   <div style={{ display: "flex", gap: "4px", width: "100%" }}>
                     {/* VSF */}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <table className="w-full border-collapse border border-black text-[8.5px] leading-tight">
+                      <table className="w-full border-collapse border border-black text-[8px] leading-tight">
                         <thead>
                           <tr>
-                            <th colSpan={3} className="bg-[#e6e6e6] border border-black py-0.5 text-center font-bold text-[9px] uppercase tracking-wide text-black">
+                            <th colSpan={3} className="bg-[#e6e6e6] border border-black py-0.5 text-center font-bold text-[8.5px] uppercase tracking-wide text-black">
                               BLOQUEADOS VSF
                             </th>
                           </tr>
-                          <tr className="bg-[#f2f2f2] text-center font-bold text-[8px] uppercase text-black">
+                          <tr className="bg-[#f2f2f2] text-center font-bold text-[7.5px] uppercase text-black">
                             <th className="border border-black py-0.5 w-[20%]">PREFIXO</th>
                             <th className="border border-black py-0.5 w-[55%]">MOTIVO</th>
                             <th className="border border-black py-0.5 w-[25%]">DATA BLOQUEIO</th>
@@ -2140,10 +2176,10 @@ export function CiManutencaoView({
                           {Array.from({ length: 11 }).map((_, idx) => {
                             const item = relatorioData.bloqVSF[idx];
                             return (
-                              <tr key={idx} className="h-[14px]">
-                                <td className="border border-black text-center font-mono font-bold px-1">{item?.prefixo || ""}</td>
-                                <td className="border border-black text-left px-1 uppercase font-semibold text-[8px] truncate max-w-[130px]">{item?.motivo || ""}</td>
-                                <td className="border border-black text-center font-mono px-1 text-[8px]">{formatDataBloqueio(item?.data) || ""}</td>
+                              <tr key={idx} className="text-[7.5px] h-[16.5px]">
+                                <td className="border border-black text-center font-mono font-bold py-0.5 px-1 leading-normal align-middle">{item?.prefixo || "\u00A0"}</td>
+                                <td className="border border-black text-left py-0.5 px-1 uppercase font-semibold text-[7.5px] truncate max-w-[130px] leading-normal align-middle">{item?.motivo || "\u00A0"}</td>
+                                <td className="border border-black text-center font-mono py-0.5 px-1 text-[7.5px] leading-normal align-middle">{formatDataBloqueio(item?.data) || "\u00A0"}</td>
                               </tr>
                             );
                           })}
@@ -2153,14 +2189,14 @@ export function CiManutencaoView({
 
                     {/* VCG */}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <table className="w-full border-collapse border border-black text-[8.5px] leading-tight">
+                      <table className="w-full border-collapse border border-black text-[8px] leading-tight">
                         <thead>
                           <tr>
-                            <th colSpan={3} className="bg-[#e6e6e6] border border-black py-0.5 text-center font-bold text-[9px] uppercase tracking-wide text-black">
+                            <th colSpan={3} className="bg-[#e6e6e6] border border-black py-0.5 text-center font-bold text-[8.5px] uppercase tracking-wide text-black">
                               BLOQUEADOS VCG
                             </th>
                           </tr>
-                          <tr className="bg-[#f2f2f2] text-center font-bold text-[8px] uppercase text-black">
+                          <tr className="bg-[#f2f2f2] text-center font-bold text-[7.5px] uppercase text-black">
                             <th className="border border-black py-0.5 w-[20%]">PREFIXO</th>
                             <th className="border border-black py-0.5 w-[55%]">MOTIVO</th>
                             <th className="border border-black py-0.5 w-[25%]">DATA BLOQUEIO</th>
@@ -2170,10 +2206,10 @@ export function CiManutencaoView({
                           {Array.from({ length: 11 }).map((_, idx) => {
                             const item = relatorioData.bloqVCG[idx];
                             return (
-                              <tr key={idx} className="h-[14px]">
-                                <td className="border border-black text-center font-mono font-bold px-1">{item?.prefixo || ""}</td>
-                                <td className="border border-black text-left px-1 uppercase font-semibold text-[8px] truncate max-w-[130px]">{item?.motivo || ""}</td>
-                                <td className="border border-black text-center font-mono px-1 text-[8px]">{formatDataBloqueio(item?.data) || ""}</td>
+                              <tr key={idx} className="text-[7.5px] h-[16.5px]">
+                                <td className="border border-black text-center font-mono font-bold py-0.5 px-1 leading-normal align-middle">{item?.prefixo || "\u00A0"}</td>
+                                <td className="border border-black text-left py-0.5 px-1 uppercase font-semibold text-[7.5px] truncate max-w-[130px] leading-normal align-middle">{item?.motivo || "\u00A0"}</td>
+                                <td className="border border-black text-center font-mono py-0.5 px-1 text-[7.5px] leading-normal align-middle">{formatDataBloqueio(item?.data) || "\u00A0"}</td>
                               </tr>
                             );
                           })}
@@ -2186,14 +2222,14 @@ export function CiManutencaoView({
                   <div style={{ display: "flex", gap: "4px", width: "100%" }}>
                     {/* JTU */}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <table className="w-full border-collapse border border-black text-[8.5px] leading-tight">
+                      <table className="w-full border-collapse border border-black text-[8px] leading-tight">
                         <thead>
                           <tr>
-                            <th colSpan={3} className="bg-[#e6e6e6] border border-black py-0.5 text-center font-bold text-[9px] uppercase tracking-wide text-black">
+                            <th colSpan={3} className="bg-[#e6e6e6] border border-black py-0.5 text-center font-bold text-[8.5px] uppercase tracking-wide text-black">
                               BLOQUEADOS JTU
                             </th>
                           </tr>
-                          <tr className="bg-[#f2f2f2] text-center font-bold text-[8px] uppercase text-black">
+                          <tr className="bg-[#f2f2f2] text-center font-bold text-[7.5px] uppercase text-black">
                             <th className="border border-black py-0.5 w-[20%]">PREFIXO</th>
                             <th className="border border-black py-0.5 w-[55%]">MOTIVO</th>
                             <th className="border border-black py-0.5 w-[25%]">DATA BLOQUEIO</th>
@@ -2203,10 +2239,10 @@ export function CiManutencaoView({
                           {Array.from({ length: 8 }).map((_, idx) => {
                             const item = relatorioData.bloqJTU[idx];
                             return (
-                              <tr key={idx} className="h-[14px]">
-                                <td className="border border-black text-center font-mono font-bold px-1">{item?.prefixo || ""}</td>
-                                <td className="border border-black text-left px-1 uppercase font-semibold text-[8px] truncate max-w-[130px]">{item?.motivo || ""}</td>
-                                <td className="border border-black text-center font-mono px-1 text-[8px]">{formatDataBloqueio(item?.data) || ""}</td>
+                              <tr key={idx} className="text-[7.5px] h-[16.5px]">
+                                <td className="border border-black text-center font-mono font-bold py-0.5 px-1 leading-normal align-middle">{item?.prefixo || "\u00A0"}</td>
+                                <td className="border border-black text-left py-0.5 px-1 uppercase font-semibold text-[7.5px] truncate max-w-[130px] leading-normal align-middle">{item?.motivo || "\u00A0"}</td>
+                                <td className="border border-black text-center font-mono py-0.5 px-1 text-[7.5px] leading-normal align-middle">{formatDataBloqueio(item?.data) || "\u00A0"}</td>
                               </tr>
                             );
                           })}
@@ -2216,14 +2252,14 @@ export function CiManutencaoView({
 
                     {/* VCM */}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <table className="w-full border-collapse border border-black text-[8.5px] leading-tight">
+                      <table className="w-full border-collapse border border-black text-[8px] leading-tight">
                         <thead>
                           <tr>
-                            <th colSpan={3} className="bg-[#e6e6e6] border border-black py-0.5 text-center font-bold text-[9px] uppercase tracking-wide text-black">
+                            <th colSpan={3} className="bg-[#e6e6e6] border border-black py-0.5 text-center font-bold text-[8.5px] uppercase tracking-wide text-black">
                               BLOQUEADOS VCM
                             </th>
                           </tr>
-                          <tr className="bg-[#f2f2f2] text-center font-bold text-[8px] uppercase text-black">
+                          <tr className="bg-[#f2f2f2] text-center font-bold text-[7.5px] uppercase text-black">
                             <th className="border border-black py-0.5 w-[20%]">PREFIXO</th>
                             <th className="border border-black py-0.5 w-[55%]">MOTIVO</th>
                             <th className="border border-black py-0.5 w-[25%]">DATA BLOQUEIO</th>
@@ -2233,10 +2269,10 @@ export function CiManutencaoView({
                           {Array.from({ length: 8 }).map((_, idx) => {
                             const item = relatorioData.bloqVCM[idx];
                             return (
-                              <tr key={idx} className="h-[14px]">
-                                <td className="border border-black text-center font-mono font-bold px-1">{item?.prefixo || ""}</td>
-                                <td className="border border-black text-left px-1 uppercase font-semibold text-[8px] truncate max-w-[130px]">{item?.motivo || ""}</td>
-                                <td className="border border-black text-center font-mono px-1 text-[8px]">{formatDataBloqueio(item?.data) || ""}</td>
+                              <tr key={idx} className="text-[7.5px] h-[16.5px]">
+                                <td className="border border-black text-center font-mono font-bold py-0.5 px-1 leading-normal align-middle">{item?.prefixo || "\u00A0"}</td>
+                                <td className="border border-black text-left py-0.5 px-1 uppercase font-semibold text-[7.5px] truncate max-w-[130px] leading-normal align-middle">{item?.motivo || "\u00A0"}</td>
+                                <td className="border border-black text-center font-mono py-0.5 px-1 text-[7.5px] leading-normal align-middle">{formatDataBloqueio(item?.data) || "\u00A0"}</td>
                               </tr>
                             );
                           })}
@@ -2248,7 +2284,7 @@ export function CiManutencaoView({
                 </div>
 
                 {/* 6. ASSINATURA NO RODAPÉ */}
-                <div className="pt-2 flex items-center justify-start text-[10px] font-bold">
+                <div className="pt-1.5 flex items-center justify-start text-[9.5px] font-bold">
                   <span>Manutenção: _____________________________________</span>
                 </div>
 
@@ -2467,45 +2503,85 @@ export function CiManutencaoView({
               )}
             </div>
 
-            {/* Chips Rápidos de Motivo / Defeito (apenas para Oficinas e Bloqueados; em Preventivas não é necessário) */}
-            {quickAddModal.category !== "PREVENTIVA" && quickAddModal.chips && quickAddModal.chips.length > 0 && (
-              <div className="space-y-1">
-                <Label className="text-[11px] text-muted-foreground">Motivos sugeridos (clique para aplicar):</Label>
-                <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
-                  {quickAddModal.chips.map(chip => (
-                    <button
-                      key={chip}
-                      type="button"
-                      onClick={() => setQuickAddMotivo(chip)}
-                      className={cn(
-                        "text-[10px] px-2 py-0.5 rounded-md border transition-all cursor-pointer",
-                        quickAddMotivo === chip
-                          ? "bg-primary text-primary-foreground border-primary font-bold shadow-2xs"
-                          : "bg-background text-muted-foreground hover:text-foreground hover:bg-muted"
-                      )}
-                    >
-                      {chip}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+            {/* Chips Rápidos e Campo de Motivo / Defeito (Completamente ocultados para Preventivas e para Elevador, Borracharia, Tacógrafo e Limpeza) */}
+            {(() => {
+              const isSetorSemDefeito = quickAddModal.category === "PREVENTIVA" || (
+                quickAddModal.category === "OFICINA" && 
+                SETORES_SEM_MOTIVO_OBRIGATORIO.includes(quickAddModal.subType.toUpperCase() as any)
+              );
 
-            {/* Campo de Motivo (apenas para Oficinas e Bloqueados; em Preventivas o motivo é automático) */}
-            {quickAddModal.category !== "PREVENTIVA" && (
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold">
-                  Motivo / Defeito <span className="text-rose-500">*</span>
-                </Label>
-                <Input
-                  value={quickAddMotivo}
-                  onChange={(e) => setQuickAddMotivo(e.target.value)}
-                  placeholder="Ex: Suspensão, Módulo, Freio..."
-                  className="text-xs h-9"
-                  required
-                />
-              </div>
-            )}
+              if (isSetorSemDefeito) return null;
+
+              return (
+                <div className="space-y-2.5">
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] font-bold text-muted-foreground">
+                      Motivos sugeridos (clique para aplicar):
+                    </Label>
+                    <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pt-0.5">
+                      {quickAddModal.chips && quickAddModal.chips.map(chip => {
+                        const isSelected = !isOutroMotivo && quickAddMotivo === chip;
+                        return (
+                          <button
+                            key={chip}
+                            type="button"
+                            onClick={() => {
+                              setIsOutroMotivo(false);
+                              setQuickAddMotivo(chip);
+                            }}
+                            className={cn(
+                              "text-xs px-3 py-1 rounded-full border transition-all cursor-pointer font-medium",
+                              isSelected
+                                ? "bg-emerald-600 text-white border-emerald-600 font-bold shadow-xs scale-[1.02]"
+                                : "bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground border-border/80"
+                            )}
+                          >
+                            {chip}
+                          </button>
+                        );
+                      })}
+
+                      {/* Badge 'Outro' */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsOutroMotivo(true);
+                          if (quickAddModal.chips?.includes(quickAddMotivo)) {
+                            setQuickAddMotivo("");
+                          }
+                        }}
+                        className={cn(
+                          "text-xs px-3 py-1 rounded-full border transition-all cursor-pointer font-medium flex items-center gap-1",
+                          isOutroMotivo
+                            ? "bg-emerald-600 text-white border-emerald-600 font-bold shadow-xs scale-[1.02]"
+                            : "bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground border-border/80"
+                        )}
+                      >
+                        <Plus className="w-3 h-3" />
+                        Outro
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Campo de Texto do Defeito: SÓ APARECE se o badge 'Outro' estiver selecionado */}
+                  {isOutroMotivo && (
+                    <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-150 pt-1">
+                      <Label className="text-xs font-bold">
+                        Motivo / Defeito <span className="text-rose-500">*</span>
+                      </Label>
+                      <Input
+                        value={quickAddMotivo}
+                        onChange={(e) => setQuickAddMotivo(e.target.value)}
+                        placeholder="Digite o motivo ou defeito do veículo..."
+                        className="text-xs h-9"
+                        autoFocus
+                        required
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Data e Observações adicionais */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

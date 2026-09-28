@@ -187,6 +187,10 @@ export function syncItemsWithCI(
 ): ManutencaoCarroItem[] {
   const ciMap = new Map<string, BloqueioCarro>();
   ciList.forEach(ci => {
+    // REGRA CRÍTICA: Bloqueios criados em datas futuras NUNCA devem aparecer no passado
+    const ciDate = ci.dataBloqueio || ci.data || "";
+    if (ciDate && ciDate > data) return;
+
     if (ci.prefixo && isRealBloqueadoCI(ci)) {
       const clean = ci.prefixo.replace(/\D/g, "");
       if (clean) {
@@ -212,8 +216,9 @@ export function syncItemsWithCI(
       return;
     }
 
-    // Se o item foi gerado automaticamente da CI (manut-ci-*) mas NÃO é um bloqueio real ativo da CI, descarta
-    if (item.id && item.id.startsWith("manut-ci-") && !ci) {
+    // Se o carro está marcado apenas como bloqueado (não está em execução nem liberado)
+    // mas NÃO consta como bloqueado ativo na CI, descarta (pois o bloqueio na CI já foi encerrado/liberado)
+    if (!ci && item.bloqueado && !item.emExecucao && !item.liberado) {
       return;
     }
 
@@ -239,8 +244,10 @@ export function syncItemsWithCI(
     updatedItems.push(item);
   });
 
-  // 2. Inserir carros da CI que ainda não constam na lista (APENAS BLOQUEADOS REAIS ATIVOS)
+  // 2. Inserir carros da CI que ainda não constam na lista (APENAS BLOQUEADOS REAIS ATIVOS até a data consultada)
   ciList.forEach(ci => {
+    const ciDate = ci.dataBloqueio || ci.data || "";
+    if (ciDate && ciDate > data) return;
     if (ci.status === "LIBERADO" || !isRealBloqueadoCI(ci)) return;
     const clean = (ci.prefixo || "").replace(/\D/g, "");
     if (!clean) return;
@@ -265,7 +272,8 @@ export function syncItemsWithCI(
 
 /**
  * Lê os itens de manutenção da data selecionada.
- * Apenas os bloqueados reais pegam da CI. Em manutenção e liberados começam vazios se não foram adicionados pelo usuário.
+ * - Se não houver dados salvos para a data, herda da data anterior mais recente salva no histórico.
+ * - Garante que bloqueios criados no futuro nunca vazem para o passado.
  */
 export function getManutencaoData(data: string = getTodayString()): ManutencaoCarroItem[] {
   const currentCI = getInitialCIBloqueios();
@@ -284,10 +292,47 @@ export function getManutencaoData(data: string = getTodayString()): ManutencaoCa
     console.error("Erro ao carregar dados de manutenção do localStorage:", e);
   }
 
-  // Se a lista estiver vazia, gera apenas com os carros bloqueados reais da CI (sem criar em manutenção ou liberados sozinhos)
+  // Se a lista estiver vazia para a data, procura a data anterior mais recente no cache
+  if (baseList.length === 0) {
+    try {
+      const pastDates: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(STORAGE_KEY_MANUTENCAO_PREFIX)) {
+          const datePart = k.replace(STORAGE_KEY_MANUTENCAO_PREFIX, "");
+          // Apenas datas anteriores à data consultada!
+          if (datePart < data && /^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+            pastDates.push(datePart);
+          }
+        }
+      }
+      pastDates.sort().reverse(); // A mais recente anterior primeiro
+
+      if (pastDates.length > 0) {
+        const prevKey = `${STORAGE_KEY_MANUTENCAO_PREFIX}${pastDates[0]}`;
+        const prevSaved = localStorage.getItem(prevKey);
+        if (prevSaved) {
+          const prevParsed = JSON.parse(prevSaved);
+          if (Array.isArray(prevParsed) && prevParsed.length > 0) {
+            baseList = prevParsed.map((it: ManutencaoCarroItem) => ({
+              ...it,
+              id: `manut-${data}-${it.prefixo}`,
+              data: data
+            }));
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  // Se ainda estiver vazia, gera apenas com os carros bloqueados reais da CI criados até esta data
   if (baseList.length === 0) {
     baseList = currentCI
-      .filter(ci => ci.status !== "LIBERADO" && ci.prefixo && isRealBloqueadoCI(ci))
+      .filter(ci => {
+        const ciDate = ci.dataBloqueio || ci.data || "";
+        if (ciDate && ciDate > data) return false;
+        return ci.status !== "LIBERADO" && ci.prefixo && isRealBloqueadoCI(ci);
+      })
       .map(ci => {
         const clean = ci.prefixo.replace(/\D/g, "");
         return {
@@ -303,7 +348,7 @@ export function getManutencaoData(data: string = getTodayString()): ManutencaoCa
       });
   }
 
-  // Sincroniza estritamente os bloqueados com a CI
+  // Sincroniza estritamente os bloqueados com a CI respeitando a data
   const synchronized = syncItemsWithCI(baseList, currentCI, data);
 
   // Persiste no cache
@@ -353,6 +398,10 @@ export async function fetchManutencaoDataFromApi(data: string = getTodayString()
 /**
  * Salva os itens de manutenção da data e sincroniza bidirecionalmente com a CI, Soltura e Banco de Dados.
  */
+/**
+ * Salva os itens de manutenção da data e sincroniza bidirecionalmente com a CI, Soltura e Banco de Dados.
+ * Propaga automaticamente adições e atualizações para as datas futuras.
+ */
 export function saveManutencaoData(data: string, items: ManutencaoCarroItem[]): void {
   try {
     const key = `${STORAGE_KEY_MANUTENCAO_PREFIX}${data}`;
@@ -362,6 +411,47 @@ export function saveManutencaoData(data: string, items: ManutencaoCarroItem[]): 
     try {
       localStorage.setItem(`${LEGACY_STORAGE_KEY_PREFIX}${data}`, JSON.stringify(items));
     } catch {}
+
+    // Propaga adições e alterações para o cache de datas futuras já abertas
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(STORAGE_KEY_MANUTENCAO_PREFIX)) {
+          const datePart = k.replace(STORAGE_KEY_MANUTENCAO_PREFIX, "");
+          if (datePart > data && /^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+            const futureRaw = localStorage.getItem(k);
+            if (futureRaw) {
+              const futureList: ManutencaoCarroItem[] = JSON.parse(futureRaw);
+              if (Array.isArray(futureList)) {
+                const existingPrefixes = new Set(futureList.map(f => f.prefixo));
+                const merged = [...futureList];
+                for (const item of items) {
+                  if (!existingPrefixes.has(item.prefixo)) {
+                    merged.push({
+                      ...item,
+                      id: `manut-${datePart}-${item.prefixo}`,
+                      data: datePart
+                    });
+                  } else {
+                    const idx = merged.findIndex(f => f.prefixo === item.prefixo);
+                    if (idx >= 0) {
+                      merged[idx] = {
+                        ...merged[idx],
+                        bloqueado: item.bloqueado,
+                        emExecucao: item.emExecucao,
+                        liberado: item.liberado,
+                        observacao: item.observacao,
+                      };
+                    }
+                  }
+                }
+                localStorage.setItem(k, JSON.stringify(merged));
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
 
     // Dispara evento de atualização de manutenção
     window.dispatchEvent(new CustomEvent("manutencao_updated", { 
@@ -404,6 +494,92 @@ export async function resetManutencaoSeedApi(data: string): Promise<ManutencaoCa
     console.error("[Manutenção] Erro ao resetar semente no banco de dados:", e);
   }
   return SEED_MANUTENCAO_OFICIAL.map(it => ({ ...it, data }));
+}
+
+/**
+ * Limpa a lista de veículos 'Em Manutenção' na data especificada e sincroniza
+ */
+export async function clearEmManutencaoListApi(data: string): Promise<void> {
+  try {
+    await api.post("/manutencao/clear-list", { data, tipo: "EM_EXECUCAO" });
+  } catch (e) {
+    console.error("[Manutenção] Erro ao limpar lista de em manutenção no servidor:", e);
+  }
+}
+
+/**
+ * Limpa a lista de veículos 'Liberados' na data especificada e sincroniza
+ */
+export async function clearLiberadosListApi(data: string): Promise<void> {
+  try {
+    await api.post("/manutencao/clear-list", { data, tipo: "LIBERADO" });
+  } catch (e) {
+    console.error("[Manutenção] Erro ao limpar lista de liberados no servidor:", e);
+  }
+}
+
+/**
+ * Limpa todos os carros do card 'Em Manutenção' na folha atual e datas futuras
+ */
+export function clearEmManutencaoList(data: string, items: ManutencaoCarroItem[]): ManutencaoCarroItem[] {
+  // Mantém apenas os carros que NÃO estão estritamente em execução
+  const updated = items.filter(it => !it.emExecucao || it.liberado);
+  saveManutencaoData(data, updated);
+
+  // Limpa também o cache das datas futuras
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(STORAGE_KEY_MANUTENCAO_PREFIX)) {
+        const datePart = k.replace(STORAGE_KEY_MANUTENCAO_PREFIX, "");
+        if (datePart > data && /^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+          const futureRaw = localStorage.getItem(k);
+          if (futureRaw) {
+            const futureList: ManutencaoCarroItem[] = JSON.parse(futureRaw);
+            if (Array.isArray(futureList)) {
+              const cleaned = futureList.filter(it => !it.emExecucao || it.liberado);
+              localStorage.setItem(k, JSON.stringify(cleaned));
+            }
+          }
+        }
+      }
+    }
+  } catch (_) {}
+
+  clearEmManutencaoListApi(data).catch(() => {});
+  return updated;
+}
+
+/**
+ * Limpa todos os carros do card 'Liberado' na folha atual e datas futuras
+ */
+export function clearLiberadosList(data: string, items: ManutencaoCarroItem[]): ManutencaoCarroItem[] {
+  // Mantém apenas os carros que NÃO estão marcados como liberados
+  const updated = items.filter(it => !it.liberado);
+  saveManutencaoData(data, updated);
+
+  // Limpa também o cache das datas futuras
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(STORAGE_KEY_MANUTENCAO_PREFIX)) {
+        const datePart = k.replace(STORAGE_KEY_MANUTENCAO_PREFIX, "");
+        if (datePart > data && /^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+          const futureRaw = localStorage.getItem(k);
+          if (futureRaw) {
+            const futureList: ManutencaoCarroItem[] = JSON.parse(futureRaw);
+            if (Array.isArray(futureList)) {
+              const cleaned = futureList.filter(it => !it.liberado);
+              localStorage.setItem(k, JSON.stringify(cleaned));
+            }
+          }
+        }
+      }
+    }
+  } catch (_) {}
+
+  clearLiberadosListApi(data).catch(() => {});
+  return updated;
 }
 
 /**

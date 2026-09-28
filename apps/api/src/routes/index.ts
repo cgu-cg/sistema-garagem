@@ -102,6 +102,7 @@ router.post("/manutencao", authenticate, manutencaoController.createOrUpdate);
 router.put("/manutencao/:id", authenticate, manutencaoController.update);
 router.delete("/manutencao/:id", authenticate, manutencaoController.remove);
 router.post("/manutencao/sync", authenticate, manutencaoController.sync);
+router.post("/manutencao/clear-list", authenticate, manutencaoController.clearList);
 router.post("/manutencao/reset", authenticate, manutencaoController.reset);
 
 export default router;

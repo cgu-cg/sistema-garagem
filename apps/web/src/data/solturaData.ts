@@ -26,6 +26,7 @@ export interface BloqueioCarro {
   tipo: "BLOQUEADO_CORRETIVA" | "EM_MANUTENCAO" | "REFORCO_REVISAO" | "BLOQUEADO_MOTOR" | "BLOQUEADO_MOLA" | "BLOQUEADO_CAMBIO" | "BLOQUEADO_FREIO" | "BLOQUEADO_MODULO" | "BLOQUEADO_AGETRAN" | "BLOQUEADO_AR" | "BLOQUEADO_SINISTRO";
   motivo: string;
   data: string;
+  dataBloqueio?: string;
   hora?: string;
   gravidade?: "ALTA" | "MEDIA" | "BAIXA";
   responsavel?: string;

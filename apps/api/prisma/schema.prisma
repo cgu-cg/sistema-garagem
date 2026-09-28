@@ -195,7 +195,7 @@ model CiBloqueio {
   categoria            String   @map("categoria") @db.NVarChar(20)
   subTipo              String?  @map("sub_tipo") @db.NVarChar(50)
   horarioReforco       String?  @map("horario_reforco") @db.NVarChar(20)
-  motivo               String   @map("motivo") @db.NVarChar(255)
+  motivo               String?  @map("motivo") @db.NVarChar(255)
   dataBloqueio         String   @map("data_bloqueio") @db.NVarChar(20)
   horaBloqueio         String?  @map("hora_bloqueio") @db.NVarChar(10)
   gravidade            String?  @default("ALTA") @map("gravidade") @db.NVarChar(10)

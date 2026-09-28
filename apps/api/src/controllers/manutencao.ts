@@ -201,46 +201,201 @@ export async function list(req: AuthRequest, res: Response) {
     });
 
     // Se para esta data ainda não existem registros cadastrados,
-    // herda automaticamente APENAS os veículos que estão atualmente com bloqueio ativo real na CI (categoria: BLOQUEADO)
+    // herda o estado consolidado da data anterior mais recente ou da CI até esta data
     if (records.length === 0) {
-      const activeCIs = await prisma.ciBloqueio.findMany({
-        where: {
-          status: { not: "LIBERADO" },
-          categoria: "BLOQUEADO",
-        },
+      // 1. Procura a data anterior mais recente cadastrada
+      const previousDate = await prisma.manutencaoCarro.findFirst({
+        where: { data: { lt: dataQuery } },
+        orderBy: { data: "desc" },
+        select: { data: true },
       });
 
-      if (activeCIs.length > 0) {
-        for (const ci of activeCIs) {
-          const cleanPref = ci.prefixo.replace(/\D/g, "");
-          const finalId = `manut-${dataQuery}-${cleanPref}`;
+      if (previousDate) {
+        // Herda os registros da data anterior mais recente que continuam vigentes
+        const prevRecords = await prisma.manutencaoCarro.findMany({
+          where: { data: previousDate.data },
+          orderBy: { prefixo: "asc" },
+        });
+
+        for (const prev of prevRecords) {
+          const finalId = `manut-${dataQuery}-${prev.prefixo}`;
           try {
             await prisma.manutencaoCarro.create({
               data: {
                 id: finalId,
-                prefixo: cleanPref,
-                consorciada: ci.consorciada || "VCG",
-                observacao: ci.motivo || "",
-                bloqueado: true,
-                emExecucao: ci.status === "EM_MANUTENCAO",
-                liberado: false,
+                prefixo: prev.prefixo,
+                consorciada: prev.consorciada,
+                observacao: prev.observacao,
+                bloqueado: prev.bloqueado,
+                emExecucao: prev.emExecucao,
+                liberado: prev.liberado,
                 data: dataQuery,
               },
             });
           } catch {}
         }
+      }
 
-        records = await prisma.manutencaoCarro.findMany({
-          where: { data: dataQuery },
-          orderBy: { prefixo: "asc" },
+      // 2. Mescla CIs ativas criadas até esta data (dataBloqueio <= dataQuery)
+      const activeCIs = await prisma.ciBloqueio.findMany({
+        where: {
+          status: { not: "LIBERADO" },
+          categoria: "BLOQUEADO",
+          dataBloqueio: { lte: dataQuery },
+        },
+      });
+
+      for (const ci of activeCIs) {
+        const cleanPref = ci.prefixo.replace(/\D/g, "");
+        const finalId = `manut-${dataQuery}-${cleanPref}`;
+        try {
+          await prisma.manutencaoCarro.upsert({
+            where: { id: finalId },
+            update: {
+              bloqueado: true,
+              observacao: ci.motivo || "",
+            },
+            create: {
+              id: finalId,
+              prefixo: cleanPref,
+              consorciada: ci.consorciada || "VCG",
+              observacao: ci.motivo || "",
+              bloqueado: true,
+              emExecucao: ci.status === "EM_MANUTENCAO",
+              liberado: false,
+              data: dataQuery,
+            },
+          });
+        } catch {}
+      }
+
+      records = await prisma.manutencaoCarro.findMany({
+        where: { data: dataQuery },
+        orderBy: { prefixo: "asc" },
+      });
+    } else {
+      // Se a data já tinha registros, mas uma data anterior mais recente foi atualizada com carros adicionais,
+      // herda esses carros adicionais para não perder o histórico acumulado
+      const previousDate = await prisma.manutencaoCarro.findFirst({
+        where: { data: { lt: dataQuery } },
+        orderBy: { data: "desc" },
+        select: { data: true },
+      });
+
+      if (previousDate) {
+        const prevRecords = await prisma.manutencaoCarro.findMany({
+          where: { data: previousDate.data },
         });
+
+        const existingPrefixes = new Set(records.map(r => r.prefixo));
+        let addedAny = false;
+
+        for (const prev of prevRecords) {
+          if (!existingPrefixes.has(prev.prefixo)) {
+            const finalId = `manut-${dataQuery}-${prev.prefixo}`;
+            try {
+              await prisma.manutencaoCarro.create({
+                data: {
+                  id: finalId,
+                  prefixo: prev.prefixo,
+                  consorciada: prev.consorciada,
+                  observacao: prev.observacao,
+                  bloqueado: prev.bloqueado,
+                  emExecucao: prev.emExecucao,
+                  liberado: prev.liberado,
+                  data: dataQuery,
+                },
+              });
+              addedAny = true;
+            } catch {}
+          }
+        }
+
+        if (addedAny) {
+          records = await prisma.manutencaoCarro.findMany({
+            where: { data: dataQuery },
+            orderBy: { prefixo: "asc" },
+          });
+        }
       }
     }
+
+    // Limpeza de consistência com a CI:
+    // Remove registros que constavam apenas como bloqueados mas cujo bloqueio já foi encerrado na CI
+    const currentActiveCIs = await prisma.ciBloqueio.findMany({
+      where: {
+        status: { not: "LIBERADO" },
+        categoria: "BLOQUEADO",
+      },
+      select: { prefixo: true },
+    });
+    const activeCIPrefixes = new Set(currentActiveCIs.map(c => c.prefixo.replace(/\D/g, "")));
+
+    await prisma.manutencaoCarro.deleteMany({
+      where: {
+        data: dataQuery,
+        bloqueado: true,
+        emExecucao: false,
+        liberado: false,
+        prefixo: { notIn: Array.from(activeCIPrefixes) },
+      },
+    });
+
+    records = await prisma.manutencaoCarro.findMany({
+      where: { data: dataQuery },
+      orderBy: { prefixo: "asc" },
+    });
 
     return res.json(records);
   } catch (error) {
     console.error("[Manutenção] Erro ao listar veículos de manutenção:", error);
     return res.status(500).json({ message: "Erro ao listar folha de manutenção." });
+  }
+}
+
+// POST /api/manutencao/clear-list
+export async function clearList(req: AuthRequest, res: Response) {
+  try {
+    await ensureTableAndSeed();
+
+    const { data: dateRef, tipo } = req.body;
+    const currentData = dateRef || DEFAULT_REF_DATE;
+
+    if (!tipo || (tipo !== "EM_EXECUCAO" && tipo !== "LIBERADO")) {
+      return res.status(400).json({ message: "Tipo inválido. Deve ser 'EM_EXECUCAO' ou 'LIBERADO'." });
+    }
+
+    if (tipo === "EM_EXECUCAO") {
+      // Remove carros que estavam estritamente em execução na data e datas posteriores
+      await prisma.manutencaoCarro.deleteMany({
+        where: {
+          data: { gte: currentData },
+          emExecucao: true,
+          liberado: false,
+        },
+      });
+    } else if (tipo === "LIBERADO") {
+      // Remove carros que estavam na lista de liberados na data e datas posteriores
+      await prisma.manutencaoCarro.deleteMany({
+        where: {
+          data: { gte: currentData },
+          liberado: true,
+        },
+      });
+    }
+
+    const remaining = await prisma.manutencaoCarro.findMany({
+      where: { data: currentData },
+      orderBy: { prefixo: "asc" },
+    });
+
+    return res.json({
+      message: `Lista de ${tipo === "EM_EXECUCAO" ? "Em Manutenção" : "Liberados"} limpa com sucesso na data ${currentData}.`,
+      records: remaining,
+    });
+  } catch (error) {
+    console.error("[Manutenção] Erro ao limpar lista de manutenção:", error);
+    return res.status(500).json({ message: "Erro ao limpar lista de manutenção." });
   }
 }
 
@@ -379,6 +534,44 @@ export async function sync(req: AuthRequest, res: Response) {
           userId: req.userId || null,
         },
       });
+    }
+
+    // Propagação para datas futuras: sincroniza os itens para todas as datas posteriores já salvas no banco
+    const futureDates = await prisma.manutencaoCarro.findMany({
+      where: { data: { gt: currentData } },
+      select: { data: true },
+      distinct: ["data"],
+      orderBy: { data: "asc" },
+    });
+
+    for (const f of futureDates) {
+      for (const item of items) {
+        const cleanPref = String(item.prefixo || "").replace(/\D/g, "");
+        if (!cleanPref) continue;
+        const finalId = `manut-${f.data}-${cleanPref}`;
+
+        await prisma.manutencaoCarro.upsert({
+          where: { id: finalId },
+          update: {
+            consorciada: item.consorciada || "VCG",
+            observacao: item.observacao || "",
+            bloqueado: Boolean(item.bloqueado),
+            emExecucao: Boolean(item.emExecucao),
+            liberado: Boolean(item.liberado),
+          },
+          create: {
+            id: finalId,
+            prefixo: cleanPref,
+            consorciada: item.consorciada || "VCG",
+            observacao: item.observacao || "",
+            bloqueado: Boolean(item.bloqueado),
+            emExecucao: Boolean(item.emExecucao),
+            liberado: Boolean(item.liberado),
+            data: f.data,
+            userId: req.userId || null,
+          },
+        });
+      }
     }
 
     const savedRecords = await prisma.manutencaoCarro.findMany({
