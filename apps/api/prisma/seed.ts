@@ -165,6 +165,26 @@ async function main() {
     },
   });
 
+  // aux_manutencao_vcg@teste.com — Auxiliar Manutenção, VCG (acesso exclusivo a /manutencao e /manutencao/ci-manutencao)
+  await prisma.user.upsert({
+    where: { email: "aux_manutencao_vcg@teste.com" },
+    update: {
+      name: "Auxiliar Manutenção VCG",
+      password,
+      role: "manutencao",
+      garagem: "VCG",
+      groups: { set: [{ id: groupManutencao.id }] },
+    },
+    create: {
+      name: "Auxiliar Manutenção VCG",
+      email: "aux_manutencao_vcg@teste.com",
+      password,
+      role: "manutencao",
+      garagem: "VCG",
+      groups: { connect: [{ id: groupManutencao.id }] },
+    },
+  });
+
   // teste@teste.com — COLABORADOR com acesso a todos os menus
   await prisma.user.upsert({
     where: { email: "teste@teste.com" },

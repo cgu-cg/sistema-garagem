@@ -180,6 +180,13 @@ async function ensureTableAndSeed() {
           AND prefixo IN (SELECT prefixo FROM ci_bloqueios WHERE categoria IN ('OFICINA', 'PREVENTIVA', 'REFORCO'))
           AND em_execucao = 0 AND liberado = 0
       `);
+
+      // Limpeza de resíduos: listas de em manutenção e liberados são independentes da CI
+      await prisma.$executeRawUnsafe(`
+        DELETE FROM manutencao_carros 
+        WHERE observacao LIKE '%Liberado pela CI%'
+           OR observacao LIKE '%LIBERADO PELA CI%'
+      `);
     } catch (_) {}
 
     tableEnsured = true;
@@ -194,6 +201,22 @@ export async function list(req: AuthRequest, res: Response) {
     await ensureTableAndSeed();
 
     const dataQuery = String(req.query.data || DEFAULT_REF_DATE);
+
+    // Identificação da Garagem Física do Usuário Logado (VCG ou VCM)
+    const user = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { garagem: true, email: true, role: true }
+    });
+
+    let userGaragem = user?.garagem?.toUpperCase();
+    if (!userGaragem) {
+      const emailLower = (user?.email || "").toLowerCase();
+      if (emailLower.includes("vcg")) userGaragem = "VCG";
+      else if (emailLower.includes("vcm")) userGaragem = "VCM";
+    }
+
+    const queryGaragem = req.query.garagem && req.query.garagem !== "TODAS" ? String(req.query.garagem).toUpperCase() : undefined;
+    const effectiveGaragem = userGaragem || queryGaragem;
 
     let records = await prisma.manutencaoCarro.findMany({
       where: { data: dataQuery },
@@ -211,9 +234,15 @@ export async function list(req: AuthRequest, res: Response) {
       });
 
       if (previousDate) {
-        // Herda os registros da data anterior mais recente que continuam vigentes
+        // Herda APENAS os registros BLOQUEADOS da data anterior mais recente
+        // Veículos em manutenção ou liberados NÃO aparecem no próximo dia
         const prevRecords = await prisma.manutencaoCarro.findMany({
-          where: { data: previousDate.data },
+          where: { 
+            data: previousDate.data,
+            bloqueado: true,
+            emExecucao: false,
+            liberado: false
+          },
           orderBy: { prefixo: "asc" },
         });
 
@@ -226,9 +255,9 @@ export async function list(req: AuthRequest, res: Response) {
                 prefixo: prev.prefixo,
                 consorciada: prev.consorciada,
                 observacao: prev.observacao,
-                bloqueado: prev.bloqueado,
-                emExecucao: prev.emExecucao,
-                liberado: prev.liberado,
+                bloqueado: true,
+                emExecucao: false,
+                liberado: false,
                 data: dataQuery,
               },
             });
@@ -261,7 +290,7 @@ export async function list(req: AuthRequest, res: Response) {
               consorciada: ci.consorciada || "VCG",
               observacao: ci.motivo || "",
               bloqueado: true,
-              emExecucao: ci.status === "EM_MANUTENCAO",
+              emExecucao: false,
               liberado: false,
               data: dataQuery,
             },
@@ -275,7 +304,7 @@ export async function list(req: AuthRequest, res: Response) {
       });
     } else {
       // Se a data já tinha registros, mas uma data anterior mais recente foi atualizada com carros adicionais,
-      // herda esses carros adicionais para não perder o histórico acumulado
+      // herda esses carros adicionais APENAS se forem bloqueados vigentes
       const previousDate = await prisma.manutencaoCarro.findFirst({
         where: { data: { lt: dataQuery } },
         orderBy: { data: "desc" },
@@ -284,7 +313,12 @@ export async function list(req: AuthRequest, res: Response) {
 
       if (previousDate) {
         const prevRecords = await prisma.manutencaoCarro.findMany({
-          where: { data: previousDate.data },
+          where: { 
+            data: previousDate.data,
+            bloqueado: true,
+            emExecucao: false,
+            liberado: false
+          },
         });
 
         const existingPrefixes = new Set(records.map(r => r.prefixo));
@@ -300,9 +334,9 @@ export async function list(req: AuthRequest, res: Response) {
                   prefixo: prev.prefixo,
                   consorciada: prev.consorciada,
                   observacao: prev.observacao,
-                  bloqueado: prev.bloqueado,
-                  emExecucao: prev.emExecucao,
-                  liberado: prev.liberado,
+                  bloqueado: true,
+                  emExecucao: false,
+                  liberado: false,
                   data: dataQuery,
                 },
               });
@@ -345,6 +379,15 @@ export async function list(req: AuthRequest, res: Response) {
       where: { data: dataQuery },
       orderBy: { prefixo: "asc" },
     });
+
+    // Se o usuário estiver restrito a VCG ou VCM, garante estritamente que apenas veículos de sua garagem física apareçam
+    if (effectiveGaragem === "VCG" || effectiveGaragem === "VCM") {
+      records = records.filter((r) => {
+        const clean = (r.prefixo || "").replace(/\D/g, "");
+        const carroGaragem = (clean.startsWith("1") || clean === "2002") ? "VCM" : "VCG";
+        return carroGaragem === effectiveGaragem;
+      });
+    }
 
     return res.json(records);
   } catch (error) {
@@ -466,6 +509,24 @@ export async function update(req: AuthRequest, res: Response) {
       data: dataToUpdate,
     });
 
+    // Regra: ao tirar um carro dos bloqueios ou liberá-lo, tira da tabela ci_bloqueios
+    if (liberado === true || bloqueado === false) {
+      const existing = await prisma.manutencaoCarro.findUnique({ where: { id } });
+      const clean = (existing?.prefixo || id.replace("manut-", "").replace(/^\d{4}-\d{2}-\d{2}-/, "")).replace(/\D/g, "");
+      if (clean) {
+        try {
+          await prisma.ciBloqueio.deleteMany({
+            where: {
+              OR: [
+                { prefixo: clean },
+                { prefixo: existing?.prefixo || clean },
+              ],
+            },
+          });
+        } catch (_) {}
+      }
+    }
+
     return res.json(updated);
   } catch (error) {
     console.error("[Manutenção] Erro ao atualizar item de manutenção:", error);
@@ -480,11 +541,28 @@ export async function remove(req: AuthRequest, res: Response) {
 
     const { id } = req.params;
 
+    const existing = await prisma.manutencaoCarro.findUnique({ where: { id } });
+    const clean = (existing?.prefixo || id.replace("manut-", "").replace(/^\d{4}-\d{2}-\d{2}-/, "")).replace(/\D/g, "");
+
     await prisma.manutencaoCarro.deleteMany({
       where: { id },
     });
 
-    return res.json({ message: "Veículo removido da folha de manutenção com sucesso." });
+    // Regra: ao remover da folha de manutenção, tira também da tabela ci_bloqueios
+    if (clean) {
+      try {
+        await prisma.ciBloqueio.deleteMany({
+          where: {
+            OR: [
+              { prefixo: clean },
+              { prefixo: existing?.prefixo || clean },
+            ],
+          },
+        });
+      } catch (_) {}
+    }
+
+    return res.json({ message: "Veículo removido da folha de manutenção e desimpedido dos bloqueios com sucesso." });
   } catch (error) {
     console.error("[Manutenção] Erro ao remover item da folha:", error);
     return res.status(500).json({ message: "Erro ao remover da folha de manutenção." });
@@ -536,7 +614,7 @@ export async function sync(req: AuthRequest, res: Response) {
       });
     }
 
-    // Propagação para datas futuras: sincroniza os itens para todas as datas posteriores já salvas no banco
+    // Propagação para datas futuras: sincroniza APENAS OS BLOQUEADOS para as datas posteriores já salvas no banco
     const futureDates = await prisma.manutencaoCarro.findMany({
       where: { data: { gt: currentData } },
       select: { data: true },
@@ -544,8 +622,22 @@ export async function sync(req: AuthRequest, res: Response) {
       orderBy: { data: "asc" },
     });
 
+    // Se veículos foram liberados hoje, garante que não apareçam mais como bloqueados em datas futuras
+    const liberadosHoje = items.filter(it => it.liberado).map(it => String(it.prefixo || "").replace(/\D/g, "")).filter(Boolean);
+    if (liberadosHoje.length > 0) {
+      await prisma.manutencaoCarro.deleteMany({
+        where: {
+          data: { gt: currentData },
+          prefixo: { in: liberadosHoje },
+        },
+      });
+    }
+
     for (const f of futureDates) {
       for (const item of items) {
+        // Regra: "as listas de em manutencao e liberado o q foi adicionado hj no proximo dia nao aparecer mais"
+        if (item.emExecucao || item.liberado || !item.bloqueado) continue;
+
         const cleanPref = String(item.prefixo || "").replace(/\D/g, "");
         if (!cleanPref) continue;
         const finalId = `manut-${f.data}-${cleanPref}`;
@@ -555,18 +647,18 @@ export async function sync(req: AuthRequest, res: Response) {
           update: {
             consorciada: item.consorciada || "VCG",
             observacao: item.observacao || "",
-            bloqueado: Boolean(item.bloqueado),
-            emExecucao: Boolean(item.emExecucao),
-            liberado: Boolean(item.liberado),
+            bloqueado: true,
+            emExecucao: false,
+            liberado: false,
           },
           create: {
             id: finalId,
             prefixo: cleanPref,
             consorciada: item.consorciada || "VCG",
             observacao: item.observacao || "",
-            bloqueado: Boolean(item.bloqueado),
-            emExecucao: Boolean(item.emExecucao),
-            liberado: Boolean(item.liberado),
+            bloqueado: true,
+            emExecucao: false,
+            liberado: false,
             data: f.data,
             userId: req.userId || null,
           },
@@ -574,10 +666,50 @@ export async function sync(req: AuthRequest, res: Response) {
       }
     }
 
-    const savedRecords = await prisma.manutencaoCarro.findMany({
+    // Regra: "quando tirar um carro dos bloqueios tbm tirar da tabela de ci_bloqueios"
+    // Remove da tabela ci_bloqueios todos os veículos que vierem como liberados ou desimpedidos
+    const desimpedidosHoje = items
+      .filter((it: any) => it.liberado || !it.bloqueado)
+      .map((it: any) => String(it.prefixo || "").replace(/\D/g, ""))
+      .filter(Boolean);
+
+    if (desimpedidosHoje.length > 0) {
+      try {
+        await prisma.ciBloqueio.deleteMany({
+          where: {
+            prefixo: { in: desimpedidosHoje },
+          },
+        });
+      } catch (err) {
+        console.warn("[Manutenção Sync] Erro ao excluir de ci_bloqueios:", err);
+      }
+    }
+
+    let savedRecords = await prisma.manutencaoCarro.findMany({
       where: { data: currentData },
       orderBy: { prefixo: "asc" },
     });
+
+    // Identificação da Garagem Física do Usuário Logado para retorno estrito
+    const user = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { garagem: true, email: true }
+    });
+
+    let userGaragem = user?.garagem?.toUpperCase();
+    if (!userGaragem) {
+      const emailLower = (user?.email || "").toLowerCase();
+      if (emailLower.includes("vcg")) userGaragem = "VCG";
+      else if (emailLower.includes("vcm")) userGaragem = "VCM";
+    }
+
+    if (userGaragem === "VCG" || userGaragem === "VCM") {
+      savedRecords = savedRecords.filter((r) => {
+        const clean = (r.prefixo || "").replace(/\D/g, "");
+        const carroGaragem = (clean.startsWith("1") || clean === "2002") ? "VCM" : "VCG";
+        return carroGaragem === userGaragem;
+      });
+    }
 
     return res.json({
       message: "Folha de manutenção sincronizada com sucesso no banco de dados.",

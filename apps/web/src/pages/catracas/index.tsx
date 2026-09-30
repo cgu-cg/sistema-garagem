@@ -309,7 +309,11 @@ export function CatracasPage() {
         loadDiarios(idCarro.toString(), dateStr, dateStr, dateStr, dateStr);
       }
     } catch (error: any) {
-      toast.error(`Erro ao carregar detalhes do carro ${idCarro}: ` + error.message);
+      if (error.message === "TIMEOUT_ERROR") {
+        toast.error(`Tempo limite excedido ao buscar dados do carro ${idCarro}. O banco de dados SQL Server demorou para responder.`);
+      } else {
+        toast.error(`Erro ao carregar detalhes do carro ${idCarro}: ` + (error.message || "Falha de comunicação"));
+      }
     } finally {
       setDetailsLoading(false);
     }

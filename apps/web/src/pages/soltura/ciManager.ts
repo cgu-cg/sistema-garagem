@@ -126,7 +126,7 @@ export function saveCIBloqueiosToStorage(list: BloqueioCarro[], syncFolhas = tru
                   ? key.replace("manutencao_carros_v2_", "") 
                   : key.replace("manutencao_carros_v1_", "");
                 window.dispatchEvent(new CustomEvent("manutencao_updated", {
-                  detail: { data: datePart, items: updatedMItems }
+                  detail: { data: datePart, items: updatedMItems, fromCISync: true }
                 }));
               }
             }
@@ -183,9 +183,11 @@ export function checkCarroBloqueado(prefixo: string, list: BloqueioCarro[], data
     }
   } catch {}
 
-  // 2. Consulta a lista de CIs fornecida
+  // 2. Consulta a lista de CIs fornecida (apenas bloqueios reais de frota)
   return list.find(b => 
+    b.status !== "LIBERADO" &&
     (b.status === "BLOQUEADO" || b.status === "EM_MANUTENCAO" || b.status === "AGUARDANDO_PECA" || !b.status) &&
+    (b.categoriaPlanilha === "BLOQUEADO" || (!b.categoriaPlanilha && !b.setorOficina && !b.tipoPreventiva && !b.horarioReforco)) &&
     (b.prefixo === clean || b.prefixo === prefixo)
   ) || null;
 }
@@ -257,6 +259,7 @@ export async function persistCIBloqueio(item: BloqueioCarro): Promise<void> {
 export async function releaseCIBloqueioApi(data: {
   id?: string;
   prefixo?: string;
+  dataLiberacao?: string;
   motivoLiberacao?: string;
   responsavelLiberacao?: string;
 }): Promise<void> {

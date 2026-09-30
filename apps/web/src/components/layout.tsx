@@ -18,7 +18,6 @@ import {
   Building2,
   ChevronDown,
   Bell,
-  Calendar,
   Wrench,
   CalendarClock
 } from "lucide-react";
@@ -721,14 +720,6 @@ export function Layout() {
 
           {/* Right Action Icons & Badges */}
           <div className="flex items-center gap-2.5 shrink-0">
-            {/* Live date badge */}
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-slate-100/80 dark:bg-slate-900/80 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-800/80">
-              <Calendar className="w-3.5 h-3.5 text-slate-500" />
-              <span>
-                {new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
-              </span>
-            </div>
-
             {/* Online/Offline status badge */}
             <div className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border",

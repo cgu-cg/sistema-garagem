@@ -1,6 +1,10 @@
 const API_URL = "/api";
 
-async function request(path: string, options: RequestInit = {}) {
+interface RequestCustomOptions extends RequestInit {
+  timeoutMs?: number;
+}
+
+async function request(path: string, options: RequestCustomOptions = {}) {
   const token = localStorage.getItem("token");
 
   const headers: Record<string, string> = {
@@ -15,8 +19,10 @@ async function request(path: string, options: RequestInit = {}) {
     headers["Content-Type"] = "application/json";
   }
 
+  // 60 segundos de timeout padrão (em vez de 6s) para permitir consultas maiores ao SQL Server
+  const timeoutMs = options.timeoutMs !== undefined ? options.timeoutMs : 60000;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 6000); // 6 segundos de timeout
+  const timeoutId = timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
   try {
     const res = await fetch(`${API_URL}${path}`, {
@@ -24,7 +30,7 @@ async function request(path: string, options: RequestInit = {}) {
       headers,
       signal: controller.signal,
     });
-    clearTimeout(timeoutId);
+    if (timeoutId) clearTimeout(timeoutId);
 
     if (res.status === 204) return null;
 
@@ -51,7 +57,7 @@ async function request(path: string, options: RequestInit = {}) {
 
     return data;
   } catch (err: any) {
-    clearTimeout(timeoutId);
+    if (timeoutId) clearTimeout(timeoutId);
     if (err.name === "AbortError") {
       throw new Error("TIMEOUT_ERROR");
     }
@@ -183,7 +189,9 @@ export const api = {
   },
   getDetalhesVeiculo: (params: { idVeiculo: number; date: string }) => {
     const query = new URLSearchParams({ idVeiculo: params.idVeiculo.toString(), date: params.date });
-    return request(`/catracas/detalhes-veiculo?${query.toString()}`);
+    return request(`/catracas/detalhes-veiculo?${query.toString()}`, {
+      timeoutMs: 90000, // 90 segundos para permitir consultas completas no SQL Server
+    });
   },
   getDiarios: (params: {
     carro: string;
@@ -244,7 +252,7 @@ export const api = {
   },
   createOrUpdateCiBloqueio: (data: any) =>
     request("/ci-bloqueios", { method: "POST", body: JSON.stringify(data) }),
-  releaseCiBloqueio: (data: { id?: string; prefixo?: string; motivoLiberacao?: string; responsavelLiberacao?: string }) =>
+  releaseCiBloqueio: (data: { id?: string; prefixo?: string; dataLiberacao?: string; motivoLiberacao?: string; responsavelLiberacao?: string }) =>
     request("/ci-bloqueios/release", { method: "POST", body: JSON.stringify(data) }),
   deleteCiBloqueio: (id: string) =>
     request(`/ci-bloqueios/${id}`, { method: "DELETE" }),

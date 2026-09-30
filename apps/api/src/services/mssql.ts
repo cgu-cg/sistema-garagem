@@ -15,8 +15,8 @@ const config: sql.config = {
     trustServerCertificate: process.env.SQL_SERVER_TRUST_SERVER_CERTIFICATE !== "false",
     enableArithAbort: true,
   },
-  connectionTimeout: 3000,
-  requestTimeout: 5000,
+  connectionTimeout: parseInt(process.env.SQL_SERVER_CONNECTION_TIMEOUT || "15000", 10),
+  requestTimeout: parseInt(process.env.SQL_SERVER_REQUEST_TIMEOUT || "60000", 10),
 };
 
 let pool: sql.ConnectionPool | null = null;

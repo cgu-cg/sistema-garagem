@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { getGaragemFisicaByCarro } from "./ciManager";
 
 interface AlterarCarroProgramadoViewProps {
   garagem: "VCG" | "VCM";
@@ -46,12 +47,39 @@ export function AlterarCarroProgramadoView({
   const [searchQuery, setSearchQuery] = useState("");
   const [isListaEstendida, setIsListaEstendida] = useState(false);
 
-  // Carros bloqueados / pendurados na CI vindos da mesma fonte dinâmica da Soltura e Manutenção
+  // Carros bloqueados oficiais da C.I. (Filtrados estritamente pela garagem atual: VCG ou VCM)
   const penduradosCI = useMemo<BloqueioCarro[]>(() => {
-    return (ciList || []).filter(c =>
-      (!c.status || c.status === "BLOQUEADO" || c.status === "EM_MANUTENCAO" || c.status === "AGUARDANDO_PECA") &&
-      (!c.garagem || c.garagem === garagem || c.garagem === "TODAS")
-    );
+    const targetGaragem = garagem || "VCG";
+    const bloqueados = (ciList || []).filter(c => {
+      if (c.status === "LIBERADO") return false;
+      // Considera apenas bloqueados reais de frota (exclui preventivas/oficinas de rotina)
+      const isBloqueadoReal = (
+        c.categoriaPlanilha === "BLOQUEADO" ||
+        (!c.categoriaPlanilha && !c.setorOficina && !c.tipoPreventiva && !c.horarioReforco)
+      );
+      if (!isBloqueadoReal) return false;
+
+      // Filtra estritamente pela garagem física do carro / registro
+      const carroGaragem = c.garagem || getGaragemFisicaByCarro(c.prefixo);
+      return carroGaragem === targetGaragem;
+    });
+
+    // Deduplica por prefixo para garantir que cada veículo apareça apenas uma vez
+    const map = new Map<string, BloqueioCarro>();
+    bloqueados.forEach(c => {
+      const clean = (c.prefixo || "").trim();
+      if (clean && !map.has(clean)) {
+        map.set(clean, c);
+      }
+    });
+
+    // Ordena numericamente por prefixo
+    return Array.from(map.values()).sort((a, b) => {
+      const numA = parseInt(a.prefixo.replace(/\D/g, ""), 10);
+      const numB = parseInt(b.prefixo.replace(/\D/g, ""), 10);
+      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      return a.prefixo.localeCompare(b.prefixo);
+    });
   }, [ciList, garagem]);
 
   // Estados dos blocos laterais persistidos em localStorage
@@ -523,7 +551,7 @@ export function AlterarCarroProgramadoView({
             <div className="flex items-center justify-between border-b border-rose-200/70 pb-1.5 dark:border-rose-900/40">
               <div className="flex items-center gap-1.5 text-rose-700 font-bold text-[11px] uppercase tracking-wider dark:text-rose-400">
                 <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0 dark:text-rose-500" />
-                <span>CARROS BLOQUEADOS C.I.</span>
+                <span>CARROS BLOQUEADOS C.I. • {garagem || "VCG"}</span>
               </div>
               <span className="text-[11px] font-mono text-muted-foreground font-semibold dark:text-slate-400">
                 {penduradosCI.length} {penduradosCI.length === 1 ? "carro" : "carros"}
@@ -541,7 +569,7 @@ export function AlterarCarroProgramadoView({
               ))}
               {penduradosCI.length === 0 && (
                 <span className="text-muted-foreground text-xs italic py-1">
-                  Nenhum carro bloqueado ou na CI no momento.
+                  Nenhum carro bloqueado na C.I. para a Garagem {garagem || "VCG"} no momento.
                 </span>
               )}
             </div>

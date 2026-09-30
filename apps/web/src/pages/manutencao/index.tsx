@@ -9,8 +9,6 @@ import {
   fetchManutencaoDataFromApi,
   deleteManutencaoCarroApi,
   resetManutencaoSeedApi,
-  clearEmManutencaoList,
-  clearLiberadosList,
   getTodayString,
   STORAGE_KEY_MANUTENCAO_PREFIX
 } from "./manutencaoManager";
@@ -19,7 +17,8 @@ import {
   saveCIBloqueiosToStorage, 
   subscribeCIUpdates,
   getGaragemFisicaByCarro,
-  fetchCIBloqueiosFromApi
+  fetchCIBloqueiosFromApi,
+  deleteCIBloqueioApi
 } from "@/pages/soltura/ciManager";
 import { useAuth } from "@/stores/auth";
 import { INVENTORY_CARS } from "@/data/inventoryCars";
@@ -54,8 +53,7 @@ import {
   ChevronDown,
   X,
   Check,
-  ArrowRightLeft,
-  Eraser
+  ArrowRightLeft
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -145,9 +143,6 @@ export function ManutencaoPage() {
     toStatus: "BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO";
     novaObservacao: string;
   } | null>(null);
-
-  // Modal de Confirmação de Limpeza de Lista (Em Manutenção ou Liberado)
-  const [clearConfirmModal, setClearConfirmModal] = useState<"EM_EXECUCAO" | "LIBERADO" | null>(null);
 
   // Auxiliares de formatação de situação do carro
   const getStatusLabel = (status: "BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO") => {
@@ -255,8 +250,8 @@ export function ManutencaoPage() {
 
     // 2. Consulta coordenada à API oficial da Manutenção e CI
     Promise.all([
-      fetchManutencaoDataFromApi(dataOperacao),
-      fetchCIBloqueiosFromApi()
+      fetchManutencaoDataFromApi(dataOperacao, activeGaragem),
+      fetchCIBloqueiosFromApi({ garagem: activeGaragem === "TODAS" ? undefined : activeGaragem })
     ]).then(([apiList, latestCI]) => {
       if (!isMounted) return;
 
@@ -296,7 +291,7 @@ export function ManutencaoPage() {
       unsubscribeManut();
       unsubscribeCI();
     };
-  }, [dataOperacao]);
+  }, [dataOperacao, activeGaragem]);
 
   // 1. Filtragem estrita por Garagem Física do Usuário (VCG: frotas 2xxx exceto 2002, 3xxx e 4xxx / VCM: frotas 1xxx e 2002)
   const itemsByGaragem = useMemo(() => {
@@ -403,6 +398,9 @@ export function ManutencaoPage() {
 
   // Transição de status a partir do menu de 3 pontinhos
   const handleSetStatus = (itemId: string, newStatus: "BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO") => {
+    const targetItem = items.find(it => it.id === itemId);
+    const clean = (targetItem?.prefixo || "").replace(/\D/g, "");
+
     const updated = items.map(item => {
       if (item.id !== itemId) return item;
 
@@ -418,7 +416,7 @@ export function ManutencaoPage() {
       if (newStatus === "EM_EXECUCAO") {
         return {
           ...item,
-          bloqueado: true,
+          bloqueado: false,
           emExecucao: true,
           liberado: false
         };
@@ -427,9 +425,9 @@ export function ManutencaoPage() {
       if (newStatus === "LIBERADO") {
         return {
           ...item,
-          liberado: true,
           bloqueado: false,
-          emExecucao: false
+          emExecucao: false,
+          liberado: true
         };
       }
 
@@ -439,12 +437,24 @@ export function ManutencaoPage() {
     setItems(updated);
     saveManutencaoData(dataOperacao, updated);
 
+    // Se saiu de Bloqueado (foi para Liberado ou Em Manutenção), desmarca da CI se constava lá
+    if (newStatus === "LIBERADO" || newStatus === "EM_EXECUCAO") {
+      if (clean) {
+        deleteCIBloqueioApi(clean);
+        try {
+          const currentCI = getInitialCIBloqueios();
+          const updatedCI = currentCI.filter(c => c.prefixo.replace(/\D/g, "") !== clean);
+          saveCIBloqueiosToStorage(updatedCI);
+        } catch (_) {}
+      }
+    }
+
     if (newStatus === "LIBERADO") {
-      toast.success("Veículo liberado da manutenção e desimpedido na CI e Soltura.");
+      toast.success("Veículo liberado da manutenção.");
     } else if (newStatus === "BLOQUEADO") {
-      toast.success("Veículo bloqueado na manutenção, lançado na CI e retido na Soltura.");
+      toast.success("Veículo bloqueado na manutenção e registrado na CI.");
     } else {
-      toast.success("Veículo em manutenção na oficina, lançado na CI e retido na Soltura.");
+      toast.success("Veículo em manutenção na oficina (controle interno).");
     }
   };
 
@@ -457,7 +467,7 @@ export function ManutencaoPage() {
       setNewEmExecucao(false);
       setNewLiberado(false);
     } else if (origin === "EM_EXECUCAO") {
-      setNewBloqueado(true);
+      setNewBloqueado(false);
       setNewEmExecucao(true);
       setNewLiberado(false);
     } else {
@@ -566,7 +576,7 @@ export function ManutencaoPage() {
     if (!confirmTransferModal) return;
     const { prefixo, itemExistente, toStatus, novaObservacao } = confirmTransferModal;
 
-    const isBloq = toStatus === "BLOQUEADO" || toStatus === "EM_EXECUCAO";
+    const isBloq = toStatus === "BLOQUEADO";
     const isExec = toStatus === "EM_EXECUCAO";
     const isLib = toStatus === "LIBERADO";
 
@@ -591,6 +601,19 @@ export function ManutencaoPage() {
     setItems(updated);
     saveManutencaoData(dataOperacao, updated);
 
+    // Se o veículo foi transferido para Liberado ou Em Manutenção, ou saiu do status de Bloqueado
+    if (isLib || isExec || (confirmTransferModal.fromStatus === "BLOQUEADO" && toStatus !== "BLOQUEADO")) {
+      const clean = prefixo.replace(/\D/g, "");
+      if (clean) {
+        deleteCIBloqueioApi(clean);
+        try {
+          const currentCI = getInitialCIBloqueios();
+          const updatedCI = currentCI.filter(c => c.prefixo.replace(/\D/g, "") !== clean);
+          saveCIBloqueiosToStorage(updatedCI);
+        } catch (_) {}
+      }
+    }
+
     toast.success(
       `Veículo ${prefixo} transferido de "${getStatusLabel(confirmTransferModal.fromStatus)}" para "${getStatusLabel(toStatus)}" com sucesso!`
     );
@@ -599,23 +622,6 @@ export function ManutencaoPage() {
     setModalAddOpen(false);
     setNewPrefixo("");
     setNewObservacao("");
-  };
-
-  // Confirmar limpeza dos veículos do quadro (Em Manutenção ou Liberado)
-  const handleConfirmClear = () => {
-    if (!clearConfirmModal) return;
-    if (clearConfirmModal === "EM_EXECUCAO") {
-      const count = sortedEmExecucao.length;
-      const updated = clearEmManutencaoList(dataOperacao, items);
-      setItems(updated);
-      toast.success(`Lista de Em Manutenção limpa (${count} veículos retirados).`);
-    } else if (clearConfirmModal === "LIBERADO") {
-      const count = sortedLiberados.length;
-      const updated = clearLiberadosList(dataOperacao, items);
-      setItems(updated);
-      toast.success(`Lista de Liberados limpa (${count} veículos retirados).`);
-    }
-    setClearConfirmModal(null);
   };
 
   // Remover carro da folha
@@ -627,26 +633,20 @@ export function ManutencaoPage() {
     saveManutencaoData(dataOperacao, updated);
     deleteManutencaoCarroApi(id);
 
-    // Também atualiza na CI para que o veículo não permaneça bloqueado na Soltura
-    try {
-      const currentCI = getInitialCIBloqueios();
-      const updatedCI = currentCI.map(c => {
-        if (c.prefixo.replace(/\D/g, "") === clean && c.status !== "LIBERADO") {
-          return {
-            ...c,
-            status: "LIBERADO" as const,
-            dataLiberacao: dataOperacao,
-            motivoLiberacao: "Removido do Controle de Manutenção"
-          };
-        }
-        return c;
-      });
-      saveCIBloqueiosToStorage(updatedCI);
-    } catch (e) {
-      console.error("Erro ao liberar carro na CI ao remover:", e);
+    // Regra: "quando tirar um carro dos bloqueios tbm tirar da tabela de ci_bloqueios"
+    // Remove fisicamente da tabela ci_bloqueios no banco e limpa da lista de CI
+    if (clean) {
+      deleteCIBloqueioApi(clean);
+      try {
+        const currentCI = getInitialCIBloqueios();
+        const updatedCI = currentCI.filter(c => c.prefixo.replace(/\D/g, "") !== clean);
+        saveCIBloqueiosToStorage(updatedCI);
+      } catch (e) {
+        console.error("Erro ao remover carro da CI ao excluir:", e);
+      }
     }
 
-    toast.info(`Carro ${prefixo} removido da folha e liberado na CI e Soltura.`);
+    toast.info(`Carro ${prefixo} removido da folha e desimpedido dos bloqueios.`);
   };
 
   // Restaurar / Sincronizar dados oficiais diretamente do SQL Server
@@ -712,7 +712,7 @@ export function ManutencaoPage() {
 
   const sortedLiberados = useMemo(() => {
     return filteredItems
-      .filter(it => it.liberado || (!it.bloqueado && !it.emExecucao))
+      .filter(it => it.liberado && !it.bloqueado && !it.emExecucao)
       .sort((a, b) => a.prefixo.localeCompare(b.prefixo, undefined, { numeric: true }));
   }, [filteredItems]);
 
@@ -1211,24 +1211,13 @@ export function ManutencaoPage() {
                   {sortedEmExecucao.length}
                 </span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setClearConfirmModal("EM_EXECUCAO")}
-                  disabled={sortedEmExecucao.length === 0}
-                  className="w-7 h-7 rounded-lg bg-amber-100/80 hover:bg-amber-200 dark:bg-amber-900/40 text-amber-700 dark:text-amber-200 flex items-center justify-center transition-colors shadow-2xs cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                  title="Limpar lista de Em Manutenção"
-                >
-                  <Eraser className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => handleOpenAddModal("EM_EXECUCAO")}
-                  className="w-7 h-7 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/50 text-amber-700 dark:text-amber-200 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
-                  title="Adicionar carro em manutenção"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              </div>
+              <button
+                onClick={() => handleOpenAddModal("EM_EXECUCAO")}
+                className="w-7 h-7 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/50 text-amber-700 dark:text-amber-200 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+                title="Adicionar carro em manutenção"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
             </div>
 
             {/* Tabela de Em Manutenção */}
@@ -1314,24 +1303,13 @@ export function ManutencaoPage() {
                   {sortedLiberados.length}
                 </span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setClearConfirmModal("LIBERADO")}
-                  disabled={sortedLiberados.length === 0}
-                  className="w-7 h-7 rounded-lg bg-emerald-100/80 hover:bg-emerald-200 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-200 flex items-center justify-center transition-colors shadow-2xs cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                  title="Limpar lista de Liberados"
-                >
-                  <Eraser className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => handleOpenAddModal("LIBERADO")}
-                  className="w-7 h-7 rounded-lg bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-200 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
-                  title="Adicionar carro liberado"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              </div>
+              <button
+                onClick={() => handleOpenAddModal("LIBERADO")}
+                className="w-7 h-7 rounded-lg bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-200 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+                title="Adicionar carro liberado"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
             </div>
 
             {/* Tabela de Liberados */}
@@ -1864,7 +1842,7 @@ export function ManutencaoPage() {
                     .filter((it) => it.emExecucao && !it.liberado)
                     .sort((a, b) => a.prefixo.localeCompare(b.prefixo, undefined, { numeric: true }));
                   const lib = carrosEmp
-                    .filter((it) => it.liberado || (!it.bloqueado && !it.emExecucao))
+                    .filter((it) => it.liberado && !it.bloqueado && !it.emExecucao)
                     .sort((a, b) => a.prefixo.localeCompare(b.prefixo, undefined, { numeric: true }));
 
                   const nomeEmpresa =
@@ -2040,49 +2018,6 @@ export function ManutencaoPage() {
               onClick={() => setModalRelatorioOpen(false)}
             >
               Fechar Visualização
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ==========================================================
-          MODAL DE CONFIRMAÇÃO DE LIMPEZA DE LISTA
-          ========================================================== */}
-      <Dialog open={!!clearConfirmModal} onOpenChange={(open) => { if (!open) setClearConfirmModal(null); }}>
-        <DialogContent className="max-w-md p-6 bg-white dark:bg-[#0E1420] border border-gray-200 dark:border-slate-800 rounded-3xl shadow-xl">
-          <DialogHeader className="space-y-3">
-            <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/40">
-              <Eraser className="w-6 h-6" />
-            </div>
-            <div>
-              <DialogTitle className="text-lg font-bold text-gray-900 dark:text-white">
-                Limpar Lista de {clearConfirmModal === "EM_EXECUCAO" ? "Em Manutenção" : "Liberados"}?
-              </DialogTitle>
-              <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
-                {clearConfirmModal === "EM_EXECUCAO" ? (
-                  <>Esta ação removerá todos os <strong>{sortedEmExecucao.length} veículos</strong> que estão em manutenção na data <strong>{dataOperacao}</strong>. Os registros de dias anteriores não serão alterados.</>
-                ) : (
-                  <>Esta ação removerá todos os <strong>{sortedLiberados.length} veículos</strong> que estão liberados na data <strong>{dataOperacao}</strong>. Os registros de dias anteriores não serão alterados.</>
-                )}
-              </p>
-            </div>
-          </DialogHeader>
-
-          <DialogFooter className="mt-6 flex flex-row items-center justify-end gap-2.5">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setClearConfirmModal(null)}
-              className="rounded-xl text-xs font-semibold cursor-pointer"
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="button"
-              onClick={handleConfirmClear}
-              className="rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer shadow-xs"
-            >
-              Sim, Limpar Lista
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -69,8 +69,26 @@ export async function list(req: AuthRequest, res: Response) {
     const { garagem, status, categoria } = req.query;
     const where: any = {};
 
-    if (garagem && garagem !== "TODAS") {
-      where.garagem = String(garagem);
+    // Identificação da Garagem Física do Usuário Logado (VCG ou VCM)
+    const user = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { garagem: true, email: true, role: true }
+    });
+
+    let userGaragem = user?.garagem?.toUpperCase();
+    if (!userGaragem) {
+      const emailLower = (user?.email || "").toLowerCase();
+      if (emailLower.includes("vcg")) userGaragem = "VCG";
+      else if (emailLower.includes("vcm")) userGaragem = "VCM";
+    }
+
+    const isAdmin = user?.role === "ADMIN";
+    const effectiveGaragem = (!isAdmin && userGaragem)
+      ? userGaragem
+      : (garagem && garagem !== "TODAS" ? String(garagem).toUpperCase() : undefined);
+
+    if (effectiveGaragem) {
+      where.garagem = effectiveGaragem;
     }
 
     if (status) {
@@ -90,8 +108,18 @@ export async function list(req: AuthRequest, res: Response) {
       ],
     });
 
+    // Se o usuário estiver restrito a VCG ou VCM, garante estritamente que apenas frotas de sua garagem física sejam retornadas
+    let filteredRecords = records;
+    if (effectiveGaragem === "VCG" || effectiveGaragem === "VCM") {
+      filteredRecords = records.filter((r) => {
+        const clean = (r.prefixo || "").replace(/\D/g, "");
+        const carroGaragem = (clean.startsWith("1") || clean === "2002") ? "VCM" : "VCG";
+        return carroGaragem === effectiveGaragem;
+      });
+    }
+
     // Formatar para manter compatibilidade com a interface BloqueioCarro do frontend
-    const mapped = records.map((r) => {
+    const mapped = filteredRecords.map((r) => {
       const motivoLower = (r.motivo || "").toLowerCase();
       let tipo = "EM_MANUTENCAO";
       if (motivoLower.includes("motor")) {
@@ -176,7 +204,23 @@ export async function createOrUpdate(req: AuthRequest, res: Response) {
     const cat = String(categoriaPlanilha || categoria || "OFICINA").trim().toUpperCase();
     const rawSub = setorOficina || tipoPreventiva || subTipo;
     const sub = rawSub ? String(rawSub).trim().toUpperCase() : null;
-    const finalData = data || dataBloqueio || new Date().toISOString().split("T")[0];
+    let finalData = new Date().toISOString().split("T")[0];
+    const rawData = data || dataBloqueio;
+    if (rawData) {
+      const clean = String(rawData).trim().split(/[\sT]/)[0];
+      if (clean.includes("/")) {
+        const parts = clean.split("/");
+        if (parts.length === 3) {
+          finalData = parts[0].length === 4
+            ? `${parts[0]}-${parts[1].padStart(2, "0")}-${parts[2].padStart(2, "0")}`
+            : `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+        } else {
+          finalData = clean;
+        }
+      } else {
+        finalData = clean;
+      }
+    }
     const finalHora = hora || horaBloqueio || new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 
     // Se não forneceu ID, tenta localizar bloqueio ativo deste mesmo prefixo
@@ -237,43 +281,46 @@ export async function createOrUpdate(req: AuthRequest, res: Response) {
   }
 }
 
-// 3. Dar Baixa / Liberar Veículo da CI
+// 3. Dar Baixa / Liberar Veículo da CI (Remove da tabela ci_bloqueios)
 export async function release(req: AuthRequest, res: Response) {
   try {
     await ensureTableAndSeed();
 
-    const { prefixo, id, motivoLiberacao, responsavelLiberacao } = req.body;
+    const { prefixo, id } = req.body;
 
     if (!prefixo && !id) {
       return res.status(400).json({ error: "Informe o prefixo ou o ID do bloqueio para liberar." });
     }
 
-    const agora = new Date();
-    const dataLib = `${agora.toLocaleDateString("pt-BR")} às ${String(agora.getHours()).padStart(2, "0")}:${String(agora.getMinutes()).padStart(2, "0")}`;
+    const cleanPrefixo = prefixo ? String(prefixo).trim().replace(/\D/g, "") : undefined;
 
-    if (id) {
-      await prisma.ciBloqueio.updateMany({
-        where: { id },
-        data: {
-          status: "LIBERADO",
-          dataLiberacao: dataLib,
-          motivoLiberacao: motivoLiberacao || "Reparo concluído e testado",
-          responsavelLiberacao: responsavelLiberacao || "Encarregado de Oficina",
-        },
-      });
-    } else {
-      await prisma.ciBloqueio.updateMany({
-        where: { prefixo: String(prefixo), status: "BLOQUEADO" },
-        data: {
-          status: "LIBERADO",
-          dataLiberacao: dataLib,
-          motivoLiberacao: motivoLiberacao || "Reparo concluído e testado",
-          responsavelLiberacao: responsavelLiberacao || "Encarregado de Oficina",
-        },
-      });
-    }
+    // Remove fisicamente da tabela ci_bloqueios conforme solicitado
+    await prisma.ciBloqueio.deleteMany({
+      where: {
+        OR: [
+          ...(id ? [{ id: String(id) }] : []),
+          ...(cleanPrefixo ? [{ prefixo: cleanPrefixo }] : []),
+          ...(prefixo ? [{ prefixo: String(prefixo).trim() }] : []),
+        ],
+      },
+    });
 
-    return res.json({ success: true, message: `Veículo ${prefixo || id} liberado com sucesso.` });
+    // Se o carro constava estritamente como bloqueado permanente na folha de manutenção, desmarca o bloqueio
+    // (As listas de em manutenção e liberados são 100% independentes e não recebem registros da CI)
+    try {
+      if (cleanPrefixo) {
+        await prisma.manutencaoCarro.deleteMany({
+          where: {
+            prefixo: cleanPrefixo,
+            bloqueado: true,
+            emExecucao: false,
+            liberado: false,
+          },
+        });
+      }
+    } catch (_) {}
+
+    return res.json({ success: true, message: `Veículo ${prefixo || id} liberado e removido dos bloqueios da CI com sucesso.` });
   } catch (error: any) {
     console.error("[CI Bloqueios] Erro ao liberar veículo:", error);
     return res.status(500).json({ error: error?.message || "Erro ao liberar veículo." });
@@ -286,17 +333,50 @@ export async function remove(req: AuthRequest, res: Response) {
     await ensureTableAndSeed();
 
     const { id } = req.params;
+    const { prefixo } = req.query;
 
     if (!id) {
       return res.status(400).json({ error: "ID não fornecido." });
     }
 
-    // Tenta excluir por ID ou por prefixo
+    // Se o cliente enviou um ID específico, busca o prefixo do carro associado
+    let carPrefixo = prefixo ? String(prefixo).trim() : undefined;
+    if (!carPrefixo) {
+      const found = await prisma.ciBloqueio.findFirst({
+        where: { id },
+        select: { prefixo: true }
+      });
+      if (found) {
+        carPrefixo = found.prefixo.trim();
+      }
+    }
+
+    // Condições para exclusão: apaga por ID e, se houver prefixo identificado, remove todos os bloqueios deste carro
+    const orConditions: any[] = [{ id }, { prefixo: id }];
+    if (carPrefixo) {
+      orConditions.push({ prefixo: carPrefixo });
+    }
+
     await prisma.ciBloqueio.deleteMany({
       where: {
-        OR: [{ id }, { prefixo: id }],
+        OR: orConditions,
       },
     });
+
+    // Remove apenas se constava estritamente como bloqueado na folha (não altera em manutenção nem liberados)
+    try {
+      const cleanPref = (carPrefixo || id).replace(/\D/g, "");
+      if (cleanPref) {
+        await prisma.manutencaoCarro.deleteMany({
+          where: {
+            prefixo: cleanPref,
+            bloqueado: true,
+            emExecucao: false,
+            liberado: false,
+          }
+        });
+      }
+    } catch (_) {}
 
     return res.json({ success: true, message: "Bloqueio removido com sucesso." });
   } catch (error: any) {

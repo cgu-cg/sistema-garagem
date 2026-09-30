@@ -51,7 +51,7 @@ import { CiManutencaoView } from "./CiManutencaoView";
 import { AlterarFolhaView } from "./AlterarFolhaView";
 import { AlterarCarroProgramadoView } from "./AlterarCarroProgramadoView";
 import { CarroRealizadoView } from "./CarroRealizadoView";
-import { getInitialCIBloqueios, checkCarroBloqueado, subscribeCIUpdates, fetchCIBloqueiosFromApi } from "./ciManager";
+import { getInitialCIBloqueios, checkCarroBloqueado, subscribeCIUpdates, fetchCIBloqueiosFromApi, getGaragemFisicaByCarro } from "./ciManager";
 import {
   getInitialCustomSchedules,
   saveCustomSchedulesToStorage,
@@ -265,7 +265,9 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       }
     });
 
-    const handleManutUpdate = () => {
+    const handleManutUpdate = (e: Event) => {
+      const customEvt = e as CustomEvent;
+      if (customEvt.detail?.fromCISync) return;
       fetchCIBloqueiosFromApi({ garagem }).then(data => {
         if (Array.isArray(data)) setCiList(data);
       });
@@ -753,12 +755,35 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     return garagem === "VCG" ? terminaisReservaVCG : terminaisReservaVCM;
   }, [garagem]);
 
-  // Pendurados / Bloqueados na CI ativos filtrados pela garagem atual
+  // Pendurados / Bloqueados na CI ativos oficiais (Filtrados estritamente pela garagem atual: VCG ou VCM)
   const penduradosAtivos = useMemo<BloqueioCarro[]>(() => {
-    return ciList.filter(c =>
-      (!c.status || c.status === "BLOQUEADO" || c.status === "EM_MANUTENCAO" || c.status === "AGUARDANDO_PECA") &&
-      (!c.garagem || c.garagem === garagem || c.garagem === "TODAS")
-    );
+    const targetGaragem = garagem || "VCG";
+    const bloqueados = (ciList || []).filter(c => {
+      if (c.status === "LIBERADO") return false;
+      const isBloqueadoReal = (
+        c.categoriaPlanilha === "BLOQUEADO" ||
+        (!c.categoriaPlanilha && !c.setorOficina && !c.tipoPreventiva && !c.horarioReforco)
+      );
+      if (!isBloqueadoReal) return false;
+      const carroGaragem = c.garagem || getGaragemFisicaByCarro(c.prefixo);
+      return carroGaragem === targetGaragem;
+    });
+
+    // Deduplica por prefixo
+    const map = new Map<string, BloqueioCarro>();
+    bloqueados.forEach(c => {
+      const clean = (c.prefixo || "").trim();
+      if (clean && !map.has(clean)) {
+        map.set(clean, c);
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => {
+      const numA = parseInt(a.prefixo.replace(/\D/g, ""), 10);
+      const numB = parseInt(b.prefixo.replace(/\D/g, ""), 10);
+      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      return a.prefixo.localeCompare(b.prefixo);
+    });
   }, [ciList, garagem]);
 
   // Mapear itens mesclando programação base + despachos realizados
@@ -788,11 +813,11 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     const pendentes = total - liberados;
     const percentual = total > 0 ? Math.round((liberados / total) * 100) : 0;
 
-    // Contar CIs ativos para a garagem selecionada
-    const totalBloqueadosCI = ciList.filter(c => (!c.status || c.status === "BLOQUEADO") && (!c.garagem || c.garagem === garagem || c.garagem === "TODAS")).length;
+    // Contar CIs ativos reais da CI oficial (sem duplicatas)
+    const totalBloqueadosCI = penduradosAtivos.length;
 
     return { total, liberados, substituidos, pendentes, percentual, totalBloqueadosCI };
-  }, [activeSchedules, ciList, garagem]);
+  }, [activeSchedules, penduradosAtivos]);
 
   // Estado para animar e pulsar o carro bloqueado na seção de pendurados
   const [pulsingCarro, setPulsingCarro] = useState<string | null>(null);
@@ -1243,7 +1268,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
             PENDURADOS / BLOQUEADOS
           </h3>
           <span className="text-[10px] text-muted-foreground font-mono">
-            {penduradosAtivos.length} {penduradosAtivos.length === 1 ? "carro" : "carros"}
+            Garagem {garagem} • {penduradosAtivos.length} {penduradosAtivos.length === 1 ? "carro" : "carros"}
           </span>
         </div>
 
@@ -1281,7 +1306,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           })}
           {penduradosAtivos.length === 0 && (
             <span className="text-[11px] text-muted-foreground/70 italic print:text-neutral-500">
-              Nenhum carro bloqueado ou na CI no momento.
+              Nenhum carro bloqueado na Garagem {garagem} no momento.
             </span>
           )}
         </div>
