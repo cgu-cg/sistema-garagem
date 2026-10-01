@@ -12,13 +12,15 @@ import {
   getTodayString,
   STORAGE_KEY_MANUTENCAO_PREFIX
 } from "./manutencaoManager";
+import { BloqueioCarro } from "@/data/solturaData";
 import { 
   getInitialCIBloqueios, 
   saveCIBloqueiosToStorage, 
   subscribeCIUpdates,
   getGaragemFisicaByCarro,
   fetchCIBloqueiosFromApi,
-  deleteCIBloqueioApi
+  deleteCIBloqueioApi,
+  persistCIBloqueio
 } from "@/pages/soltura/ciManager";
 import { useAuth } from "@/stores/auth";
 import { INVENTORY_CARS } from "@/data/inventoryCars";
@@ -53,7 +55,8 @@ import {
   ChevronDown,
   X,
   Check,
-  ArrowRightLeft
+  ArrowRightLeft,
+  AlertTriangle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -107,9 +110,6 @@ export function ManutencaoPage() {
   const [modalStatusOrigem, setModalStatusOrigem] = useState<"BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO">("BLOQUEADO");
   const [newPrefixo, setNewPrefixo] = useState("");
   const [newObservacao, setNewObservacao] = useState("");
-  const [newBloqueado, setNewBloqueado] = useState(false);
-  const [newEmExecucao, setNewEmExecucao] = useState(false);
-  const [newLiberado, setNewLiberado] = useState(true);
 
   // Estados do seletor moderno de veículos no modal
   const [carSelectorOpen, setCarSelectorOpen] = useState(false);
@@ -142,6 +142,21 @@ export function ManutencaoPage() {
     fromStatus: "BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO";
     toStatus: "BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO";
     novaObservacao: string;
+  } | null>(null);
+
+  // Modal de Confirmação ao Liberar Bloqueio da CI a partir do Quadro 1 (Bloqueados)
+  const [liberarBloqueioModal, setLiberarBloqueioModal] = useState<{
+    isOpen: boolean;
+    item: ManutencaoCarroItem | null;
+  }>({ isOpen: false, item: null });
+
+  // Modal de Confirmação ao adicionar ou transferir para Liberados um veículo que consta em Bloqueados
+  const [confirmLiberarBloqueadoAoLiberarModal, setConfirmLiberarBloqueadoAoLiberarModal] = useState<{
+    isOpen: boolean;
+    prefixo: string;
+    itemOficina?: ManutencaoCarroItem;
+    novaObservacao?: string;
+    fromAction: "ADD_MODAL" | "MENU_STATUS";
   } | null>(null);
 
   // Auxiliares de formatação de situação do carro
@@ -396,65 +411,236 @@ export function ManutencaoPage() {
     return null;
   };
 
+  // Confirmar liberação de bloqueio na CI a partir do popup do Quadro 1 (Bloqueados)
+  const handleConfirmLiberarBloqueio = () => {
+    if (!liberarBloqueioModal.item) return;
+    const targetItem = liberarBloqueioModal.item;
+    const clean = (targetItem.prefixo || "").replace(/\D/g, "");
+
+    if (clean) {
+      deleteCIBloqueioApi(clean);
+      try {
+        const currentCI = getInitialCIBloqueios();
+        const updatedCI = currentCI.filter(c => c.prefixo.replace(/\D/g, "") !== clean);
+        saveCIBloqueiosToStorage(updatedCI);
+      } catch (_) {}
+    }
+    const updated = items.filter(it => it.id !== targetItem.id);
+    setItems(updated);
+    saveManutencaoData(dataOperacao, updated);
+    deleteManutencaoCarroApi(targetItem.id);
+    setLiberarBloqueioModal({ isOpen: false, item: null });
+    toast.success(`Bloqueio do veículo ${targetItem.prefixo} liberado na CI.`);
+  };
+
+  // Copia/adiciona o carro na lista de Em Manutenção mantendo-o intacto nos Bloqueados
+  const handleCopiarParaEmManutencao = (item: ManutencaoCarroItem) => {
+    const clean = (item.prefixo || "").replace(/\D/g, "");
+
+    // Verifica se já está na lista de Em Manutenção desta data
+    const existingExec = items.find(it => it.prefixo === item.prefixo && it.emExecucao && !it.liberado);
+    if (existingExec) {
+      toast.info(`O veículo ${item.prefixo} já está na lista de Em Manutenção.`);
+      return;
+    }
+
+    // Se já existia um item de Liberado na oficina nesta data, move ele de volta para Em Manutenção
+    const existingLib = items.find(it => it.prefixo === item.prefixo && it.liberado);
+    if (existingLib) {
+      const updated = items.map(it => {
+        if (it.id === existingLib.id) {
+          return {
+            ...it,
+            emExecucao: true,
+            liberado: false,
+            observacao: item.observacao || it.observacao,
+            updatedAt: new Date().toISOString()
+          };
+        }
+        return it;
+      });
+      setItems(updated);
+      saveManutencaoData(dataOperacao, updated);
+      toast.success(`Veículo ${item.prefixo} adicionado à lista de Em Manutenção e mantido nos Bloqueados.`);
+      return;
+    }
+
+    // Cria novo registro exclusivo da oficina, MANTENDO o registro de bloqueado intacto
+    const consorciada = item.consorciada || getConsorciadaByPrefix(clean);
+    const newOficinaItem: ManutencaoCarroItem = {
+      id: `manut-${clean}-${Date.now()}`,
+      prefixo: item.prefixo,
+      consorciada,
+      observacao: item.observacao || "",
+      bloqueado: false,
+      emExecucao: true,
+      liberado: false,
+      data: dataOperacao
+    };
+
+    const updated = [...items, newOficinaItem];
+    setItems(updated);
+    saveManutencaoData(dataOperacao, updated);
+    toast.success(`Veículo ${item.prefixo} adicionado à lista de Em Manutenção e mantido nos Bloqueados.`);
+  };
+
+  // Confirmar liberação na CI ao adicionar/transferir para Liberados um veículo que consta em Bloqueados
+  const handleConfirmLiberarBloqueadoAoLiberar = () => {
+    if (!confirmLiberarBloqueadoAoLiberarModal) return;
+    const { prefixo, novaObservacao } = confirmLiberarBloqueadoAoLiberarModal;
+    const clean = prefixo.replace(/\D/g, "");
+
+    // 1. Libera/desbloqueia na CI
+    if (clean) {
+      deleteCIBloqueioApi(clean);
+      try {
+        const currentCI = getInitialCIBloqueios();
+        const updatedCI = currentCI.filter(c => c.prefixo.replace(/\D/g, "") !== clean);
+        saveCIBloqueiosToStorage(updatedCI);
+      } catch (_) {}
+    }
+
+    // 2. Remove o registro de BLOQUEADO da folha
+    let updated = items.filter(it => !(it.prefixo === prefixo && it.bloqueado && !it.emExecucao && !it.liberado));
+
+    // 3. TIRA TAMBÉM DE EM MANUTENÇÃO se o carro estiver em Em Manutenção, e coloca em Liberados
+    const consorciada = getConsorciadaByPrefix(prefixo);
+    const existingOficinaItems = updated.filter(it => it.prefixo === prefixo && (it.emExecucao || it.liberado));
+
+    if (existingOficinaItems.length > 0) {
+      let isFirst = true;
+      updated = updated.map(it => {
+        if (it.prefixo === prefixo && (it.emExecucao || it.liberado)) {
+          if (isFirst) {
+            isFirst = false;
+            return {
+              ...it,
+              bloqueado: false,
+              emExecucao: false, // Tira de Em Manutenção
+              liberado: true,    // Coloca em Liberado
+              observacao: novaObservacao || it.observacao,
+              updatedAt: new Date().toISOString()
+            };
+          } else {
+            deleteManutencaoCarroApi(it.id);
+            return null as any;
+          }
+        }
+        return it;
+      }).filter(Boolean);
+    } else {
+      const newItem: ManutencaoCarroItem = {
+        id: `manut-${clean}-${Date.now()}`,
+        prefixo: prefixo,
+        consorciada,
+        observacao: novaObservacao || "",
+        bloqueado: false,
+        emExecucao: false,
+        liberado: true,
+        data: dataOperacao
+      };
+      updated = [...updated, newItem];
+    }
+
+    setItems(updated);
+    saveManutencaoData(dataOperacao, updated);
+    setConfirmLiberarBloqueadoAoLiberarModal(null);
+    setModalAddOpen(false);
+    setNewPrefixo("");
+    setNewObservacao("");
+    toast.success(`Veículo ${prefixo} liberado na oficina e desimpedido da CI com sucesso!`);
+  };
+
   // Transição de status a partir do menu de 3 pontinhos
   const handleSetStatus = (itemId: string, newStatus: "BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO") => {
     const targetItem = items.find(it => it.id === itemId);
-    const clean = (targetItem?.prefixo || "").replace(/\D/g, "");
+    if (!targetItem) return;
 
-    const updated = items.map(item => {
-      if (item.id !== itemId) return item;
+    // Se for item da oficina sendo mudado para LIBERADO:
+    if (newStatus === "LIBERADO") {
+      // Checa se o veículo também consta atualmente na lista de Bloqueados desta folha
+      const bloqItem = items.find(it => it.prefixo === targetItem.prefixo && it.bloqueado && !it.emExecucao && !it.liberado);
+      if (bloqItem) {
+        setConfirmLiberarBloqueadoAoLiberarModal({
+          isOpen: true,
+          prefixo: targetItem.prefixo,
+          itemOficina: targetItem,
+          fromAction: "MENU_STATUS"
+        });
+        return;
+      }
+    }
 
-      if (newStatus === "BLOQUEADO") {
+    // Atualização de status: se colocar em Liberado, tira também de Em Manutenção!
+    let updated = items.map(item => {
+      if (item.id === itemId) {
+        if (newStatus === "EM_EXECUCAO") {
+          return {
+            ...item,
+            bloqueado: false,
+            emExecucao: true,
+            liberado: false,
+            updatedAt: new Date().toISOString()
+          };
+        }
+        if (newStatus === "LIBERADO") {
+          return {
+            ...item,
+            bloqueado: false,
+            emExecucao: false, // Tira de Em Manutenção
+            liberado: true,    // Coloca em Liberado
+            updatedAt: new Date().toISOString()
+          };
+        }
+      }
+
+      // Regra: Se está mudando para LIBERADO, e existir qualquer outro item desse mesmo prefixo em emExecucao,
+      // ele também é retirado de emExecucao!
+      if (newStatus === "LIBERADO" && item.prefixo === targetItem.prefixo && item.emExecucao) {
         return {
           ...item,
-          bloqueado: true,
+          bloqueado: false,
           emExecucao: false,
-          liberado: false
+          liberado: true,
+          updatedAt: new Date().toISOString()
         };
       }
 
-      if (newStatus === "EM_EXECUCAO") {
+      // Se estiver voltando para EM_EXECUCAO, qualquer outro item liberado desse prefixo volta para emExecucao
+      if (newStatus === "EM_EXECUCAO" && item.prefixo === targetItem.prefixo && item.liberado) {
         return {
           ...item,
           bloqueado: false,
           emExecucao: true,
-          liberado: false
-        };
-      }
-
-      if (newStatus === "LIBERADO") {
-        return {
-          ...item,
-          bloqueado: false,
-          emExecucao: false,
-          liberado: true
+          liberado: false,
+          updatedAt: new Date().toISOString()
         };
       }
 
       return item;
     });
 
+    // Desduplica caso haja mais de um registro do mesmo prefixo para o mesmo estado
+    const seen = new Set<string>();
+    updated = updated.filter(it => {
+      if (it.liberado || it.emExecucao) {
+        const key = `${it.prefixo}_${it.liberado ? "LIB" : "EXEC"}`;
+        if (seen.has(key)) {
+          deleteManutencaoCarroApi(it.id);
+          return false;
+        }
+        seen.add(key);
+      }
+      return true;
+    });
+
     setItems(updated);
     saveManutencaoData(dataOperacao, updated);
 
-    // Se saiu de Bloqueado (foi para Liberado ou Em Manutenção), desmarca da CI se constava lá
-    if (newStatus === "LIBERADO" || newStatus === "EM_EXECUCAO") {
-      if (clean) {
-        deleteCIBloqueioApi(clean);
-        try {
-          const currentCI = getInitialCIBloqueios();
-          const updatedCI = currentCI.filter(c => c.prefixo.replace(/\D/g, "") !== clean);
-          saveCIBloqueiosToStorage(updatedCI);
-        } catch (_) {}
-      }
-    }
-
     if (newStatus === "LIBERADO") {
-      toast.success("Veículo liberado da manutenção.");
-    } else if (newStatus === "BLOQUEADO") {
-      toast.success("Veículo bloqueado na manutenção e registrado na CI.");
+      toast.success(`Veículo ${targetItem.prefixo} liberado da manutenção.`);
     } else {
-      toast.success("Veículo em manutenção na oficina (controle interno).");
+      toast.success(`Veículo ${targetItem.prefixo} em manutenção na oficina.`);
     }
   };
 
@@ -462,19 +648,6 @@ export function ManutencaoPage() {
   const handleOpenAddModal = (status?: "BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO") => {
     const origin = status || "BLOQUEADO";
     setModalStatusOrigem(origin);
-    if (origin === "BLOQUEADO") {
-      setNewBloqueado(true);
-      setNewEmExecucao(false);
-      setNewLiberado(false);
-    } else if (origin === "EM_EXECUCAO") {
-      setNewBloqueado(false);
-      setNewEmExecucao(true);
-      setNewLiberado(false);
-    } else {
-      setNewBloqueado(false);
-      setNewEmExecucao(false);
-      setNewLiberado(true);
-    }
     setNewPrefixo("");
     setNewObservacao("");
     setCarSelectorOpen(false);
@@ -485,21 +658,54 @@ export function ManutencaoPage() {
   // Salvar alteração de observação
   const handleSaveObservacao = () => {
     if (!editItem) return;
+    const cleanObs = editObs.trim().toUpperCase();
     const updated = items.map(it => {
       if (it.id === editItem.id) {
-        return { ...it, observacao: editObs.trim().toUpperCase() };
+        return { ...it, observacao: cleanObs };
       }
       return it;
     });
 
     setItems(updated);
     saveManutencaoData(dataOperacao, updated);
+
+    // Se o item pertencer aos Bloqueados puros (Quadro 1), atualiza também na CI
+    if (editItem.bloqueado && !editItem.emExecucao && !editItem.liberado) {
+      const clean = editItem.prefixo.replace(/\D/g, "");
+      const carroGaragem = getGaragemFisicaByCarro(clean);
+      const consorciada = editItem.consorciada || getConsorciadaByPrefix(clean);
+      const newCI: BloqueioCarro = {
+        id: `ci-bloq-${clean}`,
+        prefixo: clean,
+        garagem: carroGaragem,
+        consorciada: consorciada as any,
+        categoriaPlanilha: "BLOQUEADO",
+        tipo: "BLOQUEADO_CORRETIVA",
+        motivo: cleanObs || "Bloqueio Oficina",
+        data: dataOperacao,
+        hora: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+        status: "BLOQUEADO"
+      };
+      persistCIBloqueio(newCI);
+      try {
+        const currentCI = getInitialCIBloqueios();
+        const updatedCI = currentCI.map(c => {
+          if (c.prefixo.replace(/\D/g, "") === clean) {
+            return { ...c, motivo: cleanObs || c.motivo };
+          }
+          return c;
+        });
+        saveCIBloqueiosToStorage(updatedCI);
+      } catch (_) {}
+    }
+
     setEditItem(null);
     toast.success(`Observação do carro ${editItem.prefixo} atualizada.`);
   };
 
-  // Adicionar novo carro à folha ou solicitar transferência se já existir em outra situação
-  const handleAddCarro = (e: React.FormEvent) => {
+  // Adicionar novo carro à folha
+  // Regra 2: "nos campos em manutencao e liberados nao ter vinculo com a ci tem que ser idependente da ci os carros em manutencao e liberados apenas esta na tabela do controle de manutencao, e nem interferir ao campo de bloqueados pois quando adicionar um carro em manutencao ou em liberados q estajam em bloqueados nao intervir nos bloqueados pode ter neles e manter na de bloqueados."
+  const handleAddCarro = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanPrefix = newPrefixo.trim();
     if (!cleanPrefix) {
@@ -513,70 +719,140 @@ export function ManutencaoPage() {
       return;
     }
 
-    // Verifica se o carro já existe na folha desta data
-    const existingItem = items.find(it => it.prefixo === cleanPrefix);
-    if (existingItem) {
-      // Identifica a situação atual na folha
-      let fromStatus: "BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO" = "BLOQUEADO";
-      if (existingItem.emExecucao && !existingItem.liberado) {
-        fromStatus = "EM_EXECUCAO";
-      } else if (existingItem.liberado) {
-        fromStatus = "LIBERADO";
-      } else if (existingItem.bloqueado) {
-        fromStatus = "BLOQUEADO";
+    const toStatus = modalStatusOrigem;
+
+    if (toStatus === "EM_EXECUCAO") {
+      const existingExec = items.find(it => it.prefixo === cleanPrefix && it.emExecucao && !it.liberado);
+      if (existingExec) {
+        toast.info(`O veículo ${cleanPrefix} já está na lista de Em Manutenção nesta data.`);
+        return;
       }
-
-      const toStatus = modalStatusOrigem;
-
-      // Se já está na mesma situação do card atual
-      if (fromStatus === toStatus) {
-        toast.info(`O veículo ${cleanPrefix} já está registrado como "${getStatusLabel(fromStatus)}" nesta data.`);
+      const existingLib = items.find(it => it.prefixo === cleanPrefix && it.liberado);
+      if (existingLib) {
+        setConfirmTransferModal({
+          isOpen: true,
+          prefixo: cleanPrefix,
+          itemExistente: existingLib,
+          fromStatus: "LIBERADO",
+          toStatus: "EM_EXECUCAO",
+          novaObservacao: newObservacao.trim().toUpperCase()
+        });
+        return;
+      }
+    } else if (toStatus === "LIBERADO") {
+      // Se estiver em Bloqueados, abre o popup informando que sairá da lista de bloqueios inclusive da CI
+      const bloqItem = items.find(it => it.prefixo === cleanPrefix && it.bloqueado && !it.emExecucao && !it.liberado);
+      if (bloqItem) {
+        setConfirmLiberarBloqueadoAoLiberarModal({
+          isOpen: true,
+          prefixo: cleanPrefix,
+          novaObservacao: newObservacao.trim().toUpperCase(),
+          fromAction: "ADD_MODAL"
+        });
         return;
       }
 
-      // Se está em outra situação, abre o popup de confirmação para transferir!
-      setConfirmTransferModal({
-        isOpen: true,
-        prefixo: cleanPrefix,
-        itemExistente: existingItem,
-        fromStatus,
-        toStatus,
-        novaObservacao: newObservacao.trim().toUpperCase()
-      });
-      return;
+      const existingLib = items.find(it => it.prefixo === cleanPrefix && it.liberado);
+      if (existingLib) {
+        toast.info(`O veículo ${cleanPrefix} já está na lista de Liberados nesta data.`);
+        return;
+      }
+
+      // Regra: "quando colocar em liberado e se estiver em em manutencao tbm ele tira tbm de em manutencao"
+      const existingExec = items.find(it => it.prefixo === cleanPrefix && it.emExecucao && !it.liberado);
+      if (existingExec) {
+        let updated = items.map(it => {
+          if (it.id === existingExec.id || (it.prefixo === cleanPrefix && it.emExecucao)) {
+            return {
+              ...it,
+              bloqueado: false,
+              emExecucao: false, // Tira de Em Manutenção
+              liberado: true,    // Coloca em Liberado
+              observacao: newObservacao.trim().toUpperCase() || it.observacao,
+              updatedAt: new Date().toISOString()
+            };
+          }
+          return it;
+        });
+
+        // Desduplica caso existisse mais de um registro desse prefixo
+        const seen = new Set<string>();
+        updated = updated.filter(it => {
+          if (it.prefixo === cleanPrefix && it.liberado) {
+            if (seen.has(it.prefixo)) {
+              deleteManutencaoCarroApi(it.id);
+              return false;
+            }
+            seen.add(it.prefixo);
+          }
+          return true;
+        });
+
+        setItems(updated);
+        saveManutencaoData(dataOperacao, updated);
+        toast.success(`Veículo ${cleanPrefix} retirado de Em Manutenção e colocado em Liberado.`);
+        setModalAddOpen(false);
+        setNewPrefixo("");
+        setNewObservacao("");
+        return;
+      }
+    } else if (toStatus === "BLOQUEADO") {
+      const existingBloq = items.find(it => it.prefixo === cleanPrefix && it.bloqueado && !it.emExecucao && !it.liberado);
+      if (existingBloq) {
+        toast.info(`O veículo ${cleanPrefix} já está na lista de Bloqueados.`);
+        return;
+      }
     }
 
     const consorciada = getConsorciadaByPrefix(cleanPrefix);
     const newItem: ManutencaoCarroItem = {
-      id: `manut-${cleanPrefix}-${Date.now()}`,
+      id: toStatus === "BLOQUEADO" ? `manut-ci-${cleanPrefix}` : `manut-${cleanPrefix}-${Date.now()}`,
       prefixo: cleanPrefix,
       consorciada,
       observacao: newObservacao.trim().toUpperCase(),
-      bloqueado: newBloqueado,
-      emExecucao: newEmExecucao,
-      liberado: newLiberado,
+      bloqueado: toStatus === "BLOQUEADO",
+      emExecucao: toStatus === "EM_EXECUCAO",
+      liberado: toStatus === "LIBERADO",
       data: dataOperacao
     };
+
+    // Se estiver criando um novo Bloqueado a partir desta tela, salva também na CI
+    if (toStatus === "BLOQUEADO") {
+      const newCI: BloqueioCarro = {
+        id: `ci-${Date.now()}-${cleanPrefix}`,
+        prefixo: cleanPrefix,
+        garagem: carroGaragem,
+        consorciada: consorciada as any,
+        categoriaPlanilha: "BLOQUEADO",
+        tipo: "BLOQUEADO_CORRETIVA",
+        motivo: newObservacao.trim().toUpperCase() || "Bloqueio Oficina",
+        data: dataOperacao,
+        hora: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+        status: "BLOQUEADO"
+      };
+      await persistCIBloqueio(newCI);
+      try {
+        const currentCI = getInitialCIBloqueios();
+        const filteredCI = currentCI.filter(c => c.prefixo.replace(/\D/g, "") !== cleanPrefix);
+        saveCIBloqueiosToStorage([newCI, ...filteredCI]);
+      } catch (_) {}
+    }
 
     const updated = [...items, newItem];
     setItems(updated);
     saveManutencaoData(dataOperacao, updated);
 
-    toast.success(`Carro ${cleanPrefix} adicionado à folha de manutenção como "${getStatusLabel(modalStatusOrigem)}".`);
+    toast.success(`Carro ${cleanPrefix} adicionado como "${getStatusLabel(toStatus)}".`);
     setModalAddOpen(false);
     setNewPrefixo("");
     setNewObservacao("");
-    setNewBloqueado(false);
-    setNewEmExecucao(false);
-    setNewLiberado(true);
   };
 
-  // Confirmar transferência de situação a partir do popup
+  // Confirmar transferência de situação exclusiva entre Em Manutenção e Liberado
   const handleConfirmTransfer = () => {
     if (!confirmTransferModal) return;
     const { prefixo, itemExistente, toStatus, novaObservacao } = confirmTransferModal;
 
-    const isBloq = toStatus === "BLOQUEADO";
     const isExec = toStatus === "EM_EXECUCAO";
     const isLib = toStatus === "LIBERADO";
 
@@ -584,11 +860,11 @@ export function ManutencaoPage() {
       ? novaObservacao.trim().toUpperCase()
       : itemExistente.observacao;
 
-    const updated = items.map(it => {
-      if (it.prefixo === prefixo) {
+    let updated = items.map(it => {
+      if (it.id === itemExistente.id || (it.prefixo === prefixo && (it.emExecucao || it.liberado))) {
         return {
           ...it,
-          bloqueado: isBloq,
+          bloqueado: false,
           emExecucao: isExec,
           liberado: isLib,
           observacao: updatedObs,
@@ -598,21 +874,20 @@ export function ManutencaoPage() {
       return it;
     });
 
+    const seen = new Set<string>();
+    updated = updated.filter(it => {
+      if (it.prefixo === prefixo && (it.emExecucao || it.liberado)) {
+        if (seen.has(it.prefixo)) {
+          deleteManutencaoCarroApi(it.id);
+          return false;
+        }
+        seen.add(it.prefixo);
+      }
+      return true;
+    });
+
     setItems(updated);
     saveManutencaoData(dataOperacao, updated);
-
-    // Se o veículo foi transferido para Liberado ou Em Manutenção, ou saiu do status de Bloqueado
-    if (isLib || isExec || (confirmTransferModal.fromStatus === "BLOQUEADO" && toStatus !== "BLOQUEADO")) {
-      const clean = prefixo.replace(/\D/g, "");
-      if (clean) {
-        deleteCIBloqueioApi(clean);
-        try {
-          const currentCI = getInitialCIBloqueios();
-          const updatedCI = currentCI.filter(c => c.prefixo.replace(/\D/g, "") !== clean);
-          saveCIBloqueiosToStorage(updatedCI);
-        } catch (_) {}
-      }
-    }
 
     toast.success(
       `Veículo ${prefixo} transferido de "${getStatusLabel(confirmTransferModal.fromStatus)}" para "${getStatusLabel(toStatus)}" com sucesso!`
@@ -625,7 +900,8 @@ export function ManutencaoPage() {
   };
 
   // Remover carro da folha
-  const handleRemoveCarro = (id: string, prefixo: string) => {
+  // Regra 3: "apenas vai sair dos bloqueados se tirar na ci ou no campo de bloqueado do controle de manutencao se em outro lugar tiver alguma regra para tirar dos bloqueados pode tirar."
+  const handleRemoveCarro = (id: string, prefixo: string, isBloqueadoCard: boolean = false) => {
     if (!confirm(`Deseja remover o carro ${prefixo} desta folha de manutenção?`)) return;
     const clean = prefixo.replace(/\D/g, "");
     const updated = items.filter(it => it.id !== id);
@@ -633,9 +909,8 @@ export function ManutencaoPage() {
     saveManutencaoData(dataOperacao, updated);
     deleteManutencaoCarroApi(id);
 
-    // Regra: "quando tirar um carro dos bloqueios tbm tirar da tabela de ci_bloqueios"
-    // Remove fisicamente da tabela ci_bloqueios no banco e limpa da lista de CI
-    if (clean) {
+    // APENAS remove da tabela ci_bloqueios se o clique partiu da coluna de BLOQUEADOS
+    if (isBloqueadoCard && clean) {
       deleteCIBloqueioApi(clean);
       try {
         const currentCI = getInitialCIBloqueios();
@@ -646,7 +921,7 @@ export function ManutencaoPage() {
       }
     }
 
-    toast.info(`Carro ${prefixo} removido da folha e desimpedido dos bloqueios.`);
+    toast.info(isBloqueadoCard ? `Carro ${prefixo} removido dos bloqueios.` : `Carro ${prefixo} removido da folha.`);
   };
 
   // Restaurar / Sincronizar dados oficiais diretamente do SQL Server
@@ -1169,23 +1444,23 @@ export function ManutencaoPage() {
                                 <MoreVertical className="w-4 h-4" />
                               </button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-44">
-                              <DropdownMenuItem onClick={() => handleSetStatus(item.id, "LIBERADO")}>
+                            <DropdownMenuContent align="end" className="w-48">
+                              <DropdownMenuItem onClick={() => setLiberarBloqueioModal({ isOpen: true, item })}>
                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 mr-2" />
-                                Liberar
+                                Liberar Bloqueio
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleSetStatus(item.id, "EM_EXECUCAO")}>
+                              <DropdownMenuItem onClick={() => handleCopiarParaEmManutencao(item)}>
                                 <Wrench className="w-3.5 h-3.5 text-amber-500 mr-2" />
-                                Em Manutencao
+                                Em Manutenção
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem onClick={() => { setEditItem(item); setEditObs(item.observacao); }}>
                                 <Edit2 className="w-3.5 h-3.5 text-gray-500 mr-2" />
                                 Editar Defeito
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleRemoveCarro(item.id, item.prefixo)} className="text-red-600 dark:text-red-400">
+                              <DropdownMenuItem onClick={() => handleRemoveCarro(item.id, item.prefixo, true)} className="text-red-600 dark:text-red-400">
                                 <Trash2 className="w-3.5 h-3.5 text-red-500 mr-2" />
-                                Remover
+                                Remover Bloqueio
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -1266,16 +1541,12 @@ export function ManutencaoPage() {
                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 mr-2" />
                                 Liberar
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleSetStatus(item.id, "BLOQUEADO")}>
-                                <Ban className="w-3.5 h-3.5 text-rose-500 mr-2" />
-                                Bloquear
-                              </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem onClick={() => { setEditItem(item); setEditObs(item.observacao); }}>
                                 <Edit2 className="w-3.5 h-3.5 text-gray-500 mr-2" />
                                 Editar Defeito
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleRemoveCarro(item.id, item.prefixo)} className="text-red-600 dark:text-red-400">
+                              <DropdownMenuItem onClick={() => handleRemoveCarro(item.id, item.prefixo, false)} className="text-red-600 dark:text-red-400">
                                 <Trash2 className="w-3.5 h-3.5 text-red-500 mr-2" />
                                 Remover
                               </DropdownMenuItem>
@@ -1354,10 +1625,6 @@ export function ManutencaoPage() {
                               </button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-44">
-                              <DropdownMenuItem onClick={() => handleSetStatus(item.id, "BLOQUEADO")}>
-                                <Ban className="w-3.5 h-3.5 text-rose-500 mr-2" />
-                                Bloquear
-                              </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => handleSetStatus(item.id, "EM_EXECUCAO")}>
                                 <Wrench className="w-3.5 h-3.5 text-amber-500 mr-2" />
                                 Em Manutencao
@@ -1367,7 +1634,7 @@ export function ManutencaoPage() {
                                 <Edit2 className="w-3.5 h-3.5 text-gray-500 mr-2" />
                                 Editar Defeito
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleRemoveCarro(item.id, item.prefixo)} className="text-red-600 dark:text-red-400">
+                              <DropdownMenuItem onClick={() => handleRemoveCarro(item.id, item.prefixo, false)} className="text-red-600 dark:text-red-400">
                                 <Trash2 className="w-3.5 h-3.5 text-red-500 mr-2" />
                                 Remover
                               </DropdownMenuItem>
@@ -2018,6 +2285,105 @@ export function ManutencaoPage() {
               onClick={() => setModalRelatorioOpen(false)}
             >
               Fechar Visualização
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ==========================================================
+          MODAL DE CONFIRMAÇÃO: LIBERAR BLOQUEIO DA CI (QUADRO 1)
+          ========================================================== */}
+      <Dialog 
+        open={liberarBloqueioModal.isOpen} 
+        onOpenChange={(open) => !open && setLiberarBloqueioModal({ isOpen: false, item: null })}
+      >
+        <DialogContent className="sm:max-w-md rounded-3xl border-2 border-rose-500/30">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-bold text-rose-700 dark:text-rose-400">
+              <AlertTriangle className="w-5 h-5 text-rose-600" />
+              Liberar Bloqueio • Veículo {liberarBloqueioModal.item?.prefixo}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3 pt-2">
+            <div className="p-3.5 rounded-2xl bg-rose-50/80 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 text-xs text-rose-900 dark:text-rose-200 leading-relaxed">
+              <strong className="block mb-1 text-sm font-bold text-rose-700 dark:text-rose-300">
+                Atenção: Liberação Oficial na CI
+              </strong>
+              Ao confirmar, este veículo sairá da lista de <strong>Bloqueados</strong> do Controle de Manutenção e também será <strong>liberado e desimpedido da CI</strong> para a operação de pista.
+            </div>
+
+            {liberarBloqueioModal.item?.observacao && (
+              <div className="text-[11px] p-2.5 rounded-xl bg-gray-100/80 dark:bg-slate-800/60 text-gray-700 dark:text-slate-300 border">
+                <span className="font-bold">Defeito Registrado:</span> {liberarBloqueioModal.item.observacao}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="flex-col sm:flex-row gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-full w-full sm:w-auto"
+              onClick={() => setLiberarBloqueioModal({ isOpen: false, item: null })}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={handleConfirmLiberarBloqueio}
+              className="rounded-full w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-md cursor-pointer"
+            >
+              <Check className="w-4 h-4 mr-1.5" />
+              Sim, Liberar da CI
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ==========================================================
+          MODAL DE CONFIRMAÇÃO: LIBERAR VEÍCULO BLOQUEADO AO COLOCAR EM LIBERADOS
+          ========================================================== */}
+      <Dialog 
+        open={Boolean(confirmLiberarBloqueadoAoLiberarModal?.isOpen)} 
+        onOpenChange={(open) => !open && setConfirmLiberarBloqueadoAoLiberarModal(null)}
+      >
+        <DialogContent className="sm:max-w-md rounded-3xl border-2 border-emerald-500/30">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-bold text-emerald-700 dark:text-emerald-400">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+              Veículo {confirmLiberarBloqueadoAoLiberarModal?.prefixo} está Bloqueado na CI
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3 pt-2">
+            <div className="p-3.5 rounded-2xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40 text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
+              <strong className="block mb-1 text-sm font-bold text-amber-700 dark:text-amber-300">
+                Veículo com Bloqueio Ativo
+              </strong>
+              O veículo <strong>{confirmLiberarBloqueadoAoLiberarModal?.prefixo}</strong> consta atualmente na lista de <strong>BLOQUEADOS</strong>. Deseja realmente liberá-lo para a pista?
+              <p className="mt-1 font-semibold text-rose-700 dark:text-rose-400">
+                Ao confirmar, o veículo sairá da lista de bloqueios e será desimpedido inclusive da CI.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="flex-col sm:flex-row gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-full w-full sm:w-auto"
+              onClick={() => setConfirmLiberarBloqueadoAoLiberarModal(null)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={handleConfirmLiberarBloqueadoAoLiberar}
+              className="rounded-full w-full sm:w-auto bg-[#164E3A] hover:bg-[#113C2D] text-white font-bold shadow-md cursor-pointer"
+            >
+              <Check className="w-4 h-4 mr-1.5" />
+              Confirmar e Liberar da CI
             </Button>
           </DialogFooter>
         </DialogContent>

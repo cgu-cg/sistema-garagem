@@ -30,6 +30,64 @@ export interface DiarioItem {
   found: boolean;
 }
 
+/**
+ * Calcula a faixa inteligente de datas para a Consulta de Diário de Bordo (PDF).
+ * Regra de Negócio: Fechamento de mês ocorre até o dia 03 do mês atual.
+ */
+export function calculateSmartDiariosRange(
+  rawStartStr: string | null | undefined,
+  rawEndStr: string | null | undefined,
+  fallbackDate: string
+): { startDate: string; endDate: string } {
+  const extractYMD = (d: string | null | undefined) => {
+    if (!d) return null;
+    if (d.includes("T")) return d.split("T")[0];
+    if (d.includes(" ")) return d.split(" ")[0];
+    return d;
+  };
+
+  const d1 = extractYMD(rawStartStr);
+  const d2 = extractYMD(rawEndStr);
+
+  const endDate = d2 || d1 || fallbackDate;
+  const rawStartDate = d1 || d2 || fallbackDate;
+
+  const [eY, eM, eD] = endDate.split("-").map(Number);
+  if (!eY || !eM || !eD) {
+    return { startDate: rawStartDate, endDate };
+  }
+
+  let minAllowedDate: string;
+
+  if (eD <= 3) {
+    // Caso 1: Dias 01, 02 ou 03 -> Mês anterior ainda está aberto (fechando)
+    // Traz todos os dias do mês anterior (a partir do dia 01)
+    const prevMonthDate = new Date(eY, eM - 2, 1, 12, 0, 0);
+    const pY = prevMonthDate.getFullYear();
+    const pM = (prevMonthDate.getMonth() + 1).toString().padStart(2, "0");
+    minAllowedDate = `${pY}-${pM}-01`;
+  } else {
+    // Caso 2: Dia 04 em diante -> Mês anterior já foi fechado
+    // Traz os últimos 3 dias do mês anterior (ex: 28, 29 e 30 de setembro)
+    const lastDayPrevMonth = new Date(eY, eM - 1, 0, 12, 0, 0);
+    const startLast3Days = new Date(lastDayPrevMonth);
+    startLast3Days.setDate(lastDayPrevMonth.getDate() - 2);
+
+    const pY = startLast3Days.getFullYear();
+    const pM = (startLast3Days.getMonth() + 1).toString().padStart(2, "0");
+    const pD = startLast3Days.getDate().toString().padStart(2, "0");
+    minAllowedDate = `${pY}-${pM}-${pD}`;
+  }
+
+  const effectiveStart = rawStartDate < minAllowedDate ? minAllowedDate : rawStartDate;
+  const finalStart = effectiveStart > endDate ? endDate : effectiveStart;
+
+  return {
+    startDate: finalStart,
+    endDate,
+  };
+}
+
 export async function fetchDiariosRange(
   carro: string,
   startStr: string,
@@ -45,8 +103,10 @@ export async function fetchDiariosRange(
 
   const { pasta: nomePastaEmpresa, sigla } = empresa;
 
-  const [sY, sM, sD] = startStr.split("-").map(Number);
-  const [eY, eM, eD] = endStr.split("-").map(Number);
+  // Aplica a regra de corte inteligente de fechamento de mês
+  const smart = calculateSmartDiariosRange(startStr, endStr, endStr);
+  const [sY, sM, sD] = smart.startDate.split("-").map(Number);
+  const [eY, eM, eD] = smart.endDate.split("-").map(Number);
 
   const dCurrent = new Date(sY, sM - 1, sD, 12, 0, 0);
   const dEnd = new Date(eY, eM - 1, eD, 12, 0, 0);

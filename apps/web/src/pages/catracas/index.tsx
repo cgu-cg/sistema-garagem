@@ -93,6 +93,73 @@ export function formatDateBR(dateStr: string): string {
   return dateStr;
 }
 
+/**
+ * Calcula a faixa inteligente de datas para a Consulta de Diário de Bordo (PDF).
+ * 
+ * Regra de Negócio de Fechamento de Mês da Bilhetagem:
+ * - O fechamento do mês anterior é realizado até o dia 03 do mês atual.
+ * - Caso 1: A data do 2º serviço (dataRef) é dia 01, 02 ou 03 do mês (endDay <= 3):
+ *     O mês anterior ainda está em aberto/processo de fechamento.
+ *     -> Traz desde o dia 01 do mês anterior até a data do 2º serviço (dataRef).
+ * - Caso 2: A data do 2º serviço (dataRef) é do dia 04 em diante (endDay > 3):
+ *     O mês anterior já foi fechado.
+ *     -> Traz apenas os últimos 3 dias do mês anterior (ex: 28, 29 e 30 de set) + dias do mês atual até dataRef.
+ * - Se a data original do 1º serviço (rawStart) for mais recente que essa data limite calculada, usa rawStart.
+ */
+export function calculateSmartDiariosRange(
+  rawStartStr: string | null | undefined,
+  rawEndStr: string | null | undefined,
+  fallbackDate: string
+): { startDate: string; endDate: string } {
+  const extractYMD = (d: string | null | undefined) => {
+    if (!d) return null;
+    if (d.includes("T")) return d.split("T")[0];
+    if (d.includes(" ")) return d.split(" ")[0];
+    return d;
+  };
+
+  const d1 = extractYMD(rawStartStr);
+  const d2 = extractYMD(rawEndStr);
+
+  const endDate = d2 || d1 || fallbackDate;
+  const rawStartDate = d1 || d2 || fallbackDate;
+
+  const [eY, eM, eD] = endDate.split("-").map(Number);
+  if (!eY || !eM || !eD) {
+    return { startDate: rawStartDate, endDate };
+  }
+
+  let minAllowedDate: string;
+
+  if (eD <= 3) {
+    // Caso 1: Dias 01, 02 ou 03 -> Mês anterior ainda está aberto (fechando)
+    // Traz todos os dias do mês anterior (a partir do dia 01)
+    const prevMonthDate = new Date(eY, eM - 2, 1, 12, 0, 0);
+    const pY = prevMonthDate.getFullYear();
+    const pM = (prevMonthDate.getMonth() + 1).toString().padStart(2, "0");
+    minAllowedDate = `${pY}-${pM}-01`;
+  } else {
+    // Caso 2: Dia 04 em diante -> Mês anterior já foi fechado
+    // Traz os últimos 3 dias do mês anterior (ex: 28, 29 e 30 de setembro)
+    const lastDayPrevMonth = new Date(eY, eM - 1, 0, 12, 0, 0);
+    const startLast3Days = new Date(lastDayPrevMonth);
+    startLast3Days.setDate(lastDayPrevMonth.getDate() - 2);
+
+    const pY = startLast3Days.getFullYear();
+    const pM = (startLast3Days.getMonth() + 1).toString().padStart(2, "0");
+    const pD = startLast3Days.getDate().toString().padStart(2, "0");
+    minAllowedDate = `${pY}-${pM}-${pD}`;
+  }
+
+  const effectiveStart = rawStartDate < minAllowedDate ? minAllowedDate : rawStartDate;
+  const finalStart = effectiveStart > endDate ? endDate : effectiveStart;
+
+  return {
+    startDate: finalStart,
+    endDate,
+  };
+}
+
 export function CatracasPage() {
   const location = useLocation();
   const dateInputRef = useRef<HTMLInputElement>(null);
@@ -205,9 +272,19 @@ export function CatracasPage() {
   const [pdfCarId, setPdfCarId] = useState("");
   const [pdfDateIni, setPdfDateIni] = useState("2026-08-05");
   const [pdfDateFim, setPdfDateFim] = useState("2026-08-05");
-  const [pdfDaysList, setPdfDaysList] = useState<{ dateStr: string; label: string; url: string }[]>([]);
+  const [pdfDaysList, setPdfDaysList] = useState<{ dateStr: string; label: string; url: string; found?: boolean }[]>([]);
   const [activePdfUrl, setActivePdfUrl] = useState<string>("");
   const [copiedUrl, setCopiedUrl] = useState(false);
+
+  // Filtros de Diários Disponíveis e Dias sem Registro no servidor
+  const diariosDisponiveis = useMemo(() => {
+    return pdfDaysList.filter((d) => d.found !== false);
+  }, [pdfDaysList]);
+
+  const diasSemRegistro = useMemo(() => {
+    const missing = pdfDaysList.filter((d) => d.found === false);
+    return Array.from(new Set(missing.map((d) => formatDateBR(d.dateStr))));
+  }, [pdfDaysList]);
 
   // Carregar dados de consistência inicial e alertas no primeiro print da página
   useEffect(() => {
@@ -296,13 +373,13 @@ export function CatracasPage() {
         const dateSV1 = extractYMD(cb.datainiSV1);
         const dateSV2 = extractYMD(cb.datainiSV2);
 
-        const start = dateSV1 && dateSV2 ? (dateSV1 <= dateSV2 ? dateSV1 : dateSV2) : (dateSV1 || dateSV2 || dateStr);
-        const end = dateSV1 && dateSV2 ? (dateSV1 <= dateSV2 ? dateSV2 : dateSV1) : (dateSV1 || dateSV2 || dateStr);
+        // Aplica o cálculo inteligente de fechamento de mês para limitar os diários de bordo
+        const smartRange = calculateSmartDiariosRange(dateSV1, dateSV2, dateStr);
 
-        setPdfDateIni(start);
-        setPdfDateFim(end);
+        setPdfDateIni(smartRange.startDate);
+        setPdfDateFim(smartRange.endDate);
 
-        loadDiarios(idCarro.toString(), start, end, dateSV1, dateSV2);
+        loadDiarios(idCarro.toString(), smartRange.startDate, smartRange.endDate, dateSV1, dateSV2);
       } else {
         setPdfDateIni(dateStr);
         setPdfDateFim(dateStr);
@@ -440,7 +517,13 @@ export function CatracasPage() {
   };
 
   // Fallback síncrono para gerar links previstos enquanto o servidor de arquivos é consultado
-  const generatePdfUrlsForDates = (carro: string, date1: string | null, date2: string | null) => {
+  const generatePdfUrlsForDates = (
+    carro: string,
+    startStr: string,
+    endStr: string,
+    dateSV1?: string | null,
+    dateSV2?: string | null
+  ) => {
     if (!carro) return;
 
     const prefixo = carro.trim()[0];
@@ -455,32 +538,31 @@ export function CatracasPage() {
     const { pasta: nomePastaEmpresa, sigla } = empresaInfo;
     const base_url = "http://192.168.0.51:19100";
 
-    const extractYMD = (d: string | null) => {
+    const extractYMD = (d: string | null | undefined) => {
       if (!d) return null;
       if (d.includes("T")) return d.split("T")[0];
       if (d.includes(" ")) return d.split(" ")[0];
       return d;
     };
 
-    const d1Str = extractYMD(date1);
-    const d2Str = extractYMD(date2);
+    const sStr = extractYMD(startStr);
+    const eStr = extractYMD(endStr);
+    const d1Str = extractYMD(dateSV1);
+    const d2Str = extractYMD(dateSV2);
 
-    if (!d1Str && !d2Str) {
+    if (!sStr || !eStr) {
       setPdfDaysList([]);
       setActivePdfUrl("");
       return;
     }
 
-    const startStr = d1Str && d2Str ? (d1Str <= d2Str ? d1Str : d2Str) : (d1Str || d2Str)!;
-    const endStr = d1Str && d2Str ? (d1Str <= d2Str ? d2Str : d1Str) : (d1Str || d2Str)!;
-
-    const [sY, sM, sD] = startStr.split("-").map(Number);
-    const [eY, eM, eD] = endStr.split("-").map(Number);
+    const [sY, sM, sD] = sStr.split("-").map(Number);
+    const [eY, eM, eD] = eStr.split("-").map(Number);
 
     const dCurrent = new Date(sY, sM - 1, sD, 12, 0, 0);
     const dEnd = new Date(eY, eM - 1, eD, 12, 0, 0);
 
-    const list: { dateStr: string; label: string; url: string }[] = [];
+    const list: { dateStr: string; label: string; url: string; found?: boolean }[] = [];
 
     while (dCurrent <= dEnd) {
       const dia = dCurrent.getDate().toString().padStart(2, "0");
@@ -511,6 +593,7 @@ export function CatracasPage() {
         dateStr: curDateStr,
         label: `${dia}/${mesNum.toString().padStart(2, "0")}/${ano}${labelSuffix}`,
         url: urlFinal,
+        found: true,
       });
 
       dCurrent.setDate(dCurrent.getDate() + 1);
@@ -535,7 +618,7 @@ export function CatracasPage() {
     if (!carro) return;
 
     // Primeiro aplica o fallback síncrono para renderizar imediatamente
-    generatePdfUrlsForDates(carro, dateSV1 || startStr, dateSV2 || endStr);
+    generatePdfUrlsForDates(carro, startStr, endStr, dateSV1, dateSV2);
 
     setLoadingDiarios(true);
     try {
@@ -549,13 +632,17 @@ export function CatracasPage() {
 
       if (response?.data && response.data.length > 0) {
         setPdfDaysList(response.data);
-        // Se o PDF ativo anterior não estiver na nova lista, seleciona o primeiro
-        setActivePdfUrl((prevUrl) => {
-          if (response.data.some((d: any) => d.url === prevUrl)) {
-            return prevUrl;
-          }
-          return response.data[0].url;
-        });
+        const available = response.data.filter((d: any) => d.found !== false);
+        if (available.length > 0) {
+          setActivePdfUrl((prevUrl) => {
+            if (available.some((d: any) => d.url === prevUrl)) {
+              return prevUrl;
+            }
+            return available[0].url;
+          });
+        } else {
+          setActivePdfUrl("");
+        }
       }
     } catch (err) {
       console.warn("Consulta dinâmica de diários falhou, usando lista padrão:", err);
@@ -1845,7 +1932,7 @@ export function CatracasPage() {
               </CardHeader>
               <CardContent className="pt-4 space-y-4">
 
-                {/* Informação Fixa do Veículo Selecionado */}
+                {/* Informação Fixa do Veículo Selecionado (Print 02) */}
                 <div className="grid grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-200/80 dark:border-slate-800/80 text-xs">
                   <div>
                     <span className="text-muted-foreground block font-medium">Veículo Selecionado:</span>
@@ -1855,14 +1942,29 @@ export function CatracasPage() {
                     <span className="text-muted-foreground block font-medium">Data de Referência:</span>
                     <span className="font-semibold text-foreground">
                       {pdfDateIni && pdfDateFim && pdfDateIni !== pdfDateFim
-                        ? `${pdfDateIni.split("-")[2]}/${pdfDateIni.split("-")[1]}/${pdfDateIni.split("-")[0]} a ${pdfDateFim.split("-")[2]}/${pdfDateFim.split("-")[1]}/${pdfDateFim.split("-")[0]}`
-                        : (pdfDateIni ? `${pdfDateIni.split("-")[2]}/${pdfDateIni.split("-")[1]}/${pdfDateIni.split("-")[0]}` : "Nenhuma")}
+                        ? `${formatDateBR(pdfDateIni)} a ${formatDateBR(pdfDateFim)}`
+                        : (pdfDateIni ? formatDateBR(pdfDateIni) : "Nenhuma")}
                     </span>
                   </div>
                 </div>
 
-                {/* Seletor de data quando há intervalo */}
-                {pdfDaysList.length > 0 && (
+                {/* NOVO: Alerta em vermelho para Dias sem registro de diário de bordo (Abaixo do card e acima da seleção) */}
+                {diasSemRegistro.length > 0 && (
+                  <div className="p-3.5 rounded-2xl border border-rose-200/90 dark:border-rose-900/60 bg-rose-50/80 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 text-xs flex items-start gap-2.5 shadow-2xs animate-in fade-in duration-200">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                    <div className="space-y-0.5 leading-relaxed">
+                      <span className="font-bold text-rose-800 dark:text-rose-200">
+                        Dias sem registro de diário de bordo:
+                      </span>{" "}
+                      <span className="font-semibold text-rose-600 dark:text-rose-400">
+                        {diasSemRegistro.join(", ")}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Seletor de data para diários disponíveis */}
+                {diariosDisponiveis.length > 0 ? (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <Label className="text-xs font-semibold text-muted-foreground">Selecione o Diário para Visualizar no Split Screen:</Label>
@@ -1873,7 +1975,7 @@ export function CatracasPage() {
                       )}
                     </div>
                     <div className="flex flex-col gap-2">
-                      {pdfDaysList.map((day, idx) => (
+                      {diariosDisponiveis.map((day, idx) => (
                         <button
                           key={idx}
                           onClick={() => setActivePdfUrl(day.url)}
@@ -1891,10 +1993,15 @@ export function CatracasPage() {
                       ))}
                     </div>
                   </div>
-                )}
+                ) : loadingDiarios ? (
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800/80 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-[#154D34] dark:text-emerald-400" />
+                    <span>Verificando disponibilidade dos diários no servidor de imagens...</span>
+                  </div>
+                ) : null}
 
                 {/* Container do Iframe PDF */}
-                {activePdfUrl ? (
+                {activePdfUrl && diariosDisponiveis.some((d) => d.url === activePdfUrl) ? (
                   <div className="space-y-2">
                     <div className="flex flex-wrap gap-2 justify-between items-center text-xs text-muted-foreground p-1 border-b border-slate-100 dark:border-slate-800/60">
                       <span className="font-semibold text-[#154D34] dark:text-emerald-400 truncate max-w-[200px]" title={activePdfUrl}>
@@ -1934,6 +2041,16 @@ export function CatracasPage() {
                         <span>Caso o PDF não carregue por restrições do navegador, clique em "Nova Aba".</span>
                       </div>
                     </div>
+                  </div>
+                ) : diasSemRegistro.length > 0 && diariosDisponiveis.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 border-2 border-dashed border-rose-200 dark:border-rose-900/50 rounded-2xl bg-rose-50/20 dark:bg-rose-950/10 text-center p-6 space-y-2">
+                    <FileText className="h-10 w-10 text-rose-400 dark:text-rose-500/70" />
+                    <p className="text-sm font-bold text-rose-800 dark:text-rose-300">
+                      Nenhum Diário Disponível
+                    </p>
+                    <p className="text-xs text-rose-600 dark:text-rose-400 max-w-sm">
+                      Não foram encontrados arquivos digitalizados no servidor para os dias pesquisados.
+                    </p>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl bg-slate-50/50 dark:bg-slate-900/20">

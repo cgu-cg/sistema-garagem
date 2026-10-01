@@ -53,7 +53,8 @@ import {
   MoreVertical,
   Pencil,
   AlertTriangle,
-  Eraser
+  Eraser,
+  Lock
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -404,6 +405,14 @@ export function CiManutencaoView({
     const dia = String(d.getDate()).padStart(2, "0");
     return `${ano}-${mes}-${dia}`;
   };
+  const getTomorrowString = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    const ano = d.getFullYear();
+    const mes = String(d.getMonth() + 1).padStart(2, "0");
+    const dia = String(d.getDate()).padStart(2, "0");
+    return `${ano}-${mes}-${dia}`;
+  };
   const [internalDataOperacao, setInternalDataOperacao] = useState<string>(getTodayString);
   const dataOperacao = propDataOperacao || internalDataOperacao;
   const setDataOperacao = propSetDataOperacao || setInternalDataOperacao;
@@ -503,11 +512,6 @@ export function CiManutencaoView({
     });
   }, [allowedCars]);
 
-  // Conjunto de prefixos permitidos para verificação O(1)
-  const allowedPrefixes = useMemo(() => {
-    return new Set(allowedCars.map(c => c.prefixo));
-  }, [allowedCars]);
-
   // Auxiliar: Encontrar a data anterior mais recente que possua dados salvos
   const getClosestPreviousDay = useCallback((targetDate: string, list: BloqueioCarro[]) => {
     const dates = Array.from(new Set(list.map(c => normalizeIsoDate(c.data)).filter(Boolean) as string[]))
@@ -517,47 +521,90 @@ export function CiManutencaoView({
     return dates[0] || null;
   }, []);
 
-  // Verifica se a data selecionada é posterior à data atual (futura)
-  const isDataFutura = useMemo(() => {
+  // Verifica se a folha está fechada (data <= hoje: ex: hoje 01/10/2026, ontem 30/09/2026...)
+  const isFolhaFechada = useMemo(() => {
     const target = normalizeIsoDate(dataOperacao);
     const today = getTodayString();
-    return Boolean(target && target > today);
+    return Boolean(target && target <= today);
   }, [dataOperacao]);
 
-  // Alerta ao usuário caso tente lançar ou alterar dados em data futura
+  // Verifica se a data selecionada é posterior a amanhã (D+2 em diante)
+  const isDataFutura = useMemo(() => {
+    const target = normalizeIsoDate(dataOperacao);
+    const tomorrow = getTomorrowString();
+    return Boolean(target && target > tomorrow);
+  }, [dataOperacao]);
+
+  // A folha é editável EXCLUSIVAMENTE para a data de amanhã (planejamento da CI)
+  const isDataEditavel = useMemo(() => {
+    const target = normalizeIsoDate(dataOperacao);
+    const tomorrow = getTomorrowString();
+    return Boolean(target && target === tomorrow);
+  }, [dataOperacao]);
+
+  // Bloqueio de edição: impede qualquer alteração se a data for <= hoje (fechada) ou > amanhã (futura demais)
   const checkDataFuturaBloqueio = useCallback((): boolean => {
-    if (isDataFutura) {
-      toast.error("A CI do dia atual ainda está em aberto!", {
-        description: `Não é possível cadastrar ou adiantar dados na folha de ${formatarDataBr(dataOperacao)}, pois essa data ainda não chegou.`,
+    const target = normalizeIsoDate(dataOperacao);
+    const today = getTodayString();
+    const tomorrow = getTomorrowString();
+
+    if (target && target <= today) {
+      toast.error("Folha Fechada para Edição!", {
+        description: `A CI desta data (${formatarDataBr(target)}) já foi encerrada e está bloqueada para alterações. Conforme regra operacional, apenas a folha de amanhã (${formatarDataBr(tomorrow)}) pode receber alterações.`,
         duration: 5000,
       });
       return true;
     }
+
+    if (target && target > tomorrow) {
+      toast.error("Data Bloqueada para Edição Antecipada!", {
+        description: `O planejamento da CI é permitido exclusivamente para a folha de amanhã (${formatarDataBr(tomorrow)}). A folha de ${formatarDataBr(dataOperacao)} ainda não está liberada.`,
+        duration: 5000,
+      });
+      return true;
+    }
+
     return false;
-  }, [isDataFutura, dataOperacao, formatarDataBr]);
+  }, [dataOperacao, formatarDataBr]);
 
   // Itens da CI ativos na data de operação selecionada (Modelo de Folha Diária Independente - Cópia de Excel):
   // 1. Se a folha desta data já possui registros próprios salvos: carrega exclusivamente os registros gravados com data = targetDate.
   // 2. Se a data é nova (sem nenhum registro próprio): clona e herda como cópia inicial os itens ativos da data anterior mais recente.
-  // 3. Se a data é futura (maior que hoje): não herda nem clona nada de hoje ou do passado.
+  // 3. Se a data é posterior a amanhã (D+2 em diante): não herda nem clona nada.
   const ciListNaData = useMemo(() => {
     const targetDate = normalizeIsoDate(dataOperacao);
     if (!targetDate) return ciList;
+
+    // Se a data for posterior a amanhã (D+2 em diante), NÃO puxa nem clona nada de datas anteriores
+    const tomorrowIso = getTomorrowString();
+    if (targetDate > tomorrowIso) {
+      return [];
+    }
 
     // Registros próprios salvos no banco/memória para esta data
     const registrosProprios = ciList.filter(
       c => normalizeIsoDate(c.data) === targetDate && c.status !== "LIBERADO"
     );
 
-    // Se o dia já possui registros próprios gravados, usa estritamente eles
-    if (registrosProprios.length > 0) {
-      return registrosProprios;
-    }
+    // Bloqueios de frota reais ativos criados até esta data que ainda não foram liberados
+    const bloqueiosAtivosCI = ciList.filter(c => {
+      if (c.status === "LIBERADO") return false;
+      const cDate = normalizeIsoDate(c.data) || "";
+      if (cDate > targetDate) return false;
+      return c.categoriaPlanilha === "BLOQUEADO" || (!c.categoriaPlanilha && !c.setorOficina && !c.tipoPreventiva && !c.horarioReforco);
+    });
 
-    // Se a data for futura (maior que hoje), NÃO puxa nem clona nada de datas anteriores
-    const todayIso = getTodayString();
-    if (targetDate > todayIso) {
-      return [];
+    // Se o dia já possui registros próprios gravados, mescla com os bloqueios ativos da CI
+    if (registrosProprios.length > 0) {
+      const existingPrefixes = new Set(registrosProprios.map(r => (r.prefixo || "").replace(/\D/g, "")));
+      const faltantes = bloqueiosAtivosCI
+        .filter(c => !existingPrefixes.has((c.prefixo || "").replace(/\D/g, "")))
+        .map(c => ({
+          ...c,
+          id: `clone-${targetDate}-${c.id}`,
+          data: targetDate,
+        }));
+      return [...registrosProprios, ...faltantes];
     }
 
     // Se o usuário limpou intencionalmente todos os veículos desta data (ficou vazia por escolha)
@@ -569,7 +616,11 @@ export function CiManutencaoView({
     // Se é uma data nova: busca a folha do dia anterior mais recente
     const dataAnterior = getClosestPreviousDay(targetDate, ciList);
     if (!dataAnterior) {
-      return [];
+      return bloqueiosAtivosCI.map(c => ({
+        ...c,
+        id: `clone-${targetDate}-${c.id}`,
+        data: targetDate,
+      }));
     }
 
     // Herda a cópia do dia anterior mais recente (apenas ativos)
@@ -577,12 +628,22 @@ export function CiManutencaoView({
       c => normalizeIsoDate(c.data) === dataAnterior && c.status !== "LIBERADO"
     );
 
-    // Clona os itens simulando a folha da data atual
-    return itemsAnteriores.map(item => ({
+    const cloned = itemsAnteriores.map(item => ({
       ...item,
       id: `clone-${targetDate}-${item.id}`,
       data: targetDate,
     }));
+
+    const clonedPrefixes = new Set(cloned.map(r => (r.prefixo || "").replace(/\D/g, "")));
+    const bloqueiosFaltantes = bloqueiosAtivosCI
+      .filter(c => !clonedPrefixes.has((c.prefixo || "").replace(/\D/g, "")))
+      .map(c => ({
+        ...c,
+        id: `clone-${targetDate}-${c.id}`,
+        data: targetDate,
+      }));
+
+    return [...cloned, ...bloqueiosFaltantes];
   }, [ciList, dataOperacao, getClosestPreviousDay]);
 
   // Modal de Relatório Oficial da CI Manutenção (CGU.REG.MT0005)
@@ -881,8 +942,8 @@ export function CiManutencaoView({
   useEffect(() => {
     try {
       const targetDate = normalizeIsoDate(dataOperacao);
-      const todayIso = getTodayString();
-      if (targetDate && targetDate > todayIso) {
+      const tomorrowIso = getTomorrowString();
+      if (targetDate && targetDate > tomorrowIso) {
         setReforcoServicoTipo("INSPEÇÃO");
         return;
       }
@@ -1709,6 +1770,7 @@ export function CiManutencaoView({
   };
 
   // Mapa rápido de carros com registro de CI ativo na data selecionada
+  // Mapa rápido de carros com registro de CI ativo na data selecionada
   const activeCiMap = useMemo(() => {
     const map = new Map<string, BloqueioCarro>();
     ciListNaData.forEach(item => {
@@ -1719,23 +1781,39 @@ export function CiManutencaoView({
     return map;
   }, [ciListNaData]);
 
-  // Estatísticas Rápidas baseadas na frota da garagem do usuário (Padrão Bento Grid Controle de Frota)
+  // Estatísticas Rápidas baseadas na frota e nos itens da CI na data selecionada
   const stats = useMemo(() => {
     const totalFrota = allowedCars.length || 1;
-    let bloqueadosCount = 0;
-    let preventivasCount = 0;
-    let oficinasCount = 0;
-    let reforcosCount = 0;
-    let totalNaCI = 0;
 
-    activeCiMap.forEach((ci, carro) => {
-      if (!allowedPrefixes.has(carro)) return; // Ignora carros de outra garagem fora do escopo
-      totalNaCI++;
-      if (ci.categoriaPlanilha === "PREVENTIVA") preventivasCount++;
-      else if (ci.categoriaPlanilha === "OFICINA") oficinasCount++;
-      else if (ci.categoriaPlanilha === "REFORCO") reforcosCount++;
-      else bloqueadosCount++;
+    // Filtra os itens ativos na data respeitando o escopo de garagem selecionado
+    const activeItems = ciListNaData.filter(c => {
+      if (c.status === "LIBERADO") return false;
+      if (activeGaragemScope !== "TODAS") {
+        const g = c.garagem || getGaragemFisicaByCarro(c.prefixo);
+        if (g !== activeGaragemScope) return false;
+      }
+      return true;
     });
+
+    const preventivasCount = activeItems.filter(c => 
+      c.categoriaPlanilha === "PREVENTIVA" || Boolean(c.tipoPreventiva)
+    ).length;
+
+    const oficinasCount = activeItems.filter(c => 
+      c.categoriaPlanilha === "OFICINA" || Boolean(c.setorOficina)
+    ).length;
+
+    const reforcosCount = activeItems.filter(c => 
+      c.categoriaPlanilha === "REFORCO" || Boolean(c.horarioReforco)
+    ).length;
+
+    const bloqueadosCount = activeItems.filter(c => 
+      c.categoriaPlanilha === "BLOQUEADO" || (!c.categoriaPlanilha && !c.setorOficina && !c.tipoPreventiva && !c.horarioReforco)
+    ).length;
+
+    // Veículos físicos distintos retidos na CI da garagem (para cálculo de aptos da frota)
+    const distinctCarrosNaCI = new Set(activeItems.map(c => c.prefixo));
+    const totalNaCI = distinctCarrosNaCI.size;
 
     // Em Execução: Oficinas + Preventivas
     const emExecucao = oficinasCount + preventivasCount;
@@ -1760,11 +1838,13 @@ export function CiManutencaoView({
       pctEmExecucao,
       pctLiberados
     };
-  }, [allowedCars, allowedPrefixes, activeCiMap]);
+  }, [allowedCars, ciListNaData, activeGaragemScope]);
 
   // Ao clicar em um carro nos cards: abrir modal rápido de edição (Print 03)
-  const handleCarClick = (carro: string) => {
-    const existingCI = activeCiMap.get(carro) || ciListNaData.find(c => c.prefixo === carro && c.status !== "LIBERADO");
+  const handleCarClick = (carro: string, itemId?: number | string) => {
+    const existingCI = itemId
+      ? ciListNaData.find(c => c.id === itemId && c.status !== "LIBERADO")
+      : (activeCiMap.get(carro) || ciListNaData.find(c => c.prefixo === carro && c.status !== "LIBERADO"));
     
     if (!existingCI) {
       openQuickAddModal("OFICINA", "MECANICA", "Adicionar à Oficina", SETORES_OFICINA[0]?.chips || []);
@@ -2002,18 +2082,60 @@ export function CiManutencaoView({
       {/* ========================================================= */}
       <div className="space-y-6">
         
-        {/* BANNER INFORMATIVO PARA DATAS FUTURAS */}
-        {isDataFutura && (
-          <div className="bg-amber-500/10 border-2 border-amber-500/30 text-amber-800 dark:text-amber-200 rounded-2xl p-4 sm:p-5 flex items-start gap-3.5 shadow-xs">
-            <AlertTriangle className="w-5 h-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
-            <div className="space-y-1">
-              <h4 className="text-sm font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">
-                Folha da Data Futura ({formattedData})
-              </h4>
-              <p className="text-xs text-amber-700/90 dark:text-amber-300/90 leading-relaxed">
-                A CI do dia atual (<strong>{formatarDataBr(getTodayString())}</strong>) ainda está em aberto. Para manter a integridade operacional da garagem, não é permitido lançar ou adiantar veículos para uma data que ainda não chegou. A folha de {formattedData} herdará a cópia do dia anterior automaticamente assim que essa data iniciar.
-              </p>
+        {/* BANNER INFORMATIVO PARA FOLHA FECHADA (DATAS <= HOJE) */}
+        {isFolhaFechada && (
+          <div className="bg-slate-100 dark:bg-slate-800/60 border-2 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 shadow-xs">
+            <div className="flex items-start gap-3">
+              <Lock className="w-5 h-5 shrink-0 text-slate-600 dark:text-slate-400 mt-0.5" />
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white">
+                    Folha Fechada • {formattedData}
+                  </h4>
+                  <span className="text-[10px] uppercase font-bold font-mono px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                    Somente Leitura
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                  A CI desta data já foi encerrada. Conforme regra operacional, alterações de veículos só são permitidas na folha de amanhã (<strong>{formatarDataBr(getTomorrowString())}</strong>).
+                </p>
+              </div>
             </div>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => setDataOperacao(getTomorrowString())}
+              className="shrink-0 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1.5 shadow-xs cursor-pointer"
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              Ir para Folha de Amanhã
+            </Button>
+          </div>
+        )}
+
+        {/* BANNER INFORMATIVO PARA DATAS BLOQUEADAS (A PARTIR DE DEPOIS DE AMANHÃ) */}
+        {isDataFutura && (
+          <div className="bg-amber-500/10 border-2 border-amber-500/30 text-amber-800 dark:text-amber-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 shadow-xs">
+            <div className="flex items-start gap-3.5">
+              <AlertTriangle className="w-5 h-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+              <div className="space-y-1">
+                <h4 className="text-sm font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">
+                  Edição Antecipada Bloqueada ({formattedData})
+                </h4>
+                <p className="text-xs text-amber-700/90 dark:text-amber-300/90 leading-relaxed">
+                  O planejamento antecipado da CI é permitido exclusivamente para a folha de amanhã (<strong>{formatarDataBr(getTomorrowString())}</strong>). Folhas a partir de depois de amanhã ainda não estão liberadas.
+                </p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => setDataOperacao(getTomorrowString())}
+              className="shrink-0 rounded-full bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs gap-1.5 shadow-xs cursor-pointer"
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              Ir para Folha de Amanhã
+            </Button>
           </div>
         )}
 
@@ -2035,15 +2157,23 @@ export function CiManutencaoView({
                 type="button"
                 variant="ghost"
                 size="sm"
+                disabled={!isDataEditavel}
                 onClick={() => handleLimparCard("PREVENTIVA", "1. Preventivas")}
-                className="h-7 px-2.5 text-[11px] text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 rounded-full gap-1 cursor-pointer"
+                className={cn(
+                  "h-7 px-2.5 text-[11px] text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 rounded-full gap-1 cursor-pointer",
+                  !isDataEditavel && "opacity-40 cursor-not-allowed pointer-events-none"
+                )}
                 title="Limpar todos os veículos de Preventivas desta folha"
               >
                 <Eraser className="w-3.5 h-3.5 text-rose-500" />
                 <span>Limpar Preventivas</span>
               </Button>
               <span className="text-[11px] text-muted-foreground hidden sm:inline-block">
-                Clique em <strong className="text-emerald-600 dark:text-emerald-400">+</strong> em cada card para adicionar
+                {isDataEditavel ? (
+                  <>Clique em <strong className="text-emerald-600 dark:text-emerald-400">+</strong> em cada card para adicionar</>
+                ) : (
+                  <span className="text-slate-500 font-semibold">Modo Somente Leitura</span>
+                )}
               </span>
             </div>
           </div>
@@ -2064,9 +2194,13 @@ export function CiManutencaoView({
                         type="button"
                         size="sm"
                         variant="outline"
+                        disabled={!isDataEditavel}
                         onClick={() => openQuickAddModal("PREVENTIVA", card.id, card.label)}
-                        className="h-6 w-6 p-0 rounded-full border-emerald-500/40 text-emerald-600 hover:bg-emerald-600 hover:text-white dark:text-emerald-400 cursor-pointer"
-                        title={`Adicionar veículo em ${card.label}`}
+                        className={cn(
+                          "h-6 w-6 p-0 rounded-full border-emerald-500/40 text-emerald-600 hover:bg-emerald-600 hover:text-white dark:text-emerald-400 cursor-pointer",
+                          !isDataEditavel && "opacity-40 cursor-not-allowed pointer-events-none"
+                        )}
+                        title={isDataEditavel ? `Adicionar veículo em ${card.label}` : "Folha fechada para edição"}
                       >
                         <Plus className="w-3.5 h-3.5" />
                       </Button>
@@ -2083,20 +2217,22 @@ export function CiManutencaoView({
                           >
                             <button
                               type="button"
-                              onClick={() => handleCarClick(item.prefixo)}
+                              onClick={() => handleCarClick(item.prefixo, item.id)}
                               className="hover:underline cursor-pointer"
-                              title="Clique para ver detalhes / dar baixa"
+                              title="Clique para ver detalhes"
                             >
                               {item.prefixo}
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => handleQuickRemove(item.prefixo, item.id)}
-                              className="opacity-60 hover:opacity-100 hover:text-rose-500 transition-opacity p-0.5 rounded cursor-pointer"
-                              title="Remover veículo"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
+                            {isDataEditavel && (
+                              <button
+                                type="button"
+                                onClick={() => handleQuickRemove(item.prefixo, item.id)}
+                                className="opacity-60 hover:opacity-100 hover:text-rose-500 transition-opacity p-0.5 rounded cursor-pointer"
+                                title="Remover veículo"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
                           </div>
                         ))
                       )}
@@ -2130,15 +2266,23 @@ export function CiManutencaoView({
                 type="button"
                 variant="ghost"
                 size="sm"
+                disabled={!isDataEditavel}
                 onClick={() => handleLimparCard("OFICINA", "2. Setores da Oficina")}
-                className="h-7 px-2.5 text-[11px] text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 rounded-full gap-1 cursor-pointer"
+                className={cn(
+                  "h-7 px-2.5 text-[11px] text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 rounded-full gap-1 cursor-pointer",
+                  !isDataEditavel && "opacity-40 cursor-not-allowed pointer-events-none"
+                )}
                 title="Limpar todos os veículos de Oficina desta folha"
               >
                 <Eraser className="w-3 h-3 text-rose-500" />
                 <span>Limpar Oficina</span>
               </Button>
               <span className="text-[11px] text-muted-foreground hidden sm:inline-block">
-                Cada card lista o prefixo e o motivo/defeito registrado
+                {isDataEditavel ? (
+                  "Cada card lista o prefixo e o motivo/defeito registrado"
+                ) : (
+                  <span className="text-slate-500 font-semibold">Modo Somente Leitura</span>
+                )}
               </span>
             </div>
           </div>
@@ -2161,9 +2305,13 @@ export function CiManutencaoView({
                         type="button"
                         size="sm"
                         variant="outline"
+                        disabled={!isDataEditavel}
                         onClick={() => openQuickAddModal("OFICINA", setor.id, `Setor ${setor.label}`, setor.chips)}
-                        className="h-5 w-5 p-0 rounded-full border-emerald-500/40 text-emerald-600 hover:bg-emerald-600 hover:text-white dark:text-emerald-400 cursor-pointer"
-                        title={`Adicionar veículo em ${setor.label}`}
+                        className={cn(
+                          "h-5 w-5 p-0 rounded-full border-emerald-500/40 text-emerald-600 hover:bg-emerald-600 hover:text-white dark:text-emerald-400 cursor-pointer",
+                          !isDataEditavel && "opacity-40 cursor-not-allowed pointer-events-none"
+                        )}
+                        title={isDataEditavel ? `Adicionar veículo em ${setor.label}` : "Folha fechada para edição"}
                       >
                         <Plus className="w-3 h-3" />
                       </Button>
@@ -2180,7 +2328,7 @@ export function CiManutencaoView({
                           >
                             <button
                               type="button"
-                              onClick={() => handleCarClick(item.prefixo)}
+                              onClick={() => handleCarClick(item.prefixo, item.id)}
                               className="font-mono font-bold text-xs text-foreground hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline cursor-pointer truncate text-left flex-1 min-w-0"
                               title={`${item.prefixo}${item.motivo ? ` - ${item.motivo}` : ""}`}
                             >
@@ -2191,14 +2339,16 @@ export function CiManutencaoView({
                                 </span>
                               )}
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => handleQuickRemove(item.prefixo, item.id)}
-                              className="text-muted-foreground hover:text-rose-500 p-0.5 transition-colors cursor-pointer shrink-0"
-                              title="Remover"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
+                            {isDataEditavel && (
+                              <button
+                                type="button"
+                                onClick={() => handleQuickRemove(item.prefixo, item.id)}
+                                className="text-muted-foreground hover:text-rose-500 p-0.5 transition-colors cursor-pointer shrink-0"
+                                title="Remover"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
                           </div>
                         ))
                       )}
@@ -2234,8 +2384,12 @@ export function CiManutencaoView({
                 type="button"
                 variant="ghost"
                 size="sm"
+                disabled={!isDataEditavel}
                 onClick={() => handleLimparCard("REFORCO", "3. Reforço com Horário")}
-                className="h-7 px-2.5 text-[11px] text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 rounded-full gap-1 cursor-pointer"
+                className={cn(
+                  "h-7 px-2.5 text-[11px] text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 rounded-full gap-1 cursor-pointer",
+                  !isDataEditavel && "opacity-40 cursor-not-allowed pointer-events-none"
+                )}
                 title="Limpar todos os horários e veículos do Reforço desta folha"
               >
                 <Eraser className="w-3 h-3 text-rose-500" />
@@ -2274,8 +2428,12 @@ export function CiManutencaoView({
                       <div className="col-span-3">
                         <select
                           value={slotData.motivo}
+                          disabled={!isDataEditavel}
                           onChange={(e) => handleReforcoSlotDraftChange(slot.id, { motivo: e.target.value })}
-                          className="w-full h-8 px-1.5 sm:px-2 rounded-md border bg-background text-[11px] font-medium focus:outline-hidden"
+                          className={cn(
+                            "w-full h-8 px-1.5 sm:px-2 rounded-md border bg-background text-[11px] font-medium focus:outline-hidden",
+                            !isDataEditavel && "opacity-50 cursor-not-allowed"
+                          )}
                         >
                           <option value="">—</option>
                           <option value="LUBRIFICAÇÃO">LUBRIFICAÇÃO</option>
@@ -2293,6 +2451,7 @@ export function CiManutencaoView({
                       <div className="col-span-3">
                         <CarSearchSelect
                           value={slotData.prefixo}
+                          disabled={!isDataEditavel}
                           onChange={(novoPrefixo) => handleReforcoSlotDraftChange(slot.id, { prefixo: novoPrefixo })}
                           allowedCars={sortedAllowedCars}
                           placeholder="Carro"
@@ -2303,9 +2462,10 @@ export function CiManutencaoView({
                       <div className="col-span-3">
                         <Input
                           value={slotData.obs}
+                          disabled={!isDataEditavel}
                           placeholder="Ex: POSTO .M"
                           onChange={(e) => handleReforcoSlotDraftChange(slot.id, { obs: e.target.value })}
-                          className="h-8 text-[11px] bg-background"
+                          className={cn("h-8 text-[11px] bg-background", !isDataEditavel && "opacity-50 cursor-not-allowed")}
                         />
                       </div>
 
@@ -2315,6 +2475,7 @@ export function CiManutencaoView({
                           type="button"
                           size="sm"
                           variant="outline"
+                          disabled={!isDataEditavel}
                           onClick={() => handleSaveReforcoSlot(slot.id, slot.horario)}
                           className={cn(
                             "h-7 w-7 p-0 rounded-full cursor-pointer transition-all duration-150 shrink-0",
@@ -2322,10 +2483,13 @@ export function CiManutencaoView({
                               ? "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-2xs"
                               : (slotData.prefixo && slotData.motivo)
                               ? "border-2 border-emerald-500 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-600 hover:text-white bg-emerald-500/10 shadow-2xs"
-                              : "border-border/80 text-muted-foreground/50 hover:border-emerald-500/50 hover:text-emerald-600 hover:bg-emerald-500/10"
+                              : "border-border/80 text-muted-foreground/50 hover:border-emerald-500/50 hover:text-emerald-600 hover:bg-emerald-500/10",
+                            !isDataEditavel && "opacity-40 cursor-not-allowed pointer-events-none"
                           )}
                           title={
-                            slotData.isSaved && !slotData.isDirty
+                            !isDataEditavel
+                              ? "Folha fechada para edição"
+                              : slotData.isSaved && !slotData.isDirty
                               ? "Salvo na CI. Clique para atualizar se alterar algo."
                               : "Salvar horário na CI (Requer Motivo e Prefixo)"
                           }
@@ -2364,8 +2528,12 @@ export function CiManutencaoView({
                       <div className="col-span-3">
                         <select
                           value={slotData.motivo}
+                          disabled={!isDataEditavel}
                           onChange={(e) => handleReforcoSlotDraftChange(slot.id, { motivo: e.target.value })}
-                          className="w-full h-8 px-1.5 sm:px-2 rounded-md border bg-background text-[11px] font-medium focus:outline-hidden"
+                          className={cn(
+                            "w-full h-8 px-1.5 sm:px-2 rounded-md border bg-background text-[11px] font-medium focus:outline-hidden",
+                            !isDataEditavel && "opacity-50 cursor-not-allowed"
+                          )}
                         >
                           <option value="">—</option>
                           <option value="LUBRIFICAÇÃO">LUBRIFICAÇÃO</option>
@@ -2383,6 +2551,7 @@ export function CiManutencaoView({
                       <div className="col-span-3">
                         <CarSearchSelect
                           value={slotData.prefixo}
+                          disabled={!isDataEditavel}
                           onChange={(novoPrefixo) => handleReforcoSlotDraftChange(slot.id, { prefixo: novoPrefixo })}
                           allowedCars={sortedAllowedCars}
                           placeholder="Carro"
@@ -2393,9 +2562,10 @@ export function CiManutencaoView({
                       <div className="col-span-3">
                         <Input
                           value={slotData.obs}
+                          disabled={!isDataEditavel}
                           placeholder="Ex: POSTO .M"
                           onChange={(e) => handleReforcoSlotDraftChange(slot.id, { obs: e.target.value })}
-                          className="h-8 text-[11px] bg-background"
+                          className={cn("h-8 text-[11px] bg-background", !isDataEditavel && "opacity-50 cursor-not-allowed")}
                         />
                       </div>
 
@@ -2405,6 +2575,7 @@ export function CiManutencaoView({
                           type="button"
                           size="sm"
                           variant="outline"
+                          disabled={!isDataEditavel}
                           onClick={() => handleSaveReforcoSlot(slot.id, slot.horario)}
                           className={cn(
                             "h-7 w-7 p-0 rounded-full cursor-pointer transition-all duration-150 shrink-0",
@@ -2412,10 +2583,13 @@ export function CiManutencaoView({
                               ? "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-2xs"
                               : (slotData.prefixo && slotData.motivo)
                               ? "border-2 border-emerald-500 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-600 hover:text-white bg-emerald-500/10 shadow-2xs"
-                              : "border-border/80 text-muted-foreground/50 hover:border-emerald-500/50 hover:text-emerald-600 hover:bg-emerald-500/10"
+                              : "border-border/80 text-muted-foreground/50 hover:border-emerald-500/50 hover:text-emerald-600 hover:bg-emerald-500/10",
+                            !isDataEditavel && "opacity-40 cursor-not-allowed pointer-events-none"
                           )}
                           title={
-                            slotData.isSaved && !slotData.isDirty
+                            !isDataEditavel
+                              ? "Folha fechada para edição"
+                              : slotData.isSaved && !slotData.isDirty
                               ? "Salvo na CI. Clique para atualizar se alterar algo."
                               : "Salvar horário na CI (Requer Motivo e Prefixo)"
                           }
@@ -2435,8 +2609,12 @@ export function CiManutencaoView({
                 <div className="flex-1 mr-2">
                   <select
                     value={reforcoServicoTipo}
+                    disabled={!isDataEditavel}
                     onChange={(e) => handleReforcoServicoTipoChange(e.target.value)}
-                    className="w-full h-7 px-1.5 rounded-md border border-border bg-background text-[11px] font-bold text-foreground uppercase focus:outline-hidden cursor-pointer"
+                    className={cn(
+                      "w-full h-7 px-1.5 rounded-md border border-border bg-background text-[11px] font-bold text-foreground uppercase focus:outline-hidden cursor-pointer",
+                      !isDataEditavel && "opacity-50 cursor-not-allowed"
+                    )}
                     title="Selecione o serviço para esta coluna"
                   >
                     <option value="INSPEÇÃO">INSPEÇÃO</option>
@@ -2449,9 +2627,13 @@ export function CiManutencaoView({
                 </div>
                 <button
                   type="button"
+                  disabled={!isDataEditavel}
                   onClick={handleSaveAllReforcoExtraSlots}
-                  className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 uppercase tracking-wider shrink-0 cursor-pointer"
-                  title="Salvar todos os veículos desta coluna"
+                  className={cn(
+                    "text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 uppercase tracking-wider shrink-0 cursor-pointer",
+                    !isDataEditavel && "opacity-40 cursor-not-allowed pointer-events-none"
+                  )}
+                  title={isDataEditavel ? "Salvar todos os veículos desta coluna" : "Folha fechada para edição"}
                 >
                   SALVAR
                 </button>
@@ -2465,6 +2647,7 @@ export function CiManutencaoView({
                       <div className="flex-1">
                         <CarSearchSelect
                           value={extraData.prefixo}
+                          disabled={!isDataEditavel}
                           onChange={(novoCarro) => handleReforcoSlotDraftChange(slot.id, { prefixo: novoCarro })}
                           allowedCars={sortedAllowedCars}
                           placeholder="Carro"
@@ -2477,6 +2660,7 @@ export function CiManutencaoView({
                           type="button"
                           size="sm"
                           variant="outline"
+                          disabled={!isDataEditavel}
                           onClick={() => handleSaveReforcoExtraSlot(slot.id)}
                           className={cn(
                             "h-7 w-7 p-0 rounded-full cursor-pointer transition-all duration-150 shrink-0",
@@ -2484,10 +2668,13 @@ export function CiManutencaoView({
                               ? "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-2xs"
                               : extraData.prefixo
                               ? "border-2 border-emerald-500 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-600 hover:text-white bg-emerald-500/10 shadow-2xs"
-                              : "border-border/80 text-muted-foreground/50 hover:border-emerald-500/50 hover:text-emerald-600 hover:bg-emerald-500/10"
+                              : "border-border/80 text-muted-foreground/50 hover:border-emerald-500/50 hover:text-emerald-600 hover:bg-emerald-500/10",
+                            !isDataEditavel && "opacity-40 cursor-not-allowed pointer-events-none"
                           )}
                           title={
-                            extraData.isSaved && !extraData.isDirty
+                            !isDataEditavel
+                              ? "Folha fechada para edição"
+                              : extraData.isSaved && !extraData.isDirty
                               ? `Salvo em ${reforcoServicoTipo}. Clique para atualizar.`
                               : `Salvar veículo em ${reforcoServicoTipo}`
                           }
@@ -2522,15 +2709,23 @@ export function CiManutencaoView({
                 type="button"
                 variant="ghost"
                 size="sm"
+                disabled={!isDataEditavel}
                 onClick={() => handleLimparCard("BLOQUEADO", "4. Bloqueados por Consorciada")}
-                className="h-7 px-2.5 text-[11px] text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 rounded-full gap-1 cursor-pointer"
+                className={cn(
+                  "h-7 px-2.5 text-[11px] text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 rounded-full gap-1 cursor-pointer",
+                  !isDataEditavel && "opacity-40 cursor-not-allowed pointer-events-none"
+                )}
                 title="Limpar todos os veículos Bloqueados desta folha"
               >
                 <Eraser className="w-3 h-3 text-rose-500" />
                 <span>Limpar Bloqueados</span>
               </Button>
               <span className="text-[11px] text-muted-foreground hidden sm:inline-block">
-                VSF, VCG, JTU e VCM • Clique em <strong>Lançar Bloqueio</strong> para registrar
+                {isDataEditavel ? (
+                  <>VSF, VCG, JTU e VCM • Clique em <strong>Lançar Bloqueio</strong> para registrar</>
+                ) : (
+                  <span className="text-slate-500 font-semibold">Modo Somente Leitura</span>
+                )}
               </span>
             </div>
           </div>
@@ -2565,8 +2760,13 @@ export function CiManutencaoView({
                       <Button
                         type="button"
                         size="sm"
+                        disabled={!isDataEditavel}
                         onClick={() => openQuickAddModal("BLOQUEADO", cons.id, cons.label, BLOQUEIOS_MOTIVOS_RAPIDOS)}
-                        className="h-7 text-xs gap-1 bg-rose-600 hover:bg-rose-700 text-white font-semibold shadow-xs cursor-pointer"
+                        className={cn(
+                          "h-7 text-xs gap-1 bg-rose-600 hover:bg-rose-700 text-white font-semibold shadow-xs cursor-pointer",
+                          !isDataEditavel && "opacity-40 cursor-not-allowed pointer-events-none"
+                        )}
+                        title={isDataEditavel ? `Lançar bloqueio em ${cons.label}` : "Folha fechada para edição"}
                       >
                         <Plus className="w-3.5 h-3.5" />
                         Lançar Bloqueio
@@ -2596,9 +2796,9 @@ export function CiManutencaoView({
                                 <td className="py-1.5 px-1.5">
                                   <button
                                     type="button"
-                                    onClick={() => handleCarClick(item.prefixo)}
+                                    onClick={() => handleCarClick(item.prefixo, item.id)}
                                     className="font-bold font-mono text-foreground hover:text-rose-600 hover:underline cursor-pointer"
-                                    title="Ver detalhes / liberar carro"
+                                    title="Ver detalhes do veículo"
                                   >
                                     {item.prefixo}
                                   </button>
@@ -2622,16 +2822,20 @@ export function CiManutencaoView({
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end" className="w-40 z-50">
                                       <DropdownMenuItem
-                                        onClick={() => handleCarClick(item.prefixo)}
+                                        onClick={() => handleCarClick(item.prefixo, item.id)}
                                         className="cursor-pointer gap-2 text-xs"
                                       >
                                         <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
-                                        <span>Editar</span>
+                                        <span>{isDataEditavel ? "Editar" : "Ver Detalhes"}</span>
                                       </DropdownMenuItem>
 
                                       <DropdownMenuItem
+                                        disabled={!isDataEditavel}
                                         onClick={() => handleReleaseCarro(item.prefixo, item.id)}
-                                        className="cursor-pointer gap-2 text-xs text-emerald-600 dark:text-emerald-400 font-medium focus:text-emerald-600 focus:bg-emerald-50 dark:focus:bg-emerald-950/40"
+                                        className={cn(
+                                          "cursor-pointer gap-2 text-xs text-emerald-600 dark:text-emerald-400 font-medium focus:text-emerald-600 focus:bg-emerald-50 dark:focus:bg-emerald-950/40",
+                                          !isDataEditavel && "opacity-40 cursor-not-allowed pointer-events-none"
+                                        )}
                                       >
                                         <CheckCircle2 className="w-3.5 h-3.5" />
                                         <span>Liberar (Baixa)</span>
@@ -2641,8 +2845,12 @@ export function CiManutencaoView({
                                         <>
                                           <DropdownMenuSeparator />
                                           <DropdownMenuItem
+                                            disabled={!isDataEditavel}
                                             onClick={() => handleQuickRemove(item.prefixo, item.id)}
-                                            className="cursor-pointer gap-2 text-xs text-rose-600 dark:text-rose-400 font-medium focus:text-rose-600 focus:bg-rose-50 dark:focus:bg-rose-950/40"
+                                            className={cn(
+                                              "cursor-pointer gap-2 text-xs text-rose-600 dark:text-rose-400 font-medium focus:text-rose-600 focus:bg-rose-50 dark:focus:bg-rose-950/40",
+                                              !isDataEditavel && "opacity-40 cursor-not-allowed pointer-events-none"
+                                            )}
                                           >
                                             <Trash2 className="w-3.5 h-3.5" />
                                             <span>Apagar</span>
@@ -3129,6 +3337,16 @@ export function CiManutencaoView({
           </DialogHeader>
 
           <form onSubmit={handleConfirmQuickAdd} className="space-y-3.5 pt-1">
+            {/* Banner de Modo Somente Leitura se a folha estiver fechada */}
+            {!isDataEditavel && (
+              <div className="bg-slate-100 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-xl p-3 flex items-center gap-2.5 text-xs">
+                <Lock className="w-4 h-4 shrink-0 text-slate-600 dark:text-slate-400" />
+                <span>
+                  <strong>Folha Fechada • {formattedData}:</strong> Esta CI já foi encerrada. O registro está em modo somente leitura e não permite alterações.
+                </span>
+              </div>
+            )}
+
             {/* Campo de Seleção / Busca Moderna de Veículos (Padrão Controle de Frota) */}
             <div className="relative" ref={quickAddCarSelectorRef}>
               <div className="flex items-center justify-between mb-1.5">
@@ -3138,7 +3356,9 @@ export function CiManutencaoView({
                 </label>
                 <span className="text-[10px] font-medium text-gray-500 dark:text-slate-400">
                   {quickAddModal.isEditing ? (
-                    <span className="font-semibold text-emerald-600 dark:text-emerald-400">Em Edição</span>
+                    <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                      {isDataEditavel ? "Em Edição" : "Visualização"}
+                    </span>
                   ) : (
                     `${sortedAllowedCars.length} veículos da Garagem ${activeGaragemScope === "TODAS" ? "VCG/VCM" : activeGaragemScope}`
                   )}
@@ -3149,28 +3369,28 @@ export function CiManutencaoView({
               <div className="relative">
                 <Input
                   value={quickAddCarro}
-                  disabled={quickAddModal.isEditing}
+                  disabled={quickAddModal.isEditing || !isDataEditavel}
                   onChange={(e) => {
-                    if (quickAddModal.isEditing) return;
+                    if (quickAddModal.isEditing || !isDataEditavel) return;
                     setQuickAddCarro(e.target.value.replace(/\D/g, ""));
                     setQuickAddSelectorOpen(true);
                   }}
                   onClick={() => {
-                    if (!quickAddModal.isEditing) {
+                    if (!quickAddModal.isEditing && isDataEditavel) {
                       setQuickAddSelectorOpen(prev => !prev);
                     }
                   }}
                   placeholder="Carro..."
                   className={cn(
                     "font-mono font-bold text-sm rounded-xl pl-9 pr-20 h-11 border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-emerald-500/20",
-                    quickAddModal.isEditing ? "opacity-90 bg-muted/50 cursor-not-allowed" : "cursor-pointer"
+                    (quickAddModal.isEditing || !isDataEditavel) ? "opacity-90 bg-muted/50 cursor-not-allowed" : "cursor-pointer"
                   )}
                   maxLength={5}
                   required
                 />
                 <Bus className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
 
-                {!quickAddModal.isEditing && (
+                {!quickAddModal.isEditing && isDataEditavel && (
                   <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                     {quickAddCarro && (
                       <button
@@ -3329,6 +3549,7 @@ export function CiManutencaoView({
                           <button
                             key={chip}
                             type="button"
+                            disabled={!isDataEditavel}
                             onClick={() => {
                               setIsOutroMotivo(false);
                               setQuickAddMotivo(chip);
@@ -3337,7 +3558,8 @@ export function CiManutencaoView({
                               "text-xs px-3 py-1 rounded-full border transition-all cursor-pointer font-medium",
                               isSelected
                                 ? "bg-emerald-600 text-white border-emerald-600 font-bold shadow-xs scale-[1.02]"
-                                : "bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground border-border/80"
+                                : "bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground border-border/80",
+                              !isDataEditavel && "opacity-60 cursor-not-allowed pointer-events-none"
                             )}
                           >
                             {chip}
@@ -3348,6 +3570,7 @@ export function CiManutencaoView({
                       {/* Badge 'Outro' */}
                       <button
                         type="button"
+                        disabled={!isDataEditavel}
                         onClick={() => {
                           setIsOutroMotivo(true);
                           if (quickAddModal.chips?.includes(quickAddMotivo)) {
@@ -3358,7 +3581,8 @@ export function CiManutencaoView({
                           "text-xs px-3 py-1 rounded-full border transition-all cursor-pointer font-medium flex items-center gap-1",
                           isOutroMotivo
                             ? "bg-emerald-600 text-white border-emerald-600 font-bold shadow-xs scale-[1.02]"
-                            : "bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground border-border/80"
+                            : "bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground border-border/80",
+                          !isDataEditavel && "opacity-60 cursor-not-allowed pointer-events-none"
                         )}
                       >
                         <Plus className="w-3 h-3" />
@@ -3375,6 +3599,7 @@ export function CiManutencaoView({
                       </Label>
                       <Input
                         value={quickAddMotivo}
+                        disabled={!isDataEditavel}
                         onChange={(e) => setQuickAddMotivo(e.target.value)}
                         placeholder="Digite o motivo ou defeito do veículo..."
                         className="text-xs h-9"
@@ -3394,9 +3619,13 @@ export function CiManutencaoView({
                     type="button"
                     variant="destructive"
                     size="sm"
+                    disabled={!isDataEditavel}
                     onClick={handleDeleteQuickCarro}
-                    className="h-8 text-xs gap-1 cursor-pointer"
-                    title="Excluir da CI"
+                    className={cn(
+                      "h-8 text-xs gap-1 cursor-pointer",
+                      !isDataEditavel && "opacity-40 cursor-not-allowed pointer-events-none"
+                    )}
+                    title={isDataEditavel ? "Excluir da CI" : "Folha fechada para edição"}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     <span className="hidden sm:inline">Excluir</span>
@@ -3404,9 +3633,13 @@ export function CiManutencaoView({
                   <Button
                     type="button"
                     size="sm"
+                    disabled={!isDataEditavel}
                     onClick={handleReleaseQuickCarro}
-                    className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold cursor-pointer"
-                    title="Dar baixa e liberar para soltura"
+                    className={cn(
+                      "h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold cursor-pointer",
+                      !isDataEditavel && "opacity-40 cursor-not-allowed pointer-events-none"
+                    )}
+                    title={isDataEditavel ? "Dar baixa e liberar para soltura" : "Folha fechada para edição"}
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     <span>Liberar (Baixa)</span>
@@ -3420,7 +3653,7 @@ export function CiManutencaoView({
                   onClick={() => setQuickAddModal(prev => ({ ...prev, isOpen: false }))}
                   className="text-xs"
                 >
-                  Cancelar
+                  {isDataEditavel ? "Cancelar" : "Fechar"}
                 </Button>
               )}
 
@@ -3433,17 +3666,30 @@ export function CiManutencaoView({
                     onClick={() => setQuickAddModal(prev => ({ ...prev, isOpen: false }))}
                     className="text-xs"
                   >
-                    Cancelar
+                    {isDataEditavel ? "Cancelar" : "Fechar"}
                   </Button>
                 )}
-                <Button
-                  type="submit"
-                  size="sm"
-                  className="bg-primary text-primary-foreground text-xs font-semibold gap-1.5 shadow-xs cursor-pointer"
-                >
-                  <Check className="w-4 h-4" />
-                  {quickAddModal.isEditing ? "Salvar Alterações" : "Adicionar à CI"}
-                </Button>
+                {isDataEditavel ? (
+                  <Button
+                    type="submit"
+                    size="sm"
+                    className="bg-primary text-primary-foreground text-xs font-semibold gap-1.5 shadow-xs cursor-pointer"
+                  >
+                    <Check className="w-4 h-4" />
+                    {quickAddModal.isEditing ? "Salvar Alterações" : "Adicionar à CI"}
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled
+                    className="text-xs opacity-50 cursor-not-allowed gap-1.5"
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>Somente Leitura</span>
+                  </Button>
+                )}
               </div>
             </DialogFooter>
           </form>

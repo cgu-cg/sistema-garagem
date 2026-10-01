@@ -355,16 +355,16 @@ export async function list(req: AuthRequest, res: Response) {
     }
 
     // Limpeza de consistência com a CI:
-    // Remove registros que constavam apenas como bloqueados mas cujo bloqueio já foi encerrado na CI
+    // Garante que o campo de Bloqueados seja um espelho fiel de TODOS os bloqueios ativos da CI
     const currentActiveCIs = await prisma.ciBloqueio.findMany({
       where: {
         status: { not: "LIBERADO" },
         categoria: "BLOQUEADO",
       },
-      select: { prefixo: true },
     });
     const activeCIPrefixes = new Set(currentActiveCIs.map(c => c.prefixo.replace(/\D/g, "")));
 
+    // Remove registros que constavam apenas como bloqueados mas cujo bloqueio já foi encerrado na CI
     await prisma.manutencaoCarro.deleteMany({
       where: {
         data: dataQuery,
@@ -374,6 +374,37 @@ export async function list(req: AuthRequest, res: Response) {
         prefixo: { notIn: Array.from(activeCIPrefixes) },
       },
     });
+
+    // Insere qualquer bloqueio ativo da CI que ainda não conste como bloqueado nesta data
+    const existingBloqueados = await prisma.manutencaoCarro.findMany({
+      where: {
+        data: dataQuery,
+        bloqueado: true,
+      },
+      select: { prefixo: true },
+    });
+    const existingBloqSet = new Set(existingBloqueados.map(b => b.prefixo.replace(/\D/g, "")));
+
+    for (const ci of currentActiveCIs) {
+      const cleanPref = ci.prefixo.replace(/\D/g, "");
+      if (!existingBloqSet.has(cleanPref)) {
+        const finalId = `manut-${dataQuery}-${cleanPref}`;
+        try {
+          await prisma.manutencaoCarro.create({
+            data: {
+              id: finalId,
+              prefixo: cleanPref,
+              consorciada: ci.consorciada || "VCG",
+              observacao: ci.motivo || "",
+              bloqueado: true,
+              emExecucao: false,
+              liberado: false,
+              data: dataQuery,
+            },
+          });
+        } catch {}
+      }
+    }
 
     records = await prisma.manutencaoCarro.findMany({
       where: { data: dataQuery },
@@ -482,6 +513,59 @@ export async function createOrUpdate(req: AuthRequest, res: Response) {
       },
     });
 
+    if (Boolean(liberado)) {
+      await prisma.manutencaoCarro.updateMany({
+        where: {
+          data: dateRef,
+          prefixo: cleanPrefixo,
+          id: { not: finalId },
+          emExecucao: true,
+        },
+        data: {
+          emExecucao: false,
+          liberado: true,
+        },
+      });
+    }
+
+    // Se estiver salvando como BLOQUEADO puro (Quadro 1), garante na tabela ci_bloqueios da CI
+    if (Boolean(bloqueado) && !Boolean(emExecucao) && !Boolean(liberado)) {
+      const carroGaragem = (cleanPrefixo.startsWith("1") || cleanPrefixo === "2002") ? "VCM" : "VCG";
+      const consorciadaCalc = consorciada || (cleanPrefixo.startsWith("1") ? "VCM" : cleanPrefixo.startsWith("2") ? "VSF" : cleanPrefixo.startsWith("3") ? "JTU" : "VCG");
+
+      const existingCI = await prisma.ciBloqueio.findFirst({
+        where: {
+          prefixo: cleanPrefixo,
+          status: { not: "LIBERADO" },
+        },
+      });
+
+      const ciId = existingCI?.id || `ci-bloq-${cleanPrefixo}`;
+      await prisma.ciBloqueio.upsert({
+        where: { id: ciId },
+        update: {
+          garagem: carroGaragem,
+          consorciada: consorciadaCalc,
+          categoria: "BLOQUEADO",
+          motivo: observacao || "Bloqueio Oficina",
+          dataBloqueio: dateRef,
+          status: "BLOQUEADO",
+        },
+        create: {
+          id: ciId,
+          prefixo: cleanPrefixo,
+          garagem: carroGaragem,
+          consorciada: consorciadaCalc,
+          categoria: "BLOQUEADO",
+          motivo: observacao || "Bloqueio Oficina",
+          dataBloqueio: dateRef,
+          horaBloqueio: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+          status: "BLOQUEADO",
+          userId: req.userId || null,
+        },
+      });
+    }
+
     return res.status(200).json(record);
   } catch (error) {
     console.error("[Manutenção] Erro ao salvar veículo na folha:", error);
@@ -509,21 +593,37 @@ export async function update(req: AuthRequest, res: Response) {
       data: dataToUpdate,
     });
 
-    // Regra: ao tirar um carro dos bloqueios ou liberá-lo, tira da tabela ci_bloqueios
-    if (liberado === true || bloqueado === false) {
-      const existing = await prisma.manutencaoCarro.findUnique({ where: { id } });
-      const clean = (existing?.prefixo || id.replace("manut-", "").replace(/^\d{4}-\d{2}-\d{2}-/, "")).replace(/\D/g, "");
-      if (clean) {
-        try {
-          await prisma.ciBloqueio.deleteMany({
-            where: {
-              OR: [
-                { prefixo: clean },
-                { prefixo: existing?.prefixo || clean },
-              ],
-            },
-          });
-        } catch (_) {}
+    if (liberado) {
+      await prisma.manutencaoCarro.updateMany({
+        where: {
+          data: updated.data,
+          prefixo: updated.prefixo,
+          id: { not: updated.id },
+          emExecucao: true,
+        },
+        data: {
+          emExecucao: false,
+          liberado: true,
+        },
+      });
+    }
+
+    // Se estiver atualizando a observação ou dados de um veículo que é BLOQUEADO puro, atualiza também na CI
+    if (updated.bloqueado && !updated.emExecucao && !updated.liberado) {
+      const clean = updated.prefixo.replace(/\D/g, "");
+      const existingCI = await prisma.ciBloqueio.findFirst({
+        where: {
+          prefixo: clean,
+          status: { not: "LIBERADO" },
+        },
+      });
+      if (existingCI) {
+        await prisma.ciBloqueio.update({
+          where: { id: existingCI.id },
+          data: {
+            motivo: updated.observacao || existingCI.motivo,
+          },
+        });
       }
     }
 
@@ -541,28 +641,11 @@ export async function remove(req: AuthRequest, res: Response) {
 
     const { id } = req.params;
 
-    const existing = await prisma.manutencaoCarro.findUnique({ where: { id } });
-    const clean = (existing?.prefixo || id.replace("manut-", "").replace(/^\d{4}-\d{2}-\d{2}-/, "")).replace(/\D/g, "");
-
     await prisma.manutencaoCarro.deleteMany({
       where: { id },
     });
 
-    // Regra: ao remover da folha de manutenção, tira também da tabela ci_bloqueios
-    if (clean) {
-      try {
-        await prisma.ciBloqueio.deleteMany({
-          where: {
-            OR: [
-              { prefixo: clean },
-              { prefixo: existing?.prefixo || clean },
-            ],
-          },
-        });
-      } catch (_) {}
-    }
-
-    return res.json({ message: "Veículo removido da folha de manutenção e desimpedido dos bloqueios com sucesso." });
+    return res.json({ message: "Veículo removido da folha de manutenção com sucesso." });
   } catch (error) {
     console.error("[Manutenção] Erro ao remover item da folha:", error);
     return res.status(500).json({ message: "Erro ao remover da folha de manutenção." });
@@ -612,6 +695,62 @@ export async function sync(req: AuthRequest, res: Response) {
           userId: req.userId || null,
         },
       });
+
+      // Se o item estiver como LIBERADO, garante no banco que qualquer outro registro desse carro
+      // nesta data deixe de ficar em execução (sai de em manutenção)
+      if (item.liberado) {
+        await prisma.manutencaoCarro.updateMany({
+          where: {
+            data: currentData,
+            prefixo: cleanPrefixo,
+            id: { not: finalId },
+            emExecucao: true,
+          },
+          data: {
+            emExecucao: false,
+            liberado: true,
+          },
+        });
+      }
+
+      // Se o item for um BLOQUEADO puro (Quadro 1: bloqueado = true e não em oficina/liberado),
+      // garante que ele conste também na tabela ci_bloqueios da CI
+      if (item.bloqueado && !item.emExecucao && !item.liberado) {
+        const carroGaragem = (cleanPrefixo.startsWith("1") || cleanPrefixo === "2002") ? "VCM" : "VCG";
+        const consorciadaCalc = item.consorciada || (cleanPrefixo.startsWith("1") ? "VCM" : cleanPrefixo.startsWith("2") ? "VSF" : cleanPrefixo.startsWith("3") ? "JTU" : "VCG");
+
+        const existingCI = await prisma.ciBloqueio.findFirst({
+          where: {
+            prefixo: cleanPrefixo,
+            status: { not: "LIBERADO" },
+          },
+        });
+
+        const ciId = existingCI?.id || `ci-bloq-${cleanPrefixo}`;
+        await prisma.ciBloqueio.upsert({
+          where: { id: ciId },
+          update: {
+            garagem: carroGaragem,
+            consorciada: consorciadaCalc,
+            categoria: "BLOQUEADO",
+            motivo: item.observacao || "Bloqueio Oficina",
+            dataBloqueio: currentData,
+            status: "BLOQUEADO",
+          },
+          create: {
+            id: ciId,
+            prefixo: cleanPrefixo,
+            garagem: carroGaragem,
+            consorciada: consorciadaCalc,
+            categoria: "BLOQUEADO",
+            motivo: item.observacao || "Bloqueio Oficina",
+            dataBloqueio: currentData,
+            horaBloqueio: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+            status: "BLOQUEADO",
+            userId: req.userId || null,
+          },
+        });
+      }
     }
 
     // Propagação para datas futuras: sincroniza APENAS OS BLOQUEADOS para as datas posteriores já salvas no banco
@@ -663,25 +802,6 @@ export async function sync(req: AuthRequest, res: Response) {
             userId: req.userId || null,
           },
         });
-      }
-    }
-
-    // Regra: "quando tirar um carro dos bloqueios tbm tirar da tabela de ci_bloqueios"
-    // Remove da tabela ci_bloqueios todos os veículos que vierem como liberados ou desimpedidos
-    const desimpedidosHoje = items
-      .filter((it: any) => it.liberado || !it.bloqueado)
-      .map((it: any) => String(it.prefixo || "").replace(/\D/g, ""))
-      .filter(Boolean);
-
-    if (desimpedidosHoje.length > 0) {
-      try {
-        await prisma.ciBloqueio.deleteMany({
-          where: {
-            prefixo: { in: desimpedidosHoje },
-          },
-        });
-      } catch (err) {
-        console.warn("[Manutenção Sync] Erro ao excluir de ci_bloqueios:", err);
       }
     }
 

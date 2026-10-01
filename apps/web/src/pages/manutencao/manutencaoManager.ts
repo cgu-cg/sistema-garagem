@@ -1,5 +1,5 @@
 import { BloqueioCarro } from "@/data/solturaData";
-import { getInitialCIBloqueios, saveCIBloqueiosToStorage, getGaragemFisicaByCarro, deleteCIBloqueioApi } from "@/pages/soltura/ciManager";
+import { getInitialCIBloqueios, saveCIBloqueiosToStorage, getGaragemFisicaByCarro } from "@/pages/soltura/ciManager";
 import { api } from "@/lib/api";
 
 export interface ManutencaoCarroItem {
@@ -185,13 +185,12 @@ export function syncItemsWithCI(
   ciList: BloqueioCarro[], 
   data: string
 ): ManutencaoCarroItem[] {
+  // 1. Mapeia TODOS os veículos que possuem bloqueio real ativo na CI até a data consultada
   const ciMap = new Map<string, BloqueioCarro>();
   ciList.forEach(ci => {
-    // REGRA CRÍTICA: Bloqueios criados em datas futuras NUNCA devem aparecer no passado
     const ciDate = ci.dataBloqueio || ci.data || "";
-    if (ciDate && ciDate > data) return;
+    if (ciDate && ciDate > data) return; // Bloqueios futuros não entram no passado
 
-    // Apenas bloqueados ATIVOS da CI alimentam a folha
     if (ci.prefixo && isRealBloqueadoCI(ci) && ci.status !== "LIBERADO") {
       const clean = ci.prefixo.replace(/\D/g, "");
       if (clean) {
@@ -200,87 +199,54 @@ export function syncItemsWithCI(
     }
   });
 
-  const processedPrefixes = new Set<string>();
-  const updatedItems: ManutencaoCarroItem[] = [];
+  // 2. Extrai e preserva intactos os registros da oficina (Em Manutenção e Liberados)
+  // Regra: Em Manutenção e Liberados são 100% independentes da CI e não interferem nos Bloqueados
+  const oficinaItems: ManutencaoCarroItem[] = [];
+  const existingBloqueadosMap = new Map<string, ManutencaoCarroItem>();
 
-  // 1. Processar itens já presentes na folha de manutenção
   items.forEach(item => {
     const clean = (item.prefixo || "").replace(/\D/g, "");
     if (!clean) return;
 
-    // Remove resíduos antigos gerados por sincronização indevida
+    // Desconsidera resíduos antigos com observação indevida
     const obsUpper = (item.observacao || "").toUpperCase();
-    if (obsUpper.includes("LIBERADO PELA CI")) {
-      return;
-    }
+    if (obsUpper.includes("LIBERADO PELA CI")) return;
 
-    const ci = ciMap.get(clean);
-
-    // REGRA: "as listas de em manutencao e liberados sejam idependentes, os dados dela sao salvos na tabela no banco relacionada ao controle de manutencao e nao da ci."
-    // Preserva intactos os veículos de Em Manutenção e Liberados da data atual
     if (item.emExecucao || item.liberado) {
-      if (item.data && item.data !== data) {
-        return; // Não aparece no próximo dia
-      }
-      processedPrefixes.add(clean);
-      updatedItems.push({
+      // Veículos de Em Manutenção e Liberados pertencem estritamente à data em que foram lançados
+      if (item.data && item.data !== data) return;
+      oficinaItems.push({
         ...item,
-        // Garante que não fiquem marcados como bloqueados
-        bloqueado: false,
+        bloqueado: false, // Na oficina o item é de manutenção ou liberação
       });
       return;
     }
 
-    // Para a lista de Bloqueados: APENAS ela tem vínculo com a CI
-    // Se o carro está na folha como bloqueado, mas NÃO consta como bloqueado ativo na CI, descarta
-    if (!ci && item.bloqueado) {
-      return;
-    }
-
-    // Se o carro consta como bloqueado ativo na CI
-    if (ci) {
-      processedPrefixes.add(clean);
-      updatedItems.push({
-        ...item,
-        consorciada: ci.consorciada || item.consorciada || getConsorciadaByPrefix(clean),
-        observacao: item.observacao || ci.motivo || "",
-        bloqueado: true,
-        emExecucao: false,
-        liberado: false,
-        data: item.data || data
-      });
-      return;
-    }
-
-    // Se é outro registro da folha de manutenção, preserva
-    processedPrefixes.add(clean);
-    updatedItems.push(item);
-  });
-
-  // 2. Inserir carros da CI que ainda não constam na lista (APENAS BLOQUEADOS REAIS ATIVOS até a data consultada)
-  ciList.forEach(ci => {
-    const ciDate = ci.dataBloqueio || ci.data || "";
-    if (ciDate && ciDate > data) return;
-    if (ci.status === "LIBERADO" || !isRealBloqueadoCI(ci)) return;
-    const clean = (ci.prefixo || "").replace(/\D/g, "");
-    if (!clean) return;
-
-    if (!processedPrefixes.has(clean)) {
-      updatedItems.push({
-        id: `manut-ci-${clean}`,
-        prefixo: clean,
-        consorciada: ci.consorciada || getConsorciadaByPrefix(clean),
-        observacao: ci.motivo || "",
-        bloqueado: true,
-        emExecucao: false,
-        liberado: false,
-        data: data
-      });
-      processedPrefixes.add(clean);
+    if (item.bloqueado) {
+      existingBloqueadosMap.set(clean, item);
     }
   });
 
-  return updatedItems;
+  // 3. Monta a lista oficial de Bloqueados: EXATAMENTE todos os veículos ativos da CI
+  // Regra: "o campo de bloqueados apenas pegue o valor total de bloqueados da ci exatamente e nao tenha essa logica de carros liberados da ci para mudar o valor"
+  const bloqueadosItems: ManutencaoCarroItem[] = [];
+
+  ciMap.forEach((ci, clean) => {
+    const existing = existingBloqueadosMap.get(clean);
+    bloqueadosItems.push({
+      id: existing?.id || `manut-ci-${clean}`,
+      prefixo: clean,
+      consorciada: ci.consorciada || existing?.consorciada || getConsorciadaByPrefix(clean),
+      observacao: existing?.observacao || ci.motivo || "",
+      bloqueado: true,
+      emExecucao: false,
+      liberado: false,
+      data: data,
+    });
+  });
+
+  // Retorna a união das listas: Bloqueados (espelho exato da CI) + Em Manutenção e Liberados (oficina independente)
+  return [...oficinaItems, ...bloqueadosItems];
 }
 
 /**
@@ -544,17 +510,11 @@ export function syncManutencaoToCI(manutencaoItems: ManutencaoCarroItem[]): void
       const clean = item.prefixo.replace(/\D/g, "");
       const existing = ciMap.get(clean);
 
-      // REGRA: "apenas a lista de bloqueados tenha vinculo com a CI, mas as listas de em manutencao e liberados sejam idependentes"
-      // Se o carro foi liberado ou está em manutenção interna (não bloqueado), remove de bloqueios da CI se constava lá
-      if (item.liberado || item.emExecucao || !item.bloqueado) {
-        if (existing) {
-          hasChanges = true;
-          ciMap.delete(clean);
-        }
-        deleteCIBloqueioApi(clean);
-      }
-      // CASO BLOQUEADO: Único que mantém vínculo direto com a CI
-      else if (item.bloqueado && !item.emExecucao && !item.liberado) {
+      // REGRA: "nos campos em manutencao e liberados nao ter vinculo com a ci tem que ser idependente da ci... e nem interferir ao campo de bloqueados"
+      // Carros em manutenção interna ou liberados NÃO alteram nem removem registros da CI.
+
+      // CASO BLOQUEADO: Único que sincroniza com a CI
+      if (item.bloqueado && !item.emExecucao && !item.liberado) {
         if (!existing || existing.status !== "BLOQUEADO" || (item.observacao && existing.motivo !== item.observacao)) {
           hasChanges = true;
           if (existing) {
