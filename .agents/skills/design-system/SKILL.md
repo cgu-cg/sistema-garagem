@@ -1,13 +1,14 @@
 ---
 name: design-system
 description: >-
-  Utilize esta skill obrigatoriamente ao criar ou alterar telas, páginas, cards, botões,
-  tabelas, modais e layouts no front-end (apps/web). Garante a fidelidade visual ao layout padrão do CGU.
+  Utilize esta skill ao criar ou alterar telas, páginas, cards, botões,
+  tabelas, modais e layouts no front-end (apps/web), preservando os padrões visuais
+  existentes e aplicando orientações conforme pertinentes à tarefa.
 ---
 
 # Design System & Diretrizes Visuais (CGU Garagem)
 
-Todas as páginas devem seguir rigorosamente o padrão visual baseado no layout Bento Grid Verde Floresta:
+Preserve os tokens, componentes e padrões visuais existentes do sistema. Use o layout Bento Grid Verde Floresta como referência quando pertinente à tela, sem impor elementos que não façam parte da tarefa.
 
 ## 1. Paleta de Cores e Tokens
 - **Fundo Principal (Canvas)**: `bg-[#F4F5F7]` (Dark mode: `bg-[#070A11]` ou `bg-background`).
@@ -17,39 +18,40 @@ Todas as páginas devem seguir rigorosamente o padrão visual baseado no layout 
 - **Texto Principal**: `text-gray-900` (Dark mode: `text-slate-100` / `text-foreground`).
 - **Texto Secundário / Muted**: `text-gray-500` (Dark mode: `text-slate-400` / `text-muted-foreground`).
 
-## 2. Anatomia e Componentes Obrigatórios
+## 2. Elementos visuais quando pertinentes
 
-### A. Cabeçalho de Página (`PageHeader`)
+Os padrões abaixo são referências para os elementos aplicáveis; não é necessário adicionar componentes ausentes nem reorganizar uma tela apenas para corresponder a esta lista.
+
+### A. Cabeçalho de Página (`PageHeader`), quando utilizado
 - Título em destaque `text-3xl font-bold tracking-tight text-gray-900`.
 - Subtítulo explicativo logo abaixo em `text-sm text-gray-500`.
-- Grupo de botões à direita:
+- Grupo de ações à direita, se a tela precisar:
   - Botão Primário: `<Button variant="forest">` (Pílula, fundo verde escuro com ícone `+`).
   - Botão Secundário: `<Button variant="outline">` (Pílula branca com borda fina).
 
-### B. Cards de KPI / Métricas Operacionais
-- Dispostos em grid de 4 colunas (`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4`).
-- **Card Destaque (Primeiro KPI)**: Fundo verde floresta `bg-[#164E3A] text-white` com botão circular `↗` translúcido.
-- **Demais Cards**: Fundo branco `bg-white text-gray-900` com botão circular `↗` de borda cinza.
-- Estrutura interna: Título pequeno no topo, valor numérico gigante (`text-3xl font-bold`), badge de variação no rodapé.
+### B. Cards de KPI / Métricas Operacionais, quando úteis
+- Escolha o número de colunas conforme conteúdo e responsividade; o grid de quatro colunas é apenas uma opção.
+- Use destaque e hierarquia visual de forma coerente com a tela; não é obrigatório que exista um primeiro KPI destacado ou botão decorativo.
 
-### C. Badges de Status (Pílulas)
-- Sempre utilizar formato pílula `rounded-full px-3 py-1 text-xs font-semibold`:
+### C. Badges de Status, quando houver status para representar
+- O formato pílula `rounded-full px-3 py-1 text-xs font-semibold` e as cores abaixo são referências:
   - **Operando / Concluído**: `bg-emerald-50 text-emerald-700 border border-emerald-200`
   - **Em Andamento / Soltura**: `bg-amber-50 text-amber-700 border border-amber-200`
   - **CI / Retido / Erro**: `bg-rose-50 text-rose-700 border border-rose-200`
 
-### D. Inputs e Busca
-- Barra de busca global com formato pílula `rounded-full bg-white border border-gray-200 px-4 py-2 text-sm shadow-sm`.
-- Incluir ícone de lupa à esquerda e atalho de teclado `⌘F` / `Ctrl+K` à direita.
+### D. Inputs, busca e filtros, quando necessários
+- Reutilize os padrões de busca e filtro existentes; ícones, atalhos e formato pílula são aplicáveis somente quando fizerem sentido para a interação.
+- Não adicione busca global nem filtros que não sejam necessários à tarefa.
 
-### E. Sidebar e Navegação
+### E. Sidebar e Navegação, ao alterar essa área
 - Fundo branco com borda lateral suave.
 - Seções agrupadas com títulos em caixa alta cinza (`MENU`, `OPERAÇÃO`, `GERAL`).
 - Item ativo: Ícone e texto em preto/verde com barra indicadora vertical verde à esquerda (`w-1 h-6 bg-[#164E3A] rounded-full`).
 - Card inferior promocional/informativo: Fundo verde escuro com status de conexão/garagem ativa.
 
-## 3. Checklist de Validação da Tela
-- [ ] Cards utilizam `rounded-2xl` ou `rounded-3xl` com sombras suaves (`shadow-sm`).
-- [ ] Botões de ação utilizam formato pílula (`rounded-full`).
-- [ ] O primeiro card de KPI possui fundo verde escuro em destaque.
-- [ ] Não existem cores hexadecimais aleatórias fora da paleta corporativa.
+## 3. Validação visual
+
+Use somente os itens do checklist que se aplicam à tela ou ao componente alterado:
+- [ ] Cards existentes mantêm cantos e sombras coerentes com o padrão da aplicação.
+- [ ] Botões de ação existentes mantêm o padrão visual dos componentes compartilhados.
+- [ ] Cores novas, quando necessárias, são coerentes com a paleta existente.
