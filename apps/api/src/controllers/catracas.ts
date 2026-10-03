@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
+import { ZodError } from "zod";
 import prisma from "../utils/prisma";
 import * as mssqlService from "../services/mssql";
+import { SqlServerUnavailableError } from "../services/mssql";
 import {
   consisteCatracaQuerySchema,
   datasIncorretasQuerySchema,
@@ -9,6 +11,22 @@ import {
   updateBackupSchema,
   detalhesVeiculoQuerySchema,
 } from "../utils/schemas";
+
+function handleCatracasError(error: unknown, res: Response) {
+  if (error instanceof SqlServerUnavailableError) {
+    return res.status(503).json({
+      error: "SQL_SERVER_UNAVAILABLE",
+      message: "Integração SQL Server indisponível",
+    });
+  }
+
+  if (error instanceof ZodError) {
+    return res.status(400).json({ error: error.message });
+  }
+
+  console.error("[Catracas] Falha inesperada ao processar a requisição.");
+  return res.status(500).json({ error: "Erro interno" });
+}
 
 // Lista estática da frota fornecida pelo usuário
 const STATIC_FLEET_IDS = [
@@ -57,13 +75,13 @@ async function getCompleteFleetIds(): Promise<number[]> {
 export async function getConsistenciaCatraca(req: Request, res: Response) {
   try {
     const { date, minDiff } = consisteCatracaQuerySchema.parse(req.query);
-    const data = await mssqlService.queryConsistenciaCatraca(date, minDiff);
+    const result = await mssqlService.queryConsistenciaCatraca(date, minDiff);
     res.json({
-      isMock: mssqlService.isMockMode(),
-      data,
+      isMock: result.source === "mock",
+      data: result.data,
     });
-  } catch (error: any) {
-    res.status(400).json({ error: error.message || "Erro de validação" });
+  } catch (error) {
+    handleCatracasError(error, res);
   }
 }
 
@@ -129,9 +147,10 @@ export async function getDatasIncorretas(req: Request, res: Response) {
     const startYear = startYearMatch ? startYearMatch[1] : year;
     const allowedYears = Array.from(new Set([year, startYear]));
 
-    const data = await mssqlService.queryDatasIncorretas(startDate, year, allowedYears);
+    const result = await mssqlService.queryDatasIncorretas(startDate, year, allowedYears);
+    const data = result.data;
     res.json({
-      isMock: mssqlService.isMockMode(),
+      isMock: result.source === "mock",
       data,
       meta: {
         year,
@@ -141,8 +160,8 @@ export async function getDatasIncorretas(req: Request, res: Response) {
         totalHFim: data?.dataHFimInvalido?.length || 0,
       },
     });
-  } catch (error: any) {
-    res.status(400).json({ error: error.message || "Erro de validação" });
+  } catch (error) {
+    handleCatracasError(error, res);
   }
 }
 
@@ -156,10 +175,11 @@ export async function getVeiculosForaFrota(req: Request, res: Response) {
     const startDate = normalizeToDateBR(rawStartDate);
 
     const fleetIds = await getCompleteFleetIds();
-    const data = await mssqlService.queryVeiculosForaFrota(startDate, fleetIds);
+    const result = await mssqlService.queryVeiculosForaFrota(startDate, fleetIds);
+    const data = result.data;
 
     res.json({
-      isMock: mssqlService.isMockMode(),
+      isMock: result.source === "mock",
       data,
       meta: {
         startDate,
@@ -167,8 +187,8 @@ export async function getVeiculosForaFrota(req: Request, res: Response) {
         totalComuns: data?.carrosComuns?.length || 0,
       },
     });
-  } catch (error: any) {
-    res.status(400).json({ error: error.message || "Erro de validação" });
+  } catch (error) {
+    handleCatracasError(error, res);
   }
 }
 
@@ -186,13 +206,13 @@ export async function getVeiculoServicos(req: Request, res: Response) {
     const defaultStartDate = d.toISOString().split("T")[0];
     const startDate = (req.query.startDate as string) || defaultStartDate;
 
-    const data = await mssqlService.queryVeiculoServicos(idVeiculo, startDate);
+    const result = await mssqlService.queryVeiculoServicos(idVeiculo, startDate);
     res.json({
-      isMock: mssqlService.isMockMode(),
-      data,
+      isMock: result.source === "mock",
+      data: result.data,
     });
-  } catch (error: any) {
-    res.status(400).json({ error: error.message || "Erro de validação" });
+  } catch (error) {
+    handleCatracasError(error, res);
   }
 }
 
@@ -200,13 +220,13 @@ export async function getVeiculoServicos(req: Request, res: Response) {
 export async function getBackupStatus(req: Request, res: Response) {
   try {
     const { ids } = backupStatusQuerySchema.parse(req.query);
-    const data = await mssqlService.queryBackupStatus(ids);
+    const result = await mssqlService.queryBackupStatus(ids);
     res.json({
-      isMock: mssqlService.isMockMode(),
-      data,
+      isMock: result.source === "mock",
+      data: result.data,
     });
-  } catch (error: any) {
-    res.status(400).json({ error: error.message || "Erro de validação" });
+  } catch (error) {
+    handleCatracasError(error, res);
   }
 }
 
@@ -216,11 +236,11 @@ export async function updateBackupStatus(req: Request, res: Response) {
     const { ids, coletaBKPIni, coletaBKPFim } = updateBackupSchema.parse(req.body);
     const data = await mssqlService.updateBackupStatus(ids, coletaBKPIni, coletaBKPFim);
     res.json({
-      isMock: mssqlService.isMockMode(),
+      isMock: false,
       data,
     });
-  } catch (error: any) {
-    res.status(400).json({ error: error.message || "Erro de validação" });
+  } catch (error) {
+    handleCatracasError(error, res);
   }
 }
 
@@ -228,13 +248,13 @@ export async function updateBackupStatus(req: Request, res: Response) {
 export async function getDetalhesVeiculo(req: Request, res: Response) {
   try {
     const { idVeiculo, date } = detalhesVeiculoQuerySchema.parse(req.query);
-    const data = await mssqlService.queryDetalhesVeiculo(idVeiculo, date);
+    const result = await mssqlService.queryDetalhesVeiculo(idVeiculo, date);
     res.json({
-      isMock: mssqlService.isMockMode(),
-      data,
+      isMock: result.source === "mock",
+      data: result.data,
     });
-  } catch (error: any) {
-    res.status(400).json({ error: error.message || "Erro de validação" });
+  } catch (error) {
+    handleCatracasError(error, res);
   }
 }
 
@@ -261,4 +281,3 @@ export async function getDiarios(req: Request, res: Response) {
     res.status(500).json({ error: error.message || "Erro ao buscar diários de bordo" });
   }
 }
-

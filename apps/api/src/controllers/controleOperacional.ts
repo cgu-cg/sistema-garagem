@@ -4,6 +4,7 @@ import prisma from "../utils/prisma";
 import fs from "fs";
 import path from "path";
 import * as mssqlService from "../services/mssql";
+import { SqlServerUnavailableError } from "../services/mssql";
 
 // Helper to save base64 image
 function saveBase64Image(base64Str: string, carro: string, indexStr: string): string {
@@ -272,20 +273,32 @@ export async function update(req: AuthRequest, res: Response) {
 
 export async function listVeiculos(req: AuthRequest, res: Response) {
   try {
-    const data = await mssqlService.queryVeiculosSelect();
-    return res.json(data);
-  } catch (error: any) {
-    console.error(error);
-    return res.status(500).json({ error: "Erro ao listar veículos do SQL Server: " + error.message });
+    const result = await mssqlService.queryVeiculosSelect();
+    return res.set("X-Data-Source", result.source).json(result.data);
+  } catch (error) {
+    if (error instanceof SqlServerUnavailableError) {
+      return res.status(503).json({
+        error: "SQL_SERVER_UNAVAILABLE",
+        message: "Integração SQL Server indisponível",
+      });
+    }
+    console.error("[Controle Operacional] Falha inesperada ao listar veículos.");
+    return res.status(500).json({ error: "Erro interno" });
   }
 }
 
 export async function listLinhas(req: AuthRequest, res: Response) {
   try {
-    const data = await mssqlService.queryLinhasSelect();
-    return res.json(data);
-  } catch (error: any) {
-    console.error(error);
-    return res.status(500).json({ error: "Erro ao listar linhas do SQL Server: " + error.message });
+    const result = await mssqlService.queryLinhasSelect();
+    return res.set("X-Data-Source", result.source).json(result.data);
+  } catch (error) {
+    if (error instanceof SqlServerUnavailableError) {
+      return res.status(503).json({
+        error: "SQL_SERVER_UNAVAILABLE",
+        message: "Integração SQL Server indisponível",
+      });
+    }
+    console.error("[Controle Operacional] Falha inesperada ao listar linhas.");
+    return res.status(500).json({ error: "Erro interno" });
   }
 }
