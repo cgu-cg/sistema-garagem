@@ -83,6 +83,22 @@ export function getDefaultAlertFilters(now = new Date()) {
   };
 }
 
+type CatracasDataKey = "consistencia" | "detalhes" | "alertas" | "backup" | "consulta";
+type CatracasDataSource = "idle" | "real" | "mock" | "unavailable";
+
+const CATRACAS_DATA_LABELS: Record<CatracasDataKey, string> = {
+  consistencia: "consistência",
+  detalhes: "detalhes do veículo",
+  alertas: "alertas",
+  backup: "status de backup",
+  consulta: "histórico do veículo",
+};
+
+function isSqlServerUnavailable(error: unknown): boolean {
+  return typeof error === "object" && error !== null &&
+    "status" in error && error.status === 503;
+}
+
 export function formatDateBR(dateStr: string): string {
   if (!dateStr) return "";
   const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -200,7 +216,22 @@ export function CatracasPage() {
           : "consistencia";
 
   const [activeAlertSubTab, setActiveAlertSubTab] = useState<"datas" | "frota">("datas");
-  const [isMockMode, setIsMockMode] = useState(false);
+  const [dataSources, setDataSources] = useState<Record<CatracasDataKey, CatracasDataSource>>({
+    consistencia: "idle",
+    detalhes: "idle",
+    alertas: "idle",
+    backup: "idle",
+    consulta: "idle",
+  });
+  const setDataSource = (key: CatracasDataKey, source: CatracasDataSource) => {
+    setDataSources((current) => ({ ...current, [key]: source }));
+  };
+  const mockedDataModules = (Object.keys(CATRACAS_DATA_LABELS) as CatracasDataKey[])
+    .filter((key) => dataSources[key] === "mock")
+    .map((key) => CATRACAS_DATA_LABELS[key]);
+  const unavailableDataModules = (Object.keys(CATRACAS_DATA_LABELS) as CatracasDataKey[])
+    .filter((key) => dataSources[key] === "unavailable")
+    .map((key) => CATRACAS_DATA_LABELS[key]);
 
   // Estados dos filtros da Consistência
   const [consistenciaDate, setConsistenciaDate] = useState("");
@@ -302,9 +333,11 @@ export function CatracasPage() {
     api.getBackupStatus()
       .then((res) => {
         setBackupData(res.data || []);
+        setDataSource("backup", res.isMock ? "mock" : "real");
       })
       .catch((err) => {
-        console.warn("Erro ao buscar coletas ativas iniciais:", err);
+        setBackupData([]);
+        setDataSource("backup", isSqlServerUnavailable(err) ? "unavailable" : "idle");
       })
       .finally(() => {
         setBackupLoading(false);
@@ -327,8 +360,10 @@ export function CatracasPage() {
         minDiff: consistenciaMinDiff,
       });
       setConsistenciaData(response.data || []);
-      setIsMockMode(response.isMock);
+      setDataSource("consistencia", response.isMock ? "mock" : "real");
     } catch (error: any) {
+      setConsistenciaData([]);
+      setDataSource("consistencia", isSqlServerUnavailable(error) ? "unavailable" : "idle");
       toast.error("Erro ao buscar dados de consistência: " + error.message);
     } finally {
       setConsistenciaLoading(false);
@@ -361,6 +396,7 @@ export function CatracasPage() {
         date: dateStr,
       });
       setDetailsData(response.data);
+      setDataSource("detalhes", response.isMock ? "mock" : "real");
 
       if (response.data?.consistenciaBase) {
         const cb = response.data.consistenciaBase;
@@ -386,6 +422,8 @@ export function CatracasPage() {
         loadDiarios(idCarro.toString(), dateStr, dateStr, dateStr, dateStr);
       }
     } catch (error: any) {
+      setDetailsData(null);
+      setDataSource("detalhes", isSqlServerUnavailable(error) ? "unavailable" : "idle");
       if (error.message === "TIMEOUT_ERROR") {
         toast.error(`Tempo limite excedido ao buscar dados do carro ${idCarro}. O banco de dados SQL Server demorou para responder.`);
       } else {
@@ -417,11 +455,14 @@ export function CatracasPage() {
         comuns: resFrota.data?.carrosComuns || [],
       });
 
-      setIsMockMode(resDatas.isMock || resFrota.isMock);
+      setDataSource("alertas", resDatas.isMock || resFrota.isMock ? "mock" : "real");
       if (!options?.silent) {
         toast.success("Alertas de validador atualizados");
       }
     } catch (error: any) {
+      setDatasIncorretas({ hIni: [], hFim: [] });
+      setForaFrota({ especiais: [], comuns: [] });
+      setDataSource("alertas", isSqlServerUnavailable(error) ? "unavailable" : "idle");
       if (!options?.silent) {
         toast.error("Erro ao buscar alertas: " + error.message);
       }
@@ -444,9 +485,11 @@ export function CatracasPage() {
 
       const response = await api.getBackupStatus(ids && ids.length > 0 ? ids : undefined);
       setBackupData(response.data || []);
-      setIsMockMode(response.isMock);
+      setDataSource("backup", response.isMock ? "mock" : "real");
       toast.success(ids && ids.length > 0 ? "Status de backup atualizado" : "Coletas ativas carregadas");
     } catch (error: any) {
+      setBackupData([]);
+      setDataSource("backup", isSqlServerUnavailable(error) ? "unavailable" : "idle");
       toast.error("Erro ao consultar backup: " + error.message);
     } finally {
       setBackupLoading(false);
@@ -478,14 +521,18 @@ export function CatracasPage() {
       const iniFormatted = formatToSql(coletaBKPIni);
       const fimFormatted = formatToSql(coletaBKPFim);
 
-      await api.updateBackupStatus({
+      const response = await api.updateBackupStatus({
         ids,
         coletaBKPIni: iniFormatted,
         coletaBKPFim: fimFormatted,
       });
 
-      toast.success("Datas de backup atualizadas com sucesso!");
-      handleSearchBackup(); // Atualiza a tabela
+      if (!response?.data?.success) {
+        toast.warning(`Nenhum registro de backup foi atualizado (${response?.data?.updatedCount ?? 0}).`);
+      } else {
+        toast.success(`Datas de backup atualizadas: ${response.data.updatedCount} registro(s).`);
+        handleSearchBackup(); // Atualiza a tabela
+      }
     } catch (error: any) {
       toast.error("Erro ao atualizar backup: " + error.message);
     } finally {
@@ -508,8 +555,10 @@ export function CatracasPage() {
         startDate: consultaDateLimit,
       });
       setConsultaData(response.data || []);
-      setIsMockMode(response.isMock);
+      setDataSource("consulta", response.isMock ? "mock" : "real");
     } catch (error: any) {
+      setConsultaData([]);
+      setDataSource("consulta", isSqlServerUnavailable(error) ? "unavailable" : "idle");
       toast.error("Erro ao buscar histórico do veículo: " + error.message);
     } finally {
       setConsultaLoading(false);
@@ -728,12 +777,20 @@ export function CatracasPage() {
 
   return (
     <div className="space-y-6">
-      {/* Banner de Modo Simulação */}
-      {isMockMode && (
+      {(mockedDataModules.length > 0 || unavailableDataModules.length > 0) && (
         <div className="flex items-center gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-800 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-400">
           <ShieldAlert className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-500" />
-          <div className="text-sm">
-            <span className="font-semibold">Modo Simulação Ativo:</span> Banco de dados SQL Server não conectado. As informações mostradas abaixo são dados de demonstração salvos localmente.
+          <div className="space-y-1 text-sm">
+            {mockedDataModules.length > 0 && (
+              <p>
+                <span className="font-semibold">Dados simulados:</span> {mockedDataModules.join(", ")}. Esses dados são demonstração e não representam registros operacionais reais.
+              </p>
+            )}
+            {unavailableDataModules.length > 0 && (
+              <p>
+                <span className="font-semibold">Integração indisponível:</span> {unavailableDataModules.join(", ")}. Nenhum resultado foi carregado para essas consultas; listas vazias não significam ausência de ocorrências.
+              </p>
+            )}
           </div>
         </div>
       )}

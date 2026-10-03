@@ -461,14 +461,15 @@ export function CiManutencaoView({
       garagem: getGaragemFisicaByCarro(c),
     }));
   });
+  const [fleetSource, setFleetSource] = useState<"local" | "real" | "mock" | "unavailable" | "unknown">("local");
 
   // Busca lista atualizada de veículos do SQL Server via API (tabela Veiculos, coluna garagem)
   useEffect(() => {
     let isMounted = true;
     api.getBusesInventory()
-      .then((res: any) => {
-        if (!isMounted || !Array.isArray(res)) return;
-        const mapped = res.map((item: any) => {
+      .then((response) => {
+        if (!isMounted || !Array.isArray(response.data)) return;
+        const mapped = response.data.map((item) => {
           const prefixo = String(item.prefixo || item.idCarro || "");
           const garagemNome: "VCM" | "VCG" = item.garagemNome || getGaragemFisicaByCarro(prefixo);
           return {
@@ -479,10 +480,14 @@ export function CiManutencaoView({
 
         if (mapped.length > 0) {
           setFleetCars(mapped);
+          setFleetSource(response.source);
+        } else {
+          setFleetSource("local");
         }
       })
       .catch((err: any) => {
         console.warn("[CI Manutenção] Usando frota padrão em cache/offline:", err);
+        if (isMounted) setFleetSource("unavailable");
       });
 
     return () => { isMounted = false; };
@@ -1975,6 +1980,20 @@ export function CiManutencaoView({
 
   return (
     <div className="space-y-6">
+      {(fleetSource === "local" || fleetSource === "mock" || fleetSource === "unavailable" || fleetSource === "unknown") && (
+        <div className="flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-400">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            {fleetSource === "mock"
+              ? "A lista de veículos inclui dados simulados do SQL Server legado; confirme a frota antes de utilizá-la operacionalmente."
+              : fleetSource === "unavailable"
+                ? "A integração com o SQL Server legado está indisponível. A tela está usando a lista local padrão, que pode não refletir a frota atual."
+                : fleetSource === "unknown"
+                  ? "A origem da lista de veículos não foi informada pelo servidor. Confirme os dados antes de utilizá-los operacionalmente."
+                  : "A tela está usando a lista local padrão de veículos, que pode não refletir a frota atual."}
+          </p>
+        </div>
+      )}
       
       {/* ==========================================================
           1. HEADER PRINCIPAL (MESMO PADRÃO DO CONTROLE DE FROTA)

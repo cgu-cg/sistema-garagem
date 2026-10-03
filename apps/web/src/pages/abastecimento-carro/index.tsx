@@ -31,6 +31,7 @@ import {
   User,
   ArrowUpRight,
   TrendingUp,
+  AlertTriangle,
 } from "lucide-react";
 
 interface RefuelingItem {
@@ -80,6 +81,7 @@ export function AbastecimentoCarroPage() {
   const [loading, setLoading] = useState(false);
   const [listLoading, setListLoading] = useState(false);
   const [veiculos, setVeiculos] = useState<string[]>(INVENTORY_CARS);
+  const [vehicleSource, setVehicleSource] = useState<"local" | "mixed" | "mock" | "unavailable" | "unknown">("local");
   const [activeTab, setActiveTab] = useState<"abastecimento" | "historico">("abastecimento");
 
   // Grid e Filtros
@@ -133,16 +135,20 @@ export function AbastecimentoCarroPage() {
     try {
       const [session, cars] = await Promise.all([
         api.getActiveAbastecimentoCarroSession(),
-        api.listOperacionalVeiculos().catch(() => []),
+        api.listOperacionalVeiculos()
+          .then((response) => ({ response, unavailable: false }))
+          .catch(() => ({ response: null, unavailable: true })),
       ]);
       setActiveSession(session as RefuelingSession);
       
-      if (Array.isArray(cars) && cars.length > 0) {
-        const serverCars = cars.map((v) => String(v.idCarro || v.prefixo || v));
+      if (Array.isArray(cars.response?.data) && cars.response.data.length > 0) {
+        const serverCars = cars.response.data.map((v) => String(v.idCarro || v.prefixo || v));
         const combined = Array.from(new Set([...INVENTORY_CARS, ...serverCars]));
         setVeiculos(combined);
+        setVehicleSource(cars.response.source === "real" ? "mixed" : cars.response.source);
       } else {
         setVeiculos(INVENTORY_CARS);
+        setVehicleSource(cars.unavailable ? "unavailable" : "local");
       }
     } catch (err: any) {
       toast.error("Erro ao carregar dados: " + err.message);
@@ -563,6 +569,23 @@ export function AbastecimentoCarroPage() {
 
   return (
     <div className="space-y-6">
+      {(vehicleSource === "local" || vehicleSource === "mixed" || vehicleSource === "mock" || vehicleSource === "unavailable" || vehicleSource === "unknown") && (
+        <div className="flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-400">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            {vehicleSource === "mock"
+              ? "A lista de veículos inclui dados simulados do SQL Server legado; confirme a frota antes de utilizá-la operacionalmente."
+              : vehicleSource === "unavailable"
+                ? "A integração com o SQL Server legado está indisponível. A tela está usando a lista local padrão, que pode não refletir a frota atual."
+                : vehicleSource === "unknown"
+                  ? "A origem da lista de veículos não foi informada pelo servidor. Confirme os dados antes de utilizá-los operacionalmente."
+                  : vehicleSource === "mixed"
+                    ? "A lista combina o inventário local padrão com veículos retornados pelo SQL Server legado; ela pode incluir dados locais que não refletem a frota atual."
+                    : "A tela está usando a lista local padrão de veículos, que pode não refletir a frota atual."}
+          </p>
+        </div>
+      )}
+
       {/* Page Header padrão Bento Grid Verde Floresta */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
