@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authenticate, authorize } from "../middleware/auth";
+import { authenticate, authorize, requireRole } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import {
   loginSchema,
@@ -72,14 +72,15 @@ router.post("/solturas/reservas-terminais", authenticate, authorize("ADMIN", "so
 router.delete("/solturas/reservas-terminais/:id", authenticate, authorize("ADMIN", "soltura"), reservasTerminaisController.remove);
 
 // Catracas
-router.get("/catracas/consistencia", authenticate, catracasController.getConsistenciaCatraca);
-router.get("/catracas/datas-incorretas", authenticate, catracasController.getDatasIncorretas);
-router.get("/catracas/fora-frota", authenticate, catracasController.getVeiculosForaFrota);
-router.get("/catracas/veiculo-servicos", authenticate, catracasController.getVeiculoServicos);
-router.get("/catracas/backup", authenticate, catracasController.getBackupStatus);
-router.post("/catracas/backup/update", authenticate, catracasController.updateBackupStatus);
-router.get("/catracas/detalhes-veiculo", authenticate, catracasController.getDetalhesVeiculo);
-router.get("/catracas/diarios", authenticate, catracasController.getDiarios);
+router.use("/catracas", authenticate, requireRole("ADMIN"));
+router.get("/catracas/consistencia", catracasController.getConsistenciaCatraca);
+router.get("/catracas/datas-incorretas", catracasController.getDatasIncorretas);
+router.get("/catracas/fora-frota", catracasController.getVeiculosForaFrota);
+router.get("/catracas/veiculo-servicos", catracasController.getVeiculoServicos);
+router.get("/catracas/backup", catracasController.getBackupStatus);
+router.post("/catracas/backup/update", catracasController.updateBackupStatus);
+router.get("/catracas/detalhes-veiculo", catracasController.getDetalhesVeiculo);
+router.get("/catracas/diarios", catracasController.getDiarios);
 
 // Controle Operacional
 router.get("/controle-operacional", authenticate, controleOperacionalController.list);

@@ -29,6 +29,16 @@ export function authenticate(req: AuthRequest, res: Response, next: NextFunction
   }
 }
 
+export function requireRole(...roles: string[]) {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.userRole || !roles.includes(req.userRole)) {
+      return res.status(403).json({ error: "Sem permissão" });
+    }
+
+    return next();
+  };
+}
+
 import prisma from "../utils/prisma";
 
 export function authorize(...roles: string[]) {

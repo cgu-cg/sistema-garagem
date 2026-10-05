@@ -196,6 +196,10 @@ export function Layout() {
   };
 
   const hasPermission = (to: string, roles: string[]) => {
+    if (to === "/catracas" || to.startsWith("/catracas/")) {
+      return user?.role === "ADMIN";
+    }
+
     if (user?.role === "ADMIN") return true;
 
     // Usuário de Manutenção (manutencao_vcg@teste.com, role "manutencao" ou emails de manutencao)
