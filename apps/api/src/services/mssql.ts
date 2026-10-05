@@ -137,8 +137,12 @@ export async function queryDatasIncorretas(startDateStr: string, yearStr: string
   if (pool) {
     try {
       const years = allowedYears && allowedYears.length > 0 ? allowedYears : [yearStr];
-      const whereHIni = years.map((y) => `dataHIni NOT LIKE '%${y}%'`).join(" AND ");
-      const whereHFim = years.map((y) => `dataHFim NOT LIKE '%${y}%'`).join(" AND ");
+      const yearParameters = years.map((year, index) => ({
+        name: `year${index}`,
+        value: `%${year}%`,
+      }));
+      const whereHIni = yearParameters.map(({ name }) => `dataHIni NOT LIKE @${name}`).join(" AND ");
+      const whereHFim = yearParameters.map(({ name }) => `dataHFim NOT LIKE @${name}`).join(" AND ");
 
       const q1 = `
         SELECT totalEDM, catracaIni, catracaFim, idVeiculo, dataHIni, dataHFim, dataHoraUL 
@@ -152,9 +156,16 @@ export async function queryDatasIncorretas(startDateStr: string, yearStr: string
         WHERE ${whereHFim} AND dataHoraUL >= @startDate 
         ORDER BY ts.catracaFim
       `;
+      const requestHIni = pool.request().input("startDate", sql.VarChar, startDateStr);
+      const requestHFim = pool.request().input("startDate", sql.VarChar, startDateStr);
+      for (const { name, value } of yearParameters) {
+        requestHIni.input(name, sql.VarChar, value);
+        requestHFim.input(name, sql.VarChar, value);
+      }
+
       const [res1, res2] = await Promise.all([
-        pool.request().input("startDate", sql.VarChar, startDateStr).query(q1),
-        pool.request().input("startDate", sql.VarChar, startDateStr).query(q2),
+        requestHIni.query(q1),
+        requestHFim.query(q2),
       ]);
       return realResult({
         dataHIniInvalido: res1.recordset,
