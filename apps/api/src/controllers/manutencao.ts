@@ -171,24 +171,6 @@ async function ensureTableAndSeed() {
       }
     }
 
-    // Limpeza de segurança: remove registros de manutenção gerados automaticamente
-    // que pertenciam a preventivas ou setores da oficina diários (que não são bloqueios permanentes)
-    try {
-      await prisma.$executeRawUnsafe(`
-        DELETE FROM manutencao_carros 
-        WHERE id LIKE 'manut-%' 
-          AND prefixo IN (SELECT prefixo FROM ci_bloqueios WHERE categoria IN ('OFICINA', 'PREVENTIVA', 'REFORCO'))
-          AND em_execucao = 0 AND liberado = 0
-      `);
-
-      // Limpeza de resíduos: listas de em manutenção e liberados são independentes da CI
-      await prisma.$executeRawUnsafe(`
-        DELETE FROM manutencao_carros 
-        WHERE observacao LIKE '%Liberado pela CI%'
-           OR observacao LIKE '%LIBERADO PELA CI%'
-      `);
-    } catch (_) {}
-
     tableEnsured = true;
   } catch (err) {
     console.error("[Manutenção] Erro ao verificar/criar tabela manutencao_carros:", err);

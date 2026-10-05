@@ -34,7 +34,7 @@ Não criar tarefas fictícias apenas para preencher o documento.
 
 ## DATA-001 — Listagens de manutenção executam alterações no banco
 
-**Status:** Pendente de correção; DATA-001A registrada para revisão
+**Status:** Pendente de correção; DATA-001A registrada; DATA-001B1 implementada para revisão
 **Prioridade:** Antes da produção
 **Tipo:** Integridade / arquitetura de dados
 
@@ -59,7 +59,7 @@ O [contrato confirmado da DATA-001A](./DOMAIN.md#data-001a--contrato-operacional
 
 ### Riscos confirmados estaticamente
 
-- GET /api/manutencao e GET /api/ci-bloqueios executam inicialização/limpezas; manutenção também copia, cria, atualiza e reconcilia registros.
+- GET /api/manutencao e GET /api/ci-bloqueios ainda executam inicialização estrutural; manutenção também copia, cria, atualiza e reconcilia registros.
 - Reconciliação com o estado atual e herança visual podem modificar/completar históricos.
 - Exclusões por prefixo podem atingir registros de diferentes datas.
 - Propagação para datas posteriores não verifica finalização; caches mantêm sincronização adicional.
@@ -72,17 +72,27 @@ São riscos/capacidades confirmados no código, sem consulta ao banco ou confirm
 | Etapa | Escopo | Situação / dependência |
 |---|---|---|
 | DATA-001A | Registrar contrato, comportamento observado e pendências | Documentação/skill registradas para revisão |
-| DATA-001B | Separar inicialização e saneamento dos caminhos HTTP | Proposta; revisar provisionamento, sem execução automática |
+| DATA-001B | Separar inicialização e saneamento dos caminhos HTTP | Parcial; B1 implementada para revisão, B2 pendente |
 | DATA-001C | Definir identidade/ciclo diário, folha vazia e cópia inicial | Proposta; decisões operacionais e eventual schema sujeitos a aprovação |
 | DATA-001D | GETs somente leitura e histórico sem reconstrução na interface | Proposta; identificar fotografias e disponibilizar preparação explícita |
 | DATA-001E | Retirada confirmada somente na CI em preparação | Proposta; depende de ciclo e destino |
 | DATA-001F | Limitar propagação/sincronização e preservar coexistência/histórico | Proposta; depende das etapas anteriores e regras de propagação |
 
+### DATA-001B1 — Remover saneamentos automáticos do runtime
+
+**Status:** Implementada para revisão; DATA-001B ainda não concluída.
+
+Removidos dos helpers HTTP os três saneamentos históricos: exclusão de CI por `id LIKE 'ci-doc-%'`, limpeza da manutenção por categorias `OFICINA`/`PREVENTIVA`/`REFORCO` e limpeza por variações de "Liberado pela CI" na observação. A intenção atual desses registros não foi comprovada; esta etapa não executa saneamento nem recupera dados anteriormente excluídos.
+
+DDL (tabelas, PK e índices), verificações de existência, `tableEnsured` e carga inicial da manutenção a partir da CI continuam no runtime. GET /api/manutencao ainda NÃO é somente leitura: herança, criação/upserts e reconciliação, incluindo exclusões funcionais, permanecem. Operações explícitas, propagação, frontend e caches não foram alterados.
+
+DATA-001B2 ainda precisa tratar provisionamento estrutural e a carga inicial. DATA-001C/D/E/F permanecem pendentes. O contrato da DATA-001A não foi alterado.
+
 ### Decisões ainda pendentes
 
 Lista completa em [DOMAIN.md](./DOMAIN.md#data-001a--contrato-operacional-da-ci): finalização/responsáveis; manual, automática ou híbrida; múltiplas ou nenhuma CI em preparação; folha inexistente/vazia; conteúdo copiado; liberação mantendo bloqueio; históricos antigos; fechamento da manutenção; fuso/dia operacional; modelagem futura.
 
-Mover reconciliação para POST mantendo alteração histórica não satisfaz o contrato. DATA-001A altera somente documentação/skill; DATA-001B a DATA-001F não foram implementadas nem autorizadas nesta etapa.
+Mover reconciliação para POST mantendo alteração histórica não satisfaz o contrato. DATA-001A altera somente documentação/skill; somente DATA-001B1 foi autorizada e implementada para revisão; DATA-001B2 e DATA-001C/D/E/F permanecem pendentes.
 
 ## DATA-002 — Regra de unicidade da vistoria operacional
 

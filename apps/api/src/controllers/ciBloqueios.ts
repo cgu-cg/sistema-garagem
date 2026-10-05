@@ -13,7 +13,7 @@ export function getTodayDate(): string {
 let tableEnsured = false;
 
 // Garante que a tabela ci_bloqueios exista no SQL Server e esteja pronta para novos cadastros
-async function ensureTableAndSeed() {
+async function ensureTable() {
   if (tableEnsured) return;
 
   try {
@@ -50,11 +50,6 @@ async function ensureTableAndSeed() {
       END
     `);
 
-    // Limpa sementes antigas de teste (ci-doc-*) para que a tabela fique limpa apenas com os cadastros reais dos usuários
-    try {
-      await prisma.$executeRawUnsafe(`DELETE FROM ci_bloqueios WHERE id LIKE 'ci-doc-%'`);
-    } catch (_) {}
-
     tableEnsured = true;
   } catch (err) {
     console.error("[CI Bloqueios] Erro ao verificar/criar tabela ci_bloqueios:", err);
@@ -64,7 +59,7 @@ async function ensureTableAndSeed() {
 // 1. Listar Bloqueios da CI com filtros
 export async function list(req: AuthRequest, res: Response) {
   try {
-    await ensureTableAndSeed();
+    await ensureTable();
 
     const { garagem, status, categoria } = req.query;
     const where: any = {};
@@ -171,7 +166,7 @@ export async function list(req: AuthRequest, res: Response) {
 // 2. Criar ou Atualizar Bloqueio na CI
 export async function createOrUpdate(req: AuthRequest, res: Response) {
   try {
-    await ensureTableAndSeed();
+    await ensureTable();
 
     const {
       id,
@@ -284,7 +279,7 @@ export async function createOrUpdate(req: AuthRequest, res: Response) {
 // 3. Dar Baixa / Liberar Veículo da CI (Remove da tabela ci_bloqueios)
 export async function release(req: AuthRequest, res: Response) {
   try {
-    await ensureTableAndSeed();
+    await ensureTable();
 
     const { prefixo, id } = req.body;
 
@@ -330,7 +325,7 @@ export async function release(req: AuthRequest, res: Response) {
 // 4. Excluir Bloqueio da CI
 export async function remove(req: AuthRequest, res: Response) {
   try {
-    await ensureTableAndSeed();
+    await ensureTable();
 
     const { id } = req.params;
     const { prefixo } = req.query;
@@ -388,7 +383,7 @@ export async function remove(req: AuthRequest, res: Response) {
 // 5. Sincronização em lote (Bulk Sync)
 export async function sync(req: AuthRequest, res: Response) {
   try {
-    await ensureTableAndSeed();
+    await ensureTable();
 
     const { items } = req.body;
     if (!Array.isArray(items)) {
