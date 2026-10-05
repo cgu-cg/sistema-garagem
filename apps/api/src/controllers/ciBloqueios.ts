@@ -10,57 +10,9 @@ export function getTodayDate(): string {
   return `${y}-${m}-${d}`;
 }
 
-let tableEnsured = false;
-
-// Garante que a tabela ci_bloqueios exista no SQL Server e esteja pronta para novos cadastros
-async function ensureTable() {
-  if (tableEnsured) return;
-
-  try {
-    // Cria a tabela se ainda não existir
-    await prisma.$executeRawUnsafe(`
-      IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ci_bloqueios' AND xtype='U')
-      BEGIN
-        CREATE TABLE ci_bloqueios (
-          id NVARCHAR(100) NOT NULL PRIMARY KEY,
-          prefixo NVARCHAR(10) NOT NULL,
-          garagem NVARCHAR(10) NOT NULL,
-          consorciada NVARCHAR(10) NOT NULL,
-          categoria NVARCHAR(20) NOT NULL,
-          sub_tipo NVARCHAR(50) NULL,
-          horario_reforco NVARCHAR(20) NULL,
-          motivo NVARCHAR(255) NULL,
-          data_bloqueio NVARCHAR(20) NOT NULL,
-          hora_bloqueio NVARCHAR(10) NULL,
-          gravidade NVARCHAR(10) DEFAULT 'ALTA',
-          responsavel NVARCHAR(100) NULL,
-          observacoes NVARCHAR(255) NULL,
-          status NVARCHAR(20) DEFAULT 'BLOQUEADO',
-          data_liberacao NVARCHAR(50) NULL,
-          motivo_liberacao NVARCHAR(255) NULL,
-          responsavel_liberacao NVARCHAR(100) NULL,
-          user_id INT NULL,
-          created_at DATETIME DEFAULT GETDATE(),
-          updated_at DATETIME DEFAULT GETDATE()
-        );
-
-        CREATE INDEX idx_ci_bloqueios_prefixo ON ci_bloqueios(prefixo);
-        CREATE INDEX idx_ci_bloqueios_status ON ci_bloqueios(status);
-        CREATE INDEX idx_ci_bloqueios_garagem ON ci_bloqueios(garagem);
-      END
-    `);
-
-    tableEnsured = true;
-  } catch (err) {
-    console.error("[CI Bloqueios] Erro ao verificar/criar tabela ci_bloqueios:", err);
-  }
-}
-
 // 1. Listar Bloqueios da CI com filtros
 export async function list(req: AuthRequest, res: Response) {
   try {
-    await ensureTable();
-
     const { garagem, status, categoria } = req.query;
     const where: any = {};
 
@@ -166,8 +118,6 @@ export async function list(req: AuthRequest, res: Response) {
 // 2. Criar ou Atualizar Bloqueio na CI
 export async function createOrUpdate(req: AuthRequest, res: Response) {
   try {
-    await ensureTable();
-
     const {
       id,
       prefixo,
@@ -279,8 +229,6 @@ export async function createOrUpdate(req: AuthRequest, res: Response) {
 // 3. Dar Baixa / Liberar Veículo da CI (Remove da tabela ci_bloqueios)
 export async function release(req: AuthRequest, res: Response) {
   try {
-    await ensureTable();
-
     const { prefixo, id } = req.body;
 
     if (!prefixo && !id) {
@@ -325,8 +273,6 @@ export async function release(req: AuthRequest, res: Response) {
 // 4. Excluir Bloqueio da CI
 export async function remove(req: AuthRequest, res: Response) {
   try {
-    await ensureTable();
-
     const { id } = req.params;
     const { prefixo } = req.query;
 
@@ -383,8 +329,6 @@ export async function remove(req: AuthRequest, res: Response) {
 // 5. Sincronização em lote (Bulk Sync)
 export async function sync(req: AuthRequest, res: Response) {
   try {
-    await ensureTable();
-
     const { items } = req.body;
     if (!Array.isArray(items)) {
       return res.status(400).json({ error: "items deve ser uma lista." });

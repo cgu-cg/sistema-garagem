@@ -217,7 +217,7 @@ Divergências relevantes:
 
 - Este documento foi construído a partir do schema Prisma e do código de integração observados no repositório. Ele não substitui a validação do banco em execução.
 - A existência de tabelas adicionais fora do schema Prisma e de views/procedures específicas em SQL Server legado não foi confirmada neste escopo; a análise estática indica presença de integração e documentações de apoio, mas não garante o estado real do banco em produção.
-- Não houve acesso ao banco para validar colunas reais, índices em produção nem dados presentes em ambiente concreto.
+- As seções iniciais foram produzidas por análise estática. A inspeção anterior de metadados de CI/manutenção está resumida abaixo; não houve leitura de registros operacionais.
 
 ## CI e manutenção — DATA-001A
 
@@ -235,3 +235,31 @@ Fonte: schema Prisma e controllers, sem consulta ao banco.
 ### Contrato operacional: CONFIRMADO, ainda não garantido pelo banco
 
 Conforme [DOMAIN.md](./DOMAIN.md#data-001a--contrato-operacional-da-ci), fotografias finalizadas preservam o estado diário registrado; bloqueio e execução podem coexistir; retirada confirmada atinge somente preparação. Não foi decidida substituição por bloqueio global com intervalo de vigência. Modelagem futura e históricos antigos permanecem pendentes. Este registro não propõe schema nem afirma proteção implementada.
+
+
+## DATA-001B2 — Provisionamento separado do runtime HTTP
+
+Implementação para revisão: os controllers de CI/manutenção não criam tabelas, PKs ou índices e não executam helpers estruturais por requisição. Não há validação de schema por request, middleware global ou bootstrap automático. Ausência ou incompatibilidade estrutural não bloqueia o startup por validação global: cada operação mantém seu tratamento de falhas existente. GET de CI ainda pode retornar [] ao capturar falha; contrato preservado nesta etapa.
+
+### Procedimentos administrativos separados
+
+- [Validação somente leitura](../scripts/sql/data-001b2-validacao.sql): somente SELECTs de metadados, sem registros operacionais. Reporta existência em dbo, colunas mapeadas, tipos/capacidades, nullable, defaults, PK em id, índices e FKs. OBRIGATORIO indica incompatibilidade; AVISO exige avaliação, nunca reparo. Não certifica dados ou todas as dependências.
+- [Provisionamento explícito](../scripts/sql/data-001b2-provisionamento.sql): criação deliberada das duas tabelas em instalação nova, compatível com SQL Server 2012. Requer ambas ausentes e execução fora de transação existente; qualquer objeto alvo existente interrompe antes da criação. Tabelas e índices são criados em transação com rollback em erro; não completa estrutura parcial.
+
+Scripts não rodam automaticamente em HTTP, startup, Docker ou npm. Não foram executados nesta implementação. Antes de execução administrativa, confirmar banco alvo, autorização, visibilidade dos metadados e permissões: invisibilidade pode aparentar ausência. Instalação nova também exige users e demais pré-requisitos do sistema, fora destes scripts.
+
+Para banco existente, executar somente validação separadamente autorizada e revisar resultados; não usar criação como reparo. Para instalação nova, revisar/autorizar criação, provisionar antes do serviço e validar posteriormente. Não há migrations, db push ou alinhamento automático ao Prisma.
+
+### Referência e divergências preservadas
+
+A referência é o DDL operacional retirado dos controllers, com dbo e nulabilidade explícitos. Campos antes sem NOT NULL permanecem NULL, conforme a estrutura operacional inspecionada. Mantidos datetime, defaults, PKs e índices operacionais; não são criadas FKs para users.
+
+A inspeção anterior encontrou dbo.ci_bloqueios, dbo.manutencao_carros e dbo.users no SQL Server 2012 do banco garagem; _prisma_migrations não apareceu no catálogo visível. data_folha nvarchar(20) NULL, sem default, existe na CI real e não foi encontrada no repositório/histórico disponível. Preservar em banco existente; não criar nem exigir em instalação nova nesta B2. Origem/finalidade desconhecidas, sem inferir identidade ou ciclo de folha.
+
+Diferenças de nullable, datetime/datetime2 e FKs não são corrigidas automaticamente. Capacidade textual maior e nomes físicos diferentes de índices/PK são compatíveis; datetime e datetime2 são aceitos em B2. Índices ausentes geram aviso. Defaults são exibidos para revisão administrativa, sem comparação textual rígida de expressões equivalentes. A validação não lê valores NULL nem verifica qualidade dos dados.
+
+### Carga inicial e efeitos funcionais restantes
+
+Removida deliberadamente a carga da manutenção a partir da CI vinculada à ausência da tabela. Não ganhou novo acionamento em startup, endpoint, reset, seed, script ou migration. Instalações novas começam com essas tabelas vazias: mudança deliberada da inicialização anterior.
+
+GET /api/manutencao ainda materializa herança, cria/upserta bloqueios, reconcilia e exclui registros funcionalmente. Reset, sync, propagação, create/update/remove e liberação permanecem intactos. B2 não torna esse GET somente leitura nem implementa proteção temporal. O contrato de negócio permanece em DOMAIN.md.

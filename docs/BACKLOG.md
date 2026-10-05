@@ -34,7 +34,7 @@ Não criar tarefas fictícias apenas para preencher o documento.
 
 ## DATA-001 — Listagens de manutenção executam alterações no banco
 
-**Status:** Pendente de correção; DATA-001A registrada; DATA-001B1 implementada para revisão
+**Status:** Pendente de correção; DATA-001A registrada; DATA-001B1 concluída; DATA-001B2 implementada para revisão
 **Prioridade:** Antes da produção
 **Tipo:** Integridade / arquitetura de dados
 
@@ -59,7 +59,7 @@ O [contrato confirmado da DATA-001A](./DOMAIN.md#data-001a--contrato-operacional
 
 ### Riscos confirmados estaticamente
 
-- GET /api/manutencao e GET /api/ci-bloqueios ainda executam inicialização estrutural; manutenção também copia, cria, atualiza e reconcilia registros.
+- Após B2, não há provisionamento estrutural nos controllers de CI/manutenção; GET /api/manutencao ainda materializa, atualiza, exclui e reconcilia registros funcionalmente.
 - Reconciliação com o estado atual e herança visual podem modificar/completar históricos.
 - Exclusões por prefixo podem atingir registros de diferentes datas.
 - Propagação para datas posteriores não verifica finalização; caches mantêm sincronização adicional.
@@ -72,7 +72,7 @@ São riscos/capacidades confirmados no código, sem consulta ao banco ou confirm
 | Etapa | Escopo | Situação / dependência |
 |---|---|---|
 | DATA-001A | Registrar contrato, comportamento observado e pendências | Documentação/skill registradas para revisão |
-| DATA-001B | Separar inicialização e saneamento dos caminhos HTTP | Parcial; B1 implementada para revisão, B2 pendente |
+| DATA-001B | Separar inicialização e saneamento dos caminhos HTTP | B1 concluída; B2 implementada para revisão; DATA-001 permanece pendente |
 | DATA-001C | Definir identidade/ciclo diário, folha vazia e cópia inicial | Proposta; decisões operacionais e eventual schema sujeitos a aprovação |
 | DATA-001D | GETs somente leitura e histórico sem reconstrução na interface | Proposta; identificar fotografias e disponibilizar preparação explícita |
 | DATA-001E | Retirada confirmada somente na CI em preparação | Proposta; depende de ciclo e destino |
@@ -80,19 +80,27 @@ São riscos/capacidades confirmados no código, sem consulta ao banco ou confirm
 
 ### DATA-001B1 — Remover saneamentos automáticos do runtime
 
-**Status:** Implementada para revisão; DATA-001B ainda não concluída.
+**Status:** Concluída no commit 639cab2; avanço parcial da DATA-001.
 
 Removidos dos helpers HTTP os três saneamentos históricos: exclusão de CI por `id LIKE 'ci-doc-%'`, limpeza da manutenção por categorias `OFICINA`/`PREVENTIVA`/`REFORCO` e limpeza por variações de "Liberado pela CI" na observação. A intenção atual desses registros não foi comprovada; esta etapa não executa saneamento nem recupera dados anteriormente excluídos.
 
-DDL (tabelas, PK e índices), verificações de existência, `tableEnsured` e carga inicial da manutenção a partir da CI continuam no runtime. GET /api/manutencao ainda NÃO é somente leitura: herança, criação/upserts e reconciliação, incluindo exclusões funcionais, permanecem. Operações explícitas, propagação, frontend e caches não foram alterados.
+Ao concluir B1, DDL, verificações, flags e carga inicial ainda permaneciam no runtime; B2 remove esses pontos conforme seção abaixo. GET /api/manutencao ainda NÃO é somente leitura: herança, criação/upserts e reconciliação, incluindo exclusões funcionais, permanecem. Operações explícitas, propagação, frontend e caches não foram alterados.
 
-DATA-001B2 ainda precisa tratar provisionamento estrutural e a carga inicial. DATA-001C/D/E/F permanecem pendentes. O contrato da DATA-001A não foi alterado.
+DATA-001B2 trata provisionamento estrutural e retirada deliberada da carga inicial. DATA-001C/D/E/F permanecem pendentes. O contrato da DATA-001A não foi alterado.
+
+### DATA-001B2 — Retirar provisionamento estrutural do HTTP
+
+**Status:** Implementada para revisão; scripts não executados; DATA-001 ainda não concluída.
+
+Removidos helpers estruturais, flags e chamadas de todos os endpoints dos dois controllers. Removida deliberadamente a carga inicial acoplada à criação, sem novo acionamento. Scripts administrativos separados de validação por metadados e criação explícita em instalação nova; criação recusa objetos alvo existentes, sem reparos. Banco existente, data_folha, Prisma e regras funcionais preservados.
+
+GET /api/manutencao continua mutável por herança, materialização, upserts e exclusões funcionais. GET de CI mantém o catch que pode retornar []. Ver procedimento em [DATABASE.md](./DATABASE.md#data-001b2--provisionamento-separado-do-runtime-http). DATA-001C/D/E/F permanecem pendentes; não há DATA-001B3 definida na organização atual.
 
 ### Decisões ainda pendentes
 
 Lista completa em [DOMAIN.md](./DOMAIN.md#data-001a--contrato-operacional-da-ci): finalização/responsáveis; manual, automática ou híbrida; múltiplas ou nenhuma CI em preparação; folha inexistente/vazia; conteúdo copiado; liberação mantendo bloqueio; históricos antigos; fechamento da manutenção; fuso/dia operacional; modelagem futura.
 
-Mover reconciliação para POST mantendo alteração histórica não satisfaz o contrato. DATA-001A altera somente documentação/skill; somente DATA-001B1 foi autorizada e implementada para revisão; DATA-001B2 e DATA-001C/D/E/F permanecem pendentes.
+Mover reconciliação para POST mantendo alteração histórica não satisfaz o contrato. DATA-001A altera somente documentação/skill; DATA-001B1 foi concluída e DATA-001B2 foi autorizada e implementada para revisão; DATA-001C/D/E/F permanecem pendentes.
 
 ## DATA-002 — Regra de unicidade da vistoria operacional
 
@@ -255,3 +263,16 @@ representando o papel anterior até expirar ou deixar de ser utilizado.
 Definir política de duração, renovação e/ou invalidação de sessão.
 
 Não alterar `JWT_EXPIRES_IN` nem a autenticação nesta tarefa.
+
+## SEC-006 — Credenciais literais em scripts e senha fixa no seed
+
+**Status:** Pendente
+**Tipo:** Segurança
+
+**Problema:** scratch/test-db.js e apps/api/test-conn.js contêm credenciais SQL literais versionadas; apps/api/prisma/seed.ts utiliza senha fixa para provisionar contas.
+
+**Risco:** exposição no código/histórico e uso indevido se credenciais ou contas permanecerem válidas. Validade não testada.
+
+**Escopo futuro:** avaliar exposição, rotação aplicável, configuração externa e política de credenciais do seed.
+
+**Limite:** DATA-001B2 não testa credenciais, altera secrets, corrige scripts ou modifica contas/seed. Nenhum segredo deve ser reproduzido.

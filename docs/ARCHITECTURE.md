@@ -239,6 +239,6 @@ Conforme o [contrato confirmado](./DOMAIN.md#data-001a--contrato-operacional-da-
 
 Esta separação não define novos endpoints, serviços, tabelas ou arquitetura futura implementada. Data futura não equivale automaticamente a preparação.
 
-**ATUAL/OBSERVADO:** interface calcula herança e permite edição de amanhã; algumas ações persistem cópias. Não há ciclo persistido de preparação/finalização identificado. GETs executam inicialização/limpezas; manutenção materializa e reconcilia registros; managers locais acrescentam sincronização. Isso não garante fotografias imutáveis.
+**ATUAL/OBSERVADO:** interface calcula herança e permite edição de amanhã; algumas ações persistem cópias. Não há ciclo persistido de preparação/finalização identificado. Após DATA-001B1/B2, os controllers de CI/manutenção não executam saneamentos históricos ou provisionamento estrutural; GET de manutenção ainda materializa, reconcilia e exclui registros funcionalmente; managers locais acrescentam sincronização. Isso não garante fotografias imutáveis.
 
 Pendências estão centralizadas no contrato de DOMAIN.md; etapas propostas na DATA-001 de BACKLOG.md. DATA-001A não altera aplicação.

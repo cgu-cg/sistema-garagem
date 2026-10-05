@@ -111,77 +111,9 @@ export const SEED_MANUTENCAO_OFICIAL = [
   { id: "manut-4263", prefixo: "4263", consorciada: "VCG", observacao: "", bloqueado: false, emExecucao: false, liberado: true, data: DEFAULT_REF_DATE },
 ];
 
-let tableEnsured = false;
-
-async function ensureTableAndSeed() {
-  if (tableEnsured) return;
-
-  try {
-    const checkTable: any[] = await prisma.$queryRawUnsafe(`
-      SELECT 1 AS exists_tbl FROM sysobjects WHERE name='manutencao_carros' AND xtype='U'
-    `);
-    const tableAlreadyExisted = Array.isArray(checkTable) && checkTable.length > 0;
-
-    await prisma.$executeRawUnsafe(`
-      IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='manutencao_carros' AND xtype='U')
-      BEGIN
-        CREATE TABLE manutencao_carros (
-          id NVARCHAR(100) NOT NULL PRIMARY KEY,
-          prefixo NVARCHAR(10) NOT NULL,
-          consorciada NVARCHAR(10) NOT NULL,
-          observacao NVARCHAR(255) DEFAULT '',
-          bloqueado BIT DEFAULT 0,
-          em_execucao BIT DEFAULT 0,
-          liberado BIT DEFAULT 0,
-          data NVARCHAR(20) NOT NULL,
-          user_id INT NULL,
-          created_at DATETIME DEFAULT GETDATE(),
-          updated_at DATETIME DEFAULT GETDATE()
-        );
-
-        CREATE INDEX idx_manutencao_carros_data ON manutencao_carros(data);
-        CREATE INDEX idx_manutencao_carros_prefixo ON manutencao_carros(prefixo);
-        CREATE INDEX idx_manutencao_carros_data_prefixo ON manutencao_carros(data, prefixo);
-      END
-    `);
-
-    if (!tableAlreadyExisted) {
-      console.log("[Manutenção] Nova tabela criada. Populando apenas com os bloqueados da CI...");
-      const activeCIs = await prisma.ciBloqueio.findMany({
-        where: {
-          status: { not: "LIBERADO" },
-          categoria: "BLOQUEADO",
-        },
-      });
-
-      for (const ci of activeCIs) {
-        const cleanPref = ci.prefixo.replace(/\D/g, "");
-        await prisma.manutencaoCarro.create({
-          data: {
-            id: `manut-${DEFAULT_REF_DATE}-${cleanPref}`,
-            prefixo: cleanPref,
-            consorciada: ci.consorciada,
-            observacao: ci.motivo || "",
-            bloqueado: true,
-            emExecucao: false,
-            liberado: false,
-            data: DEFAULT_REF_DATE,
-          },
-        });
-      }
-    }
-
-    tableEnsured = true;
-  } catch (err) {
-    console.error("[Manutenção] Erro ao verificar/criar tabela manutencao_carros:", err);
-  }
-}
-
 // GET /api/manutencao?data=YYYY-MM-DD
 export async function list(req: AuthRequest, res: Response) {
   try {
-    await ensureTableAndSeed();
-
     const dataQuery = String(req.query.data || DEFAULT_REF_DATE);
 
     // Identificação da Garagem Física do Usuário Logado (VCG ou VCM)
@@ -412,8 +344,6 @@ export async function list(req: AuthRequest, res: Response) {
 // POST /api/manutencao/clear-list
 export async function clearList(req: AuthRequest, res: Response) {
   try {
-    await ensureTableAndSeed();
-
     const { data: dateRef, tipo } = req.body;
     const currentData = dateRef || DEFAULT_REF_DATE;
 
@@ -458,8 +388,6 @@ export async function clearList(req: AuthRequest, res: Response) {
 // POST /api/manutencao
 export async function createOrUpdate(req: AuthRequest, res: Response) {
   try {
-    await ensureTableAndSeed();
-
     const { id, prefixo, consorciada, observacao, bloqueado, emExecucao, liberado, data } = req.body;
 
     if (!prefixo) {
@@ -558,8 +486,6 @@ export async function createOrUpdate(req: AuthRequest, res: Response) {
 // PUT /api/manutencao/:id
 export async function update(req: AuthRequest, res: Response) {
   try {
-    await ensureTableAndSeed();
-
     const { id } = req.params;
     const { observacao, bloqueado, emExecucao, liberado } = req.body;
 
@@ -619,8 +545,6 @@ export async function update(req: AuthRequest, res: Response) {
 // DELETE /api/manutencao/:id
 export async function remove(req: AuthRequest, res: Response) {
   try {
-    await ensureTableAndSeed();
-
     const { id } = req.params;
 
     await prisma.manutencaoCarro.deleteMany({
@@ -637,8 +561,6 @@ export async function remove(req: AuthRequest, res: Response) {
 // POST /api/manutencao/sync
 export async function sync(req: AuthRequest, res: Response) {
   try {
-    await ensureTableAndSeed();
-
     const { data: dateRef, items } = req.body;
 
     if (!Array.isArray(items)) {
@@ -827,8 +749,6 @@ export async function sync(req: AuthRequest, res: Response) {
 // POST /api/manutencao/reset
 export async function reset(req: AuthRequest, res: Response) {
   try {
-    await ensureTableAndSeed();
-
     const { data: dateRef } = req.body;
     const currentData = dateRef || DEFAULT_REF_DATE;
 
