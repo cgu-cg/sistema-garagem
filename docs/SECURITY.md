@@ -162,3 +162,11 @@ Observações relevantes:
 - Não houve revisão de logs, infraestrutura de deploy, reverse proxy ou política de ambiente em produção.
 - Não foi validado se existem middlewares adicionais, proxy reverso ou regras externas em infraestrutura que reforcem segurança além do código lido.
 - Este arquivo registra riscos observáveis e não conclui que uma falha específica foi explorada em produção.
+
+## Proteção temporal da CI — DATA-001A
+
+**Requisito para futuras mutações:** validar no backend a folha destinatária e o escopo temporal permitido. Retirada confirmada na manutenção deve atingir somente CI em preparação; fotografias finalizadas permanecem intactas. GETs devem ser somente leitura.
+
+Autenticação, confirmação na interface ou data futura não demonstram preparação. Finalização/modelagem continuam pendentes no [contrato de domínio](./DOMAIN.md#data-001a--contrato-operacional-da-ci).
+
+**ATUAL/OBSERVADO:** rotas examinadas usam authenticate; não foi identificada validação backend de preparação/finalização. Restrições por data existem na interface, mas exclusões por prefixo atingem diferentes datas e GETs podem escrever. Este registro descreve lacuna/requisito, não proteção implementada ou dano comprovado em produção.

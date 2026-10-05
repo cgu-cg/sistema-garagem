@@ -34,7 +34,7 @@ Não criar tarefas fictícias apenas para preencher o documento.
 
 ## DATA-001 — Listagens de manutenção executam alterações no banco
 
-**Status:** Pendente
+**Status:** Pendente de correção; DATA-001A registrada para revisão
 **Prioridade:** Antes da produção
 **Tipo:** Integridade / arquitetura de dados
 
@@ -55,10 +55,34 @@ estrutura ou dados.
 
 ### Pendência
 
-Revisar com o domínio quais efeitos são intencionais e separar DDL e
-mutações dos handlers de leitura quando apropriado.
+O [contrato confirmado da DATA-001A](./DOMAIN.md#data-001a--contrato-operacional-da-ci) esclarece fotografia diária, preparação antecipada, imutabilidade após finalização, GET somente leitura, coexistência bloqueio/execução e retirada explicitamente confirmada dirigida à CI em preparação. Esses pontos deixaram de ser dúvidas. Não foi decidida substituição por bloqueio global com intervalo de vigência.
 
-Não alterar comportamento nesta tarefa.
+### Riscos confirmados estaticamente
+
+- GET /api/manutencao e GET /api/ci-bloqueios executam inicialização/limpezas; manutenção também copia, cria, atualiza e reconcilia registros.
+- Reconciliação com o estado atual e herança visual podem modificar/completar históricos.
+- Exclusões por prefixo podem atingir registros de diferentes datas.
+- Propagação para datas posteriores não verifica finalização; caches mantêm sincronização adicional.
+- Não foi identificado estado persistido de preparação/finalização ou identidade de folha vazia.
+
+São riscos/capacidades confirmados no código, sem consulta ao banco ou confirmação de dados reais afetados.
+
+### Divisão proposta
+
+| Etapa | Escopo | Situação / dependência |
+|---|---|---|
+| DATA-001A | Registrar contrato, comportamento observado e pendências | Documentação/skill registradas para revisão |
+| DATA-001B | Separar inicialização e saneamento dos caminhos HTTP | Proposta; revisar provisionamento, sem execução automática |
+| DATA-001C | Definir identidade/ciclo diário, folha vazia e cópia inicial | Proposta; decisões operacionais e eventual schema sujeitos a aprovação |
+| DATA-001D | GETs somente leitura e histórico sem reconstrução na interface | Proposta; identificar fotografias e disponibilizar preparação explícita |
+| DATA-001E | Retirada confirmada somente na CI em preparação | Proposta; depende de ciclo e destino |
+| DATA-001F | Limitar propagação/sincronização e preservar coexistência/histórico | Proposta; depende das etapas anteriores e regras de propagação |
+
+### Decisões ainda pendentes
+
+Lista completa em [DOMAIN.md](./DOMAIN.md#data-001a--contrato-operacional-da-ci): finalização/responsáveis; manual, automática ou híbrida; múltiplas ou nenhuma CI em preparação; folha inexistente/vazia; conteúdo copiado; liberação mantendo bloqueio; históricos antigos; fechamento da manutenção; fuso/dia operacional; modelagem futura.
+
+Mover reconciliação para POST mantendo alteração histórica não satisfaz o contrato. DATA-001A altera somente documentação/skill; DATA-001B a DATA-001F não foram implementadas nem autorizadas nesta etapa.
 
 ## DATA-002 — Regra de unicidade da vistoria operacional
 

@@ -224,3 +224,21 @@ As divergências abaixo foram observadas entre documentação antiga e código a
 - Os detalhes completos de todos os serviços de integração legado não foram documentados neste arquivo; apenas foi observada a estrutura do código e os artefatos de apoio do repositório.
 - A documentação de regras de negócio operacionais detalhadas exige validação separada em módulos específicos e não deve ser inferida apenas pela arquitetura.
 - Não foi feita análise de runtime em execução; a descrição acima é baseada na análise estática do código atual.
+
+## CI diária — separação conceitual da DATA-001A
+
+Conforme o [contrato confirmado](./DOMAIN.md#data-001a--contrato-operacional-da-ci):
+
+| Responsabilidade | Contrato |
+|---|---|
+| Leitura da fotografia | Estado registrado da CI finalizada, sem mutação/reconstrução silenciosa; GET somente leitura |
+| Preparação da próxima CI | Ajustes durante preparação, historicamente a partir da anterior; conteúdo exato da cópia pendente |
+| Finalização | Preservar fotografia para uso operacional; mecanismo e responsáveis pendentes |
+| Alterações explícitas | Retirada confirmada dirigida à preparação, preservando finalizadas |
+| Controle de Manutenção | Oficina distinta da CI; execução e bloqueio podem coexistir |
+
+Esta separação não define novos endpoints, serviços, tabelas ou arquitetura futura implementada. Data futura não equivale automaticamente a preparação.
+
+**ATUAL/OBSERVADO:** interface calcula herança e permite edição de amanhã; algumas ações persistem cópias. Não há ciclo persistido de preparação/finalização identificado. GETs executam inicialização/limpezas; manutenção materializa e reconcilia registros; managers locais acrescentam sincronização. Isso não garante fotografias imutáveis.
+
+Pendências estão centralizadas no contrato de DOMAIN.md; etapas propostas na DATA-001 de BACKLOG.md. DATA-001A não altera aplicação.

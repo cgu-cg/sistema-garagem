@@ -218,3 +218,20 @@ Divergências relevantes:
 - Este documento foi construído a partir do schema Prisma e do código de integração observados no repositório. Ele não substitui a validação do banco em execução.
 - A existência de tabelas adicionais fora do schema Prisma e de views/procedures específicas em SQL Server legado não foi confirmada neste escopo; a análise estática indica presença de integração e documentações de apoio, mas não garante o estado real do banco em produção.
 - Não houve acesso ao banco para validar colunas reais, índices em produção nem dados presentes em ambiente concreto.
+
+## CI e manutenção — DATA-001A
+
+### Modelagem atual: ATUAL/OBSERVADO
+
+- CiBloqueio mapeia ci_bloqueios: prefixo, categoria, garagem, dataBloqueio, status e campos de liberação. A interface organiza registros por data e persiste algumas cópias; outros fluxos consultam bloqueios ativos por prefixo.
+- ManutencaoCarro mapeia manutencao_carros: prefixo, consorciada, observação, data, bloqueado, emExecucao, liberado e timestamps. Guarda estados operacionais da oficina e cópias diárias de bloqueados.
+- Não há relação direta entre as tabelas no schema; a aplicação associa principalmente por prefixo.
+- Não há unicidade data/prefixo nem exclusividade declarada entre booleanos. O veículo pode ter registros separados de bloqueio e oficina.
+- Não foi identificado estado persistido de preparação/finalização, data de finalização, versão ou identidade própria da folha, inclusive vazia.
+- Status do registro, dataLiberacao e timestamps não representam finalização nem versões. Datas não garantem histórico imutável: handlers/GETs podem modificar registros.
+
+Fonte: schema Prisma e controllers, sem consulta ao banco.
+
+### Contrato operacional: CONFIRMADO, ainda não garantido pelo banco
+
+Conforme [DOMAIN.md](./DOMAIN.md#data-001a--contrato-operacional-da-ci), fotografias finalizadas preservam o estado diário registrado; bloqueio e execução podem coexistir; retirada confirmada atinge somente preparação. Não foi decidida substituição por bloqueio global com intervalo de vigência. Modelagem futura e históricos antigos permanecem pendentes. Este registro não propõe schema nem afirma proteção implementada.

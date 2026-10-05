@@ -66,3 +66,9 @@ No despacho observado, a interface atualiza o estado e grava cache local em
 mostra uma fila de despachos pendentes em `offline-db.ts` nem garante
 sincronização posterior offline. Trate a resiliência offline do despacho como
 limitação, não como garantia.
+
+## CI — contrato confirmado e lacunas da DATA-001A
+
+**CONFIRMADO:** consulte o [contrato e pendências em DOMAIN.md](../../../../docs/DOMAIN.md#data-001a--contrato-operacional-da-ci). A CI é fotografia diária preparada antecipadamente, preservada após finalização. Bloqueio e execução podem coexistir. Retirada confirmada deve atingir preparação, sem inferir esse estado só pela data.
+
+**ATUAL/OBSERVADO:** interface restringe edição a amanhã, calcula clones e algumas ações persistem cópias. Não há preparação/finalização ou versão persistida identificada. GETs podem escrever; exclusões por prefixo podem atingir várias datas. Isso não constitui regra nem garantia de histórico. A especificação detalhada permanece no domínio; não há arquitetura futura definida aqui.

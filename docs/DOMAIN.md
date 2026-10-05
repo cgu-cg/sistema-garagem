@@ -29,7 +29,7 @@ O Sistema Garagem pretende digitalizar e integrar processos operacionais que hoj
 
 O termo "CONFIRMADO" deve ser reservado apenas para informações validadas formalmente pelo responsável do processo.
 
-Até que isso ocorra, as informações operacionais abaixo devem ser tratadas principalmente como ATUAL/OBSERVADO.
+As regras da seção DATA-001A foram explicitamente confirmadas pelo usuário em 2026-10-05. Os demais conteúdos mantêm a classificação indicada. Confirmação operacional não significa implementação existente.
 
 ### ATUAL/OBSERVADO
 
@@ -206,7 +206,7 @@ No comportamento desejado atualmente, marcar um veículo como "em manutenção" 
 ### Conflito a validar
 
 - O código e a interface podem sugerir a existência de integrações mais automáticas entre controle de manutenção e CI.
-- O entendimento atual indica que esses estados devem permanecer independentes neste momento.
+- O contrato confirmado na DATA-001A define coexistência e retirada explicitamente confirmada dirigida à preparação; a implementação ainda apresenta lacunas.
 
 ## 10. Controle de Manutenção
 
@@ -225,11 +225,11 @@ O Controle de Manutenção pode consultar os veículos bloqueados na CI e existe
 
 ### Importante
 
-Os estados "em manutenção" e "liberado" permanecem independentes da CI neste momento.
+Conforme o contrato confirmado na DATA-001A, execução na oficina pode coexistir com bloqueio da CI. Liberação não deve retirar silenciosamente esse bloqueio; retirada confirmada deve atingir somente a CI em preparação.
 
 ### Conflito a validar
 
-- Pode haver intenção futura de sincronizar esses estados, mas isso não deve ser assumido como regra atual.
+- Finalização e regra completa de liberação mantendo bloqueio continuam pendentes na DATA-001A. A coexistência e o destino da retirada confirmada já são regras confirmadas; não presumir sincronização automática.
 
 ## 11. ERP / Ordem de Serviço
 
@@ -404,7 +404,7 @@ Os pontos abaixo devem ser considerados pendentes de conferência formal:
 
 - regra definitiva de disponibilidade de veículo;
 - critérios formais para impedir circulação do veículo;
-- relação entre CI, Controle de Manutenção e operação;
+- detalhes pendentes da CI/manutenção listados na DATA-001A e critérios completos de disponibilidade operacional;
 - manutenção de matriz de empresas, garagens, terminais e consórcios;
 - regras completas de reserva;
 - digitalização de motoristas e escalas;
@@ -443,6 +443,42 @@ Este documento representa o entendimento atual do domínio do Sistema Garagem, c
 
 - As informações com status ATUAL/OBSERVADO refletem o entendimento operacional atual.
 - As informações com status PLANEJADO representam evolução desejada, mas ainda não validada.
-- As informações com status CONFIRMADO dependem de validação formal do responsável do processo.
+- As regras CONFIRMADAS na DATA-001A registram a confirmação explícita recebida do usuário; não demonstram implementação existente.
 
-Até que esse processo de validação ocorra, o documento deve ser lido como base de discussão operacional, e não como regra formal do negócio.
+O contrato confirmado da DATA-001A orienta as próximas etapas. Os demais conteúdos observados ou planejados permanecem base de discussão e não devem ser promovidos a regras confirmadas por inferência.
+
+## DATA-001A — Contrato operacional da CI
+
+### CONFIRMADO — confirmação explícita do usuário em 2026-10-05
+
+As regras abaixo prevalecem sobre trechos anteriores que tratam genericamente a relação CI/manutenção como pendente. Confirmação do contrato não significa implementação existente.
+
+- A CI é uma fotografia operacional diária, preparada antecipadamente, normalmente no dia anterior.
+- Historicamente, parte-se de uma cópia da CI anterior, com inclusões, exclusões e alterações para preparar a próxima.
+- Durante a preparação pode haver alterações. Após finalizada para uso operacional, a CI não deve sofrer alterações posteriores.
+- Consulta de CI finalizada/passada retorna a fotografia registrada daquele dia. Não deve reconstruir, completar, reconciliar ou modificar silenciosamente históricos com o estado atual. GETs devem ser somente leitura.
+- CI e Controle de Manutenção são relacionados, mas distintos. O veículo pode estar simultaneamente bloqueado pela CI e em execução/manutenção; esses estados não são mutuamente exclusivos.
+- Liberação na manutenção não deve retirar silenciosamente o bloqueio da CI. Retirada explicitamente confirmada deve atingir a CI em preparação, preservando as finalizadas.
+- O processo trabalha com fotografias diárias; não foi decidida substituição por um único bloqueio global com intervalo de vigência.
+
+### ATUAL/OBSERVADO — implementação e divergências
+
+A interface permite edição de amanhã, bloqueia hoje/passado e calcula cópias; algumas ações materializam essas cópias. Não foi identificado estado persistido de preparação/finalização, data de finalização ou versão. GETs executam DDL/limpezas; manutenção também copia, cria, atualiza e reconcilia registros. Herança pode completar históricos e exclusões por prefixo podem atingir várias datas. Isso diverge do contrato confirmado.
+
+Fontes: controllers ciBloqueios.ts/manutencao.ts, CiManutencaoView.tsx e managers de CI/manutenção. Análise estática, sem consulta ao banco.
+
+### PENDENTE DE VALIDAÇÃO — decisões de CI/manutenção
+
+- Mecanismo exato de finalização e quem pode finalizar.
+- Finalização manual, automática ou híbrida.
+- Possibilidade de mais de uma CI em preparação e escolha da destinatária.
+- Comportamento quando nenhuma CI em preparação existir.
+- Política de folha inexistente versus vazia.
+- Conteúdo exato copiado ao preparar nova CI.
+- Regra completa para liberar na manutenção mantendo bloqueio na CI.
+- Tratamento/correção de históricos antigos possivelmente afetados.
+- Se o Controle de Manutenção possui fechamento diário.
+- Definição formal de fuso/dia operacional.
+- Eventual modelagem futura de identidade/status da folha.
+
+Não presumir que data futura equivale a preparação. A restrição atual a amanhã é comportamento da interface, não definição persistida do ciclo.
