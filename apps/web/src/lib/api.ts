@@ -4,7 +4,24 @@ interface RequestCustomOptions extends RequestInit {
   timeoutMs?: number;
 }
 
-async function request(path: string, options: RequestCustomOptions = {}) {
+export type DataSource = "real" | "mock" | "unknown";
+
+export interface DataSourceResponse<T> {
+  data: T;
+  source: DataSource;
+}
+
+export interface InventoryVehicle {
+  idCarro: number;
+  prefixo: string;
+  garagemNome: "VCM" | "VCG";
+}
+
+export interface OperationalLine {
+  descricao: string;
+}
+
+async function request(path: string, options: RequestCustomOptions = {}, includeSource = false) {
   const token = localStorage.getItem("token");
 
   const headers: Record<string, string> = {
@@ -32,7 +49,14 @@ async function request(path: string, options: RequestCustomOptions = {}) {
     });
     if (timeoutId) clearTimeout(timeoutId);
 
-    if (res.status === 204) return null;
+    const sourceHeader = res.headers.get("X-Data-Source");
+    const source: DataSource = sourceHeader === "real" || sourceHeader === "mock"
+      ? sourceHeader
+      : "unknown";
+
+    if (res.status === 204) {
+      return includeSource ? { data: null, source } : null;
+    }
 
     let data: any = {};
     const text = await res.text();
@@ -45,17 +69,20 @@ async function request(path: string, options: RequestCustomOptions = {}) {
     }
 
     if (!res.ok) {
-      const errorMsg =
-        data?.error ||
+      const errorMsg = data?.message ||
+        (data?.error === "SQL_SERVER_UNAVAILABLE"
+          ? "Integração SQL Server indisponível"
+          : data?.error) ||
         (res.status === 502 || res.status === 504 || res.status === 500
           ? "Servidor da API indisponível. Verifique se o backend está em execução."
           : `Erro na requisição (${res.status})`);
       const error = new Error(errorMsg) as any;
       error.status = res.status;
+      error.code = data?.error;
       throw error;
     }
 
-    return data;
+    return includeSource ? { data, source } : data;
   } catch (err: any) {
     if (timeoutId) clearTimeout(timeoutId);
     if (err.name === "AbortError") {
@@ -63,6 +90,10 @@ async function request(path: string, options: RequestCustomOptions = {}) {
     }
     throw err;
   }
+}
+
+function requestWithSource<T>(path: string): Promise<DataSourceResponse<T>> {
+  return request(path, {}, true);
 }
 
 export const api = {
@@ -95,7 +126,7 @@ export const api = {
 
   // Buses
   listBuses: () => request("/buses"),
-  getBusesInventory: () => request("/buses/inventory"),
+  getBusesInventory: () => requestWithSource<InventoryVehicle[]>("/buses/inventory"),
   createBus: (data: any) =>
     request("/buses", { method: "POST", body: JSON.stringify(data) }),
 
@@ -218,8 +249,8 @@ export const api = {
     const qs = query.toString();
     return request(`/controle-operacional${qs ? `?${qs}` : ""}`);
   },
-  listOperacionalVeiculos: () => request("/controle-operacional/veiculos"),
-  listOperacionalLinhas: () => request("/controle-operacional/linhas"),
+  listOperacionalVeiculos: () => requestWithSource<InventoryVehicle[]>("/controle-operacional/veiculos"),
+  listOperacionalLinhas: () => requestWithSource<OperationalLine[]>("/controle-operacional/linhas"),
   createControleOperacional: (data: any) =>
     request("/controle-operacional", { method: "POST", body: JSON.stringify(data) }),
   deleteControleOperacional: (id: number) =>
@@ -291,6 +322,3 @@ export const api = {
   delete: <T = any>(path: string, options?: RequestInit): Promise<T> =>
     request(path, { ...options, method: "DELETE" }),
 };
-
-
-

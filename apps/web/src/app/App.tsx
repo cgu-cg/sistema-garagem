@@ -120,6 +120,16 @@ function PermissionRoute({ to, fallbackRoles, children }: { to: string; fallback
   return <>{children}</>;
 }
 
+function AdminOnlyRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+
+  if (loading && !user) return <LoadingScreen />;
+  if (!user) return <Navigate to="/" replace />;
+  if (user.role !== "ADMIN") return <Navigate to={getDefaultRoute(user)} replace />;
+
+  return <>{children}</>;
+}
+
 export function App() {
   const { loadUser, token } = useAuth();
 
@@ -151,49 +161,49 @@ export function App() {
           <Route
             path="/catracas"
             element={
-              <PermissionRoute to="/catracas" fallbackRoles={["ADMIN"]}>
+              <AdminOnlyRoute>
                 <CatracasPage />
-              </PermissionRoute>
+              </AdminOnlyRoute>
             }
           />
           <Route
             path="/catracas/consistencia"
             element={
-              <PermissionRoute to="/catracas" fallbackRoles={["ADMIN"]}>
+              <AdminOnlyRoute>
                 <CatracasPage />
-              </PermissionRoute>
+              </AdminOnlyRoute>
             }
           />
           <Route
             path="/catracas/alertas"
             element={
-              <PermissionRoute to="/catracas" fallbackRoles={["ADMIN"]}>
+              <AdminOnlyRoute>
                 <CatracasPage />
-              </PermissionRoute>
+              </AdminOnlyRoute>
             }
           />
           <Route
             path="/catracas/backup"
             element={
-              <PermissionRoute to="/catracas" fallbackRoles={["ADMIN"]}>
+              <AdminOnlyRoute>
                 <CatracasPage />
-              </PermissionRoute>
+              </AdminOnlyRoute>
             }
           />
           <Route
             path="/catracas/historico"
             element={
-              <PermissionRoute to="/catracas" fallbackRoles={["ADMIN"]}>
+              <AdminOnlyRoute>
                 <CatracasPage />
-              </PermissionRoute>
+              </AdminOnlyRoute>
             }
           />
           <Route
             path="/catracas/diario"
             element={
-              <PermissionRoute to="/catracas" fallbackRoles={["ADMIN"]}>
+              <AdminOnlyRoute>
                 <CatracasPage />
-              </PermissionRoute>
+              </AdminOnlyRoute>
             }
           />
           <Route

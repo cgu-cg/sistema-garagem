@@ -22,6 +22,31 @@ const config: sql.config = {
 let pool: sql.ConnectionPool | null = null;
 let connectionAttempted = false;
 
+export class SqlServerUnavailableError extends Error {
+  constructor() {
+    super("SQL Server integration is unavailable");
+    this.name = "SqlServerUnavailableError";
+  }
+}
+
+export type SqlServerResult<T> = {
+  data: T;
+  source: "real" | "mock";
+};
+
+const mockEnabled = process.env.SQL_SERVER_MOCK_ENABLED === "true";
+
+function realResult<T>(data: T): SqlServerResult<T> {
+  return { data, source: "real" };
+}
+
+function mockResult<T>(data: T): SqlServerResult<T> {
+  if (!mockEnabled) {
+    throw new SqlServerUnavailableError();
+  }
+  return { data, source: "mock" };
+}
+
 // Função para obter o pool de conexão
 export async function getPool(): Promise<sql.ConnectionPool | null> {
   if (pool && pool.connected) return pool;
@@ -31,20 +56,16 @@ export async function getPool(): Promise<sql.ConnectionPool | null> {
   connectionAttempted = true;
 
   try {
-    console.log(`[SQL Server] Tentando conectar a ${config.server}:${config.port}...`);
+    console.log("[SQL Server] Tentando conectar...");
     pool = new sql.ConnectionPool(config);
     await pool.connect();
     console.log("[SQL Server] Conectado com sucesso!");
     return pool;
   } catch (error) {
-    console.warn("[SQL Server] Banco SQL Server offline — usando dados simulados (mock)");
+    console.warn("[SQL Server] Falha na conexão com a integração.");
     pool = null;
     return null;
   }
-}
-
-export function isMockMode(): boolean {
-  return !pool || !pool.connected;
 }
 
 // 1. Diferenças de Catraca (fnConsisteCatracaVEICULOS)
@@ -60,14 +81,14 @@ export async function queryConsistenciaCatraca(dateStr: string, minDiff: number)
           FROM fnConsisteCatracaVEICULOS(@data, @diff) 
           ORDER BY idCarro
         `);
-      return result.recordset;
+      return realResult(result.recordset);
     } catch (err) {
-      console.warn("[SQL Server] Falha na consulta de consistência, retornando mock:", err);
+      console.warn("[SQL Server] Falha na consulta de consistência.");
     }
   }
 
   // Mock data
-  return [
+  return mockResult([
     {
       idCarro: 1201,
       Linha: "501 - CIRCULAR CENTRO",
@@ -107,7 +128,7 @@ export async function queryConsistenciaCatraca(dateStr: string, minDiff: number)
       catracaIni: 3112,
       diff: 12,
     },
-  ].filter(item => item.diff >= minDiff);
+  ].filter(item => item.diff >= minDiff));
 }
 
 // 2. Datas Incorretas (TotalizadorServico ts WHERE dataHIni NOT LIKE '%ano%' AND dataHoraUL >= 'startDate')
@@ -116,8 +137,12 @@ export async function queryDatasIncorretas(startDateStr: string, yearStr: string
   if (pool) {
     try {
       const years = allowedYears && allowedYears.length > 0 ? allowedYears : [yearStr];
-      const whereHIni = years.map((y) => `dataHIni NOT LIKE '%${y}%'`).join(" AND ");
-      const whereHFim = years.map((y) => `dataHFim NOT LIKE '%${y}%'`).join(" AND ");
+      const yearParameters = years.map((year, index) => ({
+        name: `year${index}`,
+        value: `%${year}%`,
+      }));
+      const whereHIni = yearParameters.map(({ name }) => `dataHIni NOT LIKE @${name}`).join(" AND ");
+      const whereHFim = yearParameters.map(({ name }) => `dataHFim NOT LIKE @${name}`).join(" AND ");
 
       const q1 = `
         SELECT totalEDM, catracaIni, catracaFim, idVeiculo, dataHIni, dataHFim, dataHoraUL 
@@ -131,20 +156,27 @@ export async function queryDatasIncorretas(startDateStr: string, yearStr: string
         WHERE ${whereHFim} AND dataHoraUL >= @startDate 
         ORDER BY ts.catracaFim
       `;
+      const requestHIni = pool.request().input("startDate", sql.VarChar, startDateStr);
+      const requestHFim = pool.request().input("startDate", sql.VarChar, startDateStr);
+      for (const { name, value } of yearParameters) {
+        requestHIni.input(name, sql.VarChar, value);
+        requestHFim.input(name, sql.VarChar, value);
+      }
+
       const [res1, res2] = await Promise.all([
-        pool.request().input("startDate", sql.VarChar, startDateStr).query(q1),
-        pool.request().input("startDate", sql.VarChar, startDateStr).query(q2),
+        requestHIni.query(q1),
+        requestHFim.query(q2),
       ]);
-      return {
+      return realResult({
         dataHIniInvalido: res1.recordset,
         dataHFimInvalido: res2.recordset,
-      };
+      });
     } catch (err) {
-      console.warn("[SQL Server] Falha em datas incorretas, usando mock:", err);
+      console.warn("[SQL Server] Falha na consulta de datas incorretas.");
     }
   }
 
-  return {
+  return mockResult({
     dataHIniInvalido: [
       {
         totalEDM: 142,
@@ -157,7 +189,7 @@ export async function queryDatasIncorretas(startDateStr: string, yearStr: string
       },
     ],
     dataHFimInvalido: [],
-  };
+  });
 }
 
 // 3. Veículos Fora da Frota
@@ -187,19 +219,19 @@ export async function queryVeiculosForaFrota(startDateStr: string, fleetIds: num
         pool.request().input("startDate", sql.VarChar, startDateStr).query(queryGte6999),
         pool.request().input("startDate", sql.VarChar, startDateStr).query(queryLt6000),
       ]);
-      return {
+      return realResult({
         carrosEspeciais: resGte.recordset,
         carrosComuns: resLt.recordset,
-      };
+      });
     } catch (err) {
-      console.warn("[SQL Server] Falha em veículos fora de frota, usando mock:", err);
+      console.warn("[SQL Server] Falha na consulta de veículos fora da frota.");
     }
   }
 
-  return {
+  return mockResult({
     carrosEspeciais: [],
     carrosComuns: [],
-  };
+  });
 }
 
 // 4. Verificar Serviços por Carro
@@ -216,13 +248,13 @@ export async function queryVeiculoServicos(idVeiculo: number, startDateStr: stri
           WHERE idVeiculo = @idVeiculo AND dataHoraUL >= @startDate 
           ORDER BY ts.dataHFim
         `);
-      return result.recordset;
+      return realResult(result.recordset);
     } catch (err) {
-      console.warn("[SQL Server] Falha em veiculo servicos, usando mock:", err);
+      console.warn("[SQL Server] Falha na consulta de serviços do veículo.");
     }
   }
 
-  return [
+  return mockResult([
     {
       totalEDM: 185,
       catracaIni: 4335,
@@ -241,7 +273,7 @@ export async function queryVeiculoServicos(idVeiculo: number, startDateStr: stri
       dataHFim: `${startDateStr} 20:10:00`,
       dataHoraUL: `${startDateStr} 20:15:00`,
     },
-  ];
+  ]);
 }
 
 // 5. Verificar se os carros estão em Backup (se ids informado filtra, senão traz WHERE coletaBKPIni IS NOT NULL)
@@ -260,42 +292,44 @@ export async function queryBackupStatus(ids?: number[]) {
         ${whereClause} 
         ORDER BY idCarro
       `);
-      return result.recordset;
+      return realResult(result.recordset);
     } catch (err) {
-      console.warn("[SQL Server] Falha em status backup, usando mock:", err);
+      console.warn("[SQL Server] Falha na consulta de status de backup.");
     }
   }
 
   const mockIds = ids && ids.length > 0 ? ids : [1118, 1327, 2701];
-  return mockIds.map((id, index) => ({
+  return mockResult(mockIds.map((id, index) => ({
     idCarro: id,
     garage: index % 2 === 0 ? "VCG" : "VCM",
     coletaBKPIni: "2026-08-01 03:00:00",
     coletaBKPFim: "2026-08-07 02:59:59",
     emManutencao: 0,
-  }));
+  })));
 }
 
 // 6. Atualizar status de Backup dos carros
 export async function updateBackupStatus(ids: number[], coletaBKPIni: string, coletaBKPFim: string) {
   const pool = await getPool();
-  if (pool) {
-    try {
-      await pool.request()
-        .input("bkpIni", sql.VarChar, coletaBKPIni)
-        .input("bkpFim", sql.VarChar, coletaBKPFim)
-        .query(`
-          UPDATE Veiculos 
-          SET coletaBKPIni = @bkpIni, coletaBKPFim = @bkpFim 
-          WHERE idCarro IN (${ids.join(",")})
-        `);
-      return { success: true, updatedCount: ids.length };
-    } catch (err) {
-      console.warn("[SQL Server] Falha ao atualizar backup, usando mock:", err);
-    }
+  if (!pool) {
+    throw new SqlServerUnavailableError();
   }
 
-  return { success: true, updatedCount: ids.length };
+  try {
+    const result = await pool.request()
+      .input("bkpIni", sql.VarChar, coletaBKPIni)
+      .input("bkpFim", sql.VarChar, coletaBKPFim)
+      .query(`
+        UPDATE Veiculos
+        SET coletaBKPIni = @bkpIni, coletaBKPFim = @bkpFim
+        WHERE idCarro IN (${ids.join(",")})
+      `);
+    const updatedCount = result.rowsAffected.reduce((total, affected) => total + affected, 0);
+    return { success: updatedCount > 0, updatedCount };
+  } catch (err) {
+    console.warn("[SQL Server] Falha ao atualizar status de backup.");
+    throw new SqlServerUnavailableError();
+  }
 }
 
 // 7. Consulta de detalhamento automático de inconsistência
@@ -313,10 +347,10 @@ export async function queryDetalhesVeiculo(idVeiculo: number, dateStr: string) {
       const consisteRes = resConsiste.recordset[0];
 
       if (!consisteRes) {
-        return {
+        return realResult({
           message: `Nenhuma inconsistência de catraca registrada para o carro ${idVeiculo} na data ${dateStr}.`,
           consistenciaBase: null,
-        };
+        });
       }
 
       const { datainiSV1, datafimSV2, catracaFim, catracaIni, datainiSV2 } = consisteRes;
@@ -402,7 +436,7 @@ export async function queryDetalhesVeiculo(idVeiculo: number, dateStr: string) {
         osBilhetagemItens = resOSItens.recordset;
       }
 
-      return {
+      return realResult({
         consistenciaBase: consisteRes,
         ultimaComunicacao: resWifi.recordset[0] || null,
         errosEvento: resErro.recordset,
@@ -423,14 +457,14 @@ export async function queryDetalhesVeiculo(idVeiculo: number, dateStr: string) {
           })),
         } : null,
         ordemServicoSimanet: null,
-      };
+      });
     } catch (err) {
-      console.warn("[SQL Server] Falha ao consultar detalhes veículo, usando mock:", err);
+      console.warn("[SQL Server] Falha na consulta de detalhes do veículo.");
     }
   }
 
   // Mocked details
-  return {
+  return mockResult({
     consistenciaBase: {
       datainiSV1: `${dateStr} 05:40:00`,
       datafimSV2: `${dateStr} 20:10:00`,
@@ -480,7 +514,7 @@ export async function queryDetalhesVeiculo(idVeiculo: number, dateStr: string) {
     ],
     ordemServicoBilhetagem: null,
     ordemServicoSimanet: null,
-  };
+  });
 }
 
 export function normalizeGaragemVeiculo(garagemRaw: any, idCarro: number | string): "VCM" | "VCG" {
@@ -507,14 +541,14 @@ export async function queryVeiculosSelect() {
         WHERE ativo=1 and idCarro < 6000 and idCarro not in (1999,2999,3999,4999) 
         ORDER BY idCarro
       `);
-      return result.recordset.map((row: any) => ({
+      return realResult(result.recordset.map((row: any) => ({
         idCarro: row.idCarro,
         prefixo: String(row.idCarro),
         garagem: row.garagem,
         garagemNome: normalizeGaragemVeiculo(row.garagem, row.idCarro),
-      }));
+      })));
     } catch (error) {
-      console.error("[SQL Server] Erro ao consultar veículos, retornando mocks:", error);
+      console.warn("[SQL Server] Falha na consulta de veículos.");
     }
   }
 
@@ -533,12 +567,12 @@ export async function queryVeiculosSelect() {
     { idCarro: 4178, garagem: 2 },
   ];
 
-  return mockVeiculos.map((v) => ({
+  return mockResult(mockVeiculos.map((v) => ({
     idCarro: v.idCarro,
     prefixo: String(v.idCarro),
     garagem: v.garagem,
     garagemNome: normalizeGaragemVeiculo(v.garagem, v.idCarro),
-  }));
+  })));
 }
 
 // 9. Consulta de linhas para o Controle Operacional
@@ -552,17 +586,17 @@ export async function queryLinhasSelect() {
         WHERE id not in (145, 146, 147, 678, 900, 901, 902, 903, 904, 905, 906, 907, 908, 909, 910, 911, 912, 913, 914, 915, 000, 004) 
         ORDER BY Id
       `);
-      return result.recordset;
+      return realResult(result.recordset);
     } catch (error) {
-      console.error("[SQL Server] Erro ao consultar linhas, retornando mocks:", error);
+      console.warn("[SQL Server] Falha na consulta de linhas.");
     }
   }
 
-  return [
+  return mockResult([
     { descricao: "501 - Circular Centro" },
     { descricao: "302 - Bairro/Centro" },
     { descricao: "105 - Terminal Norte" },
     { descricao: "401 - Circular Sul" },
     { descricao: "202 - Circular Oeste" },
-  ];
+  ]);
 }

@@ -1,6 +1,6 @@
 ---
 name: controle-operacional
-description: Utilize esta skill ao desenvolver, corrigir ou consultar regras de negócio da tela de Controle Operacional, Vistoria Fotográfica dos 464 Veículos, PWA Offline e Sincronização em Segundo Plano.
+description: Utilize esta skill ao desenvolver, corrigir ou consultar regras de negócio da tela de Controle Operacional, inventário observado na implementação atual, PWA Offline e Sincronização em Segundo Plano.
 ---
 
 # Skill: Controle Operacional & Vistoria Fotográfica
@@ -10,7 +10,8 @@ Utilize esta skill sempre que o usuário solicitar desenvolvimento, manutenção
 ## Diretrizes e Regras de Negócio
 
 ### 1. Inventário Fixo
-- O sistema gerencia 464 prefixos fixos (`INVENTORY_CARS` de `1000` a `4279`).
+- A lista `INVENTORY_CARS` da implementação atual contém 464 prefixos observados, com valores listados entre `1000` e `4279`.
+- Essa quantidade descreve o inventário presente no código; não deve ser tratada como regra permanente da empresa nem alterada sem validação do escopo da tarefa.
 - O status de vistoria é verificado comparando os registros da tabela `controleOperacional` com os prefixos da frota.
 
 ### 2. Fotos e Mídia

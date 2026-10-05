@@ -91,7 +91,7 @@ export const consisteCatracaQuerySchema = z.object({
 
 export const datasIncorretasQuerySchema = z.object({
   startDate: z.string().optional(),
-  year: z.string().optional(),
+  year: z.string().regex(/^\d{4}$/).optional(),
 });
 
 export const foraFrotaQuerySchema = z.object({

@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import prisma from "../utils/prisma";
 import { AuthRequest } from "../middleware/auth";
+import { jwtSecret } from "../config";
 
 export async function login(req: AuthRequest, res: Response) {
   const { email, password } = req.body;
@@ -30,7 +31,7 @@ export async function login(req: AuthRequest, res: Response) {
 
   const token = jwt.sign(
     { id: user.id, role: user.role },
-    process.env.JWT_SECRET || "secret",
+    jwtSecret,
     { expiresIn: (process.env.JWT_EXPIRES_IN || "365d") as jwt.SignOptions["expiresIn"] }
   );
 
