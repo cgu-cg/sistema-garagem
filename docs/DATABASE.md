@@ -274,7 +274,7 @@ Esta etapa não cria identidade/estado persistido de ciclo, preparação/finaliz
 
 ## DATA-001C3 — Proposta de schema não implementada
 
-Contrato em [DOMAIN.md](./DOMAIN.md#data-001c3--contrato-consolidado-do-ciclo-e-da-fotografia-ci). Nomes, tipos e constraints abaixo são PROPOSTA para revisão; nenhum modelo, tabela, migration, SQL ou configuração foi alterado. Prisma 6.10.0 atual; SQL Server 2012. Não usar enums Prisma para este conector, JSON nativo ou tabelas temporais: códigos String limitados e constraints convencionais propostas. Date armazena data civil do domínio; DateTime2(3) armazena instantes UTC, convertidos por America/Campo_Grande, sem offset fixo. Tamanhos textuais refletem limites atuais ou códigos propostos e precisam de revisão contra os Excels antes da carga.
+Contrato em [DOMAIN.md](./DOMAIN.md#data-001c3--contrato-consolidado-do-ciclo-e-da-fotografia-ci). A C3 foi concluída documentalmente em 2c39fd1 — docs(domain): consolida ciclo operacional da CI. A seção abaixo registra a proposta daquela etapa, sem execução no banco. A C4 fase 2 materializa o candidato e suas diferenças técnicas na seção seguinte; ela prevalece para os artefatos atuais, sem modificar o contrato de DOMAIN.md. Prisma 6.10.0 atual; SQL Server 2012. Não usar enums Prisma para este conector, JSON nativo ou tabelas temporais: códigos String limitados e constraints convencionais propostas. Date armazena data civil do domínio; DateTime2(3) armazena instantes UTC, convertidos por America/Campo_Grande, sem offset fixo. Tamanhos textuais refletem limites atuais ou códigos propostos e precisam de revisão contra os Excels antes da carga.
 
 ### A. CicloOperacional — proposta ciclo_operacional
 
@@ -388,4 +388,56 @@ Recuperação mesmo dia usa operação idempotente com previsto/efetivo; vários
 
 ### G. Revisão e decisões remanescentes
 
-Os novos conceitos, garagens, timezone, horários, acesso e cópia estão aprovados. Esta proposta de quatro tabelas oficiais novas precisa de aprovação técnica antes de C4; não há novo blocker de negócio para apresentar schema. Títulos desconhecidos/valores de Excel e duplicidades precisam de validação administrativa antes da carga; procedimento de correção e conflitos IMPORTACAO/RECUPERACAO ficam para etapa administrativa, sem suporte noturno/reabertura agora. Avaliar limites reais dos Excels e aprovar rollout/folha inicial. Serviços/frontend atuais continuam incompatíveis e não foram alterados.
+Os novos conceitos, garagens, timezone, horários, acesso e cópia estão aprovados. O desenho foi aprovado na C4 fase 1; a fase 2 materializa quatro models candidatos e scripts administrativos, ainda sem provisionamento ou comportamento operacional. Títulos desconhecidos/valores de Excel e duplicidades precisam de validação administrativa antes da carga; procedimento de correção e conflitos IMPORTACAO/RECUPERACAO ficam para etapa administrativa, sem suporte noturno/reabertura agora. Avaliar limites reais dos Excels e aprovar rollout/folha inicial. Serviços/frontend atuais continuam incompatíveis e não foram alterados.
+
+
+## DATA-001C4 — Fase 2: schema candidato e provisionamento administrativo
+
+**Estado:** artefatos materializados para revisão, não executados. DATA-001 não concluída. O runtime continua usando o legado; o novo fluxo não foi habilitado. Nenhuma migration, carga, cliente Prisma gerado, scheduler, serviço, endpoint ou frontend foi implementado nesta fase.
+
+### Fontes técnicas sincronizadas
+
+- [Schema candidato](../apps/api/prisma/schema.prisma): CicloOperacional → dbo.ciclo_operacional; FolhaCI → dbo.folha_ci; ItemFolhaCI → dbo.item_folha_ci; EstadoManutencao → dbo.estado_manutencao_ciclo.
+- [Provisionamento administrativo](../scripts/sql/data-001c4-provisionamento.sql): criação exclusiva das quatro tabelas novas, constraints, índices e defaults. Não integra npm, HTTP, startup ou Docker.
+- [Validação estrutural somente leitura](../scripts/sql/data-001c4-validacao.sql): SELECTs de identificação e catálogos; nenhuma leitura de dados operacionais. Esperados explícitos devem acompanhar qualquer alteração aprovada no schema/DDL.
+
+As definições de campos, tipos, nulabilidade e nomes físicos estão no schema/DDL. Todas as FKs usam NO ACTION em atualização/exclusão. User recebe somente relações inversas; CiBloqueio e ManutencaoCarro permanecem intactos. A FK opcional de responsável utiliza users.id INT/PK, comprovado pelo schema atual; o script exige esse pré-requisito por metadados antes de criar qualquer tabela, sem alterar users.
+
+### Refinamentos aprovados em relação à proposta C3
+
+| Ponto | Candidato C4 |
+|---|---|
+| Ciclo | Sem status; UNIQUE(garagem,dataOperacional); referência opcional da recuperação; existência só provará conclusão quando o futuro serviço inicializar tudo em uma transação |
+| Folha | UNIQUE(garagem,dataFolha); status/origem obrigatórios sem defaults implícitos; vínculo opcional ao ciclo/origem; título nullable sem valor inventado |
+| Registro técnico | createdAt substitui registradaEm; importação registra persistência real sem fabricar timestamps operacionais |
+| Identidade do item | chaveItem String @db.UniqueIdentifier, UUID explícito sem default; preservado na cópia, PK identity nova |
+| Reforço | tipoPosicao + ordemPosicao; FIXO 1..12, EXTRA > 0; posições não são identificadas por horário/prefixo/IDs atuais da UI |
+| Bloqueados | No máximo um item BLOQUEADO por folha/prefixo, independentemente do motivo; tentativa adicional deve ser rejeitada, sem dedupe silencioso |
+| Manutenção | UNIQUE(cicloId,prefixo); bits NOT NULL default false; 000/100/010/110/001 válidos; liberado exige bloqueado=false e emExecucao=false |
+| Datas | DATE para dataOperacional/dataFolha; DATETIME2(3) UTC para instantes; conversão America/Campo_Grande no futuro serviço, sem AT TIME ZONE/offset fixo |
+
+O Prisma 6.10 **não aceita precisão em @db.DateTime2** (validado localmente); o schema usa @db.DateTime2 e a precisão 3 é garantida exclusivamente pelo DDL e verificada pelo script administrativo. Não usar SQL gerado automaticamente pelo Prisma como substituto do provisionamento aprovado. Defaults de createdAt/updatedAt são SYSUTCDATETIME(); @updatedAt atua no escritor Prisma, sem trigger. Escritores SQL futuros devem atualizar updated_at explicitamente. Não há default para códigos de garagem/status/origem, datas de negócio, UUID, prefixo ou consorciada.
+
+### Constraints complementares exclusivamente administrativas
+
+Prisma representa PKs identity, UNIQUEs convencionais, índices comuns e FKs, inclusive compostas. Não representa sozinho os 17 CHECKs e estes três índices UNIQUE filtrados no baseline 6.10:
+
+- UQ_folha_ci_ciclo_preparacao: (ciclo_preparacao_id) WHERE ciclo_preparacao_id IS NOT NULL. Várias folhas importadas sem ciclo continuam permitidas.
+- UQ_item_folha_ci_bloqueado_prefixo: (folha_id,prefixo) WHERE categoria = N'BLOQUEADO'. Não usar UNIQUE geral de folha/prefixo; demais categorias mantêm multiplicidade.
+- UQ_item_folha_ci_reforco_posicao: (folha_id,tipo_posicao,ordem_posicao) WHERE categoria = N'REFORCO'. Título fica no cabeçalho mesmo sem itens.
+
+CHECKs: garagem VCG/VCM em ciclo/folha; origens e status aprovados; não autorreferência; título NULL ou uma das seis opções confirmadas; relações/timestamps obrigatórios por origem/estado; categorias; posição condicional com testes explícitos de NULL; prefixo/consorciada não vazios em item/estado; liberação incompatível com bloqueio/execução. statusItem e campos de liberação são nullable para compatibilidade, sem controlar finalização e sem CHECK baseado somente em enum observado.
+
+UNIQUE(id,garagem) em ciclo/folha permite FKs compostas que impedem vínculo entre garagens diferentes: folha → ciclo e folha → origem. Itens/estado derivam contexto do pai. Igualdade dataFolha=dataOperacional+1, predecessor FINALIZADA, cópia, sincronização, confirmação, janela 03:00–18:30, imutabilidade e locks continuam responsabilidades de serviços futuros. Este schema não implementa essas proteções operacionais nem torna GET read-only.
+
+### Comportamento administrativo e limites da validação
+
+Provisionamento exige execução fora de transação existente, VIEW DEFINITION no banco e users.id compatível. Se qualquer objeto alvo já existir, falha explicitamente antes da criação: não repara, completa, altera, apaga ou recria. Criação em transação com XACT_ABORT/TRY/CATCH e rollback; erro concorrente também interrompe sem completar parcialmente. SETs necessários aos índices filtrados são explícitos. Nenhum DML/carga, alteração de users ou tabelas legadas.
+
+Validação reporta 59 colunas (ordem, tipo, capacidade textual, nullable, identity 1/1, escala datetime2=3), 16 índices/PKs/UNIQUEs (chaves ordenadas, filtros, unicidade, disabled, ignore_dup_key), sete FKs (colunas ordenadas, destino dbo, NO ACTION, enabled/trusted), 17 CHECKs, defaults esperados e ausência de defaults adicionais, além de objetos adicionais/triggers para revisão. Sem VIEW DEFINITION, ausência aparente não certifica estrutura. CHECKs e filtros têm comparação textual conservadora, preservando parênteses/literais: diferenças de normalização do SQL Server podem produzir REVISAR_DEFINICAO e exigem comparação manual com o DDL. Não tratar esse resultado como aprovação automática ou como autorização de reparo.
+
+SQL Server alvo é 2012; scripts não usam recursos posteriores. A matriz oficial Prisma v6 não lista essa versão: ressalva documentada, **não blocker da modelagem**, conforme decisão do responsável. Não atualizar ORM/dependências. Compatibilidade de leitura/gravação/transações deve ser validada controladamente antes do rollout, em etapa autorizada. Nenhum Prisma Migrate identificado no banco é motivo para manter provisionamento administrativo, não para introduzir baseline/migrations automaticamente.
+
+### Próximas etapas e legado
+
+Provisionar apenas após revisão/autorização específica e confirmação do banco alvo; validar metadados em execução separada também autorizada. Depois implementar domínio/serviços e adaptar todos os consumidores antes de carga/corte VCG. Sem dupla escrita prolongada, fallback reconstrutivo ou interpretação de data_folha. Excel, conflitos IMPORTACAO/RECUPERACAO, folha inicial e data de ativação continuam pendentes antes da carga/rollout. VCM não é habilitada automaticamente; existência da garagem não é feature flag nem RBAC.

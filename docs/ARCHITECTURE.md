@@ -266,3 +266,12 @@ Scheduler sem biblioteca escolhida dispara operações idempotentes. Recuperaç�
 Proposta mínima de habilitação: lista explícita de garagens do novo fluxo em configuração central do backend (padrão nenhuma; VCG habilitada no rollout). O config.ts atual trata secrets/conexão, sem catálogo de garagens habilitadas. Não criar tabela/perfis por garagem. Scheduler e comandos compartilham a configuração; ADMIN pode consultar VCM, mas mutações do novo fluxo exigem habilitação. Não há alteração de configuração nesta etapa.
 
 Controllers/frontend atuais ainda usam prefixos globais, clones e caches mutáveis. Não há scheduler/ciclo/finalização ou garantia transacional implementados. C4/D/E/F precisam substituir esses caminhos de forma coordenada, sem manter dupla escrita entre fonte oficial nova e legado.
+
+
+## DATA-001C4 — Fase 2: artefatos sem ativação do fluxo
+
+A consolidação C3 está no commit 2c39fd1. A C4 fase 2 adiciona somente os models candidatos CicloOperacional, FolhaCI, ItemFolhaCI e EstadoManutencao ao schema Prisma e os scripts administrativos data-001c4-provisionamento.sql / data-001c4-validacao.sql. Detalhes e limites em [DATABASE.md](./DATABASE.md#data-001c4--fase-2-schema-candidato-e-provisionamento-administrativo).
+
+Nenhum script foi executado, nenhuma migration/Prisma Client foi gerada e nenhuma tabela foi provisionada nesta fase. Não há integração com HTTP/startup/npm/Docker. Legado e consumidores permanecem intactos; novo fluxo desabilitado, sem feature flag ativa ou corte VCG. GET de manutenção continua mutável.
+
+Prisma representa relações/uniques convencionais; CHECKs, três UNIQUEs filtrados e precisão DATETIME2(3) exigem SQL administrativo complementar. FKs compostas de garagem impedem vínculos cruzados; não garantem sozinhas a correspondência D/D+1 ou imutabilidade temporal. Inicialização atômica, fechamento protegido, autorização ADMIN/temporal, scheduler, recuperação e sincronização continuam por implementar. Compatibilidade controlada do stack Prisma 6.10/SQL Server 2012 fica para antes do rollout, sem atualização de dependências nesta modelagem.
