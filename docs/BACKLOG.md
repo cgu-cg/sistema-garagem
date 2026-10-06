@@ -15,6 +15,8 @@ confirmadas. Decisões operacionais devem ser validadas antes da implementação
 Utilizar os seguintes prefixos:
 
 - SEC — segurança
+- DATA — integridade/arquitetura de dados
+- FUNC — comportamento funcional/contratos
 - OPS — decisão/regra operacional
 - TECH — dívida ou melhoria técnica
 - UX — experiência/interface do usuário
@@ -34,7 +36,7 @@ Não criar tarefas fictícias apenas para preencher o documento.
 
 ## DATA-001 — Listagens de manutenção executam alterações no banco
 
-**Status:** Pendente de correção; DATA-001A concluída em 0093c69; DATA-001B1 concluída; DATA-001B2 concluída; DATA-001C1 concluída em 8931629; DATA-001C3 documentação concluída em 2c39fd1; DATA-001C4 fase 2 com artefatos candidatos para revisão, sem execução
+**Status:** Pendente de correção; DATA-001A concluída em 0093c69; DATA-001B1 concluída; DATA-001B2 concluída; DATA-001C1 concluída em 8931629; DATA-001C3 documentação concluída em 2c39fd1; DATA-001C4 fase 2 materializada em 3531b88, sem execução no banco
 **Prioridade:** Antes da produção
 **Tipo:** Integridade / arquitetura de dados
 
@@ -73,7 +75,7 @@ São riscos/capacidades confirmados no código, sem consulta ao banco ou confirm
 |---|---|---|
 | DATA-001A | Registrar contrato, comportamento observado e pendências | Concluída no commit 0093c69 — docs(domain): documenta ciclo operacional da CI |
 | DATA-001B | Separar inicialização e saneamento dos caminhos HTTP | B1/B2 concluídas; DATA-001 permanece pendente |
-| DATA-001C | Definir identidade/ciclo diário, folha vazia e cópia inicial | C1 concluída em 8931629; C3 concluída em 2c39fd1; C4 fase 2 schema/scripts candidatos; execução e implementação operacional pendentes |
+| DATA-001C | Definir identidade/ciclo diário, folha vazia e cópia inicial | C1 concluída em 8931629; C3 concluída em 2c39fd1; C4 fase 2 materializada em 3531b88; provisionamento e implementação operacional pendentes |
 | DATA-001D | GETs somente leitura e histórico sem reconstrução na interface | Proposta; identificar fotografias e disponibilizar preparação explícita |
 | DATA-001E | Retirada confirmada somente na CI em preparação | Proposta; depende de ciclo e destino |
 | DATA-001F | Limitar propagação/sincronização e preservar coexistência/histórico | Proposta; depende das etapas anteriores e regras de propagação |
@@ -112,19 +114,57 @@ Contrato central em DOMAIN.md: FolhaCI/Ciclo distintos por garagem, ADMIN, Ameri
 
 ### DATA-001C4 / D / E / F — Próximos passos propostos
 
-C4 fase 1 aprovada; fase 2 materializou models candidatos e scripts administrativos, para revisão, sem execução no banco. Provisionamento exige autorização separada; identidade/cópia/fechamento, transações, agendamento/recuperação e adoção continuam por implementar. D: GETs/consumidores somente leitura sem clones/reconciliação histórica; E: retirada/liberação atômica e confirmada no destino; F: sincronização apenas de Bloqueados com isolamento e preservação de estados. C/D/E/F de implementação continuam pendentes. B1/B2 permanecem concluídas; DATA-001 NÃO concluída.
+C4 fase 1 aprovada; fase 2 materializou models candidatos e scripts administrativos no commit 3531b88, sem execução no banco. Provisionamento exige autorização separada; identidade/cópia/fechamento, transações, agendamento/recuperação e adoção continuam por implementar. D: GETs/consumidores somente leitura sem clones/reconciliação histórica; E: retirada/liberação atômica e confirmada no destino; F: sincronização apenas de Bloqueados com isolamento e preservação de estados. C/D/E/F de implementação continuam pendentes. B1/B2 permanecem concluídas; DATA-001 NÃO concluída.
 
-### DATA-001C4 — Fase 2: materialização para revisão
+### DATA-001C4 — Fase 2: materialização do schema candidato
 
-**Status:** Models candidatos e scripts administrativos criados, não commitados, não executados; DATA-001 continua pendente.
+**Status:** Materializada no commit 3531b88 — feat(data): materializa schema candidato do ciclo operacional; schema novo não provisionado e scripts SQL C4 não executados; DATA-001 continua aberta.
 
 schema.prisma recebe CicloOperacional, FolhaCI, ItemFolhaCI e EstadoManutencao, preservando models legados. Novos scripts scripts/sql/data-001c4-provisionamento.sql e data-001c4-validacao.sql complementam CHECKs/UNIQUEs filtrados e precisão DATETIME2(3), não representados integralmente pelo Prisma 6.10. Provisionamento falha se qualquer objeto alvo existe, sem reparar/completar; validação lê somente metadados. Nenhum script B2 alterado.
 
 Desenho aprovado: único BLOQUEADO por folha/prefixo com filtro de categoria (sem dedupe silencioso ou unicidade geral); posições de reforço tipo+ordem; manutenção uma linha por ciclo/prefixo, com coexistência bloqueio/execução e liberação 001. Sem banco, migration, generate, seed, carga Excel, scheduler, serviços, frontend ou habilitação. Contrato de negócio preservado; detalhamento em DATABASE.md.
 
+### MVP operacional VCG — estratégia transitória sobre o legado
+
+**Status:** Estratégia registrada; implementação e disponibilização pendentes.
+**Prioridade:** Corrigir blockers operacionais antes da disponibilização na VCG.
+**Tipo:** Operação / transição arquitetural.
+
+Objetivo: permitir uso de CI + Controle de Manutenção na VCG sobre o fluxo
+legado atual antes da conclusão da arquitetura definitiva. O MVP é uma etapa
+transitória antes do rollout definitivo; não substitui a DATA-001C4, não cancela
+CicloOperacional/FolhaCI e não torna o legado a arquitetura definitiva.
+DOMAIN.md permanece a fonte principal das regras de negócio confirmadas.
+
+Prioridades obrigatórias:
+
+- Preservar CI histórica/finalizada e impedir alteração indevida de folhas passadas.
+- Evitar operações amplas/perigosas somente por prefixo.
+- Garantir que remoção/liberação atinja a CI correta em preparação.
+- Preservar BLOQUEADO + EM MANUTENÇÃO quando aplicável.
+- Garantir que cancelar confirmação não altere estado.
+- Manter a integração operacional dos BLOQUEADOS entre CI em preparação e
+  Controle de Manutenção do dia operacional correspondente.
+- Corrigir blockers operacionais antes da disponibilização.
+
+Implementações legadas, reconstruções existentes, localStorage, duplicação,
+arquitetura não ideal e dívidas separáveis podem permanecer temporariamente
+somente se não representarem risco de dados e respeitarem as prioridades
+acima. Reconstrução que altere histórico/finalizada não é exceção permitida.
+Essas pendências continuam rastreadas na DATA-001D/E/F e em itens separados
+quando necessário, para substituição pelo novo modelo; não estão concluídas.
+
+Baseline: C4 fase 2 materializada em 3531b88; schema novo NÃO provisionado,
+scripts SQL C4 NÃO executados e novo fluxo NÃO habilitado. O fluxo legado
+continua operacionalmente ativo e GET /api/manutencao continua mutável;
+GET somente leitura é o estado desejado, ainda pendente na DATA-001D.
+CicloOperacional/FolhaCI permanecem a arquitetura definitiva planejada.
+DATA-001 permanece aberta; não há data de rollout definida. SEC-006 permanece
+separada. Este registro não autoriza provisionamento ou execução de SQL.
+
 ### Pendências reais
 
-Revisão final dos artefatos candidatos C4 fase 2 e autorização separada do provisionamento; validação controlada Prisma 6.10/SQL Server 2012 antes do rollout, sem blocker da modelagem; procedimento administrativo posterior para preencher/corrigir recuperação sem mutação operacional de FINALIZADA; fornecer Excels oficiais, folha inicial e data de rollout. data_folha desconhecida e preservada. Horários, timezone, cópia integral, âmbito por garagem e ADMIN já decididos: não voltar a listá-los como dúvidas de negócio.
+Autorização separada do provisionamento dos artefatos candidatos C4 fase 2 já revisados e commitados; validação controlada Prisma 6.10/SQL Server 2012 antes do rollout, sem blocker da modelagem; procedimento administrativo posterior para preencher/corrigir recuperação sem mutação operacional de FINALIZADA; fornecer Excels oficiais, folha inicial e data de rollout. data_folha desconhecida e preservada. Horários, timezone, cópia integral, âmbito por garagem e ADMIN já decididos: não voltar a listá-los como dúvidas de negócio.
 
 GET /api/manutencao continua mutável. Nenhuma regra operacional C3 foi implementada; C4 fase 2 alterou somente schema candidato, scripts administrativos e documentação. Nenhuma migration foi criada/executada; frontend/controllers permanecem intactos. Mover reconciliação para POST mantendo alteração histórica não satisfaz o contrato. SEC-006 segue separada.
 
