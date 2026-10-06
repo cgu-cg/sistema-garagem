@@ -69,9 +69,16 @@ limitação, não como garantia.
 
 **CONFIRMADO:** consulte o [contrato e pendências em DOMAIN.md](../../../../docs/DOMAIN.md#data-001a--contrato-operacional-da-ci). A CI é fotografia diária preparada antecipadamente, preservada após finalização. Bloqueio e execução podem coexistir. Retirada confirmada deve atingir preparação, sem inferir esse estado só pela data.
 
-**ATUAL/OBSERVADO:** interface restringe edição a amanhã, calcula clones e algumas ações persistem cópias. Não há preparação/finalização ou versão persistida identificada. GETs podem escrever; exclusões por prefixo podem atingir várias datas. Isso não constitui regra nem garantia de histórico. A especificação detalhada permanece no domínio; não há arquitetura futura definida aqui.
+**ATUAL/OBSERVADO:** interface restringe edição a amanhã, calcula clones e algumas ações persistem cópias. Não há preparação/finalização ou versão persistida identificada. GETs podem escrever; exclusões por prefixo podem atingir várias datas. Isso não constitui regra nem garantia de histórico. A especificação detalhada permanece no domínio; o baseline não implementa a arquitetura proposta na C3.
 
 
 ## DATA-001C1 — Complemento operacional confirmado
 
-Consulte [DOMAIN.md](../../../../docs/DOMAIN.md#data-001c1--ciclos-operacionais-e-continuidade-dos-bloqueados), fonte principal: ciclos distintos com sincronização bidirecional dos bloqueados entre manutenção atual e CI correspondente em preparação; continuidade dos bloqueios vigentes; execução/liberados não atravessam como estado inicial; confirmação antes de liberar bloqueado e cancelamento sem efeitos. Isso não autoriza alterar fotografias finalizadas nem comprova implementação técnica. Identidade/ciclo, endpoints, transações, data_folha e schema continuam pendentes.
+Consulte [DOMAIN.md](../../../../docs/DOMAIN.md#data-001c1--ciclos-operacionais-e-continuidade-dos-bloqueados), fonte principal: ciclos distintos com sincronização bidirecional dos bloqueados entre manutenção atual e CI correspondente em preparação; continuidade dos bloqueios vigentes; execução/liberados não atravessam como estado inicial; confirmação antes de liberar bloqueado e cancelamento sem efeitos. Isso não autoriza alterar fotografias finalizadas nem comprova implementação técnica. C3 complementa as decisões operacionais; endpoints, transações e schema continuam sem implementação, e data_folha sem finalidade comprovada.
+
+
+## DATA-001C3 — Contrato consolidado e proposta
+
+[DOMAIN.md](../../../../docs/DOMAIN.md#data-001c3--contrato-consolidado-do-ciclo-e-da-fotografia-ci) é a fonte principal; [DATABASE.md](../../../../docs/DATABASE.md#data-001c3--proposta-de-schema-nao-implementada) contém schema proposto, não implementado. Folha e ciclo distintos, ADMIN e garagens isoladas; eventos diários 03:00/18:30 em America/Campo_Grande. Cópia integral inclui slots e título variável de reforço; só Bloqueados sincronizam. Título EM MANUTENÇÃO da CI não é estado do Controle. Consulta após fechamento, sem mutações noturnas/reabertura; confirmação anterior à liberação, cancelamento sem efeitos e concorrência protegida no backend.
+
+Recuperação mesma data executa evento pendente com timestamp real; vários dias criam estruturas vazias identificadas sem reconstrução. Excel oficial gera fotografias independentes IMPORTACAO via procedimento externo/manual futuro. Piloto VCG; VCM não habilitada automaticamente. Fonte oficial futura persistida, cache sem autoridade. Esses requisitos não descrevem o runtime atual: GET de manutenção ainda escreve e proteções/modelos novos permanecem pendentes.

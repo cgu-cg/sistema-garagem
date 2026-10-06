@@ -232,8 +232,8 @@ Conforme o [contrato confirmado](./DOMAIN.md#data-001a--contrato-operacional-da-
 | Responsabilidade | Contrato |
 |---|---|
 | Leitura da fotografia | Estado registrado da CI finalizada, sem mutação/reconstrução silenciosa; GET somente leitura |
-| Preparação da próxima CI | Ajustes durante preparação, historicamente a partir da anterior; conteúdo exato da cópia pendente |
-| Finalização | Preservar fotografia para uso operacional; mecanismo e responsáveis pendentes |
+| Preparação da próxima CI | Ajustes durante preparação, historicamente a partir da anterior; cópia integral confirmada na C3 |
+| Finalização | Preservar fotografia para uso operacional; automática às 18:30 conforme C3; implementação pendente |
 | Alterações explícitas | Retirada confirmada dirigida à preparação, preservando finalizadas |
 | Controle de Manutenção | Oficina distinta da CI; execução e bloqueio podem coexistir |
 
@@ -250,4 +250,19 @@ A fonte das regras é [DOMAIN.md](./DOMAIN.md#data-001c1--ciclos-operacionais-e-
 
 Bloqueios vigentes continuam no novo ciclo; execução e liberados começam limpos. BLOQUEADO + EM MANUTENÇÃO coexistem. Retirada explícita reflete na preparação correspondente; liberação de bloqueado depende de confirmação antes de qualquer alteração, com cancelamento sem efeitos.
 
-Inicialização e sincronização devem ficar separadas da consulta, preservando fotografias. Identidade persistida, endpoints, transações e dia operacional técnico ainda não estão definidos. Não inferir destino pela data futura nem interpretar esta separação como implementação existente. GET de manutenção e propagadores atuais ainda precisam ser corrigidos nas etapas C/D/E/F.
+Inicialização e sincronização devem ficar separadas da consulta, preservando fotografias. C3 confirma entidades distintas, timezone e horários; persistência, contratos de comandos e transações continuam sem implementação. Não inferir destino pela data futura nem interpretar esta separação como implementação existente. GET de manutenção e propagadores atuais ainda precisam ser corrigidos nas etapas C/D/E/F.
+
+
+## DATA-001C3 — Desenho aprovado e implementação futura
+
+Contrato em [DOMAIN.md](./DOMAIN.md#data-001c3--contrato-consolidado-do-ciclo-e-da-fotografia-ci); schema apenas proposto em [DATABASE.md](./DATABASE.md#data-001c3--proposta-de-schema-nao-implementada). FolhaCI e CicloOperacional são distintos, segregados por garagem; ADMIN opera ambos os contextos. Não derivar autorização de user.garagem. Piloto VCG; VCM requer habilitação explícita futura.
+
+Fonte temporal comum America/Campo_Grande: todos os dias 03:00 inicializa ciclo/copia folha inteira; 18:30 finaliza e fecha mutações do Controle e da CI. A janela noturna é consulta, sem comandos operacionais. Cópia inclui título/slots de reforço; sincronização durante o dia envolve somente Bloqueados.
+
+Operações de domínio devem ficar em serviço separado de HTTP e agendamento. Inicialização transacional inclui ciclo, folha, itens/metadados, estado diário e conclusão; finalização serializa com comandos. Autorização ADMIN, contexto de garagem, janela temporal e EM_PREPARACAO são revalidados dentro da fronteira segura. Chamadas antes do prazo não garantem autorização. GET é consulta do persistido, nunca recuperação oculta.
+
+Scheduler sem biblioteca escolhida dispara operações idempotentes. Recuperação no mesmo dia processa evento pendente com horários previstos/efetivos; vários dias geram estruturas vazias identificadas, sem replay de realidade nem cópia repetida. Importação Excel é procedimento externo/manual posterior. Imutabilidade operacional não é revogada pelo futuro procedimento administrativo de recuperação.
+
+Proposta mínima de habilitação: lista explícita de garagens do novo fluxo em configuração central do backend (padrão nenhuma; VCG habilitada no rollout). O config.ts atual trata secrets/conexão, sem catálogo de garagens habilitadas. Não criar tabela/perfis por garagem. Scheduler e comandos compartilham a configuração; ADMIN pode consultar VCM, mas mutações do novo fluxo exigem habilitação. Não há alteração de configuração nesta etapa.
+
+Controllers/frontend atuais ainda usam prefixos globais, clones e caches mutáveis. Não há scheduler/ciclo/finalização ou garantia transacional implementados. C4/D/E/F precisam substituir esses caminhos de forma coordenada, sem manter dupla escrita entre fonte oficial nova e legado.

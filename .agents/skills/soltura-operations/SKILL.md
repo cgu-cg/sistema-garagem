@@ -44,4 +44,13 @@ Ao analisar ou alterar fluxos de Soltura, CI e Controle de Manutenção, incluin
 
 - Leia o [contrato operacional complementar](../../../docs/DOMAIN.md#data-001c1--ciclos-operacionais-e-continuidade-dos-bloqueados); DOMAIN.md é a especificação principal, esta skill orienta a leitura.
 - Respeite a correspondência manutenção do dia / próxima CI em preparação e continuidade dos bloqueios, sem transportar execução/liberados ou alterar finalizadas.
-- Não invente mecanismos de ciclo, endpoints, transações ou schema, nem atribua finalidade a data_folha. As regras confirmadas ainda precisam de implementação; GET continua mutável.
+- Consulte a C3 para decisões aprovadas e proposta técnica; não trate proposta como implementação nem atribua finalidade a data_folha. As regras confirmadas ainda precisam de implementação; GET continua mutável.
+
+
+## Orientação para DATA-001C3
+
+- Consulte o [contrato central](../../../docs/DOMAIN.md#data-001c3--contrato-consolidado-do-ciclo-e-da-fotografia-ci) e a [proposta de dados](../../../docs/DATABASE.md#data-001c3--proposta-de-schema-nao-implementada). Esta skill orienta, sem criar especificação paralela.
+- C3 aprova FolhaCI/Ciclo distintos, ADMIN, contextos VCG/VCM e America/Campo_Grande. Piloto VCG; VCM exige habilitação explícita. Não invente vínculo usuário→garagem/RBAC adicional.
+- Respeite eventos diários 03:00/18:30, cópia integral versus sincronização exclusiva de Bloqueados, slots/título persistidos e consulta fora da janela. Não reconstruir via GET ou usar localStorage como fotografia oficial.
+- Confirmação precede liberação; cancelar não muda nada; validar contexto e limite temporal dentro da transação mesmo com scheduler atrasado. Finalizadas não mudam; reabertura/suporte noturno fora do escopo.
+- Importação Excel é externa/manual futura; recuperação multidiária vazia deve ser identificada, sem replay. Proposta não autoriza executar SQL/migrations ou alterar schema. GET atual ainda mutável; C4/D/E/F pendentes.

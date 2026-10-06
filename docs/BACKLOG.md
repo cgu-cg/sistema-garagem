@@ -34,7 +34,7 @@ Não criar tarefas fictícias apenas para preencher o documento.
 
 ## DATA-001 — Listagens de manutenção executam alterações no banco
 
-**Status:** Pendente de correção; DATA-001A concluída em 0093c69; DATA-001B1 concluída; DATA-001B2 concluída; DATA-001C1 operacional documentada para revisão
+**Status:** Pendente de correção; DATA-001A concluída em 0093c69; DATA-001B1 concluída; DATA-001B2 concluída; DATA-001C1 concluída em 8931629; DATA-001C3 decisões aprovadas, documentação/proposta técnica para revisão
 **Prioridade:** Antes da produção
 **Tipo:** Integridade / arquitetura de dados
 
@@ -73,7 +73,7 @@ São riscos/capacidades confirmados no código, sem consulta ao banco ou confirm
 |---|---|---|
 | DATA-001A | Registrar contrato, comportamento observado e pendências | Concluída no commit 0093c69 — docs(domain): documenta ciclo operacional da CI |
 | DATA-001B | Separar inicialização e saneamento dos caminhos HTTP | B1/B2 concluídas; DATA-001 permanece pendente |
-| DATA-001C | Definir identidade/ciclo diário, folha vazia e cópia inicial | C1 operacional esclarecida/documentada; identidade/ciclo e implementação pendentes |
+| DATA-001C | Definir identidade/ciclo diário, folha vazia e cópia inicial | C1 concluída em 8931629; C3 contrato aprovado/schema proposto; C4 e implementação pendentes |
 | DATA-001D | GETs somente leitura e histórico sem reconstrução na interface | Proposta; identificar fotografias e disponibilizar preparação explícita |
 | DATA-001E | Retirada confirmada somente na CI em preparação | Proposta; depende de ciclo e destino |
 | DATA-001F | Limitar propagação/sincronização e preservar coexistência/histórico | Proposta; depende das etapas anteriores e regras de propagação |
@@ -98,17 +98,27 @@ GET /api/manutencao continua mutável por herança, materialização, upserts e 
 
 ### DATA-001C1 — Regras operacionais esclarecidas
 
-**Status:** Contrato documentado para revisão; nenhuma implementação de C/D/E/F concluída.
+**Status:** Documentação concluída no commit 8931629; nenhuma implementação de C/D/E/F concluída.
 
 [DOMAIN.md](./DOMAIN.md#data-001c1--ciclos-operacionais-e-continuidade-dos-bloqueados) confirma manutenção do próprio dia, sincronização bidirecional de BLOQUEADOS com a próxima CI em preparação, coexistência BLOQUEADO + EM MANUTENÇÃO e continuidade apenas dos bloqueios vigentes. Estados de oficina/liberados não atravessam como estado inicial. Retirada direta reflete na preparação; liberação de bloqueado exige confirmação antes de qualquer alteração e cancelamento sem efeitos.
 
 GET ainda é mutável. Identidade/ciclo, inicialização explícita, proteção de CI finalizada, sincronização restrita e retirada/liberação confirmada precisam ser implementados/corrigidos. C/D/E/F permanecem pendentes; não escolher endpoints, transações, schema ou fonte global por inferência.
 
-### Decisões ainda pendentes
+### DATA-001C3 — Consolidação documental e proposta de schema
 
-Pendências em [DATA-001A](./DOMAIN.md#data-001a--contrato-operacional-da-ci) e [DATA-001C1](./DOMAIN.md#data-001c1--ciclos-operacionais-e-continuidade-dos-bloqueados): mecanismos de preparação/finalização, identidade/ciclo e vazio, endpoints, transações, históricos, finalidade de data_folha, fuso/dia operacional técnico e schema/migrations. Liberação de bloqueado já exige confirmação prévia; cancelar não altera nada, sem resultado LIBERADO + BLOQUEADO nesse fluxo.
+**Status:** Decisões operacionais aprovadas; documentação e proposta técnica atualmente para revisão, sem commit desta C3 e sem implementação.
 
-Mover reconciliação para POST mantendo alteração histórica não satisfaz o contrato. DATA-001A altera somente documentação/skill; DATA-001B1 foi concluída e DATA-001B2 foi concluída em 8857e02; DATA-001C/D/E/F permanecem pendentes.
+Contrato central em DOMAIN.md: FolhaCI/Ciclo distintos por garagem, ADMIN, America/Campo_Grande, eventos diários 03:00/18:30, cópia integral incluindo slots/título de reforço, integração exclusiva de Bloqueados, consulta noturna, concorrência e recuperação simples. Histórico VCG por Excel externo/manual IMPORTACAO; VCM não habilitada automaticamente. Proposta concreta não implementada em DATABASE.md.
+
+### DATA-001C4 / D / E / F — Próximos passos propostos
+
+C4: revisar schema/constraints e adoção, autorizar provisionamento separado, implementar identidade/cópia/fechamento e agendamento/recuperação em passos revisáveis. Nenhum desses passos foi executado. D: GETs/consumidores somente leitura sem clones/reconciliação histórica; E: retirada/liberação atômica e confirmada no destino; F: sincronização apenas de Bloqueados com isolamento e preservação de estados. C/D/E/F de implementação continuam pendentes. B1/B2 permanecem concluídas; DATA-001 NÃO concluída.
+
+### Pendências reais
+
+Aprovação da proposta de schema/constraints/transição; procedimento administrativo posterior para preencher/corrigir recuperação sem mutação operacional de FINALIZADA; fornecer Excels oficiais, folha inicial e data de rollout. data_folha desconhecida e preservada. Horários, timezone, cópia integral, âmbito por garagem e ADMIN já decididos: não voltar a listá-los como dúvidas de negócio.
+
+GET /api/manutencao continua mutável. Nenhuma regra C3 foi implementada; migrations/SQL/schema/frontend/controllers não foram alterados. Mover reconciliação para POST mantendo alteração histórica não satisfaz o contrato. SEC-006 segue separada.
 
 ## DATA-002 — Regra de unicidade da vistoria operacional
 

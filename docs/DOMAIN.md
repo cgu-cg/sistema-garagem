@@ -29,7 +29,7 @@ O Sistema Garagem pretende digitalizar e integrar processos operacionais que hoj
 
 O termo "CONFIRMADO" deve ser reservado apenas para informações validadas formalmente pelo responsável do processo.
 
-As regras das seções DATA-001A e DATA-001C1 foram explicitamente confirmadas pelo usuário em 2026-10-05 e 2026-10-06, respectivamente. Os demais conteúdos mantêm a classificação indicada. Confirmação operacional não significa implementação existente.
+As regras da DATA-001A foram explicitamente confirmadas pelo usuário em 2026-10-05; DATA-001C1 e DATA-001C3 em 2026-10-06. Os demais conteúdos mantêm a classificação indicada. Confirmação operacional não significa implementação existente.
 
 ### ATUAL/OBSERVADO
 
@@ -440,7 +440,7 @@ Este documento representa o entendimento atual do domínio do Sistema Garagem, c
 
 - As informações com status ATUAL/OBSERVADO refletem o entendimento operacional atual.
 - As informações com status PLANEJADO representam evolução desejada, mas ainda não validada.
-- As regras CONFIRMADAS na DATA-001A e DATA-001C1 registram a confirmação explícita recebida do usuário; não demonstram implementação existente.
+- As regras CONFIRMADAS na DATA-001A, DATA-001C1 e DATA-001C3 registram a confirmação explícita recebida do usuário; não demonstram implementação existente.
 
 O contrato confirmado da DATA-001A orienta as próximas etapas. Os demais conteúdos observados ou planejados permanecem base de discussão e não devem ser promovidos a regras confirmadas por inferência.
 
@@ -464,22 +464,9 @@ A interface permite edição de amanhã, bloqueia hoje/passado e calcula cópias
 
 Fontes: controllers ciBloqueios.ts/manutencao.ts, CiManutencaoView.tsx e managers de CI/manutenção. Análise estática, sem consulta ao banco.
 
-### PENDENTE DE VALIDAÇÃO — decisões de CI/manutenção
+### Decisões complementadas pela DATA-001C3
 
-- Mecanismo exato de finalização e quem pode finalizar.
-- Finalização manual, automática ou híbrida.
-- Possibilidade de mais de uma CI em preparação e escolha da destinatária.
-- Comportamento quando nenhuma CI em preparação existir.
-- Política de folha inexistente versus vazia.
-- Conteúdo exato copiado ao preparar nova CI.
-- Implementação da liberação confirmada e do cancelamento sem alterações, conforme DATA-001C1; não permanece pendente autorizar LIBERADO + BLOQUEADO neste fluxo.
-- Tratamento/correção de históricos antigos possivelmente afetados.
-- Se o Controle de Manutenção possui fechamento diário.
-- Definição formal de fuso/dia operacional.
-- Eventual modelagem futura de identidade/status da folha.
-
-Não presumir que data futura equivale a preparação. A restrição atual a amanhã é comportamento da interface, não definição persistida do ciclo.
-
+Calendário, finalização, conteúdo copiado, âmbito e janela operacional foram confirmados na C3 abaixo. Persistência, execução técnica, transações e adoção dos dados continuam pendentes. Não presumir preparação apenas por data futura; identidade/status ainda não estão implementados.
 
 ## DATA-001C1 — Ciclos operacionais e continuidade dos bloqueados
 
@@ -507,6 +494,40 @@ Se 3000 e 4000 continuam bloqueados ao fim de 01/10, iniciam BLOQUEADOS da manut
 
 B1 removeu saneamentos históricos e B2 removeu DDL e carga inicial acoplada dos controllers. GET /api/manutencao ainda materializa herança, faz upserts e reconcilia/exclui por CI ativa. Fluxos de retirada podem atingir prefixos em várias datas; caches recompõem listas. Esses comportamentos não implementam a correspondência dos ciclos nem proteção de finalizadas. Não há garantia de cancelamento sem efeitos ou de sincronização restrita ao destino correto demonstrada por esta documentação.
 
+### Decisões complementadas pela DATA-001C3
+
+C3 abaixo confirma as escolhas operacionais antes pendentes. Os mecanismos técnicos permanecem propostos/não implementados; data_folha segue sem finalidade comprovada.
+
+
+## DATA-001C3 — Contrato consolidado do ciclo e da fotografia CI
+
+### CONFIRMADO — decisões do responsável em 2026-10-06
+
+Esta seção complementa A/C1 e substitui suas pendências já decididas sobre calendário, finalização, conteúdo da cópia, âmbito e janela operacional. DOMAIN.md é a fonte principal do contrato. Decisão aprovada e proposta de schema NÃO significam implementação existente.
+
+- FolhaCI e CicloOperacional são entidades distintas relacionadas. Ciclo D representa operação/manutenção D e prepara FolhaCI D+1. No fluxo normal há um ciclo por garagem/data operacional e uma folha por garagem/data destinatária; a preparação correspondente pertence ao ciclo D. Finalizar a folha não transforma ciclo e folha no mesmo conceito.
+- VCG e VCM são contextos independentes; dados não se misturam. O rollout inicial habilitará VCG; VCM não será ativada automaticamente por existir no modelo. Acesso a esses contextos é exclusivo de ADMIN, que pode operar ambas. Não há associação obrigatória usuário→garagem nem perfil por garagem.
+- A fonte temporal comum é America/Campo_Grande, sem offset UTC fixo. Inicialização às 03:00 e finalização às 18:30 ocorrem todos os dias, inclusive sábados, domingos e feriados, sem exceção atual de calendário.
+- Às 03:00 de D, inicializar Ciclo D, criar FolhaCI D+1 EM_PREPARACAO como cópia integral da FolhaCI D FINALIZADA e iniciar manutenção D. Cada folha e cada item copiado recebem nova identidade; os itens pertencem à nova folha e a origem permanece imutável.
+- Copiar a fotografia efetiva inteira: Preventivas e subtipos, Setores da Oficina, Reforço com Horário, suas 12 posições fixas (horários podem repetir), posições/itens da coluna adicional, título variável dessa coluna, Bloqueados e informações operacionais persistidas pertencentes à folha. Preservar multiplicidade e posição lógica, não deduplicar apenas por veículo/horário.
+- O título adicional pertence à folha mesmo com zero itens. Opções atuais: INSPEÇÃO, LUBRIFICAÇÃO, EM MANUTENÇÃO, TROCA DE ÓLEO, REVISÃO e PREVENTIVA. A autoridade oficial será o backend persistido, não localStorage. EM MANUTENÇÃO nesse título não é estado de oficina do Controle.
+- Não copiar rascunhos não salvos, modais, filtros, seleção, mensagens, marcadores de reconstrução, IDs clone-*, finalização da origem, EM MANUTENÇÃO ou LIBERADOS do Controle. Cópia às 03:00 e sincronização durante o ciclo são operações distintas.
+- A manutenção inicial contém os BLOQUEADOS da nova folha; EM MANUTENÇÃO e LIBERADOS começam vazios. Somente BLOQUEADOS sincronizam bidirecionalmente com a preparação correspondente. Preventivas, Oficina e Reforço da CI não alteram automaticamente estados de oficina/liberados do Controle, nem o inverso.
+- BLOQUEADO + EM MANUTENÇÃO coexistem. Colocar em manutenção não remove bloqueio, presença nos Bloqueados da CI ou conteúdo de outras seções.
+- Retirar/liberar bloqueado da CI em preparação remove apenas sua participação nos BLOQUEADOS daquela folha; não exige mantê-lo visível como LIBERADO. Não remove o veículo de outras seções nem de folhas anteriores. Campos legados de status/liberação serão preservados até análise posterior de compatibilidade.
+- Liberação de bloqueado no Controle exige confirmação ANTES de qualquer alteração. Confirmar libera, trata execução conforme o fluxo, representa Liberados e retira bloqueios do Controle e da preparação numa operação atômica. Cancelar não muda nada; esse fluxo não produz LIBERADO + BLOQUEADO parcial.
+- Às 18:30, a folha passa de EM_PREPARACAO para FINALIZADA: sem inclusão, alteração ou exclusão. Reabertura não integra o escopo; não criar REABERTA agora.
+- Janela operacional: 03:00 inclusive até 18:30 exclusive. A partir de 18:30, tanto CI quanto Controle ficam somente para consulta, sem alteração operacional. Antes das 03:00 não há abertura do novo ciclo. Equipe noturna não utiliza esses módulos; anota em papel para repasse no próximo dia. Não implementar suporte noturno.
+- Autorização temporal ocorre no backend dentro da fronteira transacional. Requisição iniciada antes do limite não tem direito adquirido: se não obtiver autorização protegida antes de 18:30:00, rejeitar integralmente. Mesmo com scheduler atrasado e estado ainda EM_PREPARACAO, o horário impede mutações. Frontend apenas reflete o fechamento.
+- Inicialização/finalização são operações de domínio reutilizáveis e idempotentes; scheduler apenas dispara, sem regras acopladas à biblioteca. Nenhuma biblioteca foi escolhida. GETs não inicializam nem recuperam eventos.
+- Atraso no mesmo dia: volta às 06:00 recupera inicialização pendente usando origem FINALIZADA; volta às 20:00 regulariza finalização com alterações já bloqueadas por horário. Distinguir previsto e efetivamente executado, sem falsificar timestamps.
+- Indisponibilidade por vários dias: não reconstruir realidade nem repetir cópias antigas como fotografias reais. Criar estruturas ausentes vazias, representar dias históricos ausentes como folhas vazias FINALIZADAS e criar a preparação atual necessária. Identificar RECUPERACAO. ADMIN poderá preencher/corrigir conforme procedimento administrativo posterior; isso NÃO autoriza editar FINALIZADA por comando operacional nem implementar reabertura agora.
+- Histórico inicial VCG: Excels oficiais de outubro serão fotografias independentes FINALIZADAS, identificadas IMPORTACAO. Script de INSERT será preparado externamente, revisado e executado manualmente pelo responsável, em etapa futura. Não haverá importador na aplicação nem inferência de transições ou reinterpretação automática do legado. Nenhum SQL é escrito/executado nesta C3.
+
+### ATUAL/OBSERVADO — lacunas preservadas
+
+Não existem os modelos/ciclo/status de folha propostos. As quatro seções usam CiBloqueio; subTipo distingue preventiva/oficina; horarioReforco guarda horário/serviço e observacoes é exposto como os. Posições de reforço dependem de IDs e reforcoSlotId local não é enviado pelo manager. Título reforco_servico_tipo_<data> vive em localStorage, inclusive sem itens. GET de manutenção continua mutável; filtros de garagem/usuário e ausência de autorização ADMIN/temporal nos caminhos atuais divergem do novo contrato. Não foram corrigidos nesta etapa.
+
 ### PENDENTE — desenho e implementação
 
-Continuam sem definição: mecanismos persistidos de CI em preparação/finalizada; identidade/estado do ciclo diário e folha vazia; endpoints de inicialização/sincronização; estratégia transacional; tratamento de históricos inconsistentes; finalidade de data_folha; timezone/dia operacional técnico; migrations/schema. Os demais detalhes de finalização, destinatária quando há múltiplas/nenhuma preparação e conteúdo completo da cópia continuam pendentes na DATA-001A. Não presumir preparação apenas por data futura nem substituir fotografias por intervalo global.
+A proposta técnica está em DATABASE.md. Schema, constraints, comandos, transações, scheduler, habilitação do rollout e adaptação do frontend precisam de revisão/implementação. data_folha continua sem finalidade comprovada e não será reutilizada. Definir posteriormente o procedimento administrativo de preenchimento/correção da recuperação, preservando a imutabilidade operacional; dados/arquivo inicial e data de rollout ainda precisam ser fornecidos/aprovados. Não há nova dúvida sobre horários, timezone, cópia integral, acesso ADMIN, isolamento de garagens ou janela noturna.
