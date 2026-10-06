@@ -239,7 +239,7 @@ Conforme [DOMAIN.md](./DOMAIN.md#data-001a--contrato-operacional-da-ci), fotogra
 
 ## DATA-001B2 — Provisionamento separado do runtime HTTP
 
-Implementação para revisão: os controllers de CI/manutenção não criam tabelas, PKs ou índices e não executam helpers estruturais por requisição. Não há validação de schema por request, middleware global ou bootstrap automático. Ausência ou incompatibilidade estrutural não bloqueia o startup por validação global: cada operação mantém seu tratamento de falhas existente. GET de CI ainda pode retornar [] ao capturar falha; contrato preservado nesta etapa.
+B2 concluída no commit 8857e02: os controllers de CI/manutenção não criam tabelas, PKs ou índices e não executam helpers estruturais por requisição. Não há validação de schema por request, middleware global ou bootstrap automático. Ausência ou incompatibilidade estrutural não bloqueia o startup por validação global: cada operação mantém seu tratamento de falhas existente. GET de CI ainda pode retornar [] ao capturar falha; contrato preservado nesta etapa.
 
 ### Procedimentos administrativos separados
 
@@ -263,3 +263,10 @@ Diferenças de nullable, datetime/datetime2 e FKs não são corrigidas automatic
 Removida deliberadamente a carga da manutenção a partir da CI vinculada à ausência da tabela. Não ganhou novo acionamento em startup, endpoint, reset, seed, script ou migration. Instalações novas começam com essas tabelas vazias: mudança deliberada da inicialização anterior.
 
 GET /api/manutencao ainda materializa herança, cria/upserta bloqueios, reconcilia e exclui registros funcionalmente. Reset, sync, propagação, create/update/remove e liberação permanecem intactos. B2 não torna esse GET somente leitura nem implementa proteção temporal. O contrato de negócio permanece em DOMAIN.md.
+
+
+## DATA-001C1 — Contrato operacional sem modelagem implementada
+
+Consulte [DOMAIN.md](./DOMAIN.md#data-001c1--ciclos-operacionais-e-continuidade-dos-bloqueados): manutenção do próprio dia e CI antecipada possuem ciclos distintos; BLOQUEADOS sincronizam com a CI em preparação correspondente e continuam entre dias, sem carregar execução/liberados. Confirmação prévia da liberação de bloqueado e preservação de finalizadas são regras confirmadas, não garantias do banco atual.
+
+Esta etapa não cria identidade/estado persistido de ciclo, preparação/finalização, endpoints ou transações. data_folha permanece preservada com finalidade desconhecida. Nullable, tipos, FKs, scripts e schema não foram alterados; decisões técnicas continuam pendentes. GET de manutenção permanece mutável na implementação.

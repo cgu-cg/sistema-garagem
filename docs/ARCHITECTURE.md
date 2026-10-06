@@ -242,3 +242,12 @@ Esta separação não define novos endpoints, serviços, tabelas ou arquitetura 
 **ATUAL/OBSERVADO:** interface calcula herança e permite edição de amanhã; algumas ações persistem cópias. Não há ciclo persistido de preparação/finalização identificado. Após DATA-001B1/B2, os controllers de CI/manutenção não executam saneamentos históricos ou provisionamento estrutural; GET de manutenção ainda materializa, reconcilia e exclui registros funcionalmente; managers locais acrescentam sincronização. Isso não garante fotografias imutáveis.
 
 Pendências estão centralizadas no contrato de DOMAIN.md; etapas propostas na DATA-001 de BACKLOG.md. DATA-001A não altera aplicação.
+
+
+## DATA-001C1 — Correspondência dos ciclos, sem implementação técnica
+
+A fonte das regras é [DOMAIN.md](./DOMAIN.md#data-001c1--ciclos-operacionais-e-continuidade-dos-bloqueados). Durante o dia D, BLOQUEADOS da manutenção D sincronizam bidirecionalmente com BLOQUEADOS da CI do próximo dia operacional em preparação. Essa correspondência não autoriza mutar manutenção anterior ou CIs finalizadas.
+
+Bloqueios vigentes continuam no novo ciclo; execução e liberados começam limpos. BLOQUEADO + EM MANUTENÇÃO coexistem. Retirada explícita reflete na preparação correspondente; liberação de bloqueado depende de confirmação antes de qualquer alteração, com cancelamento sem efeitos.
+
+Inicialização e sincronização devem ficar separadas da consulta, preservando fotografias. Identidade persistida, endpoints, transações e dia operacional técnico ainda não estão definidos. Não inferir destino pela data futura nem interpretar esta separação como implementação existente. GET de manutenção e propagadores atuais ainda precisam ser corrigidos nas etapas C/D/E/F.

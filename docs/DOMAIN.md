@@ -29,7 +29,7 @@ O Sistema Garagem pretende digitalizar e integrar processos operacionais que hoj
 
 O termo "CONFIRMADO" deve ser reservado apenas para informações validadas formalmente pelo responsável do processo.
 
-As regras da seção DATA-001A foram explicitamente confirmadas pelo usuário em 2026-10-05. Os demais conteúdos mantêm a classificação indicada. Confirmação operacional não significa implementação existente.
+As regras das seções DATA-001A e DATA-001C1 foram explicitamente confirmadas pelo usuário em 2026-10-05 e 2026-10-06, respectivamente. Os demais conteúdos mantêm a classificação indicada. Confirmação operacional não significa implementação existente.
 
 ### ATUAL/OBSERVADO
 
@@ -201,7 +201,7 @@ A CI é entendida como mecanismo de indicação de veículos que não devem ser 
 
 ### Importante
 
-No comportamento desejado atualmente, marcar um veículo como "em manutenção" ou "liberado" no Controle de Manutenção NÃO deve automaticamente alterar a CI.
+Conforme a DATA-001C1, colocar um veículo em manutenção preserva seu bloqueio. BLOQUEADOS da manutenção do dia sincronizam com BLOQUEADOS da CI correspondente em preparação; liberação de veículo bloqueado exige confirmação antes de qualquer alteração, preservando CIs finalizadas.
 
 ### Conflito a validar
 
@@ -229,7 +229,7 @@ Conforme o contrato confirmado na DATA-001A, execução na oficina pode coexisti
 
 ### Conflito a validar
 
-- Finalização e regra completa de liberação mantendo bloqueio continuam pendentes na DATA-001A. A coexistência e o destino da retirada confirmada já são regras confirmadas; não presumir sincronização automática.
+- A DATA-001C1 confirma continuidade e sincronização dos bloqueados. A implementação do ciclo e da proteção temporal permanece pendente; cancelamento da liberação de bloqueado não pode alterar nenhum estado.
 
 ## 11. ERP / Ordem de Serviço
 
@@ -416,14 +416,11 @@ Os pontos abaixo devem ser considerados pendentes de conferência formal:
 
 ### Situação 1
 
-O entendimento operacional atual indica independência entre:
+CI e Controle de Manutenção são conceitos operacionais distintos, com responsabilidades e ciclos próprios. Isso não significa ausência de integração: a DATA-001C1 confirma a sincronização dos bloqueios vigentes entre o Controle de Manutenção do dia operacional atual e a CI correspondente em preparação.
 
-- CI Manutenção;
-- Controle de Manutenção;
-- disponibilidade operacional;
-- soltura.
+BLOQUEADO + EM MANUTENÇÃO podem coexistir; os estados de oficina não devem ser confundidos com o bloqueio. Disponibilidade operacional e soltura também são conceitos distintos, sem que essa distinção implique ausência de integração.
 
-Mesmo assim, o código e parte da documentação podem sugerir integrações mais automáticas entre esses conceitos.
+O problema da implementação atual não é a existência da sincronização, mas os efeitos colaterais implícitos, a reconstrução durante consultas e a ausência de destino temporal seguro para algumas operações. Essa sincronização não deve alterar CI finalizada/histórica nem manutenção histórica. Os mecanismos técnicos permanecem pendentes.
 
 ### Situação 2
 
@@ -443,7 +440,7 @@ Este documento representa o entendimento atual do domínio do Sistema Garagem, c
 
 - As informações com status ATUAL/OBSERVADO refletem o entendimento operacional atual.
 - As informações com status PLANEJADO representam evolução desejada, mas ainda não validada.
-- As regras CONFIRMADAS na DATA-001A registram a confirmação explícita recebida do usuário; não demonstram implementação existente.
+- As regras CONFIRMADAS na DATA-001A e DATA-001C1 registram a confirmação explícita recebida do usuário; não demonstram implementação existente.
 
 O contrato confirmado da DATA-001A orienta as próximas etapas. Os demais conteúdos observados ou planejados permanecem base de discussão e não devem ser promovidos a regras confirmadas por inferência.
 
@@ -463,7 +460,7 @@ As regras abaixo prevalecem sobre trechos anteriores que tratam genericamente a 
 
 ### ATUAL/OBSERVADO — implementação e divergências
 
-A interface permite edição de amanhã, bloqueia hoje/passado e calcula cópias; algumas ações materializam essas cópias. Não foi identificado estado persistido de preparação/finalização, data de finalização ou versão. GETs executam DDL/limpezas; manutenção também copia, cria, atualiza e reconcilia registros. Herança pode completar históricos e exclusões por prefixo podem atingir várias datas. Isso diverge do contrato confirmado.
+A interface permite edição de amanhã, bloqueia hoje/passado e calcula cópias; algumas ações materializam essas cópias. Não foi identificado estado persistido de preparação/finalização, data de finalização ou versão. Após B1/B2, DDL e saneamentos históricos saíram desses controllers; GET de manutenção ainda copia, cria, atualiza, exclui e reconcilia registros funcionalmente. Herança pode completar históricos e exclusões por prefixo podem atingir várias datas. Isso diverge do contrato confirmado.
 
 Fontes: controllers ciBloqueios.ts/manutencao.ts, CiManutencaoView.tsx e managers de CI/manutenção. Análise estática, sem consulta ao banco.
 
@@ -475,10 +472,41 @@ Fontes: controllers ciBloqueios.ts/manutencao.ts, CiManutencaoView.tsx e manager
 - Comportamento quando nenhuma CI em preparação existir.
 - Política de folha inexistente versus vazia.
 - Conteúdo exato copiado ao preparar nova CI.
-- Regra completa para liberar na manutenção mantendo bloqueio na CI.
+- Implementação da liberação confirmada e do cancelamento sem alterações, conforme DATA-001C1; não permanece pendente autorizar LIBERADO + BLOQUEADO neste fluxo.
 - Tratamento/correção de históricos antigos possivelmente afetados.
 - Se o Controle de Manutenção possui fechamento diário.
 - Definição formal de fuso/dia operacional.
 - Eventual modelagem futura de identidade/status da folha.
 
 Não presumir que data futura equivale a preparação. A restrição atual a amanhã é comportamento da interface, não definição persistida do ciclo.
+
+
+## DATA-001C1 — Ciclos operacionais e continuidade dos bloqueados
+
+### CONFIRMADO — decisões do responsável pelo processo registradas em 2026-10-06
+
+Esta seção complementa a DATA-001A e prevalece sobre referências anteriores que tratam genericamente sincronização ou liberação mantendo bloqueio como indefinidas. DOMAIN.md permanece a fonte principal das regras. Confirmação não significa implementação existente.
+
+- Controle de Manutenção representa a situação operacional do próprio dia e muda durante o trabalho da oficina. BLOQUEADO, EM MANUTENÇÃO e LIBERADO são conceitos distintos; BLOQUEADO + EM MANUTENÇÃO podem coexistir. Colocar em manutenção não remove o bloqueio nem o veículo da CI em preparação.
+- A CI é preparada antecipadamente. CI passada/finalizada preserva exatamente sua fotografia persistida e não pode sofrer alteração retroativa.
+- Durante o dia operacional, BLOQUEADOS da manutenção do dia atual sincronizam bidirecionalmente com BLOQUEADOS da CI em preparação para o próximo dia operacional. Adicionar bloqueado em qualquer um desses dois destinos deve refletir no outro. Isso não autoriza alterar manutenção anterior, CI do dia já finalizada ou outras CIs finalizadas.
+- Retirada explícita de BLOQUEADOS da manutenção deve retirar também de BLOQUEADOS da CI em preparação correspondente, preservando as finalizadas.
+- Ao tentar liberar veículo ainda bloqueado, confirmação é pré-condição ANTES de qualquer alteração. Confirmar conclui a liberação, retira de EM MANUTENÇÃO conforme o fluxo operacional, representa em LIBERADOS e remove de BLOQUEADOS da manutenção e da CI em preparação correspondente.
+- Cancelar ou não confirmar não altera nada: não adiciona a LIBERADOS, não retira de EM MANUTENÇÃO/BLOQUEADOS e não altera a CI. Neste fluxo não há resultado LIBERADO + BLOQUEADO. Isso não transforma todos os estados em mutuamente exclusivos: BLOQUEADO + EM MANUTENÇÃO continua permitido.
+- Bloqueios vigentes continuam entre dias enquanto não retirados/liberados. No novo ciclo, iniciam a manutenção do dia e são o ponto de partida dos BLOQUEADOS da próxima CI em preparação.
+- EM MANUTENÇÃO e LIBERADOS pertencem ao dia e não são carregados como estados iniciais do dia seguinte. O estado inicial dos bloqueios continuados é conceitualmente bloqueado=true, em_execucao=false, liberado=false, inclusive se estavam também em manutenção no dia anterior.
+- Inicialização/materialização do novo dia deve ser explícita e independente de GET. A continuidade/sincronização é uma necessidade operacional real, mas consulta genérica não pode materializar ou reconciliar silenciosamente com o presente. GET deve consultar o estado persistido da data, sem reconstruir arbitrariamente históricos.
+
+### Exemplos confirmados
+
+Durante 01/10/2026, BLOQUEADOS do Controle de Manutenção 01/10 sincronizam com BLOQUEADOS da CI 02/10 em preparação: adicionar 3000 na CI o inclui na manutenção 01/10; adicionar 4000 na manutenção o inclui na CI 02/10. Nenhuma dessas ações altera CI 01/10 finalizada.
+
+Se 3000 e 4000 continuam bloqueados ao fim de 01/10, iniciam BLOQUEADOS da manutenção 02/10 e da CI 03/10 em preparação. Mesmo se 3000 estava BLOQUEADO + EM MANUTENÇÃO em 01/10, somente seu bloqueio continua. EM MANUTENÇÃO e LIBERADOS começam limpos em 02/10; 2424 apenas LIBERADO em 01/10 não é carregado como liberado no novo dia.
+
+### ATUAL/OBSERVADO — lacunas da implementação
+
+B1 removeu saneamentos históricos e B2 removeu DDL e carga inicial acoplada dos controllers. GET /api/manutencao ainda materializa herança, faz upserts e reconcilia/exclui por CI ativa. Fluxos de retirada podem atingir prefixos em várias datas; caches recompõem listas. Esses comportamentos não implementam a correspondência dos ciclos nem proteção de finalizadas. Não há garantia de cancelamento sem efeitos ou de sincronização restrita ao destino correto demonstrada por esta documentação.
+
+### PENDENTE — desenho e implementação
+
+Continuam sem definição: mecanismos persistidos de CI em preparação/finalizada; identidade/estado do ciclo diário e folha vazia; endpoints de inicialização/sincronização; estratégia transacional; tratamento de históricos inconsistentes; finalidade de data_folha; timezone/dia operacional técnico; migrations/schema. Os demais detalhes de finalização, destinatária quando há múltiplas/nenhuma preparação e conteúdo completo da cópia continuam pendentes na DATA-001A. Não presumir preparação apenas por data futura nem substituir fotografias por intervalo global.

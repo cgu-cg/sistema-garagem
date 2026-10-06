@@ -34,7 +34,7 @@ Não criar tarefas fictícias apenas para preencher o documento.
 
 ## DATA-001 — Listagens de manutenção executam alterações no banco
 
-**Status:** Pendente de correção; DATA-001A registrada; DATA-001B1 concluída; DATA-001B2 implementada para revisão
+**Status:** Pendente de correção; DATA-001A concluída em 0093c69; DATA-001B1 concluída; DATA-001B2 concluída; DATA-001C1 operacional documentada para revisão
 **Prioridade:** Antes da produção
 **Tipo:** Integridade / arquitetura de dados
 
@@ -71,9 +71,9 @@ São riscos/capacidades confirmados no código, sem consulta ao banco ou confirm
 
 | Etapa | Escopo | Situação / dependência |
 |---|---|---|
-| DATA-001A | Registrar contrato, comportamento observado e pendências | Documentação/skill registradas para revisão |
-| DATA-001B | Separar inicialização e saneamento dos caminhos HTTP | B1 concluída; B2 implementada para revisão; DATA-001 permanece pendente |
-| DATA-001C | Definir identidade/ciclo diário, folha vazia e cópia inicial | Proposta; decisões operacionais e eventual schema sujeitos a aprovação |
+| DATA-001A | Registrar contrato, comportamento observado e pendências | Concluída no commit 0093c69 — docs(domain): documenta ciclo operacional da CI |
+| DATA-001B | Separar inicialização e saneamento dos caminhos HTTP | B1/B2 concluídas; DATA-001 permanece pendente |
+| DATA-001C | Definir identidade/ciclo diário, folha vazia e cópia inicial | C1 operacional esclarecida/documentada; identidade/ciclo e implementação pendentes |
 | DATA-001D | GETs somente leitura e histórico sem reconstrução na interface | Proposta; identificar fotografias e disponibilizar preparação explícita |
 | DATA-001E | Retirada confirmada somente na CI em preparação | Proposta; depende de ciclo e destino |
 | DATA-001F | Limitar propagação/sincronização e preservar coexistência/histórico | Proposta; depende das etapas anteriores e regras de propagação |
@@ -90,17 +90,25 @@ DATA-001B2 trata provisionamento estrutural e retirada deliberada da carga inici
 
 ### DATA-001B2 — Retirar provisionamento estrutural do HTTP
 
-**Status:** Implementada para revisão; scripts não executados; DATA-001 ainda não concluída.
+**Status:** Concluída no commit 8857e02; scripts não executados; DATA-001 ainda não concluída.
 
 Removidos helpers estruturais, flags e chamadas de todos os endpoints dos dois controllers. Removida deliberadamente a carga inicial acoplada à criação, sem novo acionamento. Scripts administrativos separados de validação por metadados e criação explícita em instalação nova; criação recusa objetos alvo existentes, sem reparos. Banco existente, data_folha, Prisma e regras funcionais preservados.
 
 GET /api/manutencao continua mutável por herança, materialização, upserts e exclusões funcionais. GET de CI mantém o catch que pode retornar []. Ver procedimento em [DATABASE.md](./DATABASE.md#data-001b2--provisionamento-separado-do-runtime-http). DATA-001C/D/E/F permanecem pendentes; não há DATA-001B3 definida na organização atual.
 
+### DATA-001C1 — Regras operacionais esclarecidas
+
+**Status:** Contrato documentado para revisão; nenhuma implementação de C/D/E/F concluída.
+
+[DOMAIN.md](./DOMAIN.md#data-001c1--ciclos-operacionais-e-continuidade-dos-bloqueados) confirma manutenção do próprio dia, sincronização bidirecional de BLOQUEADOS com a próxima CI em preparação, coexistência BLOQUEADO + EM MANUTENÇÃO e continuidade apenas dos bloqueios vigentes. Estados de oficina/liberados não atravessam como estado inicial. Retirada direta reflete na preparação; liberação de bloqueado exige confirmação antes de qualquer alteração e cancelamento sem efeitos.
+
+GET ainda é mutável. Identidade/ciclo, inicialização explícita, proteção de CI finalizada, sincronização restrita e retirada/liberação confirmada precisam ser implementados/corrigidos. C/D/E/F permanecem pendentes; não escolher endpoints, transações, schema ou fonte global por inferência.
+
 ### Decisões ainda pendentes
 
-Lista completa em [DOMAIN.md](./DOMAIN.md#data-001a--contrato-operacional-da-ci): finalização/responsáveis; manual, automática ou híbrida; múltiplas ou nenhuma CI em preparação; folha inexistente/vazia; conteúdo copiado; liberação mantendo bloqueio; históricos antigos; fechamento da manutenção; fuso/dia operacional; modelagem futura.
+Pendências em [DATA-001A](./DOMAIN.md#data-001a--contrato-operacional-da-ci) e [DATA-001C1](./DOMAIN.md#data-001c1--ciclos-operacionais-e-continuidade-dos-bloqueados): mecanismos de preparação/finalização, identidade/ciclo e vazio, endpoints, transações, históricos, finalidade de data_folha, fuso/dia operacional técnico e schema/migrations. Liberação de bloqueado já exige confirmação prévia; cancelar não altera nada, sem resultado LIBERADO + BLOQUEADO nesse fluxo.
 
-Mover reconciliação para POST mantendo alteração histórica não satisfaz o contrato. DATA-001A altera somente documentação/skill; DATA-001B1 foi concluída e DATA-001B2 foi autorizada e implementada para revisão; DATA-001C/D/E/F permanecem pendentes.
+Mover reconciliação para POST mantendo alteração histórica não satisfaz o contrato. DATA-001A altera somente documentação/skill; DATA-001B1 foi concluída e DATA-001B2 foi concluída em 8857e02; DATA-001C/D/E/F permanecem pendentes.
 
 ## DATA-002 — Regra de unicidade da vistoria operacional
 

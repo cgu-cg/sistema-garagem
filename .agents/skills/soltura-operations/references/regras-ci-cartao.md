@@ -13,9 +13,7 @@ as categorias usadas nesse documento.
 - **CI Manutenção:** no entendimento operacional atual, registra veículos
   solicitados pela oficina ou bloqueados/pendurados. É um conceito distinto do
   Controle de Manutenção.
-- **Controle de Manutenção:** permite acompanhar situações como “em
-  manutenção” e “liberado”. No comportamento desejado atual, alterar esses
-  estados não deve alterar automaticamente a CI.
+- **Controle de Manutenção:** representa o próprio dia. A DATA-001C1 confirma sincronização dos BLOQUEADOS com a próxima CI em preparação; colocar em manutenção preserva o bloqueio, e liberação de bloqueado exige confirmação prévia. Consulte o domínio para o contrato completo.
 - **Carro programado e realizado:** o domínio atual observado distingue o
   veículo planejado para a tabela daquele que efetivamente executa a soltura.
   A diferenciação formal para todos os turnos permanece pendente de validação.
@@ -72,3 +70,8 @@ limitação, não como garantia.
 **CONFIRMADO:** consulte o [contrato e pendências em DOMAIN.md](../../../../docs/DOMAIN.md#data-001a--contrato-operacional-da-ci). A CI é fotografia diária preparada antecipadamente, preservada após finalização. Bloqueio e execução podem coexistir. Retirada confirmada deve atingir preparação, sem inferir esse estado só pela data.
 
 **ATUAL/OBSERVADO:** interface restringe edição a amanhã, calcula clones e algumas ações persistem cópias. Não há preparação/finalização ou versão persistida identificada. GETs podem escrever; exclusões por prefixo podem atingir várias datas. Isso não constitui regra nem garantia de histórico. A especificação detalhada permanece no domínio; não há arquitetura futura definida aqui.
+
+
+## DATA-001C1 — Complemento operacional confirmado
+
+Consulte [DOMAIN.md](../../../../docs/DOMAIN.md#data-001c1--ciclos-operacionais-e-continuidade-dos-bloqueados), fonte principal: ciclos distintos com sincronização bidirecional dos bloqueados entre manutenção atual e CI correspondente em preparação; continuidade dos bloqueios vigentes; execução/liberados não atravessam como estado inicial; confirmação antes de liberar bloqueado e cancelamento sem efeitos. Isso não autoriza alterar fotografias finalizadas nem comprova implementação técnica. Identidade/ciclo, endpoints, transações, data_folha e schema continuam pendentes.
