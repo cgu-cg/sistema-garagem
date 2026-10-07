@@ -1,14 +1,13 @@
+import { canMutate, operationalContext, getMutationState, subscribeMutationState, confirmRefresh, requireRefresh, SavedRefreshRequired } from '@/lib/mvpTemporal';
+import { fetchManutencaoDataFromApi } from '../manutencao/manutencaoManager';
+import { saveCISnapshot } from './ciManager';
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { BloqueioCarro } from "@/data/solturaData";
 import { INVENTORY_CARS } from "@/data/inventoryCars";
 import { 
-  saveCIBloqueiosToStorage, 
   getConsorciadaByCarro,
   getGaragemFisicaByCarro,
   fetchCIBloqueiosFromApi,
-  persistCIBloqueio,
-  releaseCIBloqueioApi,
-  deleteCIBloqueioApi
 } from "./ciManager";
 import { useAuth } from "@/stores/auth";
 import { api } from "@/lib/api";
@@ -398,21 +397,13 @@ export function CiManutencaoView({
   const isAdmin = user?.role === "ADMIN";
 
   // Identificação e Gestão da Data de Operação (Padrão Controle de Frota)
-  const getTodayString = () => {
-    const d = new Date();
-    const ano = d.getFullYear();
-    const mes = String(d.getMonth() + 1).padStart(2, "0");
-    const dia = String(d.getDate()).padStart(2, "0");
-    return `${ano}-${mes}-${dia}`;
-  };
-  const getTomorrowString = () => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    const ano = d.getFullYear();
-    const mes = String(d.getMonth() + 1).padStart(2, "0");
-    const dia = String(d.getDate()).padStart(2, "0");
-    return `${ano}-${mes}-${dia}`;
-  };
+  const getTodayString = () => operationalContext().today;
+  const getTomorrowString = () => operationalContext().tomorrow;
+  const [writeState, setWriteState] = useState(getMutationState);
+  const [ready, setReady] = useState(false);
+  useEffect(() => subscribeMutationState(() => setWriteState(getMutationState())), []);
+  const [clock, setClock] = useState(Date.now());
+  useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
   const [internalDataOperacao, setInternalDataOperacao] = useState<string>(getTodayString);
   const dataOperacao = propDataOperacao || internalDataOperacao;
   const setDataOperacao = propSetDataOperacao || setInternalDataOperacao;
@@ -518,13 +509,6 @@ export function CiManutencaoView({
   }, [allowedCars]);
 
   // Auxiliar: Encontrar a data anterior mais recente que possua dados salvos
-  const getClosestPreviousDay = useCallback((targetDate: string, list: BloqueioCarro[]) => {
-    const dates = Array.from(new Set(list.map(c => normalizeIsoDate(c.data)).filter(Boolean) as string[]))
-      .filter(d => d < targetDate)
-      .sort()
-      .reverse();
-    return dates[0] || null;
-  }, []);
 
   // Verifica se a folha está fechada (data <= hoje: ex: hoje 01/10/2026, ontem 30/09/2026...)
   const isFolhaFechada = useMemo(() => {
@@ -544,12 +528,13 @@ export function CiManutencaoView({
   const isDataEditavel = useMemo(() => {
     const target = normalizeIsoDate(dataOperacao);
     const tomorrow = getTomorrowString();
-    return Boolean(target && target === tomorrow);
-  }, [dataOperacao]);
+    return Boolean(ready && !writeState.pending && !writeState.refreshRequired && target && target === tomorrow && isAdmin && canMutate(target, 'ci') && activeGaragemScope !== 'VCM');
+  }, [dataOperacao, clock, isAdmin, activeGaragemScope, ready, writeState]);
 
   // Bloqueio de edição: impede qualquer alteração se a data for <= hoje (fechada) ou > amanhã (futura demais)
   const checkDataFuturaBloqueio = useCallback((): boolean => {
     const target = normalizeIsoDate(dataOperacao);
+    if (!ready || getMutationState().pending || getMutationState().refreshRequired || !isAdmin || !canMutate(target, 'ci') || activeGaragemScope === 'VCM') { toast.error('CI somente leitura fora do contexto VCG/ADMIN e janela operacional.'); return true; }
     const today = getTodayString();
     const tomorrow = getTomorrowString();
 
@@ -570,86 +555,28 @@ export function CiManutencaoView({
     }
 
     return false;
-  }, [dataOperacao, formatarDataBr]);
+  }, [dataOperacao, formatarDataBr, isAdmin, activeGaragemScope, ready]);
 
-  // Itens da CI ativos na data de operação selecionada (Modelo de Folha Diária Independente - Cópia de Excel):
-  // 1. Se a folha desta data já possui registros próprios salvos: carrega exclusivamente os registros gravados com data = targetDate.
-  // 2. Se a data é nova (sem nenhum registro próprio): clona e herda como cópia inicial os itens ativos da data anterior mais recente.
-  // 3. Se a data é posterior a amanhã (D+2 em diante): não herda nem clona nada.
-  const ciListNaData = useMemo(() => {
-    const targetDate = normalizeIsoDate(dataOperacao);
-    if (!targetDate) return ciList;
+  // Consulta da fotografia exata: ausencia de registros nao autoriza heranca.
+  const ciListNaData = useMemo(() => ciList.filter(c => normalizeIsoDate(c.data) === normalizeIsoDate(dataOperacao)), [ciList, dataOperacao]);
+  const commitCI = async (next: BloqueioCarro[], removeBlocked: string[] = []): Promise<boolean> => {
+    if (checkDataFuturaBloqueio()) return false;
+    const vcm = (i: BloqueioCarro) => normalizeIsoDate(i.data) === normalizeIsoDate(dataOperacao) && getGaragemFisicaByCarro(i.prefixo) === 'VCM';
+    if (JSON.stringify(next.filter(vcm)) !== JSON.stringify(ciList.filter(vcm))) { toast.error('MVP permite alteracoes somente na VCG.'); return false; }
+    try { setCiList(await saveCISnapshot(next, normalizeIsoDate(dataOperacao), ciList, removeBlocked)); return true; }
+    catch (error) { if (error instanceof SavedRefreshRequired) toast.warning(error.message); else toast.error(error instanceof Error ? error.message : 'Gravacao nao confirmada. Recarregue.'); return false; }
+  };
 
-    // Se a data for posterior a amanhã (D+2 em diante), NÃO puxa nem clona nada de datas anteriores
-    const tomorrowIso = getTomorrowString();
-    if (targetDate > tomorrowIso) {
-      return [];
-    }
-
-    // Registros próprios salvos no banco/memória para esta data
-    const registrosProprios = ciList.filter(
-      c => normalizeIsoDate(c.data) === targetDate && c.status !== "LIBERADO"
-    );
-
-    // Bloqueios de frota reais ativos criados até esta data que ainda não foram liberados
-    const bloqueiosAtivosCI = ciList.filter(c => {
-      if (c.status === "LIBERADO") return false;
-      const cDate = normalizeIsoDate(c.data) || "";
-      if (cDate > targetDate) return false;
-      return c.categoriaPlanilha === "BLOQUEADO" || (!c.categoriaPlanilha && !c.setorOficina && !c.tipoPreventiva && !c.horarioReforco);
-    });
-
-    // Se o dia já possui registros próprios gravados, mescla com os bloqueios ativos da CI
-    if (registrosProprios.length > 0) {
-      const existingPrefixes = new Set(registrosProprios.map(r => (r.prefixo || "").replace(/\D/g, "")));
-      const faltantes = bloqueiosAtivosCI
-        .filter(c => !existingPrefixes.has((c.prefixo || "").replace(/\D/g, "")))
-        .map(c => ({
-          ...c,
-          id: `clone-${targetDate}-${c.id}`,
-          data: targetDate,
-        }));
-      return [...registrosProprios, ...faltantes];
-    }
-
-    // Se o usuário limpou intencionalmente todos os veículos desta data (ficou vazia por escolha)
-    const foiZerada = typeof window !== "undefined" && localStorage.getItem(`ci_data_zerada_${targetDate}`) === "true";
-    if (foiZerada) {
-      return [];
-    }
-
-    // Se é uma data nova: busca a folha do dia anterior mais recente
-    const dataAnterior = getClosestPreviousDay(targetDate, ciList);
-    if (!dataAnterior) {
-      return bloqueiosAtivosCI.map(c => ({
-        ...c,
-        id: `clone-${targetDate}-${c.id}`,
-        data: targetDate,
-      }));
-    }
-
-    // Herda a cópia do dia anterior mais recente (apenas ativos)
-    const itemsAnteriores = ciList.filter(
-      c => normalizeIsoDate(c.data) === dataAnterior && c.status !== "LIBERADO"
-    );
-
-    const cloned = itemsAnteriores.map(item => ({
-      ...item,
-      id: `clone-${targetDate}-${item.id}`,
-      data: targetDate,
-    }));
-
-    const clonedPrefixes = new Set(cloned.map(r => (r.prefixo || "").replace(/\D/g, "")));
-    const bloqueiosFaltantes = bloqueiosAtivosCI
-      .filter(c => !clonedPrefixes.has((c.prefixo || "").replace(/\D/g, "")))
-      .map(c => ({
-        ...c,
-        id: `clone-${targetDate}-${c.id}`,
-        data: targetDate,
-      }));
-
-    return [...cloned, ...bloqueiosFaltantes];
-  }, [ciList, dataOperacao, getClosestPreviousDay]);
+  const handlePrepareTomorrow = async () => {
+    const ctx = operationalContext();
+    if (!ready || getMutationState().pending || getMutationState().refreshRequired || !isAdmin || !ctx.open || activeGaragemScope === 'VCM') return;
+    try {
+      // Apenas valida a preparacao existente; nunca copia D, inclusive destino vazio.
+      const saved = await saveCISnapshot(ciList, ctx.tomorrow, ciList, [], 'prepare');
+      setCiList(saved); setDataOperacao(ctx.tomorrow);
+      toast.success('Preparacao existente consultada. Nenhum item copiado ou reconciliado.');
+    } catch (error) { if (error instanceof SavedRefreshRequired) toast.warning(error.message); else toast.error(error instanceof Error ? error.message : 'Preparacao indisponivel.'); }
+  };
 
   // Modal de Relatório Oficial da CI Manutenção (CGU.REG.MT0005)
   const [modalRelatorioOpen, setModalRelatorioOpen] = useState(false);
@@ -792,8 +719,6 @@ export function CiManutencaoView({
     return `CI-${dateIso}`;
   };
 
-
-
   // Função para Impressão direta da folha A4 em HTML REAL VETORIAL (100% idêntico à visualização da tela)
   const handlePrintRelatorio = () => {
     if (!relatorioFolhaRef.current) return;
@@ -883,8 +808,6 @@ export function CiManutencaoView({
     }
   };
 
-
-
   // Estado do Modal de Inclusão/Edição Rápida de Veículos na CI (Print 03)
   const [quickAddModal, setQuickAddModal] = useState<{
     isOpen: boolean;
@@ -930,16 +853,11 @@ export function CiManutencaoView({
     }
   }, [dataOperacao]);
 
-  // Tipo de serviço da coluna lateral direita do Reforço com Horário (padrão INSPEÇÃO ou herdado do dia anterior)
+  // Titulo da data exata; copia apenas no comando explicito de preparacao.
   const [reforcoServicoTipo, setReforcoServicoTipo] = useState<string>(() => {
     try {
       const saved = localStorage.getItem(`reforco_servico_tipo_${dataOperacao}`);
       if (saved) return saved;
-      const anterior = getClosestPreviousDay(dataOperacao, ciList);
-      if (anterior) {
-        const savedAnt = localStorage.getItem(`reforco_servico_tipo_${anterior}`);
-        if (savedAnt) return savedAnt;
-      }
     } catch {}
     return "INSPEÇÃO";
   });
@@ -956,14 +874,12 @@ export function CiManutencaoView({
       if (savedTipo) {
         setReforcoServicoTipo(savedTipo);
       } else {
-        const anterior = getClosestPreviousDay(dataOperacao, ciList);
-        const savedAnt = anterior ? localStorage.getItem(`reforco_servico_tipo_${anterior}`) : null;
-        setReforcoServicoTipo(savedAnt || "INSPEÇÃO");
+        setReforcoServicoTipo("INSPEÇÃO");
       }
     } catch {
       setReforcoServicoTipo("INSPEÇÃO");
     }
-  }, [dataOperacao, ciList, getClosestPreviousDay]);
+  }, [dataOperacao, ciList]);
 
   const handleReforcoServicoTipoChange = (novoTipo: string) => {
     if (checkDataFuturaBloqueio()) return;
@@ -1064,26 +980,23 @@ export function CiManutencaoView({
   }, [sortedAllowedCars, quickAddFilterCompany, quickAddCarro]);
 
   // Sincronizar dados atualizados do banco oficial SQL Server
-  const handleRefreshData = () => {
-    fetchCIBloqueiosFromApi({
-      garagem: activeGaragemScope === "TODAS" ? undefined : activeGaragemScope,
-    }).then(data => {
-      if (Array.isArray(data)) {
-        setCiList(data);
-        toast.success("Dados da CI sincronizados com sucesso!");
-      }
-    });
+  const handleRefreshData = async () => {
+    if (getMutationState().pending) return;
+    setReady(false);
+    try {
+      const [records] = await Promise.all([fetchCIBloqueiosFromApi({ garagem: activeGaragemScope === 'TODAS' ? undefined : activeGaragemScope }), fetchManutencaoDataFromApi(operationalContext().today, 'VCG')]);
+      setCiList(records); setReady(true); confirmRefresh();
+      toast.success('Dados oficiais atualizados.');
+    } catch (error) { requireRefresh(); toast.error(error instanceof Error ? error.message : 'Consulta indisponivel.'); }
   };
 
-  // Carregar dados atualizados do banco oficial SQL Server na montagem ou troca de garagem
   useEffect(() => {
-    fetchCIBloqueiosFromApi({
-      garagem: activeGaragemScope === "TODAS" ? undefined : activeGaragemScope,
-    }).then(data => {
-      if (Array.isArray(data)) {
-        setCiList(data);
-      }
-    });
+    let active = true;
+    setReady(false);
+    Promise.all([fetchCIBloqueiosFromApi({ garagem: activeGaragemScope === 'TODAS' ? undefined : activeGaragemScope }), fetchManutencaoDataFromApi(operationalContext().today, 'VCG')])
+      .then(([records]) => { if (active) { setCiList(records); setReady(true); confirmRefresh(); } })
+      .catch(error => { if (active && !getMutationState().pending) { requireRefresh(); toast.error(error instanceof Error ? error.message : 'Consulta indisponivel.'); } });
+    return () => { active = false; };
   }, [activeGaragemScope, setCiList]);
 
   // Funções de Suporte para Lançamento Rápido via botão '+' dos Cards
@@ -1119,7 +1032,7 @@ export function CiManutencaoView({
     }
   };
 
-  const handleConfirmQuickAdd = (e: React.FormEvent) => {
+  const handleConfirmQuickAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (checkDataFuturaBloqueio()) return;
     if (!quickAddCarro) {
@@ -1164,7 +1077,10 @@ export function CiManutencaoView({
     else if (motivoFinal.toLowerCase().includes("sinistro")) mappedTipo = "BLOQUEADO_SINISTRO";
 
     // Função para executar a gravação física do registro na CI
-    const executeSaveQuickCarro = () => {
+    const executeSaveQuickCarro = async () => {
+      if (category === 'BLOQUEADO' && !isEditing && ciListNaData.some(c => c.categoriaPlanilha === 'BLOQUEADO' && c.prefixo === cleanCar)) {
+        toast.error('Este prefixo ja possui BLOQUEADO nesta CI. Edite o item existente.'); return;
+      }
       try {
         localStorage.removeItem(`ci_data_zerada_${cleanData}`);
         localStorage.removeItem(`ci_folha_salva_${cleanData}`);
@@ -1193,10 +1109,8 @@ export function CiManutencaoView({
         });
 
         if (found) {
-          setCiList(updatedList);
-          saveCIBloqueiosToStorage(updatedList);
-          const editedItem = updatedList.find(item => item.prefixo === cleanCar && normalizeIsoDate(item.data) === cleanData);
-          if (editedItem) persistCIBloqueio(editedItem);
+          if (!(await commitCI(updatedList))) return;
+
           toast.success(`Carro ${cleanCar} atualizado com sucesso!`);
           setQuickAddModal(prev => ({ ...prev, isOpen: false }));
           return;
@@ -1249,14 +1163,12 @@ export function CiManutencaoView({
           id: freezeCloneId(c.id, cleanData, c),
           data: cleanData,
         }));
-      outrosCarrosDestaData.forEach(c => persistCIBloqueio(c));
 
       const outrosDias = ciList.filter(c => normalizeIsoDate(c.data) !== cleanData);
       const updatedList = [newCI, ...outrosCarrosDestaData, ...outrosDias];
 
-      setCiList(updatedList);
-      saveCIBloqueiosToStorage(updatedList);
-      persistCIBloqueio(newCI);
+      if (!(await commitCI(updatedList))) return;
+
       toast.success(`Carro ${cleanCar} inserido com sucesso em ${quickAddModal.title}!`);
       setQuickAddModal(prev => ({ ...prev, isOpen: false }));
     };
@@ -1270,19 +1182,19 @@ export function CiManutencaoView({
           carro: cleanCar,
           existingLocations,
           targetLocation: quickAddModal.title || `Setor ${subType}`,
-          onConfirm: () => {
+          onConfirm: async () => {
             setConflictModal(prev => ({ ...prev, isOpen: false }));
-            executeSaveQuickCarro();
+            await executeSaveQuickCarro();
           }
         });
         return;
       }
     }
 
-    executeSaveQuickCarro();
+    await executeSaveQuickCarro();
   };
 
-  const handleQuickRemove = (carro: string, itemId?: string) => {
+  const handleQuickRemove = async (carro: string, itemId?: string) => {
     if (checkDataFuturaBloqueio()) return;
     const targetDate = normalizeIsoDate(dataOperacao) || getTodayString();
     if (!confirm(`Deseja remover o Carro ${carro} da folha do dia ${formatarDataBr(targetDate)}?\n\n(Atenção: A folha do dia anterior e de outros dias permanecerão intactas).`)) return;
@@ -1291,25 +1203,20 @@ export function CiManutencaoView({
       localStorage.removeItem(`ci_folha_salva_${targetDate}`);
     } catch {}
 
-    if (itemId && !itemId.startsWith("clone-")) {
-      deleteCIBloqueioApi(itemId);
-    } else if (!itemId) {
-      deleteCIBloqueioApi(`ci-${targetDate}-${carro}`);
-    }
+
 
     const outrosCarrosDestaData = ciListNaData
       .filter(c => {
         if (itemId) {
           return c.id !== itemId;
         }
-        return c.prefixo !== carro;
+        return !(c.prefixo === carro && c.categoriaPlanilha === 'BLOQUEADO');
       })
       .map(c => ({
         ...c,
         id: freezeCloneId(c.id, targetDate, c),
         data: targetDate,
       }));
-    outrosCarrosDestaData.forEach(c => persistCIBloqueio(c));
 
     if (outrosCarrosDestaData.length === 0) {
       try { localStorage.setItem(`ci_data_zerada_${targetDate}`, "true"); } catch {}
@@ -1320,13 +1227,12 @@ export function CiManutencaoView({
     const outrosDias = ciList.filter(c => normalizeIsoDate(c.data) !== targetDate);
     const updatedList = [...outrosCarrosDestaData, ...outrosDias];
 
-    setCiList(updatedList);
-    saveCIBloqueiosToStorage(updatedList);
+    if (!(await commitCI(updatedList, ciListNaData.filter(c => c.categoriaPlanilha === 'BLOQUEADO' && c.status !== 'LIBERADO' && (itemId ? c.id === itemId : c.prefixo === carro)).map(c => c.prefixo)))) return;
     toast.info(`Carro ${carro} removido da folha de ${formatarDataBr(targetDate)}.`);
   };
 
   // Limpar todos os veículos de um card/bloco específico na folha da data atual
-  const handleLimparCard = (
+  const handleLimparCard = async (
     categoria: "PREVENTIVA" | "OFICINA" | "REFORCO" | "BLOQUEADO",
     nomeBloco: string
   ) => {
@@ -1350,14 +1256,6 @@ export function CiManutencaoView({
         localStorage.setItem(`reforco_drafts_${targetDate}`, JSON.stringify(nextDrafts));
       } catch {}
 
-      const itensReforcoDestaData = ciList.filter(c => 
-        normalizeIsoDate(c.data) === targetDate && 
-        (c.categoriaPlanilha === "REFORCO" || Boolean(c.horarioReforco))
-      );
-      itensReforcoDestaData.forEach(c => {
-        if (c.id) deleteCIBloqueioApi(c.id);
-      });
-
       // Congela os demais itens da data (Preventiva, Oficina, Bloqueado) caso ainda fossem clones
       const outrosItensDestaData = ciListNaData
         .filter(c => c.categoriaPlanilha !== "REFORCO" && !Boolean(c.horarioReforco))
@@ -1366,7 +1264,6 @@ export function CiManutencaoView({
           id: freezeCloneId(c.id, targetDate, c),
           data: targetDate,
         }));
-      outrosItensDestaData.forEach(c => persistCIBloqueio(c));
 
       if (outrosItensDestaData.length === 0) {
         try { localStorage.setItem(`ci_data_zerada_${targetDate}`, "true"); } catch {}
@@ -1376,8 +1273,7 @@ export function CiManutencaoView({
 
       const outrosDias = ciList.filter(c => normalizeIsoDate(c.data) !== targetDate);
       const updatedList = [...outrosItensDestaData, ...outrosDias];
-      setCiList(updatedList);
-      saveCIBloqueiosToStorage(updatedList);
+      if (!(await commitCI(updatedList))) return;
       toast.info(`Reforço com Horário da folha de ${formatarDataBr(targetDate)} foi limpo.`);
       return;
     }
@@ -1391,20 +1287,13 @@ export function CiManutencaoView({
       return false;
     });
 
-    itensParaRemover.forEach(c => {
-      if (normalizeIsoDate(c.data) === targetDate && c.id && !c.id.startsWith("clone-")) {
-        deleteCIBloqueioApi(c.id);
-      }
-    });
-
     const itensRestantes = ciListNaData
-      .filter(c => !itensParaRemover.some(r => r.prefixo === c.prefixo))
+      .filter(c => !itensParaRemover.some(r => r.id === c.id))
       .map(c => ({
         ...c,
         id: freezeCloneId(c.id, targetDate, c),
         data: targetDate,
       }));
-    itensRestantes.forEach(c => persistCIBloqueio(c));
 
     if (itensRestantes.length === 0) {
       try { localStorage.setItem(`ci_data_zerada_${targetDate}`, "true"); } catch {}
@@ -1415,45 +1304,20 @@ export function CiManutencaoView({
     const outrosDias = ciList.filter(c => normalizeIsoDate(c.data) !== targetDate);
     const updatedList = [...itensRestantes, ...outrosDias];
 
-    setCiList(updatedList);
-    saveCIBloqueiosToStorage(updatedList);
+    if (!(await commitCI(updatedList, itensParaRemover.filter(c => c.categoriaPlanilha === 'BLOQUEADO' && c.status !== 'LIBERADO').map(c => c.prefixo)))) return;
     toast.info(`${nomeBloco} da folha de ${formatarDataBr(targetDate)} limpo com sucesso.`);
   };
 
   // Liberar / Dar Baixa no Carro diretamente a partir da lista
-  const handleReleaseCarro = (carro: string, itemId?: string) => {
+  const handleReleaseCarro = async (carro: string, _itemId?: string) => {
     if (checkDataFuturaBloqueio()) return;
     const targetDateIso = normalizeIsoDate(dataOperacao) || getTodayString();
     if (!confirm(`Deseja dar BAIXA e LIBERAR o Carro ${carro} para soltura na data ${formatarDataBr(targetDateIso)}?\n\n(O veículo sairá dos bloqueados a partir desta data, mantendo o histórico dos dias anteriores intacto).`)) return;
 
-    const agora = new Date();
-    const horaLib = `${String(agora.getHours()).padStart(2, "0")}:${String(agora.getMinutes()).padStart(2, "0")}`;
+    if (!ciListNaData.some(item => item.prefixo === carro && item.categoriaPlanilha === 'BLOQUEADO')) { toast.info('Não há BLOQUEADO desse veículo nesta CI.'); return; }
+    const updatedList = ciList.filter(item => !(normalizeIsoDate(item.data) === targetDateIso && item.prefixo === carro && item.categoriaPlanilha === 'BLOQUEADO'));
 
-    const updatedList = ciList.map(item => {
-      const matches = (itemId && item.id === itemId) || item.prefixo === carro;
-      if (matches) {
-        return {
-          ...item,
-          status: "LIBERADO" as const,
-          dataLiberacao: targetDateIso,
-          horaLiberacao: horaLib,
-          motivoLiberacao: "Liberado pela CI Manutenção",
-          responsavelLiberacao: user?.name || "Oficina",
-        };
-      }
-      return item;
-    });
-
-    setCiList(updatedList);
-    saveCIBloqueiosToStorage(updatedList);
-
-    releaseCIBloqueioApi({
-      id: itemId,
-      prefixo: carro,
-      dataLiberacao: targetDateIso,
-      motivoLiberacao: "Liberado pela CI Manutenção",
-      responsavelLiberacao: user?.name || "Oficina",
-    });
+    if (!(await commitCI(updatedList, [carro]))) return;
 
     toast.success(`Carro ${carro} liberado da CI com sucesso na data ${formatarDataBr(targetDateIso)}!`);
   };
@@ -1546,7 +1410,7 @@ export function CiManutencaoView({
     });
   };
 
-  const handleSaveReforcoSlot = (slotId: string, horario: string) => {
+  const handleSaveReforcoSlot = async (slotId: string, horario: string) => {
     if (checkDataFuturaBloqueio()) return;
     const slotData = getReforcoSlotData(slotId, horario);
     const cleanPrefixo = (slotData.prefixo || "").trim();
@@ -1558,16 +1422,14 @@ export function CiManutencaoView({
     // Se o usuário limpou o carro e clicou no botão para desvincular um horário que já estava salvo
     if (!cleanPrefixo || cleanPrefixo === "—") {
       if (slotData.isSaved) {
-        deleteCIBloqueioApi(slotStorageId);
-        deleteCIBloqueioApi(legacySlotStorageId);
+
         const updatedList = ciList.filter(c => 
           c.id !== slotStorageId && 
           c.id !== legacySlotStorageId && 
           (c as any).reforcoSlotId !== slotId &&
           !(c.id && (c.id.includes(`-${slotId}-`) || c.id.endsWith(`-${slotId}`)))
         );
-        setCiList(updatedList);
-        saveCIBloqueiosToStorage(updatedList);
+        if (!(await commitCI(updatedList))) return;
         setReforcoDrafts(prev => {
           const next = { ...prev };
           delete next[slotId];
@@ -1611,7 +1473,7 @@ export function CiManutencaoView({
     };
 
     // Executa a gravação do slot sem remover o carro de outros setores (coexistência)
-    const executeSaveReforco = () => {
+    const executeSaveReforco = async () => {
       // Remove apenas registro anterior deste mesmo slot, sem apagar o carro de outros locais da CI
       const cleanList = ciList.filter(c => 
         c.id !== slotStorageId && 
@@ -1621,9 +1483,7 @@ export function CiManutencaoView({
       );
       const updatedList = [newReforcoItem, ...cleanList];
 
-      setCiList(updatedList);
-      saveCIBloqueiosToStorage(updatedList);
-      persistCIBloqueio(newReforcoItem);
+      if (!(await commitCI(updatedList))) return;
 
       // Limpa o draft deste slot, pois agora o item está salvo oficialmente na CI
       setReforcoDrafts(prev => {
@@ -1646,19 +1506,19 @@ export function CiManutencaoView({
         carro: cleanPrefixo,
         existingLocations: existing,
         targetLocation: `Reforço com Horário (${horario})`,
-        onConfirm: () => {
+        onConfirm: async () => {
           setConflictModal(prev => ({ ...prev, isOpen: false }));
-          executeSaveReforco();
+          await executeSaveReforco();
         }
       });
       return;
     }
 
-    executeSaveReforco();
+    await executeSaveReforco();
   };
 
   // Salva ou remove um veículo do slot extra de serviço (Card 3)
-  const handleSaveReforcoExtraSlot = (slotId: string) => {
+  const handleSaveReforcoExtraSlot = async (slotId: string) => {
     if (checkDataFuturaBloqueio()) return;
     const slotData = getReforcoSlotData(slotId, reforcoServicoTipo);
     const cleanPrefixo = (slotData.prefixo || "").trim();
@@ -1668,16 +1528,14 @@ export function CiManutencaoView({
     // Se o usuário limpou o carro e clicou no botão para desvincular um veículo que já estava salvo
     if (!cleanPrefixo || cleanPrefixo === "—") {
       if (slotData.isSaved) {
-        deleteCIBloqueioApi(slotStorageId);
-        deleteCIBloqueioApi(legacySlotStorageId);
+
         const updatedList = ciList.filter(c => 
           c.id !== slotStorageId && 
           c.id !== legacySlotStorageId && 
           (c as any).reforcoSlotId !== slotId &&
           !(c.id && (c.id.includes(`-${slotId}-`) || c.id.endsWith(`-${slotId}`)))
         );
-        setCiList(updatedList);
-        saveCIBloqueiosToStorage(updatedList);
+        if (!(await commitCI(updatedList))) return;
         setReforcoDrafts(prev => {
           const next = { ...prev };
           delete next[slotId];
@@ -1714,7 +1572,7 @@ export function CiManutencaoView({
       status: "BLOQUEADO"
     };
 
-    const executeSaveExtra = () => {
+    const executeSaveExtra = async () => {
       const cleanList = ciList.filter(c => 
         c.id !== slotStorageId && 
         c.id !== legacySlotStorageId && 
@@ -1723,9 +1581,7 @@ export function CiManutencaoView({
       );
       const updatedList = [newReforcoItem, ...cleanList];
 
-      setCiList(updatedList);
-      saveCIBloqueiosToStorage(updatedList);
-      persistCIBloqueio(newReforcoItem);
+      if (!(await commitCI(updatedList))) return;
 
       setReforcoDrafts(prev => {
         const next = { ...prev };
@@ -1746,32 +1602,43 @@ export function CiManutencaoView({
         carro: cleanPrefixo,
         existingLocations: existing,
         targetLocation: `Reforço (${reforcoServicoTipo})`,
-        onConfirm: () => {
+        onConfirm: async () => {
           setConflictModal(prev => ({ ...prev, isOpen: false }));
-          executeSaveExtra();
+          await executeSaveExtra();
         }
       });
       return;
     }
 
-    executeSaveExtra();
+    await executeSaveExtra();
   };
 
   // Salva todos os veículos preenchidos da coluna de serviço extra (Card 3)
-  const handleSaveAllReforcoExtraSlots = () => {
+  const handleSaveAllReforcoExtraSlots = async () => {
     if (checkDataFuturaBloqueio()) return;
-    let savedCount = 0;
-    FIXED_REFORCO_EXTRA_SLOTS.forEach(slot => {
-      const slotData = getReforcoSlotData(slot.id, reforcoServicoTipo);
-      const cleanPrefixo = (slotData.prefixo || "").trim();
-      if (cleanPrefixo && cleanPrefixo !== "—" && (!slotData.isSaved || slotData.isDirty)) {
-        handleSaveReforcoExtraSlot(slot.id);
-        savedCount++;
-      }
-    });
-    if (savedCount === 0) {
-      toast.info(`Nenhuma alteração pendente em ${reforcoServicoTipo}.`);
+    let next = ciList;
+    const changed: string[] = [];
+    for (const slot of FIXED_REFORCO_EXTRA_SLOTS) {
+      const draft = getReforcoSlotData(slot.id, reforcoServicoTipo);
+      const prefixo = draft.prefixo.trim();
+      if (!prefixo || prefixo === '—' || (draft.isSaved && !draft.isDirty)) continue;
+      if (getGaragemFisicaByCarro(prefixo) !== 'VCG') { toast.error('MVP permite alteracoes somente na VCG.'); return; }
+      const id = 'ci-reforco-' + slot.id + '-' + dataOperacao;
+      next = next.filter(c => !(normalizeIsoDate(c.data) === normalizeIsoDate(dataOperacao) && (c.id === id || c.id === draft.savedItem?.id)));
+      next = [...next, { id, prefixo, garagem: 'VCG', consorciada: getConsorciadaByCarro(prefixo), categoriaPlanilha: 'REFORCO',
+        horarioReforco: reforcoServicoTipo, tipo: 'REFORCO_REVISAO', motivo: reforcoServicoTipo,
+        data: normalizeIsoDate(dataOperacao), responsavel: 'Pista / Reforço', os: draft.obs, status: 'BLOQUEADO' }];
+      changed.push(slot.id);
     }
+    if (!changed.length) { toast.info('Nenhuma alteração pendente nesta coluna.'); return; }
+    if (!confirm('Salvar todas as alterações da coluna? Os outros setores serão preservados.')) return;
+    if (!(await commitCI(next))) return;
+    setReforcoDrafts(prev => {
+      const remaining = { ...prev }; changed.forEach(id => delete remaining[id]);
+      try { localStorage.setItem('reforco_drafts_' + dataOperacao, JSON.stringify(remaining)); } catch {}
+      return remaining;
+    });
+    toast.success('Coluna salva com sucesso.');
   };
 
   // Mapa rápido de carros com registro de CI ativo na data selecionada
@@ -1896,44 +1763,23 @@ export function CiManutencaoView({
   };
 
   // Liberar Carro da CI diretamente a partir do Quick Modal
-  const handleReleaseQuickCarro = () => {
+  const handleReleaseQuickCarro = async () => {
     if (checkDataFuturaBloqueio()) return;
     if (!quickAddCarro) return;
 
     const targetDateIso = normalizeIsoDate(dataOperacao) || getTodayString();
-    const agora = new Date();
-    const horaLib = `${String(agora.getHours()).padStart(2, "0")}:${String(agora.getMinutes()).padStart(2, "0")}`;
 
-    const updatedList = ciList.map(item => {
-      const matches = (quickAddModal.existingId && item.id === quickAddModal.existingId) || item.prefixo === quickAddCarro;
-      if (matches) {
-        return {
-          ...item,
-          status: "LIBERADO" as const,
-          dataLiberacao: targetDateIso,
-          horaLiberacao: horaLib,
-          motivoLiberacao: "Liberado pela CI Manutenção",
-          responsavelLiberacao: user?.name || "Oficina"
-        };
-      }
-      return item;
-    });
+    if (!ciListNaData.some(item => item.prefixo === quickAddCarro && item.categoriaPlanilha === 'BLOQUEADO')) { toast.info('Não há BLOQUEADO desse veículo nesta CI.'); return; }
+    const updatedList = ciList.filter(item => !(normalizeIsoDate(item.data) === targetDateIso && item.prefixo === quickAddCarro && item.categoriaPlanilha === 'BLOQUEADO'));
 
-    setCiList(updatedList);
-    saveCIBloqueiosToStorage(updatedList);
-    releaseCIBloqueioApi({
-      id: quickAddModal.existingId,
-      prefixo: quickAddCarro,
-      dataLiberacao: targetDateIso,
-      motivoLiberacao: "Liberado pela CI Manutenção",
-      responsavelLiberacao: user?.name || "Oficina"
-    });
-    toast.success(`Carro ${quickAddCarro} liberado da CI com sucesso na data ${formatarDataBr(targetDateIso)}! Agora está APTO para a soltura.`);
+    if (!(await commitCI(updatedList, [quickAddCarro]))) return;
+
+    toast.success(`Carro ${quickAddCarro} liberado da CI com sucesso na data ${formatarDataBr(targetDateIso)}. Estado de oficina preservado.`);
     setQuickAddModal(prev => ({ ...prev, isOpen: false }));
   };
 
   // Excluir CI do Carro diretamente a partir do Quick Modal
-  const handleDeleteQuickCarro = () => {
+  const handleDeleteQuickCarro = async () => {
     if (checkDataFuturaBloqueio()) return;
     if (!quickAddCarro) return;
     const targetDate = normalizeIsoDate(dataOperacao) || getTodayString();
@@ -1943,25 +1789,20 @@ export function CiManutencaoView({
       localStorage.removeItem(`ci_folha_salva_${targetDate}`);
     } catch {}
 
-    if (quickAddModal.existingId && !quickAddModal.existingId.startsWith("clone-")) {
-      deleteCIBloqueioApi(quickAddModal.existingId);
-    } else if (!quickAddModal.existingId) {
-      deleteCIBloqueioApi(quickAddCarro);
-    }
+
 
     const outrosCarrosDestaData = ciListNaData
       .filter(c => {
         if (quickAddModal.existingId) {
           return c.id !== quickAddModal.existingId;
         }
-        return c.prefixo !== quickAddCarro;
+        return !(c.prefixo === quickAddCarro && c.categoriaPlanilha === 'BLOQUEADO');
       })
       .map(c => ({
         ...c,
         id: freezeCloneId(c.id, targetDate, c),
         data: targetDate,
       }));
-    outrosCarrosDestaData.forEach(c => persistCIBloqueio(c));
 
     if (outrosCarrosDestaData.length === 0) {
       try { localStorage.setItem(`ci_data_zerada_${targetDate}`, "true"); } catch {}
@@ -1972,8 +1813,7 @@ export function CiManutencaoView({
     const outrosDias = ciList.filter(c => normalizeIsoDate(c.data) !== targetDate);
     const updatedList = [...outrosCarrosDestaData, ...outrosDias];
 
-    setCiList(updatedList);
-    saveCIBloqueiosToStorage(updatedList);
+    if (!(await commitCI(updatedList, ciListNaData.filter(c => c.categoriaPlanilha === 'BLOQUEADO' && c.status !== 'LIBERADO' && (quickAddModal.existingId ? c.id === quickAddModal.existingId : c.prefixo === quickAddCarro)).map(c => c.prefixo)))) return;
     toast.info(`Carro ${quickAddCarro} removido da folha de ${formatarDataBr(targetDate)}.`);
     setQuickAddModal(prev => ({ ...prev, isOpen: false }));
   };
@@ -2084,6 +1924,7 @@ export function CiManutencaoView({
             Visualizar Relatório
           </Button>
 
+          <Button onClick={handlePrepareTomorrow} disabled={!ready || writeState.pending || writeState.refreshRequired || !isAdmin || !operationalContext().open || activeGaragemScope === 'VCM'} variant="outline" size="sm">Verificar preparação de amanhã</Button>
           <Button
             onClick={handleRefreshData}
             variant="ghost"
@@ -2097,6 +1938,10 @@ export function CiManutencaoView({
       </div>
 
       {/* ========================================================= */}
+      {writeState.pending && <p role="status">Salvando. Aguarde antes de outra operacao.</p>}
+      {writeState.refreshRequired && <p role="alert">Atualize os dados oficiais antes de continuar.</p>}
+      <p className="text-sm">Copia automatica indisponivel no legado: CI vazia nao comprova primeira preparacao. Inclusoes e retiradas devem ser explicitas.</p>
+      {!isDataEditavel && <p role="status" className="rounded-2xl border border-slate-300 bg-slate-100 p-3 text-sm dark:border-slate-700 dark:bg-slate-800">Somente leitura. Alterações VCG requerem ADMIN e CI de amanhã, entre 03:00 e 18:30 em America/Campo_Grande.</p>}
       {/* PRANCHETA DIGITAL (LAYOUT PRINT 01 & PRINT 02) */}
       {/* ========================================================= */}
       <div className="space-y-6">
@@ -3327,11 +3172,10 @@ export function CiManutencaoView({
         </DialogContent>
       </Dialog>
 
-
-
-
-
       {/* ========================================================= */}
+
+
+
       {/* MODAL RÁPIDO DO BOTÃO '+' DOS CARDS (PRINT 01 E 02) */}
       {/* ========================================================= */}
       <Dialog 

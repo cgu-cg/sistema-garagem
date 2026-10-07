@@ -1,6 +1,9 @@
 import { Response } from "express";
 import prisma from "../utils/prisma";
 import { AuthRequest } from "../middleware/auth";
+import { saveCI } from "../services/mvpLegado";
+import { MvpError } from "../services/mvpTemporal";
+import { ZodError } from "zod";
 
 export function getTodayDate(): string {
   const now = new Date();
@@ -13,8 +16,9 @@ export function getTodayDate(): string {
 // 1. Listar Bloqueios da CI com filtros
 export async function list(req: AuthRequest, res: Response) {
   try {
-    const { garagem, status, categoria } = req.query;
+    const { garagem, status, categoria, data } = req.query;
     const where: any = {};
+    if (data) where.dataBloqueio = String(data);
 
     // Identificação da Garagem Física do Usuário Logado (VCG ou VCM)
     const user = await prisma.user.findUnique({
@@ -87,6 +91,7 @@ export async function list(req: AuthRequest, res: Response) {
 
       return {
         id: r.id,
+        updatedAt: r.updatedAt,
         prefixo: (r.prefixo || "").trim(),
         garagem: r.garagem,
         consorciada: r.consorciada,
@@ -111,260 +116,22 @@ export async function list(req: AuthRequest, res: Response) {
     return res.json(mapped);
   } catch (error: any) {
     console.error("[CI Bloqueios] Erro ao listar bloqueios:", error);
-    return res.json([]);
+    return res.status(500).json({ error: "Erro ao consultar CI; nenhum fallback representa sucesso." });
   }
 }
 
-// 2. Criar ou Atualizar Bloqueio na CI
-export async function createOrUpdate(req: AuthRequest, res: Response) {
-  try {
-    const {
-      id,
-      prefixo,
-      garagem,
-      consorciada,
-      categoriaPlanilha,
-      categoria,
-      setorOficina,
-      tipoPreventiva,
-      subTipo,
-      horarioReforco,
-      motivo,
-      data,
-      dataBloqueio,
-      hora,
-      horaBloqueio,
-      gravidade,
-      responsavel,
-      os,
-      observacoes,
-      status,
-    } = req.body;
-
-    if (!prefixo) {
-      return res.status(400).json({ error: "Prefixo do veículo é obrigatório." });
-    }
-
-    const cleanPrefixo = String(prefixo).trim();
-    const cat = String(categoriaPlanilha || categoria || "OFICINA").trim().toUpperCase();
-    const rawSub = setorOficina || tipoPreventiva || subTipo;
-    const sub = rawSub ? String(rawSub).trim().toUpperCase() : null;
-    let finalData = new Date().toISOString().split("T")[0];
-    const rawData = data || dataBloqueio;
-    if (rawData) {
-      const clean = String(rawData).trim().split(/[\sT]/)[0];
-      if (clean.includes("/")) {
-        const parts = clean.split("/");
-        if (parts.length === 3) {
-          finalData = parts[0].length === 4
-            ? `${parts[0]}-${parts[1].padStart(2, "0")}-${parts[2].padStart(2, "0")}`
-            : `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
-        } else {
-          finalData = clean;
-        }
-      } else {
-        finalData = clean;
-      }
-    }
-    const finalHora = hora || horaBloqueio || new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-
-    // Se não forneceu ID, tenta localizar bloqueio ativo deste mesmo prefixo
-    let recordId = id;
-    if (!recordId) {
-      const existingActive = await prisma.ciBloqueio.findFirst({
-        where: {
-          prefixo: cleanPrefixo,
-          status: { not: "LIBERADO" }
-        },
-        orderBy: { createdAt: "desc" }
-      });
-      recordId = existingActive?.id || `ci-${Date.now()}-${cleanPrefixo}`;
-    }
-
-    // Se já houver um registro de bloqueio ativo para este carro, atualiza; senão cria
-    const saved = await prisma.ciBloqueio.upsert({
-      where: { id: recordId },
-      create: {
-        id: recordId,
-        prefixo: cleanPrefixo,
-        garagem: garagem || "VCG",
-        consorciada: consorciada || "VCG",
-        categoria: cat,
-        subTipo: sub,
-        horarioReforco: horarioReforco || null,
-        motivo: motivo !== undefined && motivo !== null ? String(motivo).trim() : "",
-        dataBloqueio: finalData,
-        horaBloqueio: finalHora,
-        gravidade: gravidade || "ALTA",
-        responsavel: responsavel || "Oficina Central",
-        observacoes: os || observacoes || null,
-        status: status || "BLOQUEADO",
-        userId: req.userId || null,
-      },
-      update: {
-        prefixo: cleanPrefixo,
-        garagem: garagem || "VCG",
-        consorciada: consorciada || "VCG",
-        categoria: cat,
-        subTipo: sub,
-        horarioReforco: horarioReforco || null,
-        motivo: motivo !== undefined && motivo !== null ? String(motivo).trim() : "",
-        dataBloqueio: finalData,
-        horaBloqueio: finalHora,
-        gravidade: gravidade || "ALTA",
-        responsavel: responsavel || "Oficina Central",
-        observacoes: os || observacoes || null,
-        status: status || "BLOQUEADO",
-        userId: req.userId || null,
-      },
-    });
-
-    return res.json(saved);
-  } catch (error: any) {
-    console.error("[CI Bloqueios] Erro ao salvar bloqueio:", error);
-    return res.status(500).json({ error: error?.message || "Erro ao salvar bloqueio." });
-  }
-}
-
-// 3. Dar Baixa / Liberar Veículo da CI (Remove da tabela ci_bloqueios)
-export async function release(req: AuthRequest, res: Response) {
-  try {
-    const { prefixo, id } = req.body;
-
-    if (!prefixo && !id) {
-      return res.status(400).json({ error: "Informe o prefixo ou o ID do bloqueio para liberar." });
-    }
-
-    const cleanPrefixo = prefixo ? String(prefixo).trim().replace(/\D/g, "") : undefined;
-
-    // Remove fisicamente da tabela ci_bloqueios conforme solicitado
-    await prisma.ciBloqueio.deleteMany({
-      where: {
-        OR: [
-          ...(id ? [{ id: String(id) }] : []),
-          ...(cleanPrefixo ? [{ prefixo: cleanPrefixo }] : []),
-          ...(prefixo ? [{ prefixo: String(prefixo).trim() }] : []),
-        ],
-      },
-    });
-
-    // Se o carro constava estritamente como bloqueado permanente na folha de manutenção, desmarca o bloqueio
-    // (As listas de em manutenção e liberados são 100% independentes e não recebem registros da CI)
-    try {
-      if (cleanPrefixo) {
-        await prisma.manutencaoCarro.deleteMany({
-          where: {
-            prefixo: cleanPrefixo,
-            bloqueado: true,
-            emExecucao: false,
-            liberado: false,
-          },
-        });
-      }
-    } catch (_) {}
-
-    return res.json({ success: true, message: `Veículo ${prefixo || id} liberado e removido dos bloqueios da CI com sucesso.` });
-  } catch (error: any) {
-    console.error("[CI Bloqueios] Erro ao liberar veículo:", error);
-    return res.status(500).json({ error: error?.message || "Erro ao liberar veículo." });
-  }
-}
-
-// 4. Excluir Bloqueio da CI
-export async function remove(req: AuthRequest, res: Response) {
-  try {
-    const { id } = req.params;
-    const { prefixo } = req.query;
-
-    if (!id) {
-      return res.status(400).json({ error: "ID não fornecido." });
-    }
-
-    // Se o cliente enviou um ID específico, busca o prefixo do carro associado
-    let carPrefixo = prefixo ? String(prefixo).trim() : undefined;
-    if (!carPrefixo) {
-      const found = await prisma.ciBloqueio.findFirst({
-        where: { id },
-        select: { prefixo: true }
-      });
-      if (found) {
-        carPrefixo = found.prefixo.trim();
-      }
-    }
-
-    // Condições para exclusão: apaga por ID e, se houver prefixo identificado, remove todos os bloqueios deste carro
-    const orConditions: any[] = [{ id }, { prefixo: id }];
-    if (carPrefixo) {
-      orConditions.push({ prefixo: carPrefixo });
-    }
-
-    await prisma.ciBloqueio.deleteMany({
-      where: {
-        OR: orConditions,
-      },
-    });
-
-    // Remove apenas se constava estritamente como bloqueado na folha (não altera em manutenção nem liberados)
-    try {
-      const cleanPref = (carPrefixo || id).replace(/\D/g, "");
-      if (cleanPref) {
-        await prisma.manutencaoCarro.deleteMany({
-          where: {
-            prefixo: cleanPref,
-            bloqueado: true,
-            emExecucao: false,
-            liberado: false,
-          }
-        });
-      }
-    } catch (_) {}
-
-    return res.json({ success: true, message: "Bloqueio removido com sucesso." });
-  } catch (error: any) {
-    console.error("[CI Bloqueios] Erro ao remover bloqueio:", error);
-    return res.status(500).json({ error: error?.message || "Erro ao remover bloqueio." });
-  }
-}
-
-// 5. Sincronização em lote (Bulk Sync)
+// Snapshots direcionados: frontend manda contexto e versao lida antes da edicao.
 export async function sync(req: AuthRequest, res: Response) {
-  try {
-    const { items } = req.body;
-    if (!Array.isArray(items)) {
-      return res.status(400).json({ error: "items deve ser uma lista." });
-    }
-
-    for (const item of items) {
-      const recordId = item.id || `ci-${Date.now()}-${item.prefixo}`;
-      await prisma.ciBloqueio.upsert({
-        where: { id: recordId },
-        create: {
-          id: recordId,
-          prefixo: String(item.prefixo),
-          garagem: item.garagem || "VCG",
-          consorciada: item.consorciada || "VCG",
-          categoria: item.categoriaPlanilha || item.categoria || "OFICINA",
-          subTipo: item.setorOficina || item.tipoPreventiva || item.subTipo || null,
-          horarioReforco: item.horarioReforco || null,
-          motivo: item.motivo !== undefined ? item.motivo : "Em Manutenção",
-          dataBloqueio: item.data || item.dataBloqueio || new Date().toISOString().split("T")[0],
-          horaBloqueio: item.hora || item.horaBloqueio || null,
-          gravidade: item.gravidade || "ALTA",
-          responsavel: item.responsavel || "Oficina Central",
-          observacoes: item.os || item.observacoes || null,
-          status: item.status || "BLOQUEADO",
-        },
-        update: {
-          status: item.status || "BLOQUEADO",
-          motivo: item.motivo !== undefined ? item.motivo : "Em Manutenção",
-          horarioReforco: item.horarioReforco || null,
-        },
-      });
-    }
-
-    return res.json({ success: true, count: items.length });
-  } catch (error: any) {
-    console.error("[CI Bloqueios] Erro na sincronização em lote:", error);
-    return res.status(500).json({ error: error?.message || "Erro na sincronização." });
+  try { return res.json(await saveCI(prisma, req.userId, req.body)); }
+  catch (error) {
+    if (error instanceof MvpError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof ZodError) return res.status(400).json({ error: 'Dados invalidos para CI.' });
+    return res.status(500).json({ error: 'CI nao foi salva. Recarregue e tente novamente.' });
   }
 }
+// Contratos antigos sem contexto/versao nao podem continuar alterando historico.
+export async function createOrUpdate(_req: AuthRequest, res: Response) {
+  return res.status(409).json({ error: 'Use sincronizacao da CI com data, itens e versao atual.' });
+}
+export const release = createOrUpdate;
+export const remove = createOrUpdate;

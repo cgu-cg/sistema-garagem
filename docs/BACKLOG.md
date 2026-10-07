@@ -162,11 +162,46 @@ CicloOperacional/FolhaCI permanecem a arquitetura definitiva planejada.
 DATA-001 permanece aberta; não há data de rollout definida. SEC-006 permanece
 separada. Este registro não autoriza provisionamento ou execução de SQL.
 
+### MVP VCG — exceção temporal transitória e implementação para revisão
+
+**CONFIRMADO pelo responsável:** enquanto C4 não estiver ativa, D é a data em
+America/Campo_Grande; somente Controle D e CI D+1 podem receber operações,
+entre 03:00:00 inclusive e 18:30:00 exclusive. Antes/depois, somente consulta.
+Esta inferência é exclusiva do MVP legado; não muda o contrato definitivo de
+DOMAIN.md, que será garantido por FolhaCI/CicloOperacional persistidos.
+
+**Estado desta tarefa:** implementação candidata, não commitada e não validada
+no SQL Server ou por teste manual. GETs de CI/Controle não materializam dados.
+Comandos de snapshot exigem ADMIN, VCG, data exata e versão lida; transações
+Serializable coordenam os dois lados e revalidam a janela. Contratos antigos
+sem contexto/versão recusam gravação. A preparação é explícita na interface:
+valida uma preparação D+1 existente sem modificá-la. No legado, destino vazio
+não prova primeira preparação: cópia inicial e recópia automática estão
+indisponíveis; a operação começa por inclusões manuais explícitas. Não há scheduler, importação, provisionamento ou ativação C4.
+
+**Correções da revisão adversarial (candidatas):** retirada de BLOQUEADOS exige
+lista nominal removeBlocked; ausência no snapshot não autoriza exclusão.
+Sincronização limita-se aos bloqueios alterados e preserva divergências
+não mencionadas, sem saneamento silencioso. Registros existentes inconsistentes
+ou classificados VCM são rejeitados antes das escritas. Pending compartilhado
+e refresh-required impedem comandos simultâneos e novas mutações após refresh
+falho; POST confirmado é distinguido de falha de consulta.
+
+**Resíduos para o rollout definitivo:** identidade de folha vazia e estado de
+finalização continuam ausentes no legado; título adicional e rascunhos seguem
+em localStorage e precisam de persistência oficial em C4. A preparação vazia
+não possui marcador persistido; o backend rejeita recópia ambígua, inclusive
+na primeira tentativa, sem restaurar itens removidos nem apagar Liberados. Não reconstruir consultas nem tratar cache como verdade.
+Distribuição real dos registros legados, compatibilidade transacional no SQL
+Server 2012 e concorrência com escritores externos precisam de teste controlado
+separadamente autorizado antes da disponibilização. DATA-001D/E/F e SEC-006
+permanecem abertas; esta tarefa não executa SQL nem modifica o schema.
+
 ### Pendências reais
 
 Autorização separada do provisionamento dos artefatos candidatos C4 fase 2 já revisados e commitados; validação controlada Prisma 6.10/SQL Server 2012 antes do rollout, sem blocker da modelagem; procedimento administrativo posterior para preencher/corrigir recuperação sem mutação operacional de FINALIZADA; fornecer Excels oficiais, folha inicial e data de rollout. data_folha desconhecida e preservada. Horários, timezone, cópia integral, âmbito por garagem e ADMIN já decididos: não voltar a listá-los como dúvidas de negócio.
 
-GET /api/manutencao continua mutável. Nenhuma regra operacional C3 foi implementada; C4 fase 2 alterou somente schema candidato, scripts administrativos e documentação. Nenhuma migration foi criada/executada; frontend/controllers permanecem intactos. Mover reconciliação para POST mantendo alteração histórica não satisfaz o contrato. SEC-006 segue separada.
+No baseline commitado anterior ao MVP acima, GET /api/manutencao continua mutável. C4 fase 2 alterou somente schema candidato, scripts administrativos e documentação, sem implementar regras C3 nem alterar frontend/controllers. A implementação candidata do MVP acima remove a mutação das consultas e altera frontend/controllers, sem ativar C4. Nenhuma migration foi criada/executada. Mover reconciliação para POST mantendo alteração histórica não satisfaz o contrato. SEC-006 segue separada.
 
 ## DATA-002 — Regra de unicidade da vistoria operacional
 
