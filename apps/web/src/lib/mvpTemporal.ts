@@ -52,6 +52,7 @@ export function revision(items: readonly { id?: string; updatedAt?: unknown }[])
       i.bloqueado ?? null, i.emExecucao ?? null, i.liberado ?? null,
       i.motivo || '', category === 'OFICINA' || category === 'PREVENTIVA' ? (i.subTipo ?? i.setorOficina ?? i.tipoPreventiva ?? '') : '',
       i.horarioReforco || '', i.horaBloqueio ?? i.hora ?? '', i.responsavel || '',
-      i.observacoes ?? i.os ?? '', i.status || 'BLOQUEADO', i.gravidade || 'ALTA', i.dataLiberacao || '', i.motivoLiberacao || '', i.responsavelLiberacao || ''];
+      i.observacoes ?? i.os ?? '', i.status || 'BLOQUEADO', i.gravidade || 'ALTA', i.dataLiberacao || '', i.motivoLiberacao || '', i.responsavelLiberacao || '',
+      ...(i.chaveItem ? [i.chaveItem, i.tipoPosicao ?? null, i.ordemPosicao ?? null, i.dataBloqueio ?? null] : i.cicloId ? [i.observacaoBloqueio ?? null, i.observacaoOficina ?? null] : [])];
   }).sort((a, b) => String(a[0]) < String(b[0]) ? -1 : String(a[0]) > String(b[0]) ? 1 : 0));
 }

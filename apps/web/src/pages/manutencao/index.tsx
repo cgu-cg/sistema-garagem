@@ -1,6 +1,7 @@
 import { canMutate, getMutationState, subscribeMutationState, confirmRefresh, requireRefresh, SavedRefreshRequired } from '@/lib/mvpTemporal';
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { 
+import { c4Enabled, c4Context, c4Configured } from '@/lib/c4';
+import {
   ManutencaoCarroItem, 
   getManutencaoData, 
   saveManutencaoData, 
@@ -69,11 +70,13 @@ export function ManutencaoPage() {
   // Identificação da Garagem Física do Usuário Logado:
   // - VCM (Garagem 1)
   // - VCG (Garagem 2)
+  const hasC4Configuration = c4Configured();
   const userGaragemFixa: "VCM" | "VCG" | undefined = useMemo(() => {
+    if (user?.role === 'ADMIN' && hasC4Configuration) return undefined;
     if (user?.garagem === "VCM" || user?.email?.toLowerCase().includes("vcm")) return "VCM";
     if (user?.garagem === "VCG" || user?.email?.toLowerCase().includes("vcg")) return "VCG";
     return undefined;
-  }, [user]);
+  }, [user, hasC4Configuration]);
 
   // Seletor de Garagem:
   // Usuário de garagem fixa fica travado em sua garagem (ex: VCG).
@@ -98,7 +101,8 @@ export function ManutencaoPage() {
   const [dataOperacao, setDataOperacao] = useState<string>(getTodayString);
   const activeContextRef = useRef(dataOperacao + "|" + activeGaragem);
   activeContextRef.current = dataOperacao + "|" + activeGaragem;
-  const mutationAllowed = Boolean(clock && ready && !writeState.pending && !writeState.refreshRequired && user?.role === 'ADMIN' && activeGaragem !== 'VCM' && canMutate(dataOperacao, 'manutencao'));
+  const c4Scope = activeGaragem === 'VCM' ? 'VCM' : 'VCG';
+  const mutationAllowed = Boolean(clock && ready && !writeState.pending && !writeState.refreshRequired && user?.role === 'ADMIN' && (c4Enabled(c4Scope) ? activeGaragem !== 'TODAS' && c4Context(c4Scope, dataOperacao)?.mutable : activeGaragem !== 'VCM') && canMutate(dataOperacao, 'manutencao'));
   const dateInputRef = useRef<HTMLInputElement>(null);
   const relatorioManutencaoRef = useRef<HTMLDivElement>(null);
   
@@ -114,6 +118,8 @@ export function ManutencaoPage() {
   const [modalStatusOrigem, setModalStatusOrigem] = useState<"BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO">("BLOQUEADO");
   const [newPrefixo, setNewPrefixo] = useState("");
   const [newObservacao, setNewObservacao] = useState("");
+  const [newConsorciada, setNewConsorciada] = useState<string>('');
+  useEffect(() => { setNewConsorciada(''); }, [modalAddOpen, newPrefixo]);
 
   // Estados do seletor moderno de veículos no modal
   const [carSelectorOpen, setCarSelectorOpen] = useState(false);
@@ -232,7 +238,7 @@ export function ManutencaoPage() {
   // Estilização dinâmica do modal de edição de acordo com o status do carro
   const editModalStyle = useMemo<EditModalStyleType | null>(() => {
     if (!editItem) return null;
-    if (editItem.emExecucao && !editItem.liberado) {
+    if (editItem.emExecucao && !editItem.liberado && editItem.campoObservacao !== 'bloqueio') {
       return {
         label: "Em Manutenção",
         btnClass: "bg-amber-600 hover:bg-amber-700 text-white",
@@ -286,6 +292,7 @@ export function ManutencaoPage() {
 
       const synced = syncItemsWithCI(baseList, ciSource, dataOperacao);
       setItems(synced);
+      if (activeGaragem === 'TODAS' && c4Enabled('VCG')) setActiveGaragem('VCG');
       initialLoading = false; setReady(true); if (dataOperacao === getTodayString()) confirmRefresh();
 
       // Atualiza o cache da data no localStorage silenciosamente
@@ -317,6 +324,7 @@ export function ManutencaoPage() {
 
   // 1. Filtragem estrita por Garagem Física do Usuário (VCG: frotas 2xxx exceto 2002, 3xxx e 4xxx / VCM: frotas 1xxx e 2002)
   const itemsByGaragem = useMemo(() => {
+    if (c4Enabled(activeGaragem === 'VCM' ? 'VCM' : 'VCG')) return items.filter(i => i.bloqueado || i.emExecucao || i.liberado);
     if (activeGaragem === "TODAS") return items;
     return items.filter(it => getGaragemFisicaByCarro(it.prefixo) === activeGaragem);
   }, [items, activeGaragem]);
@@ -324,7 +332,7 @@ export function ManutencaoPage() {
   // Empresas disponíveis na garagem ativa
   const empresasDisponiveis = useMemo(() => {
     if (activeGaragem === "VCG") {
-      return ["TODAS", "VCG", "JTU", "VSF"] as const;
+      return c4Enabled('VCG') ? ["TODAS", "VCG", "JTU", "VSF", "VCM"] as const : ["TODAS", "VCG", "JTU", "VSF"] as const;
     }
     if (activeGaragem === "VCM") {
       return ["TODAS", "VCM"] as const;
@@ -343,6 +351,7 @@ export function ManutencaoPage() {
   const matchesEmpresa = (item: ManutencaoCarroItem, emp: string) => {
     if (emp === "TODAS") return true;
     const cons = item.consorciada || getConsorciadaByPrefix(item.prefixo);
+    if (c4Enabled(c4Scope)) return cons === emp;
     if (emp === "VCG") {
       return cons === "VCG" || (!cons && item.prefixo.startsWith("4"));
     }
@@ -363,6 +372,7 @@ export function ManutencaoPage() {
     const counts: Record<string, number> = { TODAS: itemsByGaragem.length, VCG: 0, JTU: 0, VSF: 0, VCM: 0 };
     itemsByGaragem.forEach(it => {
       const cons = it.consorciada || getConsorciadaByPrefix(it.prefixo);
+      if (c4Enabled(c4Scope)) { counts[cons] = (counts[cons] || 0) + 1; return; }
       if (cons === "VCG" || it.prefixo.startsWith("4")) {
         counts.VCG = (counts.VCG || 0) + 1;
       } else if (cons === "JTU" || it.prefixo.startsWith("3")) {
@@ -384,12 +394,13 @@ export function ManutencaoPage() {
   // Veículos pertencentes à Garagem Física do usuário (para cadastro)
   const carsOfGaragem = useMemo(() => {
     return INVENTORY_CARS.filter(car => {
+      if (c4Enabled(c4Scope)) return true;
       if (activeGaragem !== "TODAS") {
         if (getGaragemFisicaByCarro(car) !== activeGaragem) return false;
       }
       return true;
     });
-  }, [activeGaragem]);
+  }, [activeGaragem, items]);
 
   // Veículos filtrados para o dropdown de seleção do modal
   const filteredAvailableCars = useMemo(() => {
@@ -421,12 +432,12 @@ export function ManutencaoPage() {
   // Confirmar liberação de bloqueio na CI a partir do popup do Quadro 1 (Bloqueados)
   const commitMaintenance = async (next: ManutencaoCarroItem[], confirmed = false, removeBlocked: string[] = []): Promise<boolean> => {
     const vcg = (i: ManutencaoCarroItem) => getGaragemFisicaByCarro(i.prefixo) === 'VCG';
-    if (JSON.stringify(next.filter(i => !vcg(i))) !== JSON.stringify(items.filter(i => !vcg(i)))) { toast.error('MVP permite alteracoes somente na VCG.'); return false; }
-    if (!ready || getMutationState().pending || getMutationState().refreshRequired || user?.role !== 'ADMIN' || activeGaragem === 'VCM' || !canMutate(dataOperacao, 'manutencao')) {
+    if (!c4Enabled(c4Scope) && JSON.stringify(next.filter(i => !vcg(i))) !== JSON.stringify(items.filter(i => !vcg(i)))) { toast.error('MVP permite alteracoes somente na VCG.'); return false; }
+    if (!mutationAllowed) {
       toast.error('Controle somente leitura: ADMIN e janela 03:00–18:30 sao obrigatorios.'); return false;
     }
     const context = activeContextRef.current;
-    try { const records = await saveManutencaoData(dataOperacao, next, confirmed, items, removeBlocked); if (activeContextRef.current === context) setItems(records); return true; }
+    try { const records = await saveManutencaoData(dataOperacao, next, confirmed, items, removeBlocked, c4Scope); if (activeContextRef.current === context) setItems(records); return true; }
     catch (error) { if (error instanceof SavedRefreshRequired) toast.warning(error.message); else toast.error(error instanceof Error ? error.message : 'Operacao nao confirmada. Recarregue.'); return false; }
   };
   const handleConfirmLiberarBloqueio = async () => {
@@ -443,6 +454,10 @@ export function ManutencaoPage() {
   // Copia/adiciona o carro na lista de Em Manutenção mantendo-o intacto nos Bloqueados
   const handleCopiarParaEmManutencao = async (item: ManutencaoCarroItem) => {
     const clean = (item.prefixo || "").replace(/\D/g, "");
+    if (c4Enabled(c4Scope)) {
+      if (!(await commitMaintenance(items.map(i => i.id === item.id ? { ...i, emExecucao: true, liberado: false, observacaoOficina: item.observacao } : i)))) return;
+      toast.success(`Veículo ${item.prefixo} em manutenção, com bloqueio preservado.`); return;
+    }
 
     // Verifica se já está na lista de Em Manutenção desta data
     const existingExec = items.find(it => it.prefixo === item.prefixo && it.emExecucao && !it.liberado);
@@ -496,10 +511,11 @@ export function ManutencaoPage() {
     const clean = prefixo.replace(/\D/g, "");
 
     // Um comando confirmado libera no Controle e retira o bloqueio na CI D+1.
-    const old = items.find(it => it.prefixo === prefixo && (it.emExecucao || it.liberado));
+    const old = items.find(it => it.prefixo === prefixo && (c4Enabled(c4Scope) || it.emExecucao || it.liberado));
     const released: ManutencaoCarroItem = {
       id: old?.id || 'manut-' + clean + '-' + Date.now(), prefixo,
-      consorciada: getConsorciadaByPrefix(prefixo), observacao: novaObservacao || old?.observacao || '',
+      consorciada: old?.consorciada || getConsorciadaByPrefix(prefixo), observacao: novaObservacao || old?.observacao || '',
+      observacaoOficina: novaObservacao || old?.observacaoOficina || old?.observacao || '',
       bloqueado: false, emExecucao: false, liberado: true, data: dataOperacao,
     };
     const updated = [...items.filter(it => it.prefixo !== prefixo), released];
@@ -610,7 +626,7 @@ export function ManutencaoPage() {
     const cleanObs = editObs.trim().toUpperCase();
     const updated = items.map(it => {
       if (it.id === editItem.id) {
-        return { ...it, observacao: cleanObs };
+        return c4Enabled(c4Scope) ? { ...it, ...(editItem.campoObservacao === 'oficina' || !editItem.bloqueado ? { observacaoOficina: cleanObs } : { observacaoBloqueio: cleanObs }) } : { ...it, observacao: cleanObs };
       }
       return it;
     });
@@ -717,7 +733,15 @@ export function ManutencaoPage() {
       }
     }
 
-    const consorciada = getConsorciadaByPrefix(cleanPrefix);
+    const existingC4 = c4Enabled(c4Scope) ? items.find(i => i.prefixo === cleanPrefix) : undefined;
+    if (existingC4) {
+      const next = items.map(i => i.id !== existingC4.id ? i : { ...i, bloqueado: toStatus === 'LIBERADO' ? false : i.bloqueado || toStatus === 'BLOQUEADO', emExecucao: toStatus === 'LIBERADO' ? false : i.emExecucao || toStatus === 'EM_EXECUCAO', liberado: toStatus === 'LIBERADO',
+        ...(toStatus === 'BLOQUEADO' ? { observacaoBloqueio: newObservacao.trim().toUpperCase() } : { observacaoOficina: newObservacao.trim().toUpperCase() }) });
+      if (!(await commitMaintenance(next))) return;
+      setModalAddOpen(false); setNewPrefixo(''); setNewObservacao(''); return;
+    }
+    const consorciada = c4Enabled(c4Scope) ? newConsorciada as ManutencaoCarroItem['consorciada'] : getConsorciadaByPrefix(cleanPrefix);
+    if (c4Enabled(c4Scope) && !['VSF', 'VCG', 'JTU', 'VCM'].includes(consorciada)) { toast.error('Informe a consorciada real do veículo.'); return; }
     const newItem: ManutencaoCarroItem = {
       id: toStatus === "BLOQUEADO" ? `manut-ci-${dataOperacao}-${cleanPrefix}` : `manut-${cleanPrefix}-${Date.now()}`,
       prefixo: cleanPrefix,
@@ -795,7 +819,7 @@ export function ManutencaoPage() {
     if (getMutationState().pending) return;
     const context = activeContextRef.current;
     setReady(false);
-    try { const [records] = await Promise.all([resetManutencaoSeedApi(dataOperacao), fetchCIBloqueiosFromApi()]); if (activeContextRef.current !== context) return; setItems(records); setReady(true); if (dataOperacao === getTodayString()) confirmRefresh(); toast.success('Dados oficiais atualizados.'); }
+    try { const [records] = await Promise.all([resetManutencaoSeedApi(dataOperacao, activeGaragem), fetchCIBloqueiosFromApi({ garagem: activeGaragem })]); if (activeContextRef.current !== context) return; setItems(records); setReady(true); if (dataOperacao === getTodayString()) confirmRefresh(); toast.success('Dados oficiais atualizados.'); }
     catch { requireRefresh(); toast.error('Nao foi possivel atualizar os dados oficiais.'); }
   };
 
@@ -818,12 +842,14 @@ export function ManutencaoPage() {
   const sortedBloqueados = useMemo(() => {
     return filteredItems
       .filter(it => it.bloqueado && !it.liberado)
+      .map(it => c4Enabled(c4Scope) ? { ...it, campoObservacao: 'bloqueio' as const, observacao: it.observacaoBloqueio || '' } : it)
       .sort((a, b) => a.prefixo.localeCompare(b.prefixo, undefined, { numeric: true }));
   }, [filteredItems]);
 
   const sortedEmExecucao = useMemo(() => {
     return filteredItems
       .filter(it => it.emExecucao && !it.liberado)
+      .map(it => c4Enabled(c4Scope) ? { ...it, campoObservacao: 'oficina' as const, observacao: it.observacaoOficina || '' } : it)
       .sort((a, b) => a.prefixo.localeCompare(b.prefixo, undefined, { numeric: true }));
   }, [filteredItems]);
 
@@ -1582,7 +1608,7 @@ export function ManutencaoPage() {
                       Filtrar por Empresa:
                     </span>
                     <div className="flex items-center gap-1">
-                      {(activeGaragem === "VCG" ? ["TODAS", "VCG", "JTU", "VSF"] : activeGaragem === "VCM" ? ["TODAS", "VCM"] : ["TODAS", "VCG", "JTU", "VSF", "VCM"]).map(emp => (
+                      {(activeGaragem === "VCG" && !c4Enabled('VCG') ? ["TODAS", "VCG", "JTU", "VSF"] : activeGaragem === "VCM" ? ["TODAS", "VCM"] : ["TODAS", "VCG", "JTU", "VSF", "VCM"]).map(emp => (
                         <button
                           key={emp}
                           type="button"
@@ -1680,6 +1706,13 @@ export function ManutencaoPage() {
 
             </div>
 
+            {c4Enabled(c4Scope) && !items.some(i => i.prefixo === newPrefixo.replace(/\D/g, '')) && <label className="text-xs font-bold text-gray-500 uppercase">
+              Consorciada real do veículo
+              <select value={newConsorciada} onChange={e => setNewConsorciada(e.target.value)} disabled={!mutationAllowed} className="mt-1 w-full rounded-xl border bg-background p-2 text-foreground">
+                <option value="">Selecione</option>
+                {['VSF', 'VCG', 'JTU', 'VCM'].map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </label>}
             <div>
               <label className="text-xs font-bold text-gray-500 uppercase">
                 Observação / Defeito

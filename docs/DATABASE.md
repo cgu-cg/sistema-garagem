@@ -1,5 +1,63 @@
 # Arquitetura de dados atual
 
+## DATA-001/C4 — Evolução operacional local e ativação manual
+
+O baseline da fase 2 abaixo foi evoluído para runtime opt-in. Nenhum banco
+foi acessado/provisionado nesta entrega. Schema/script continuam administrativos;
+não há migrations nem DDL no startup/controllers. C4 reutiliza CicloOperacional,
+FolhaCI, ItemFolhaCI e EstadoManutencao, sem arquitetura paralela.
+
+ItemFolhaCI recebe `dataBloqueio` → `data_bloqueio DATE NULL`, distinto de
+FolhaCI.dataFolha. CHECK exige data não nula para BLOQUEADO; no uso normal,
+domínio valida data civil válida e não posterior ao dia operacional D, pois
+o bloqueio é vigente também no Controle D. Importação histórica normaliza
+somente os casos autorizados para 01/10/2026. Consorciada VCM é válida em
+folha VCG; nenhuma conversão por prefixo/garagem física. Instantes continuam
+DATETIME2(3) UTC e datas civis DATE, sem AT TIME ZONE. Prisma 6.10 não aceita
+precisão no atributo DateTime2; o SQL mantém escala 3.
+
+Provisionamento/validação existentes agora descrevem 60 colunas e 18 CHECKs,
+com os mesmos 16 índices e sete FKs. Preservados índices filtrados de bloqueio
+único por folha/prefixo e posição única de reforço. Script não adapta estrutura
+parcial/antiga automaticamente. Se qualquer tabela existir, parar e revisar
+metadados/delta administrativo; não reaplicar CREATE nem remover dados.
+
+### Passos posteriores, sujeitos a autorização
+
+1. Manter `CI_NOVO_FLUXO_GARAGENS` vazia e parar escritores/scheduler antes
+   de intervenção. Confirmar servidor/banco, versão, permissões e backup.
+2. Administrador revisa/executa `scripts/sql/data-001c4-provisionamento.sql`
+   somente se as quatro tabelas não existirem. Sessão sem transação externa
+   e sem IMPLICIT_TRANSACTIONS; guardas preservam transação do chamador.
+3. Executar separadamente `scripts/sql/data-001c4-validacao.sql`; conferir
+   todas as colunas, CHECKs, índices filtrados, FKs, defaults e triggers.
+   Divergência não autoriza reparo automático. Validar também configuração
+   ANSI exigida pelos índices filtrados nas conexões que realizarão DML.
+4. Revisar SQL de carga independente das CIs 01–07/10/2026 a partir dos
+   Excels oficiais. Cada folha FINALIZADA/IMPORTACAO, sem inferir ciclo anterior;
+   registrar origem/responsável, título, posições/horários e data do bloqueio.
+   Aplicar fallback histórico autorizado apenas nessa carga. Não inferir
+   consorciada do prefixo; preservar 3083/VCM. Essa carga ainda não foi preparada
+   com dados oficiais nem executada. Não apagar dados legados automaticamente.
+5. Gerar cliente Prisma a partir do schema versionado e construir API/web.
+   Na validação local o engine Windows estava bloqueado; cliente foi gerado
+   em diretório temporário e copiado preservando DLL de hash idêntico. O deploy
+   deve usar a geração normal já existente no Dockerfile, sem esse workaround.
+6. Após revisão/carga, configurar **somente** `CI_NOVO_FLUXO_GARAGENS=VCG`
+   no ambiente de execução e reiniciar a API. Nenhum .env foi alterado aqui.
+   Bootstrap prepara só D/D+1 e recupera evento de hoje; após 18:30 ambos ficam
+   somente leitura. Sem folha D finalizada, cria RECUPERACAO vazia: inspecionar
+   antes de autorizar operação. VCM permanece desativada salvo configuração.
+7. Validar GETs/UX somente leitura e depois testes mutantes controlados
+   autorizados: sincronização, liberação, concorrência, limites de horário e
+   jobs duplicados contra SQL Server 2012. Testes locais não substituem isso.
+
+Rollback: desabilitar flag/parar API preserva as tabelas C4; retornar ao legado
+exige avaliar dados divergentes, pois não existe dual-write. O novo script
+`data-001c4-rollback-vazio.sql` só remove estrutura se as quatro tabelas estiverem
+vazias, em transação própria e com locks; recusa dados/estrutura parcial e não
+apaga registros. Nunca executá-lo automaticamente ou após uso operacional.
+
 Este documento descreve a arquitetura de dados observada no código atual do projeto, com foco em entidades, modelos Prisma, banco principal e integração separada com SQL Server legado.
 
 ## Visão geral

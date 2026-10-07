@@ -16,6 +16,8 @@ dotenv.config();
 import express from "express";
 import cors from "cors";
 import routes from "./routes";
+import prisma from './utils/prisma';
+import { startC4Scheduler } from './services/c4Scheduler';
 
 const app = express();
 const PORT = Number(process.env.PORT || process.env.API_PORT || 3001);
@@ -67,4 +69,5 @@ app.use((err: any, req: express.Request, res: express.Response, _next: express.N
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Sistema Garagem rodando em http://0.0.0.0:${PORT}`);
+  startC4Scheduler(prisma);
 });

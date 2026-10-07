@@ -1,5 +1,59 @@
 # Domain model e entendimento operacional atual
 
+## DATA-001/C4 — Contrato operacional confirmado em 07/10/2026
+
+Esta seção atualiza os baselines históricos A/C1/C3 abaixo. A implementação
+local C4 é opt-in e ainda requer provisionamento, carga inicial e validação
+operacional autorizados; este documento não afirma implantação no banco.
+
+- Garagem da FolhaCI/CicloOperacional é contexto, não consorciada nem garagem
+  física inferida pelo prefixo. Folha VCG admite VSF, VCG, JTU **e VCM** nos
+  bloqueados, inclusive 3083/VCM e veículos fisicamente VCM. Não converter
+  consorciada nem corrigir históricos silenciosamente. VCG/VCM continuam
+  contextos separados; cópia somente dentro da mesma garagem.
+- Em `America/Campo_Grande`, todos os dias, às 03:00 inicia-se o ciclo D e
+  copia-se integralmente a folha D finalizada para D+1 em EM_PREPARACAO.
+  Novas PKs preservam chave lógica dos itens, categorias/subtipos/setores,
+  horários, posição FIXO/EXTRA, datas/motivos e título da coluna adicional.
+  Controle D inicia somente com bloqueados; execução/liberados ficam vazios.
+- Mutações exigem ADMIN, contexto explícito, ciclo atual ligado à folha em
+  preparação e janela `03:00:00 <= hora < 18:30:00`. Às 18:30, D+1 é
+  FINALIZADA e imutável. Folha vazia possui identidade e estado persistidos.
+- Bloqueios são sincronizados atomicamente apenas Controle D ↔ CI D+1 em
+  preparação. Uma linha de EstadoManutencao por veículo/ciclo pode representar
+  bloqueado e emExecucao simultaneamente. No máximo um BLOQUEADO por
+  folha/prefixo; tentativa adicional é rejeitada, sem deduplicação.
+  Remover bloqueio preserva execução. Liberação de bloqueado exige confirmação
+  antes da chamada, retira bloqueio e execução e representa LIBERADO;
+  cancelamento não grava. Nunca LIBERADO + BLOQUEADO.
+- Oficina/preventiva/reforço/título EM MANUTENÇÃO da CI não são estado de
+  execução e não sincronizam com o Controle. Observações de bloqueio e
+  oficina são distintas. Título pode existir sem itens ou ser desconhecido
+  (`NULL`); cache/default visual não deve inventá-lo.
+- Reforço tem 12 posições FIXO (1..12), nos dois grupos do layout, e EXTRA
+  com ordem inteira positiva. Identidade é tipo+ordem, nunca horário/prefixo.
+- GET não cria/copia/finaliza/reconcilia/recupera/provisiona. Jobs idempotentes
+  recuperam eventos vencidos do mesmo dia. Sem folha D finalizada, criam
+  apenas estruturas atuais vazias RECUPERACAO; não fabricam dias anteriores.
+- Histórico 01–07/10/2026 será importado por SQL manual revisado: cada Excel
+  é fotografia independente FINALIZADA/IMPORTACAO, sem parser no runtime.
+  Somente nessa carga, data de bloqueio ausente/inválida/posterior à folha
+  recebe 01/10/2026 (3083, 3951 em 01/02 e 1322). Uso normal rejeita datas
+  inválidas/futuras ao dia operacional D; bloqueio sincronizado é vigente
+  no Controle D. Não utiliza esse fallback. Cópia preserva data original;
+  carga histórica é validada contra a data de sua própria folha.
+
+O seletor CI VCG consulta o endpoint existente de Veiculos, usando o valor
+real `garagem = 1`, sem exclusão por prefixo VCM. Colunas observadas no código:
+`idCarro`, `garagem`, `ativo`. Não existe coluna de consorciada comprovada
+nessa consulta: o grupo de bloqueio escolhido é informado explicitamente e
+a consorciada persistida permanece preservada. Consulta não altera Veiculos.
+
+`CI_NOVO_FLUXO_GARAGENS` vazia mantém legado; `VCG` habilita só o piloto;
+VCM exige configuração explícita. Com C4 habilitado, C4 é fonte de verdade,
+sem fallback ou dupla escrita legada. A proteção física conservadora anterior
+permanece apenas no MVP legado desativado para aquela garagem.
+
 Este documento tem caráter de documentação de domínio e não substitui validação formal do processo pela operação, manutenção, portaria e responsável do negócio.
 
 ## 1. Objetivo e limites do sistema

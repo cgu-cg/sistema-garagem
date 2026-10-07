@@ -4,6 +4,8 @@ import prisma from '../utils/prisma';
 import { saveMaintenance } from '../services/mvpLegado';
 import { isVCG, MvpError, operationalContext } from '../services/mvpTemporal';
 import { ZodError } from 'zod';
+import { enabledGarages, garage, civil, mutationMode } from '../services/c4Temporal';
+import { readContext, saveC4 } from '../services/c4Flow';
 
 export function getTodayDate(): string {
   const now = new Date();
@@ -118,17 +120,28 @@ export const SEED_MANUTENCAO_OFICIAL = [
 export async function list(req: AuthRequest, res: Response) {
   try {
     const data = String(req.query.data || operationalContext().today);
+    const enabled = enabledGarages();
+    if (enabled.length && (!req.query.garagem || req.query.garagem === 'TODAS')) return res.status(400).json({ message: 'C4 exige contexto explicito.' });
+    if (enabled.length) garage(req.query.garagem);
+    if (enabled.includes(req.query.garagem as 'VCG' | 'VCM')) return res.json((await readContext(prisma, garage(req.query.garagem), civil(data))).maintenance);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return res.status(400).json({ message: 'Data invalida.' });
     const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { garagem: true, email: true, role: true } });
     const userGarage = user?.garagem?.toUpperCase() || (user?.email?.toLowerCase().includes('vcm') ? 'VCM' : user?.email?.toLowerCase().includes('vcg') ? 'VCG' : undefined);
     const scope = user?.role !== 'ADMIN' && userGarage ? userGarage : req.query.garagem;
+    if (enabled.includes(scope as 'VCG' | 'VCM')) throw new MvpError(400, 'Consulte a garagem C4 explicitamente; legado nao e fallback.');
     const records = await prisma.manutencaoCarro.findMany({ where: { data }, orderBy: { prefixo: 'asc' } });
     return res.json(records.filter(r => scope === 'VCG' ? isVCG(r.prefixo) : scope === 'VCM' ? !isVCG(r.prefixo) : true));
-  } catch { return res.status(500).json({ message: 'Erro ao consultar manutencao.' }); }
+  } catch (error) {
+    if (error instanceof MvpError) return res.status(error.status).json({ message: error.message });
+    return res.status(500).json({ message: 'Erro ao consultar manutencao.' });
+  }
 }
 export async function sync(req: AuthRequest, res: Response) {
-  try { return res.json(await saveMaintenance(prisma, req.userId, req.body)); }
+  try {
+    return res.json(mutationMode(req.body.garagem) === 'C4' ? await saveC4(prisma, req.userId, req.body, 'manutencao') : await saveMaintenance(prisma, req.userId, req.body));
+  }
   catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && ['P2034', 'P2002'].includes(String(error.code))) return res.status(409).json({ message: 'Conflito concorrente. Recarregue CI e Controle.' });
     if (error instanceof MvpError) return res.status(error.status).json({ message: error.message });
     if (error instanceof ZodError) return res.status(400).json({ message: 'Dados invalidos para manutencao.' });
     return res.status(500).json({ message: 'Operacao nao concluida. Recarregue e tente novamente.' });

@@ -36,7 +36,7 @@ Não criar tarefas fictícias apenas para preencher o documento.
 
 ## DATA-001 — Listagens de manutenção executam alterações no banco
 
-**Status:** Pendente de correção; DATA-001A concluída em 0093c69; DATA-001B1 concluída; DATA-001B2 concluída; DATA-001C1 concluída em 8931629; DATA-001C3 documentação concluída em 2c39fd1; DATA-001C4 fase 2 materializada em 3531b88, sem execução no banco
+**Status:** Implementação operacional C4 local em revisão, sem commit/provisionamento/ativação; DATA-001A concluída em 0093c69; DATA-001B1/B2 concluídas; C1 concluída em 8931629; C3 em 2c39fd1; C4 fase 2 em 3531b88. DATA-001 não encerrada: rollout e validação real pendentes.
 **Prioridade:** Antes da produção
 **Tipo:** Integridade / arquitetura de dados
 
@@ -59,7 +59,7 @@ estrutura ou dados.
 
 O [contrato confirmado da DATA-001A](./DOMAIN.md#data-001a--contrato-operacional-da-ci) esclarece fotografia diária, preparação antecipada, imutabilidade após finalização, GET somente leitura, coexistência bloqueio/execução e retirada explicitamente confirmada dirigida à CI em preparação. Esses pontos deixaram de ser dúvidas. Não foi decidida substituição por bloqueio global com intervalo de vigência.
 
-### Riscos confirmados estaticamente
+### Riscos históricos confirmados estaticamente (baseline anterior ao MVP/C4)
 
 - Após B2, não há provisionamento estrutural nos controllers de CI/manutenção; GET /api/manutencao ainda materializa, atualiza, exclui e reconcilia registros funcionalmente.
 - Reconciliação com o estado atual e herança visual podem modificar/completar históricos.
@@ -67,7 +67,9 @@ O [contrato confirmado da DATA-001A](./DOMAIN.md#data-001a--contrato-operacional
 - Propagação para datas posteriores não verifica finalização; caches mantêm sincronização adicional.
 - Não foi identificado estado persistido de preparação/finalização ou identidade de folha vazia.
 
-São riscos/capacidades confirmados no código, sem consulta ao banco ou confirmação de dados reais afetados.
+São riscos/capacidades do baseline auditado, não afirmações sobre os GETs
+atuais. MVP já removeu mutações nas consultas; C4 local persiste folha/ciclo e
+proteções, habilitados explicitamente. Validação operacional real permanece pendente.
 
 ### Divisão proposta
 
@@ -75,10 +77,28 @@ São riscos/capacidades confirmados no código, sem consulta ao banco ou confirm
 |---|---|---|
 | DATA-001A | Registrar contrato, comportamento observado e pendências | Concluída no commit 0093c69 — docs(domain): documenta ciclo operacional da CI |
 | DATA-001B | Separar inicialização e saneamento dos caminhos HTTP | B1/B2 concluídas; DATA-001 permanece pendente |
-| DATA-001C | Definir identidade/ciclo diário, folha vazia e cópia inicial | C1 concluída em 8931629; C3 concluída em 2c39fd1; C4 fase 2 materializada em 3531b88; provisionamento e implementação operacional pendentes |
-| DATA-001D | GETs somente leitura e histórico sem reconstrução na interface | Proposta; identificar fotografias e disponibilizar preparação explícita |
-| DATA-001E | Retirada confirmada somente na CI em preparação | Proposta; depende de ciclo e destino |
-| DATA-001F | Limitar propagação/sincronização e preservar coexistência/histórico | Proposta; depende das etapas anteriores e regras de propagação |
+| DATA-001C | Identidade/ciclo diário, folha vazia e cópia inicial | C4 operacional implementada localmente; provisionamento, carga, revisão e ativação pendentes |
+| DATA-001D | GETs somente leitura e histórico sem reconstrução | Implementado localmente no C4; validação real/rollout pendentes |
+| DATA-001E | Retirada confirmada somente na CI em preparação | Implementado localmente, transação CI/Controle e confirmação; validação real pendente |
+| DATA-001F | Sincronização limitada e coexistência/histórico | Implementado localmente por garagem/ciclo/folha; concorrência SQL real/rollout pendentes |
+
+### C4 operacional — candidato local de 07/10/2026
+
+Serviços persistidos de início 03:00/finalização 18:30, timezone Campo Grande,
+scheduler sem dependência nova, recovery somente do dia atual e bloqueios
+atômicos CI/Controle implementados para revisão. Flag vazia mantém MVP legado;
+`CI_NOVO_FLUXO_GARAGENS=VCG` corta leituras/escritas daquele contexto para C4,
+sem dual-write/fallback. VCM não é ativada automaticamente.
+
+Regra confirmada atual: garagem da folha != consorciada. CI VCG aceita VCM,
+incluindo veículos fisicamente VCM; quatro grupos de bloqueados e seleção da
+Garagem 1 via Veiculos. A proteção conservadora permanece somente no legado.
+Título/posições/data original são persistidos, não inferidos do cache.
+
+Pendentes: revisão final, provisionamento/validação administrativa, sete
+importações históricas independentes e testes reais autorizados antes de
+rollout. Nenhuma limpeza/SQL/migration executada; dados legados preservados.
+SEC-006 permanece separada. Procedimento de ativação/rollback em DATABASE.md.
 
 ### DATA-001B1 — Remover saneamentos automáticos do runtime
 

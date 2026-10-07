@@ -1,5 +1,61 @@
 # Arquitetura do sistema
 
+## DATA-001/C4 — Runtime local opt-in (07/10/2026)
+
+As seções C3/fase 2 abaixo registram decisões e o baseline anterior.
+Agora existem serviços operacionais locais; não houve provisionamento ou
+ativação real nesta etapa. A regra de domínio atual está em DOMAIN.md.
+
+`c4Temporal` calcula datas civis/eventos em America/Campo_Grande com Intl,
+independente de TZ do container. `c4Flow` reutiliza os quatro models candidatos:
+consultas coerentes somente leitura, início/finalização idempotentes e comando
+atômico CI/Controle. `c4Scheduler` chama esses serviços no bootstrap e por
+timeouts calculados para 03:00/18:30; retry após erro em 60s, sem replay histórico
+e sem dependências novas. Logs incluem contexto/dia/resultado; não incluem SQL
+ou credenciais. Configuração vazia não inicia automação nem acessa C4.
+
+Escritores usam Serializable e SELECT parametrizado UPDLOCK/HOLDLOCK sobre
+chaves garagem/data do ciclo e folha alvo, nessa ordem, inclusive chave ausente.
+Mutação revalida ADMIN e janela após locks; revalida hora imediatamente antes
+de retornar da transação. Finalização usa os mesmos locks. Snapshot SHA-256
+inclui ciclo, cabeçalho, itens e estados; versão de conteúdo do MVP permanece
+e agora inclui campos C4. Stale retorna 409, sem sobrescrever; rollback cobre
+ambos os lados. Não há lock global de todas as garagens. A simulação de testes
+não comprova o comportamento dos locks reais: validação SQL Server autorizada
+continua necessária antes da operação.
+
+03:00 copia somente Folha D FINALIZADA da mesma garagem, com PKs novas e
+identidades/posições/conteúdo preservados. Somente seus bloqueados inicializam
+Controle D. Ausência da fonte cria RECUPERACAO vazia para D/D+1, sem reconstruir
+passado. 18:30 finaliza a folha corrente, mantendo horário efetivo na repetição.
+Bootstrap recupera apenas eventos de hoje; GET nunca chama esses serviços.
+
+### Transição e consumidores
+
+- GET `/api/c4/contexto?garagem=VCG&data=D`: metadados, CI histórica e Controle
+  coerentes, modo/versão/status/título. Estrutura ausente é informação, não seed.
+- GET `/api/ci-bloqueios` e `/api/manutencao`: C4 para contexto habilitado;
+  mantêm formatos de itens usados pelos consumidores. Contexto explícito é
+  obrigatório quando qualquer garagem C4 está habilitada.
+- POST `/api/ci-bloqueios/sync` e `/api/manutencao/sync`: C4 na garagem
+  habilitada; MVP legado VCG quando não habilitado. VCM não habilitada não pode
+  cair no escritor legado VCG. Demais contratos antigos de escrita continuam
+  recusados. Não há dupla escrita nem fallback para dados legados se C4 falhar.
+- `ciManager`/`manutencaoManager`, telas CI/Controle e Soltura/index e
+  CarroRealizadoView são consumidores identificados. Managers preservam
+  projeções/cache informativo; escritores antigos persist/release/delete
+  continuam recusados. Com C4, helpers de status usam contexto oficial/data
+  exata e não reconstrução por caches legados. Cache não autoriza mutação.
+- `mvpLegado` é o único escritor restante de ci_bloqueios/manutencao_carros
+  para VCG não habilitada. Não apagar tabelas/dados legados nesta entrega.
+
+UI mantém aparência, quatro grupos BLOQUEADOS no contexto VCG, seleção de
+Veiculos da Garagem 1, flags independentes em uma linha, observações separadas,
+metadados persistidos e leitura explícita de FINALIZADA/ausente. Título é salvo
+no backend, inclusive folha sem itens; não é reconstruído de localStorage.
+Drafts de reforço não substituem fotografia finalizada. POST confirmado é
+seguido de consulta oficial; falha de refresh bloqueia novas gravações.
+
 Este documento descreve o estado técnico atual do projeto, conforme observado no código do repositório em 2026-10-02.
 
 ## Visão geral

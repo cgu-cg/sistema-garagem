@@ -20,6 +20,10 @@ export interface SolturaItem {
 }
 
 export interface BloqueioCarro {
+  chaveItem?: string;
+  tipoPosicao?: 'FIXO' | 'EXTRA' | null;
+  ordemPosicao?: number | null;
+  reforcoSlotId?: string;
   updatedAt?: string;
   id?: string;
   prefixo: string;

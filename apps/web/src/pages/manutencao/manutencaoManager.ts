@@ -1,6 +1,7 @@
 import { BloqueioCarro } from "@/data/solturaData";
-import { getInitialCIBloqueios, fetchCIBloqueiosFromApi } from "@/pages/soltura/ciManager";
+import { getInitialCIBloqueios, fetchCIBloqueiosFromApi, getCurrentCIGarage } from "@/pages/soltura/ciManager";
 import { api } from "@/lib/api";
+import { c4Context, c4Enabled, fetchC4Context, storeC4Context, C4Garage } from '@/lib/c4';
 import { operationalContext, canMutate, revision, beginMutation, endMutation, requireRefresh, SavedRefreshRequired, getMutationState, readTicket, assertReadTicket } from "@/lib/mvpTemporal";
 const official = new Map<string, ManutencaoCarroItem[]>();
 let requestNumber = 0;
@@ -15,6 +16,10 @@ export interface ManutencaoCarroItem {
   liberado: boolean;
   data: string; // YYYY-MM-DD
   updatedAt?: string;
+  observacaoBloqueio?: string | null;
+  observacaoOficina?: string | null;
+  dataBloqueio?: string;
+  campoObservacao?: 'bloqueio' | 'oficina';
 }
 
 export const STORAGE_KEY_MANUTENCAO_PREFIX = "manutencao_carros_v2_";
@@ -26,6 +31,7 @@ export const DEFAULT_REF_DATE = getTodayString();
 
 export function getConsorciadaByPrefix(prefixo: string): "VSF" | "JTU" | "VCG" | "VCM" {
   const clean = prefixo.replace(/\D/g, "");
+
   if (clean.startsWith("1")) return "VCM";
   if (clean.startsWith("2")) return "VSF";
   if (clean.startsWith("3")) return "JTU";
@@ -173,10 +179,13 @@ export function getManutencaoData(data: string = getTodayString()): ManutencaoCa
 export async function fetchManutencaoDataFromApi(data = getTodayString(), garagem?: string): Promise<ManutencaoCarroItem[]> {
   if (getMutationState().pending) throw new Error('Gravacao pendente; aguarde antes de consultar.');
   const ticket = readTicket(), number = ++requestNumber;
-  const records = await api.get<ManutencaoCarroItem[]>('/manutencao', { params: { data, ...(garagem && garagem !== 'TODAS' ? { garagem } : {}) } });
+  const scope = (garagem && garagem !== 'TODAS' ? garagem : 'VCG') as C4Garage;
+  const context = await fetchC4Context(scope, data);
+  const records = context.mode === 'C4' ? context.maintenance! : await api.get<ManutencaoCarroItem[]>('/manutencao', { params: { data, ...(context.garages?.length ? { garagem: scope } : garagem && garagem !== 'TODAS' ? { garagem } : {}) } });
   assertReadTicket(ticket);
   if (number !== requestNumber) throw new Error('Consulta substituida por uma mais recente.');
   if (!Array.isArray(records)) throw new Error('Resposta invalida ao consultar manutencao.');
+  storeC4Context(context, data);
   official.set(data, records);
   cache(data, records);
   return records;
@@ -185,7 +194,7 @@ function cache(data: string, items: ManutencaoCarroItem[]) {
   try { localStorage.setItem(STORAGE_KEY_MANUTENCAO_PREFIX + data, JSON.stringify(items)); } catch { /* Cache nao e autoridade operacional. */ }
   window.dispatchEvent(new CustomEvent('manutencao_updated', { detail: { data, items, fromCISync: true } }));
 }
-export async function saveManutencaoData(data: string, items: ManutencaoCarroItem[], confirmRelease: boolean, baseline: ManutencaoCarroItem[], removeBlocked: string[] = []): Promise<ManutencaoCarroItem[]> {
+export async function saveManutencaoData(data: string, items: ManutencaoCarroItem[], confirmRelease: boolean, baseline: ManutencaoCarroItem[], removeBlocked: string[] = [], garagem: C4Garage = 'VCG'): Promise<ManutencaoCarroItem[]> {
   if (!canMutate(data, 'manutencao')) throw new Error('Controle fora da janela operacional.');
   const base = official.get(data);
   if (!base) throw new Error('Carregue o Controle oficial antes de alterar.');
@@ -193,11 +202,17 @@ export async function saveManutencaoData(data: string, items: ManutencaoCarroIte
   beginMutation();
   let saved = false;
   try {
-    const response = await api.post<{ records: ManutencaoCarroItem[] }>('/manutencao/sync', { data, items: items.filter(vcg), base: revision(baseline.filter(vcg)), confirmRelease, removeBlocked });
+    const active = c4Enabled(garagem);
+    const mapped = items.map(i => {
+      const old = baseline.find(b => b.id === i.id);
+      return !old || old.observacao === i.observacao ? i : { ...i, ...(i.bloqueado ? { observacaoBloqueio: i.observacao } : { observacaoOficina: i.observacao }) };
+    });
+    const response = await api.post<{ records: ManutencaoCarroItem[] }>('/manutencao/sync', { garagem, data, items: active ? mapped : items.filter(vcg), base: revision(active ? baseline : baseline.filter(vcg)), confirmRelease, removeBlocked,
+      ...(active ? { baseC4: c4Context(garagem, data)?.baseC4 } : {}) });
     saved = true;
     official.set(data, response.records);
     cache(data, response.records);
-    await fetchCIBloqueiosFromApi(undefined, true);
+    await fetchCIBloqueiosFromApi({ garagem }, true);
     return response.records;
   } catch (error) {
     requireRefresh();
@@ -206,7 +221,7 @@ export async function saveManutencaoData(data: string, items: ManutencaoCarroIte
   } finally { endMutation(); }
 }
 export async function deleteManutencaoCarroApi(_id: string): Promise<void> { throw new Error('Use o comando de manutencao com contexto.'); }
-export async function resetManutencaoSeedApi(data: string): Promise<ManutencaoCarroItem[]> { return fetchManutencaoDataFromApi(data); }
+export async function resetManutencaoSeedApi(data: string, garagem?: string): Promise<ManutencaoCarroItem[]> { return fetchManutencaoDataFromApi(data, garagem); }
 
 export function checkCarroStatusManutencao(prefixo: string, data?: string): {
   isBloqueado: boolean;
@@ -217,6 +232,10 @@ export function checkCarroStatusManutencao(prefixo: string, data?: string): {
 } {
   if (!prefixo) return { isBloqueado: false, isEmExecucao: false, isLiberado: true, origem: "LIVRE" };
   const clean = prefixo.replace(/\D/g, "");
+  if (c4Enabled(getCurrentCIGarage())) {
+    const current = c4Context(getCurrentCIGarage(), data || getTodayString())?.maintenance?.find(i => i.prefixo === clean);
+    return { isBloqueado: current?.bloqueado || false, isEmExecucao: current?.emExecucao || false, isLiberado: current?.liberado || false, observacao: current?.observacao, origem: current ? 'MANUTENCAO' : 'LIVRE' };
+  }
 
   // 1. Checa a folha de manutenção do dia (já sincronizada com a CI)
   const refDate = data || new Date().toISOString().split("T")[0];

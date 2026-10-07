@@ -1,0 +1,311 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { startCycle, finalizeCycle, readContext, saveC4 } from '../src/services/c4Flow';
+import { dateValue, eventInstant, enabledGarages, nextEvent, civil, mutationMode } from '../src/services/c4Temporal';
+import { revision, operationalContext } from '../src/services/mvpTemporal';
+import { recoverCurrentDay } from '../src/services/c4Scheduler';
+import { garageOne } from '../../web/src/lib/c4Vehicles';
+import Module from 'node:module';
+import path from 'node:path';
+
+const day = '2026-10-07', target = '2026-10-08';
+const clock = (value = '2026-10-07T12:00:00Z') => () => new Date(value);
+function fixture(source = true, empty = false) {
+  let tables: Record<string, any[]> = { cicloOperacional: [], folhaCI: [], itemFolhaCI: [], estadoManutencao: [] };
+  let serial = 100, mutations = 0, admin = true;
+  const queries: { sql: string; values: unknown[] }[] = [];
+  const stamp = new Date('2026-10-06T23:00:00Z');
+  if (source) {
+    tables.folhaCI.push({ id: 10, garagem: 'VCG', dataFolha: dateValue(day), status: 'FINALIZADA', origem: 'IMPORTACAO', tituloColunaAdicional: 'INSPEÇÃO', finalizadaEm: null, createdAt: stamp, updatedAt: stamp });
+    if (!empty) for (const [n, categoria, extra] of [
+      [1, 'BLOQUEADO', { prefixo: '3083', consorciada: 'VCM', motivo: 'MOTOR', dataBloqueio: dateValue('2026-10-01') }],
+      [2, 'PREVENTIVA', { subTipo: 'LUBRIFICACAO' }], [3, 'OFICINA', { subTipo: 'ELEVADOR' }],
+      [4, 'REFORCO', { tipoPosicao: 'FIXO', ordemPosicao: 1, horarioReforco: '07:40' }],
+      [5, 'REFORCO', { tipoPosicao: 'EXTRA', ordemPosicao: 1, horarioReforco: '07:40' }],
+    ] as const) tables.itemFolhaCI.push({ id: 10 + n, folhaId: 10, chaveItem: randomUUID(), categoria, prefixo: '4000', consorciada: 'VCG', motivo: '', tipoPosicao: null, ordemPosicao: null, createdAt: stamp, updatedAt: stamp, ...extra });
+  }
+  const match = (r: any, where: any = {}): boolean => Object.entries(where).every(([k, v]: [string, any]) => {
+    if (k === 'garagem_dataFolha' || k === 'garagem_dataOperacional') return match(r, v);
+    if (v instanceof Date) return r[k] instanceof Date && r[k].getTime() === v.getTime();
+    return r[k] === v;
+  });
+  const tx: any = { user: { findUnique: async () => ({ role: admin ? 'ADMIN' : 'COLABORADOR' }) },
+    $queryRaw: async (parts: TemplateStringsArray, ...values: unknown[]) => { queries.push({ sql: parts.join('?'), values }); return []; } };
+  for (const name of Object.keys(tables)) {
+    const include = (row: any, options: any) => row && { ...row, ...(options.include?.itens ? { itens: tables.itemFolhaCI.filter(i => i.folhaId === row.id).map(i => ({ ...i })) } : {}) };
+    tx[name] = {
+      findUnique: async (o: any) => include(tables[name].find(r => match(r, o.where)), o) || null,
+      findMany: async (o: any = {}) => tables[name].filter(r => match(r, o.where)).map(r => include(r, o)),
+      create: async ({ data }: any) => { mutations++; const row = { id: ++serial, createdAt: new Date(serial), updatedAt: new Date(serial), ...data }; tables[name].push(row); return { ...row }; },
+      update: async ({ where, data }: any) => { mutations++; const row = tables[name].find(r => match(r, where)); assert.ok(row); Object.assign(row, data, { updatedAt: new Date(++serial) }); return { ...row }; },
+      delete: async ({ where }: any) => { mutations++; const row = tables[name].find(r => match(r, where)); assert.ok(row); tables[name] = tables[name].filter(r => r !== row); return row; },
+    };
+  }
+  // Simula serializacao/rollback, sem abrir conexao. Locks reais exigem validacao posterior.
+  let queue = Promise.resolve();
+  const db: any = { ...tx, $transaction: (fn: any, opts: any) => {
+    assert.equal(opts.isolationLevel, 'Serializable');
+    const result = queue.then(async () => { const before = structuredClone(tables); try { return await fn(tx); } catch (error) { tables = before; throw error; } });
+    queue = result.then(() => undefined, () => undefined); return result;
+  } };
+  return { db, tables: () => structuredClone(tables), writes: () => mutations, queries, role: (value: boolean) => { admin = value; } };
+}
+async function ready() { const f = fixture(); await startCycle(f.db, 'VCG', clock()); return f; }
+async function command(f: ReturnType<typeof fixture>, kind: 'ci' | 'manutencao') {
+  const ctx = await readContext(f.db, 'VCG', day);
+  const items = kind === 'ci' ? ctx.ci.filter(i => i.data === target) : ctx.maintenance;
+  return { garagem: 'VCG', data: kind === 'ci' ? target : day, base: revision(items), baseC4: ctx.baseC4, items: structuredClone(items), removeBlocked: [] as string[], confirmRelease: false };
+}
+
+test('timezone explicito e fronteiras 03:00/18:30', () => {
+  assert.equal(eventInstant(day, 3).toISOString(), '2026-10-07T07:00:00.000Z');
+  assert.equal(eventInstant(day, 18, 30).toISOString(), '2026-10-07T22:30:00.000Z');
+  assert.equal(operationalContext(new Date('2026-10-07T06:59:59Z')).open, false);
+  assert.equal(operationalContext(new Date('2026-10-07T07:00:00Z')).open, true);
+  assert.equal(operationalContext(new Date('2026-10-07T22:30:00Z')).open, false);
+  assert.equal(nextEvent(new Date('2026-10-07T22:31:00Z')).toISOString(), '2026-10-08T07:00:00.000Z');
+});
+test('config vazia desativa tudo, VCM somente explicita', () => {
+  assert.deepEqual(enabledGarages(''), []); assert.deepEqual(enabledGarages('VCG'), ['VCG']);
+  assert.deepEqual(enabledGarages('VCG,VCM,VCG'), ['VCG', 'VCM']); assert.throws(() => enabledGarages('TODAS'));
+});
+test('datas invalidas nao recebem fallback historico', () => { assert.throws(() => civil('2026-02-30')); assert.throws(() => civil('')); });
+test('03:00 copia integral, novos PKs e identidade logica preservada', async () => {
+  const f = await ready(), t = f.tables(); const source = t.itemFolhaCI.filter(i => i.folhaId === 10), copied = t.itemFolhaCI.filter(i => i.folhaId !== 10);
+  assert.equal(copied.length, source.length);
+  for (const i of source) { const j = copied.find(c => c.chaveItem === i.chaveItem); assert.ok(j); assert.notEqual(j.id, i.id); for (const k of Object.keys(i).filter(k => !['id', 'folhaId', 'createdAt', 'updatedAt'].includes(k))) assert.deepEqual(j[k], i[k]); }
+});
+test('titulo sem itens e coluna adicional sobrevivem a virada', async () => {
+  const f = fixture(true, true);
+  await startCycle(f.db, 'VCG', clock()); assert.equal(f.tables().folhaCI[1].tituloColunaAdicional, 'INSPEÇÃO'); assert.equal(f.tables().itemFolhaCI.length, 0);
+});
+test('reforco FIXO/EXTRA com horario repetido preserva posicoes', async () => {
+  const f = await ready(); const items = f.tables().itemFolhaCI.filter(i => i.folhaId !== 10 && i.categoria === 'REFORCO');
+  assert.deepEqual(items.map(i => [i.tipoPosicao, i.ordemPosicao, i.horarioReforco]), [['FIXO', 1, '07:40'], ['EXTRA', 1, '07:40']]);
+});
+test('Controle inicial recebe apenas bloqueados; oficina e liberados vazios', async () => {
+  const f = await ready(); assert.equal(f.tables().estadoManutencao.length, 1); const s = f.tables().estadoManutencao[0]; assert.equal(s.bloqueado, true); assert.equal(s.emExecucao, false); assert.equal(s.liberado, false);
+});
+test('VCM aparece na CI VCG sem conversao de consorciada', async () => {
+  const f = await ready(); const ctx = await readContext(f.db, 'VCG', day);
+  assert.ok(ctx.ci.some(i => i.data === target && i.prefixo === '3083' && i.consorciada === 'VCM' && i.garagem === 'VCG'));
+});
+test('03:00 idempotente e criacao unica concorrente', async () => {
+  const f = fixture(); await Promise.all([startCycle(f.db, 'VCG', clock()), startCycle(f.db, 'VCG', clock())]);
+  assert.equal(f.tables().cicloOperacional.length, 1); assert.equal(f.tables().folhaCI.length, 2);
+  const before = f.tables(); assert.equal((await startCycle(f.db, 'VCG', clock())).result, 'ALREADY_DONE'); assert.deepEqual(f.tables(), before);
+});
+test('18:30 finaliza e repete sem alterar timestamp efetivo', async () => {
+  const f = await ready(); assert.equal((await finalizeCycle(f.db, 'VCG', clock('2026-10-07T22:30:00Z'))).result, 'FINALIZADA');
+  const before = f.tables(); assert.equal((await finalizeCycle(f.db, 'VCG', clock('2026-10-07T22:40:00Z'))).result, 'ALREADY_DONE'); assert.deepEqual(f.tables(), before);
+});
+test('jobs nao antecipam eventos', async () => {
+  const f = fixture(); assert.equal((await startCycle(f.db, 'VCG', clock('2026-10-07T06:59:00Z'))).result, 'NOT_DUE'); assert.equal((await finalizeCycle(f.db, 'VCG', clock())).result, 'NOT_DUE'); assert.equal(f.writes(), 0);
+});
+test('recovery same-day 18:40 conclui somente evento atual', async () => {
+  const f = await ready(), prior = process.env.CI_NOVO_FLUXO_GARAGENS; process.env.CI_NOVO_FLUXO_GARAGENS = 'VCG';
+  try { const logs: object[] = []; await recoverCurrentDay(f.db, clock('2026-10-07T22:40:00Z'), v => logs.push(v)); assert.equal(f.tables().folhaCI[1].status, 'FINALIZADA'); assert.ok(logs.length >= 3); }
+  finally { if (prior === undefined) delete process.env.CI_NOVO_FLUXO_GARAGENS; else process.env.CI_NOVO_FLUXO_GARAGENS = prior; }
+});
+test('multi-day cria RECUPERACAO atual vazia sem fabricar historico', async () => {
+  const f = fixture(); await startCycle(f.db, 'VCG', clock('2026-10-10T12:00:00Z'));
+  const t = f.tables(); assert.equal(t.cicloOperacional.length, 1); assert.equal(t.folhaCI.length, 2); assert.equal(t.folhaCI[1].origem, 'RECUPERACAO'); assert.equal(t.folhaCI[1].folhaOrigemId, null); assert.equal(t.itemFolhaCI.filter(i => i.folhaId !== 10).length, 0);
+});
+test('VCM nao recebe copia da VCG', async () => { const f = fixture(); await startCycle(f.db, 'VCM', clock()); assert.equal(f.tables().folhaCI[1].origem, 'RECUPERACAO'); assert.equal(f.tables().estadoManutencao.length, 0); });
+test('GET ausente e existente nao escreve nem obtem locks de mutacao', async () => {
+  const f = fixture(false); assert.equal((await readContext(f.db, 'VCG', day)).folha, null); assert.equal(f.writes(), 0); assert.equal(f.queries.length, 0);
+  await startCycle(f.db, 'VCG', clock()); const writes = f.writes(), queries = f.queries.length; await readContext(f.db, 'VCG', day); assert.equal(f.writes(), writes); assert.equal(f.queries.length, queries);
+});
+test('Controle -> CI atomico aceita VCM fisica e preserva consorciada', async () => {
+  const f = await ready(), c = await command(f, 'manutencao'); c.items.push({ id: 'novo', prefixo: '1322', consorciada: 'VCM', data: day, observacao: 'FREIO', bloqueado: true, emExecucao: false, liberado: false } as any);
+  await saveC4(f.db, 1, c, 'manutencao', clock()); const ctx = await readContext(f.db, 'VCG', day); assert.ok(ctx.ci.some(i => i.data === target && i.prefixo === '1322' && i.consorciada === 'VCM')); assert.equal(ctx.maintenance.find(s => s.prefixo === '1322')?.bloqueado, true);
+});
+test('CI -> Controle altera motivo sem alterar outras datas', async () => {
+  const f = await ready(), c = await command(f, 'ci'); const source = f.tables().itemFolhaCI.filter(i => i.folhaId === 10); (c.items as any[]).find(i => i.categoriaPlanilha === 'BLOQUEADO').motivo = 'FREIO';
+  await saveC4(f.db, 1, c, 'ci', clock()); assert.equal(f.tables().estadoManutencao[0].observacaoBloqueio, 'FREIO'); assert.deepEqual(f.tables().itemFolhaCI.filter(i => i.folhaId === 10), source);
+});
+test('BLOQUEADO + EM MANUTENCAO valido, remover bloqueio preserva execucao', async () => {
+  const f = await ready(), c = await command(f, 'manutencao'); (c.items[0] as any).emExecucao = true; await saveC4(f.db, 1, c, 'manutencao', clock());
+  const d = await command(f, 'ci'); d.items = (d.items as any[]).filter(i => i.categoriaPlanilha !== 'BLOQUEADO'); d.removeBlocked = ['3083']; await saveC4(f.db, 1, d, 'ci', clock());
+  const s = f.tables().estadoManutencao[0]; assert.equal(s.bloqueado, false); assert.equal(s.emExecucao, true);
+});
+test('remocao Controle -> CI afeta apenas BLOQUEADO', async () => {
+  const f = await ready(), c = await command(f, 'manutencao'); c.items = []; c.removeBlocked = ['3083']; await saveC4(f.db, 1, c, 'manutencao', clock()); assert.equal(f.tables().itemFolhaCI.filter(i => i.folhaId !== 10).length, 4);
+});
+test('liberacao nao confirmada/cancelada nao persiste nada', async () => {
+  const f = await ready(), c = await command(f, 'manutencao'); Object.assign(c.items[0], { bloqueado: false, emExecucao: false, liberado: true }); c.removeBlocked = ['3083']; const before = f.tables();
+  await assert.rejects(saveC4(f.db, 1, c, 'manutencao', clock()), /Confirme/); assert.deepEqual(f.tables(), before);
+});
+test('liberacao confirmada retira bloqueio e execucao', async () => {
+  const f = await ready(), c = await command(f, 'manutencao'); Object.assign(c.items[0], { bloqueado: false, emExecucao: false, liberado: true }); c.removeBlocked = ['3083']; c.confirmRelease = true;
+  await saveC4(f.db, 1, c, 'manutencao', clock()); const ctx = await readContext(f.db, 'VCG', day); assert.equal(ctx.maintenance[0].liberado, true); assert.equal(ctx.ci.filter(i => i.data === target && i.categoriaPlanilha === 'BLOQUEADO').length, 0);
+});
+test('BLOQUEADO + LIBERADO e estados duplicados rejeitados', async () => {
+  const f = await ready(), c = await command(f, 'manutencao'); (c.items[0] as any).liberado = true; await assert.rejects(saveC4(f.db, 1, c, 'manutencao', clock()), /Liberado/);
+  (c.items[0] as any).liberado = false; c.items.push({ ...c.items[0], id: 'duplicado' } as any); await assert.rejects(saveC4(f.db, 1, c, 'manutencao', clock()), /duplicado|um estado/);
+});
+test('segundo BLOQUEADO rejeitado sem deduplicacao', async () => { const f = await ready(), c = await command(f, 'ci'); c.items.push({ ...(c.items as any[])[0], id: 'novo' } as any); await assert.rejects(saveC4(f.db, 1, c, 'ci', clock()), /Segundo BLOQUEADO/); });
+test('CI finalizada imutavel mesmo se relogio voltar para janela', async () => {
+  const f = await ready(); await finalizeCycle(f.db, 'VCG', clock('2026-10-07T22:30:00Z')); const c = await command(f, 'ci'); const before = f.tables(); await assert.rejects(saveC4(f.db, 1, c, 'ci', clock()), /indisponivel/); assert.deepEqual(f.tables(), before);
+});
+test('mutacao fora janela e historica recusadas', async () => {
+  const f = await ready(), c = await command(f, 'ci'); await assert.rejects(saveC4(f.db, 1, c, 'ci', clock('2026-10-07T22:30:00Z')), /Janela/);
+  c.data = day; await assert.rejects(saveC4(f.db, 1, { ...c, items: [] }, 'ci', clock()), /Data fora/);
+});
+test('18:30 durante transacao provoca rollback integral', async () => {
+  const f = await ready(), c = await command(f, 'ci'); (c.items as any[])[0].motivo = 'NOVO'; const before = f.tables(); let calls = 0;
+  await assert.rejects(saveC4(f.db, 1, c, 'ci', () => new Date(++calls === 1 ? '2026-10-07T22:29:59Z' : '2026-10-07T22:30:00Z')), /Janela/); assert.deepEqual(f.tables(), before);
+});
+test('snapshot stale/duplo clique: somente um comando persiste', async () => {
+  const f = await ready(), c = await command(f, 'ci'); (c.items as any[])[0].motivo = 'FREIO'; const results = await Promise.allSettled([saveC4(f.db, 1, c, 'ci', clock()), saveC4(f.db, 1, c, 'ci', clock())]);
+  assert.equal(results.filter(r => r.status === 'fulfilled').length, 1); assert.equal(results.filter(r => r.status === 'rejected').length, 1);
+});
+test('role ADMIN revalidada e locks contem garagem/dia parametrizados', async () => {
+  const f = await ready(), c = await command(f, 'ci'); f.role(false); const before = f.tables(); await assert.rejects(saveC4(f.db, 1, c, 'ci', clock()), /ADMIN/); assert.deepEqual(f.tables(), before);
+  assert.ok(f.queries.every(q => q.sql.includes('UPDLOCK, HOLDLOCK') && q.values[0] === 'VCG' && q.values[1] instanceof Date));
+});
+test('titulo vazio de itens permanece persistido e protegido pela versao', async () => {
+  const f = fixture(true, true); await startCycle(f.db, 'VCG', clock()); const c = await command(f, 'ci'); await saveC4(f.db, 1, { ...c, tituloColunaAdicional: 'LUBRIFICAÇÃO' }, 'ci', clock()); assert.equal(f.tables().folhaCI[1].tituloColunaAdicional, 'LUBRIFICAÇÃO'); assert.equal(f.tables().itemFolhaCI.length, 0); await assert.rejects(saveC4(f.db, 1, c, 'ci', clock()), /desatualizado/);
+});
+test('data de bloqueio normal ausente/invalida/futura rejeitada', async () => {
+  const f = await ready(); for (const value of ['', '2026-02-30', '2026-10-08', '2026-10-09']) { const c = await command(f, 'ci'); (c.items as any[])[0].dataBloqueio = value; await assert.rejects(saveC4(f.db, 1, c, 'ci', clock()), /Data|Data civil/); }
+});
+test('sem runtime DDL nem reconciliacao em controllers GET', () => {
+  for (const path of ['apps/api/src/services/c4Flow.ts', 'apps/api/src/services/c4Scheduler.ts', 'apps/api/src/controllers/c4.ts', 'apps/api/src/controllers/ciBloqueios.ts', 'apps/api/src/controllers/manutencao.ts']) assert.doesNotMatch(readFileSync(path, 'utf8'), /CREATE\s+TABLE|ALTER\s+TABLE|ensureTable/i);
+  const source = readFileSync('apps/api/src/services/mssql.ts', 'utf8'); assert.match(source, /SELECT idCarro, garagem/); assert.match(source, /WHERE ativo=1/);
+  const ui = readFileSync('apps/web/src/pages/soltura/CiManutencaoView.tsx', 'utf8'); assert.match(ui, /garageOne\(fleetCars\)/); assert.match(ui, /c4Enabled\('VCG'\) \|\| cons.id !== "VCM"/);
+});
+test('selecao Garagem 1 usa coluna real e inclui VCM independente do prefixo', () => {
+  const vehicles = [{ prefixo: '3083', garagemFonte: 1, consorciada: 'VCM' }, { prefixo: '1322', garagemFonte: 1, consorciada: 'VCM' }, { prefixo: '4178', garagemFonte: 2, consorciada: 'VCG' }];
+  assert.deepEqual(garageOne(vehicles).map(i => i.prefixo), ['3083', '1322']); assert.equal(garageOne(vehicles)[0].consorciada, 'VCM');
+});
+test('remocao de bloqueio nao elimina execucao sem liberacao confirmada', async () => {
+  const f = await ready(), c = await command(f, 'manutencao'); (c.items[0] as any).emExecucao = true; await saveC4(f.db, 1, c, 'manutencao', clock());
+  const d = await command(f, 'manutencao'); d.items = []; d.removeBlocked = ['3083']; const before = f.tables(); await assert.rejects(saveC4(f.db, 1, d, 'manutencao', clock()), /preserva execucao/); assert.deepEqual(f.tables(), before);
+});
+test('posicao EXTRA positiva esparsa aceita, FIXO13 rejeitado', async () => {
+  const f = await ready(), c = await command(f, 'ci'); const extra = (c.items as any[]).find(i => i.tipoPosicao === 'EXTRA'); extra.ordemPosicao = 1000; await saveC4(f.db, 1, c, 'ci', clock());
+  const d = await command(f, 'ci'); (d.items as any[]).find(i => i.tipoPosicao === 'FIXO').ordemPosicao = 13; await assert.rejects(saveC4(f.db, 1, d, 'ci', clock()), /Posicao/);
+});
+test('mudanca de data original torna conteudo stale verificavel no cliente', async () => {
+  const f = await ready(), c = await command(f, 'ci'); const before = c.base; (c.items as any[])[0].dataBloqueio = '2026-10-02'; assert.notEqual(revision(c.items), before);
+});
+test('falha apos gravar CI desfaz CI e Controle juntos', async () => {
+  const f = await ready(), c = await command(f, 'ci'); (c.items as any[])[0].motivo = 'NOVO'; const before = f.tables();
+  f.db.estadoManutencao.update = async () => { throw new Error('falha simulada'); };
+  await assert.rejects(saveC4(f.db, 1, c, 'ci', clock()), /falha simulada/); assert.deepEqual(f.tables(), before);
+});
+test('oficina no Controle nao altera fotografia de outras categorias nem motivo do bloqueio', async () => {
+  const f = await ready(), c = await command(f, 'manutencao'); const before = f.tables().itemFolhaCI;
+  Object.assign(c.items[0], { emExecucao: true, observacaoOficina: 'SERVICO NA OFICINA' }); await saveC4(f.db, 1, c, 'manutencao', clock());
+  assert.deepEqual(f.tables().itemFolhaCI, before); assert.equal(f.tables().estadoManutencao[0].observacaoBloqueio, 'MOTOR'); assert.equal(f.tables().estadoManutencao[0].observacaoOficina, 'SERVICO NA OFICINA');
+});
+test('finalizacao concorrente impede comando posterior com snapshot stale', async () => {
+  const f = await ready(), c = await command(f, 'ci'); const result = await Promise.allSettled([finalizeCycle(f.db, 'VCG', clock('2026-10-07T22:30:00Z')), saveC4(f.db, 1, c, 'ci', clock())]);
+  assert.equal(result[0].status, 'fulfilled'); assert.equal(result[1].status, 'rejected'); assert.equal(f.tables().folhaCI[1].status, 'FINALIZADA');
+});
+test('snapshot C4 precisa de versao do cabecalho mesmo quando vazio', async () => {
+  const f = fixture(true, true); await startCycle(f.db, 'VCG', clock()); const c = await command(f, 'ci'); await assert.rejects(saveC4(f.db, 1, { ...c, baseC4: '' }, 'ci', clock()), /desatualizado/);
+});
+test('Garagem distinta no payload rejeitada sem contaminar outra folha', async () => {
+  const f = await ready(), c = await command(f, 'ci'); const before = f.tables(); (c.items as any[])[0].garagem = 'VCM'; await assert.rejects(saveC4(f.db, 1, c, 'ci', clock()), /fora da folha/); assert.deepEqual(f.tables(), before);
+});
+test('roteamento ativado nunca cai no legado nem interpreta VCM como escritor VCG', () => {
+  assert.equal(mutationMode('VCG', ['VCG']), 'C4'); assert.throws(() => mutationMode('VCM', ['VCG']), /nao habilitado/); assert.throws(() => mutationMode(undefined, ['VCG']), /explicitamente/);
+  assert.equal(mutationMode('VCG', []), 'LEGADO'); assert.throws(() => mutationMode('VCM', [])); assert.equal(mutationMode('VCM', ['VCM']), 'C4');
+});
+
+test('recovery 03:20 copia somente a folha atual e estrutura parcial recusa reparo', async () => {
+  const f = fixture(); await startCycle(f.db, 'VCG', clock('2026-10-07T07:20:00Z'));
+  assert.equal(f.tables().folhaCI[1].origem, 'NORMAL');
+  assert.equal(dateValue(target).getTime(), f.tables().folhaCI[1].dataFolha.getTime());
+  await f.db.folhaCI.delete({ where: { id: f.tables().folhaCI[1].id } });
+  const before = f.tables(), writes = f.writes();
+  await assert.rejects(startCycle(f.db, 'VCG', clock()), /parcial/);
+  assert.deepEqual(f.tables(), before); assert.equal(f.writes(), writes);
+});
+
+test('release concorrente com inclusao usa snapshot comum: apenas um comando vence', async () => {
+  const f = await ready(), release = await command(f, 'manutencao'), inclusion = await command(f, 'ci');
+  const state = (release.items as any[])[0]; state.bloqueado = false; state.liberado = true;
+  release.removeBlocked = ['3083']; release.confirmRelease = true;
+  (inclusion.items as any[]).push({ ...(inclusion.items as any[])[0], id: 'novo', prefixo: '1322' });
+  const results = await Promise.allSettled([saveC4(f.db, 1, release, 'manutencao', clock()), saveC4(f.db, 1, inclusion, 'ci', clock())]);
+  assert.equal(results.filter(r => r.status === 'fulfilled').length, 1);
+  const ctx = await readContext(f.db, 'VCG', day);
+  assert.equal(ctx.maintenance[0].liberado, true); assert.equal(ctx.ci.filter(i => i.data === target && i.categoriaPlanilha === 'BLOQUEADO').length, 0);
+});
+
+test('managers preservam TODAS com flag off, reset VCM e erro C4 sem fallback', async () => {
+  const loader = (Module as any)._load;
+  const calls: { url: string; params: any }[] = [];
+  let mode = 'LEGADO', fail = false;
+  const api = {
+    get: async (url: string, options: any) => {
+      calls.push({ url, params: options?.params });
+      if (url === '/c4/contexto') {
+        if (fail) throw new Error('C4 indisponivel');
+        return { mode, garagem: options.params.garagem, garages: mode === 'C4' ? ['VCG', 'VCM'] : [], ci: [], maintenance: [] };
+      }
+      return [];
+    },
+    listCiBloqueios: async (params: any) => { calls.push({ url: '/ci-bloqueios', params }); return []; },
+  };
+  let ci: any, maintenance: any;
+  try {
+    (Module as any)._load = function(request: string, parent: any, main: boolean) {
+      if (request === '@/lib/api' || (request === './api' && parent.filename.endsWith(path.join('lib', 'c4.ts')))) return { api };
+      return loader.call(this, request.startsWith('@/') ? path.resolve('apps/web/src', request.slice(2) + '.ts') : request, parent, main);
+    };
+    ci = require('../../web/src/pages/soltura/ciManager');
+    maintenance = require('../../web/src/pages/manutencao/manutencaoManager');
+  } finally { (Module as any)._load = loader; }
+  const previousWindow = (globalThis as any).window, previousStorage = (globalThis as any).localStorage, previousEvent = (globalThis as any).CustomEvent;
+  Object.assign(globalThis, { window: { dispatchEvent: () => true }, localStorage: { setItem: () => undefined }, CustomEvent: class { constructor(public name: string, public options: unknown) {} } });
+  try {
+    await ci.fetchCIBloqueiosFromApi({ garagem: 'TODAS' });
+    await maintenance.fetchManutencaoDataFromApi(day, 'TODAS');
+    assert.equal(require('../../web/src/lib/c4').c4Configured(), false);
+    assert.equal(calls.find(c => c.url === '/ci-bloqueios')!.params.garagem, undefined);
+    assert.equal(calls.find(c => c.url === '/manutencao')!.params.garagem, undefined);
+    calls.length = 0; mode = 'C4';
+    await maintenance.resetManutencaoSeedApi(day, 'VCM');
+    assert.equal(require('../../web/src/lib/c4').c4Configured(), true);
+    assert.deepEqual(calls, [{ url: '/c4/contexto', params: { garagem: 'VCM', data: day } }]);
+    calls.length = 0; fail = true;
+    await assert.rejects(ci.fetchCIBloqueiosFromApi({ garagem: 'VCG' }), /indisponivel/);
+    assert.equal(calls.length, 1); assert.equal(calls[0].url, '/c4/contexto');
+  } finally { Object.assign(globalThis, { window: previousWindow, localStorage: previousStorage, CustomEvent: previousEvent }); }
+});
+
+test('controllers recusam escopo invalido e override legado que atingiria garagem C4', async () => {
+  const loader = (Module as any)._load, prior = process.env.CI_NOVO_FLUXO_GARAGENS;
+  let legacyReads = 0;
+  const legacy = { findMany: async () => { legacyReads++; return []; } };
+  const db = { ciBloqueio: legacy, manutencaoCarro: legacy,
+    user: { findUnique: async () => ({ role: 'COLABORADOR', garagem: 'VCG', email: '' }) },
+    $transaction: async () => { throw new Error('C4 indisponivel'); } };
+  let ci: any, maintenance: any;
+  try {
+    (Module as any)._load = function(request: string, parent: any, main: boolean) {
+      if (request === '../utils/prisma') return { __esModule: true, default: db };
+      return loader.call(this, request, parent, main);
+    };
+    ci = require('../src/controllers/ciBloqueios'); maintenance = require('../src/controllers/manutencao');
+  } finally { (Module as any)._load = loader; }
+  try {
+    process.env.CI_NOVO_FLUXO_GARAGENS = 'VCG';
+    for (const controller of [ci, maintenance]) for (const scope of ['vcg', 'VCM', 'VCG']) {
+      const res: any = { code: 200, status(code: number) { this.code = code; return this; }, json(value: unknown) { this.body = value; return this; } };
+      await controller.list({ query: { garagem: scope, data: day }, userId: 1 }, res);
+      assert.equal(res.code, scope === 'VCG' ? 500 : 400);
+      assert.equal(legacyReads, 0);
+    }
+    process.env.CI_NOVO_FLUXO_GARAGENS = '';
+    const res: any = { code: 200, status(code: number) { this.code = code; return this; }, json() { return this; } };
+    await maintenance.list({ query: { data: day }, userId: 1 }, res);
+    assert.equal(res.code, 200); assert.equal(legacyReads, 1);
+  } finally { if (prior === undefined) delete process.env.CI_NOVO_FLUXO_GARAGENS; else process.env.CI_NOVO_FLUXO_GARAGENS = prior; }
+});

@@ -242,7 +242,7 @@ model ManutencaoCarro {
   @@map("manutencao_carros")
 }
 
-// DATA-001C4: models candidatos; nao provisionados nem usados pelo runtime.
+// DATA-001C4: runtime opt-in CI_NOVO_FLUXO_GARAGENS; provisionamento manual.
 // CHECKs e UNIQUEs filtrados: scripts/sql/data-001c4-provisionamento.sql.
 // Nao substituir filtros por @@unique geral/nullable. Legado preservado.
 // Prisma 6.10 nao aceita precisao em @db.DateTime2; SQL fixa DATETIME2(3).
@@ -319,6 +319,7 @@ model ItemFolhaCI {
   responsavelRegistroId Int?     @map("responsavel_registro_id") @db.Int
   createdAt             DateTime @default(dbgenerated("SYSUTCDATETIME()"), map: "DF_item_folha_ci_created_at") @map("created_at") @db.DateTime2
   updatedAt             DateTime @default(dbgenerated("SYSUTCDATETIME()"), map: "DF_item_folha_ci_updated_at") @updatedAt @map("updated_at") @db.DateTime2
+  dataBloqueio          DateTime? @map("data_bloqueio") @db.Date
 
   folha                 FolhaCI  @relation(fields: [folhaId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_item_folha_ci_folha")
   responsavelRegistro   User?    @relation("ItemFolhaResponsavel", fields: [responsavelRegistroId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_item_folha_ci_responsavel")

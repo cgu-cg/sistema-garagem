@@ -27,6 +27,7 @@ import * as catracasController from "../controllers/catracas";
 import * as controleOperacionalController from "../controllers/controleOperacional";
 import * as ciBloqueiosController from "../controllers/ciBloqueios";
 import * as manutencaoController from "../controllers/manutencao";
+import * as c4Controller from '../controllers/c4';
 
 const router: Router = Router();
 
@@ -92,6 +93,7 @@ router.put("/controle-operacional/:id", authenticate, authorize("ADMIN", "operac
 
 // CI Manutenção & Bloqueios de Veículos (Soltura & Manutenção)
 router.get("/ci-bloqueios", authenticate, ciBloqueiosController.list);
+router.get('/c4/contexto', authenticate, c4Controller.context);
 router.post("/ci-bloqueios", authenticate, ciBloqueiosController.createOrUpdate);
 router.post("/ci-bloqueios/release", authenticate, ciBloqueiosController.release);
 router.post("/ci-bloqueios/sync", authenticate, ciBloqueiosController.sync);

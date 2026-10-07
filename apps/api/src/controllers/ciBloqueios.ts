@@ -4,6 +4,9 @@ import { AuthRequest } from "../middleware/auth";
 import { saveCI } from "../services/mvpLegado";
 import { MvpError } from "../services/mvpTemporal";
 import { ZodError } from "zod";
+import { enabledGarages, garage, civil, mutationMode } from '../services/c4Temporal';
+import { readContext, saveC4 } from '../services/c4Flow';
+import { operationalContext } from '../services/mvpTemporal';
 
 export function getTodayDate(): string {
   const now = new Date();
@@ -17,6 +20,13 @@ export function getTodayDate(): string {
 export async function list(req: AuthRequest, res: Response) {
   try {
     const { garagem, status, categoria, data } = req.query;
+    const enabled = enabledGarages();
+    if (enabled.length && (!garagem || garagem === 'TODAS')) return res.status(400).json({ error: 'C4 exige contexto explicito VCG ou VCM.' });
+    if (enabled.length) garage(garagem);
+    if (enabled.includes(garagem as 'VCG' | 'VCM')) {
+      const snapshot = await readContext(prisma, garage(garagem), operationalContext().today);
+      return res.json(snapshot.ci.filter(i => (!data || i.data === civil(data)) && (!categoria || i.categoriaPlanilha === categoria) && (!status || i.status === status)));
+    }
     const where: any = {};
     if (data) where.dataBloqueio = String(data);
 
@@ -37,6 +47,7 @@ export async function list(req: AuthRequest, res: Response) {
     const effectiveGaragem = (!isAdmin && userGaragem)
       ? userGaragem
       : (garagem && garagem !== "TODAS" ? String(garagem).toUpperCase() : undefined);
+    if (enabled.includes(effectiveGaragem as 'VCG' | 'VCM')) throw new MvpError(400, 'Consulte a garagem C4 explicitamente; legado nao e fallback.');
 
     if (effectiveGaragem) {
       where.garagem = effectiveGaragem;
@@ -115,6 +126,7 @@ export async function list(req: AuthRequest, res: Response) {
 
     return res.json(mapped);
   } catch (error: any) {
+    if (error instanceof MvpError) return res.status(error.status).json({ error: error.message });
     console.error("[CI Bloqueios] Erro ao listar bloqueios:", error);
     return res.status(500).json({ error: "Erro ao consultar CI; nenhum fallback representa sucesso." });
   }
@@ -122,8 +134,11 @@ export async function list(req: AuthRequest, res: Response) {
 
 // Snapshots direcionados: frontend manda contexto e versao lida antes da edicao.
 export async function sync(req: AuthRequest, res: Response) {
-  try { return res.json(await saveCI(prisma, req.userId, req.body)); }
+  try {
+    return res.json(mutationMode(req.body.garagem) === 'C4' ? await saveC4(prisma, req.userId, req.body, 'ci') : await saveCI(prisma, req.userId, req.body));
+  }
   catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && ['P2034', 'P2002'].includes(String(error.code))) return res.status(409).json({ error: 'Conflito concorrente. Recarregue CI e Controle.' });
     if (error instanceof MvpError) return res.status(error.status).json({ error: error.message });
     if (error instanceof ZodError) return res.status(400).json({ error: 'Dados invalidos para CI.' });
     return res.status(500).json({ error: 'CI nao foi salva. Recarregue e tente novamente.' });

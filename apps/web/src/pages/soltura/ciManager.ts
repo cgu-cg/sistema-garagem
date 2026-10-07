@@ -1,7 +1,10 @@
 import { BloqueioCarro } from "@/data/solturaData";
 import { api } from "@/lib/api";
+import { c4Context, c4Enabled, c4Items, fetchC4Context, storeC4Context, C4Garage } from '@/lib/c4';
 import { operationalContext, canMutate, revision, beginMutation, endMutation, requireRefresh, SavedRefreshRequired, getMutationState, readTicket, assertReadTicket } from "@/lib/mvpTemporal";
 let officialCI: BloqueioCarro[] | null = null;
+let officialGarage: C4Garage = 'VCG';
+export const getCurrentCIGarage = () => officialGarage;
 let requestNumber = 0;
 const ciReads = new Map<string, Promise<BloqueioCarro[]>>();
 
@@ -59,6 +62,15 @@ export function saveCIBloqueiosToStorage(list: BloqueioCarro[], _syncFolhas = fa
 export function checkCarroBloqueado(prefixo: string, list: BloqueioCarro[], data?: string): BloqueioCarro | null {
   if (!prefixo) return null;
   const clean = prefixo.replace(/\D/g, "");
+  if (c4Enabled(officialGarage)) {
+    const selectedDay = data || operationalContext().today;
+    const ctx = c4Context(officialGarage, selectedDay);
+    const maintenance = ctx?.maintenance?.find(i => i.prefixo === clean);
+    if (maintenance?.liberado) return null;
+    if (maintenance?.bloqueado || maintenance?.emExecucao) return { id: maintenance.id, prefixo: clean, consorciada: maintenance.consorciada, garagem: officialGarage, data: selectedDay,
+      tipo: maintenance.bloqueado ? 'BLOQUEADO_CORRETIVA' : 'EM_MANUTENCAO', motivo: (maintenance.bloqueado ? maintenance.observacaoBloqueio : maintenance.observacaoOficina) || '', status: maintenance.bloqueado ? 'BLOQUEADO' : 'EM_MANUTENCAO' };
+    return list.find(i => i.prefixo === clean && i.data === selectedDay && i.garagem === officialGarage && i.categoriaPlanilha === 'BLOQUEADO') || null;
+  }
 
   // 1. Checa a folha de manutenção salva
   try {
@@ -134,10 +146,14 @@ export async function fetchCIBloqueiosFromApi(params?: { garagem?: string; statu
   if (running) return running;
   const number = ++requestNumber;
   const request = (async () => {
-    const data = await api.listCiBloqueios(normalized);
+    const scope = (normalized.garagem || 'VCG') as C4Garage;
+    const context = await fetchC4Context(scope);
+    const data = context.mode === 'C4' ? context.ci! : await api.listCiBloqueios({ ...normalized, ...(context.garages?.length ? { garagem: scope } : {}) });
     assertReadTicket(ticket);
     if (number !== requestNumber) throw new Error('Consulta substituida por uma mais recente.');
     if (!Array.isArray(data)) throw new Error('Resposta invalida ao consultar CI.');
+    storeC4Context(context, operationalContext().today);
+    officialGarage = scope;
     officialCI = data; saveCIBloqueiosToStorage(data);
     return data;
   })();
@@ -145,17 +161,18 @@ export async function fetchCIBloqueiosFromApi(params?: { garagem?: string; statu
   try { return await request; } finally { if (ciReads.get(key) === request) ciReads.delete(key); }
 }
 
-export async function saveCISnapshot(list: BloqueioCarro[], date: string, baseline: BloqueioCarro[], removeBlocked: string[] = [], operation: 'save' | 'prepare' = 'save'): Promise<BloqueioCarro[]> {
+export async function saveCISnapshot(list: BloqueioCarro[], date: string, baseline: BloqueioCarro[], removeBlocked: string[] = [], operation: 'save' | 'prepare' = 'save', garagem: C4Garage = 'VCG', tituloColunaAdicional?: string): Promise<BloqueioCarro[]> {
   if (!canMutate(date, 'ci')) throw new Error('CI fora da janela de edicao.');
   if (!officialCI) throw new Error('Carregue a CI oficial antes de alterar.');
-  const current = baseline.filter(i => i.data === date && i.garagem === 'VCG');
-  const items = operation === 'prepare' ? [] : list.filter(i => i.data === date && i.garagem === 'VCG');
+  const current = baseline.filter(i => i.data === date && i.garagem === garagem);
+  const items = operation === 'prepare' ? [] : list.filter(i => i.data === date && i.garagem === garagem);
   beginMutation();
   let saved = false;
   try {
-    await api.post('/ci-bloqueios/sync', { data: date, items, base: revision(current), removeBlocked, operation });
+    await api.post('/ci-bloqueios/sync', { garagem, data: date, items: c4Enabled(garagem) ? c4Items(items) : items, base: revision(current), removeBlocked, operation,
+      ...(c4Enabled(garagem) ? { baseC4: c4Context(garagem)?.baseC4, tituloColunaAdicional } : {}) });
     saved = true;
-    return await fetchCIBloqueiosFromApi(undefined, true);
+    return await fetchCIBloqueiosFromApi({ garagem }, true);
   } catch (error) {
     requireRefresh();
     if (saved) throw new SavedRefreshRequired();
