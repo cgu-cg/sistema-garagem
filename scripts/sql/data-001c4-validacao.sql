@@ -2,8 +2,8 @@
 -- Somente catalogos: nenhum registro operacional e nenhuma inicializacao.
 -- Executar futuramente apenas com autorizacao/banco alvo confirmado.
 -- Resultados por objeto: OK, AUSENTE, DIVERGENTE ou REVISAR_DEFINICAO.
--- CHECKs e filtros: comparacao textual conservadora preserva parenteses e literais.
--- Diferenca de formatacao pode exigir revisao; nunca certifica equivalencia semantica.
+-- CHECKs: lista fechada de representacoes equivalentes; literais/agrupamentos preservados.
+-- Expressoes nao reconhecidas e filtros diferentes exigem revisao manual.
 -- Objetos adicionais sao reportados para analise, sem reparo.
 -- Sem VIEW DEFINITION no banco, resultados NAO certificam ausencia/completude.
 
@@ -146,7 +146,18 @@ SELECT N'03_indices_pk_unique' AS bloco, e.tabela, e.nome,
               OR (e.filtro IS NULL AND r.has_filter <> 0)
               OR (e.filtro IS NOT NULL AND (r.has_filter <> 1 OR r.filter_definition IS NULL))
             THEN N'DIVERGENTE'
-            WHEN e.filtro IS NOT NULL AND r.filter_definition COLLATE Latin1_General_100_BIN2 <> e.filtro COLLATE Latin1_General_100_BIN2
+            WHEN e.filtro IS NOT NULL
+              AND r.filter_definition COLLATE Latin1_General_100_BIN2 <> e.filtro COLLATE Latin1_General_100_BIN2
+              AND r.filter_definition COLLATE Latin1_General_100_BIN2 <> (N'('+e.filtro+N')') COLLATE Latin1_General_100_BIN2
+              AND NOT (
+                  -- Whitelist fechada: nao remover espacos/literais do filtro.
+                  (e.nome=N'UQ_folha_ci_ciclo_preparacao' AND r.filter_definition COLLATE Latin1_General_100_BIN2 IN
+                    (N'[ciclo_preparacao_id] IS NOT NULL',N'([ciclo_preparacao_id] IS NOT NULL)',N'(([ciclo_preparacao_id] IS NOT NULL))'))
+                  OR (e.nome=N'UQ_item_folha_ci_bloqueado_prefixo' AND r.filter_definition COLLATE Latin1_General_100_BIN2 IN
+                    (N'[categoria]=N''BLOQUEADO''',N'([categoria]=N''BLOQUEADO'')',N'(([categoria]=N''BLOQUEADO''))'))
+                  OR (e.nome=N'UQ_item_folha_ci_reforco_posicao' AND r.filter_definition COLLATE Latin1_General_100_BIN2 IN
+                    (N'[categoria]=N''REFORCO''',N'([categoria]=N''REFORCO'')',N'(([categoria]=N''REFORCO''))'))
+              )
             THEN N'REVISAR_DEFINICAO' ELSE N'OK' END AS resultado,
        e.chaves AS chaves_esperadas, r.chaves AS chaves_reais, e.filtro AS filtro_esperado, r.filter_definition AS filtro_real,
        r.is_disabled, r.ignore_dup_key
@@ -210,17 +221,119 @@ FROM esperadas e LEFT JOIN reais r ON r.tabela=e.tabela AND r.name=e.nome ORDER 
     (N'estado_manutencao_ciclo', N'CK_estado_manutencao_ciclo_prefixo', N'(LEN(LTRIM(RTRIM(prefixo))) > 0)'),
     (N'estado_manutencao_ciclo', N'CK_estado_manutencao_ciclo_consorciada', N'(LEN(LTRIM(RTRIM(consorciada))) > 0)')
     ) v(tabela,nome,definicao)
+), alternativas(nome,definicao) AS (
+    -- Formas equivalentes conhecidas do catalogo; nao avaliar SQL dos metadados.
+    -- IN pode ser expandido em OR. Cada alternativa preserva os mesmos valores.
+    SELECT * FROM (VALUES
+    (N'CK_ciclo_operacional_garagem', N'(garagem=N''VCM'' OR garagem=N''VCG'')'),
+    (N'CK_ciclo_operacional_origem', N'(origem=N''RECUPERACAO'' OR origem=N''NORMAL'')'),
+    (N'CK_folha_ci_garagem', N'(garagem=N''VCM'' OR garagem=N''VCG'')'),
+    (N'CK_folha_ci_status', N'(status=N''FINALIZADA'' OR status=N''EM_PREPARACAO'')'),
+    (N'CK_folha_ci_origem', N'(origem=N''RECUPERACAO'' OR origem=N''IMPORTACAO'' OR origem=N''NORMAL'')'),
+    (N'CK_item_folha_ci_categoria', N'(categoria=N''BLOQUEADO'' OR categoria=N''REFORCO'' OR categoria=N''OFICINA'' OR categoria=N''PREVENTIVA'')'),
+    (N'CK_folha_ci_titulo', N'(titulo_coluna_adicional IS NULL OR (titulo_coluna_adicional=N''PREVENTIVA'' OR titulo_coluna_adicional=N''REVISÃO'' OR titulo_coluna_adicional=N''TROCA DE ÓLEO'' OR titulo_coluna_adicional=N''EM MANUTENÇÃO'' OR titulo_coluna_adicional=N''LUBRIFICAÇÃO'' OR titulo_coluna_adicional=N''INSPEÇÃO''))'),
+    (N'CK_item_folha_ci_consorciada', N'((consorciada IS NULL OR (consorciada=N''VCM'' OR consorciada=N''JTU'' OR consorciada=N''VCG'' OR consorciada=N''VSF'')) AND (categoria<>N''BLOQUEADO'' OR consorciada IS NOT NULL))'),
+    (N'CK_estado_manutencao_ciclo_liberacao', N'(liberado=0 OR bloqueado=0 AND em_execucao=0)'),
+    (N'CK_folha_ci_preparacao_tempos', N'(status<>N''EM_PREPARACAO'' OR ciclo_preparacao_id IS NOT NULL AND inicializacao_prevista_em IS NOT NULL AND inicializada_em IS NOT NULL AND finalizacao_prevista_em IS NOT NULL AND finalizada_em IS NULL)'),
+    (N'CK_folha_ci_origem_vinculos', N'(origem=N''NORMAL'' AND ciclo_preparacao_id IS NOT NULL AND folha_origem_id IS NOT NULL AND inicializacao_prevista_em IS NOT NULL AND inicializada_em IS NOT NULL OR origem=N''IMPORTACAO'' AND status=N''FINALIZADA'' AND ciclo_preparacao_id IS NULL AND folha_origem_id IS NULL OR origem=N''RECUPERACAO'' AND folha_origem_id IS NULL)'),
+    -- LTRIM e RTRIM de espacos nas extremidades comutam para estas strings.
+    (N'CK_item_folha_ci_prefixo', N'(LEN(RTRIM(LTRIM(prefixo)))>0)'),
+    (N'CK_estado_manutencao_ciclo_prefixo', N'(LEN(RTRIM(LTRIM(prefixo)))>0)'),
+    (N'CK_estado_manutencao_ciclo_consorciada', N'(LEN(RTRIM(LTRIM(consorciada)))>0)'),
+    -- Reordenacao apenas destas disjuncoes conhecidas e completas.
+    (N'CK_ciclo_operacional_garagem', N'(garagem=N''VCG'' OR garagem=N''VCM'')'),
+    (N'CK_ciclo_operacional_origem', N'(origem=N''NORMAL'' OR origem=N''RECUPERACAO'')'),
+    (N'CK_folha_ci_garagem', N'(garagem=N''VCG'' OR garagem=N''VCM'')'),
+    (N'CK_folha_ci_status', N'(status=N''EM_PREPARACAO'' OR status=N''FINALIZADA'')'),
+    (N'CK_folha_ci_nao_autorreferencia', N'(folha_origem_id<>id OR folha_origem_id IS NULL)'),
+    (N'CK_folha_ci_finalizada_tempo', N'(finalizada_em IS NOT NULL OR origem=N''IMPORTACAO'' OR status<>N''FINALIZADA'')'),
+    -- Parenteses de atomos explicitamente enumerados; nao achatar AND/OR.
+    (N'CK_estado_manutencao_ciclo_liberacao', N'((liberado=0) OR ((bloqueado=0) AND (em_execucao=0)))'),
+    (N'CK_estado_manutencao_ciclo_liberacao', N'((liberado=0) OR (bloqueado=0) AND (em_execucao=0))'),
+    (N'CK_folha_ci_nao_autorreferencia', N'((folha_origem_id IS NULL) OR (folha_origem_id<>id))'),
+    (N'CK_folha_ci_finalizada_tempo', N'((status<>N''FINALIZADA'') OR (origem=N''IMPORTACAO'') OR (finalizada_em IS NOT NULL))'),
+    -- Forma real coletada no SQL Server 2012: BETWEEN expandido, AND antes de OR.
+    (N'CK_item_folha_ci_posicao', N'(categoria=N''REFORCO'' AND tipo_posicao IS NOT NULL AND ordem_posicao IS NOT NULL AND (tipo_posicao=N''FIXO'' AND (ordem_posicao>=1 AND ordem_posicao<=12) OR tipo_posicao=N''EXTRA'' AND ordem_posicao>0) OR categoria<>N''REFORCO'' AND tipo_posicao IS NULL AND ordem_posicao IS NULL)')
+    ) v(nome,definicao)
+), fontes(nome,lado,definicao) AS (
+    SELECT nome, N'E', definicao FROM esperadas
+    UNION ALL SELECT nome, N'E', definicao FROM alternativas
+    UNION ALL
+    SELECT e.nome,N'R',c.definition FROM esperadas e
+    JOIN sys.schemas s ON s.name=N'dbo'
+    JOIN sys.tables t ON t.schema_id=s.schema_id AND t.name=e.tabela
+    JOIN sys.check_constraints c ON c.parent_object_id=t.object_id AND c.name=e.nome
+    WHERE c.definition IS NOT NULL
+), caracteres(nome,lado,definicao,posicao,em_literal,em_identificador,normalizada) AS (
+    -- Remover espacos/colchetes e normalizar caixa SOMENTE fora de literais.
+    -- 'EM MANUTENÇÃO' nao pode ser confundido com 'EMMANUTENÇÃO'.
+    SELECT nome,lado,definicao,CAST(1 AS INT),CAST(0 AS INT),CAST(0 AS INT),CAST(N'' AS NVARCHAR(MAX)) FROM fontes
+    UNION ALL
+    SELECT nome,lado,definicao,posicao+1,
+           CASE WHEN em_identificador=0 AND SUBSTRING(definicao,posicao,1)=N'''' THEN 1-em_literal ELSE em_literal END,
+           CASE WHEN em_literal=0 AND SUBSTRING(definicao,posicao,1)=N'[' THEN 1
+                WHEN em_literal=0 AND SUBSTRING(definicao,posicao,1)=N']' THEN 0 ELSE em_identificador END,
+           CAST(normalizada + CASE
+               WHEN SUBSTRING(definicao,posicao,1)=N'''' OR em_literal=1 THEN SUBSTRING(definicao,posicao,1)
+               WHEN em_identificador=1 OR SUBSTRING(definicao,posicao,1)=N'[' THEN UPPER(SUBSTRING(definicao,posicao,1))
+               WHEN SUBSTRING(definicao,posicao,1) IN (N' ',NCHAR(9),NCHAR(10),NCHAR(13)) THEN N''
+               ELSE UPPER(SUBSTRING(definicao,posicao,1)) END AS NVARCHAR(MAX))
+    FROM caracteres WHERE posicao<=LEN(definicao)
+), identificadores_normalizados AS (
+    -- Remover delimitadores apenas de identificadores conhecidos, sem apagar
+    -- espacos/operadores de um eventual identificador diferente.
+    SELECT nome,lado,REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(normalizada,N'[GARAGEM]',N'GARAGEM'),N'[ORIGEM]',N'ORIGEM'),N'[STATUS]',N'STATUS'),N'[FOLHA_ORIGEM_ID]',N'FOLHA_ORIGEM_ID'),N'[ID]',N'ID'),N'[TITULO_COLUNA_ADICIONAL]',N'TITULO_COLUNA_ADICIONAL'),N'[CICLO_PREPARACAO_ID]',N'CICLO_PREPARACAO_ID'),N'[INICIALIZACAO_PREVISTA_EM]',N'INICIALIZACAO_PREVISTA_EM'),N'[INICIALIZADA_EM]',N'INICIALIZADA_EM'),N'[FINALIZACAO_PREVISTA_EM]',N'FINALIZACAO_PREVISTA_EM'),N'[FINALIZADA_EM]',N'FINALIZADA_EM'),N'[CATEGORIA]',N'CATEGORIA'),N'[DATA_BLOQUEIO]',N'DATA_BLOQUEIO'),N'[TIPO_POSICAO]',N'TIPO_POSICAO'),N'[ORDEM_POSICAO]',N'ORDEM_POSICAO'),N'[PREFIXO]',N'PREFIXO'),N'[CONSORCIADA]',N'CONSORCIADA'),N'[LIBERADO]',N'LIBERADO'),N'[BLOQUEADO]',N'BLOQUEADO'),N'[EM_EXECUCAO]',N'EM_EXECUCAO') AS normalizada
+    FROM caracteres WHERE posicao=LEN(definicao)+1
+), normalizadas AS (
+    SELECT nome,lado,
+           -- Parenteses de constantes numericas nao mudam a precedencia booleana.
+           REPLACE(REPLACE(REPLACE(normalizada,N'(0)',N'0'),N'(1)',N'1'),N'(12)',N'12') AS expressao
+    FROM identificadores_normalizados
+), aceitas(nome,expressao,envoltorios) AS (
+    SELECT nome,CAST(expressao AS NVARCHAR(MAX)),CAST(0 AS INT) FROM normalizadas WHERE lado=N'E'
+    UNION ALL
+    -- Apenas envolver a expressao INTEIRA; nunca remover seus grupos internos.
+    SELECT nome,CAST(N'('+expressao+N')' AS NVARCHAR(MAX)),envoltorios+1
+    FROM aceitas WHERE envoltorios<3
+), simples(nome,coluna) AS (
+    SELECT * FROM (VALUES
+    (N'CK_ciclo_operacional_garagem',N'garagem'),
+    (N'CK_ciclo_operacional_origem',N'origem'),
+    (N'CK_folha_ci_garagem',N'garagem'),
+    (N'CK_folha_ci_status',N'status'),
+    (N'CK_folha_ci_origem',N'origem'),
+    (N'CK_folha_ci_titulo',N'titulo_coluna_adicional'),
+    (N'CK_item_folha_ci_categoria',N'categoria'),
+    (N'CK_item_folha_ci_prefixo',N'prefixo'),
+    (N'CK_estado_manutencao_ciclo_prefixo',N'prefixo'),
+    (N'CK_estado_manutencao_ciclo_consorciada',N'consorciada')
+    ) v(nome,coluna)
 )
 SELECT N'05_checks' AS bloco,e.tabela,e.nome,
        CASE WHEN c.object_id IS NULL THEN N'AUSENTE'
-            WHEN c.is_disabled <> 0 OR c.is_not_trusted <> 0 OR c.is_not_for_replication <> 0 OR c.parent_column_id <> 0 THEN N'DIVERGENTE'
-            WHEN c.definition IS NULL OR c.definition COLLATE Latin1_General_100_BIN2 <> e.definicao COLLATE Latin1_General_100_BIN2
-            THEN N'REVISAR_DEFINICAO' ELSE N'OK' END AS resultado,
-       e.definicao AS definicao_esperada,c.definition AS definicao_real,c.is_disabled,c.is_not_trusted
+            WHEN c.is_disabled <> 0 OR c.is_not_trusted <> 0 OR c.is_not_for_replication <> 0
+              OR (c.parent_column_id<>0 AND (sc.column_id IS NULL OR c.parent_column_id<>sc.column_id)) THEN N'DIVERGENTE'
+            WHEN EXISTS (SELECT 1 FROM aceitas a WHERE a.nome=e.nome
+                         AND a.expressao COLLATE Latin1_General_100_BIN2=r.expressao COLLATE Latin1_General_100_BIN2)
+            THEN N'OK'
+            -- Reconhecer explicitamente o contrato antigo, agora incompatível.
+            WHEN e.nome=N'CK_item_folha_ci_consorciada'
+              AND REPLACE(REPLACE(r.expressao,N'(',N''),N')',N'') COLLATE Latin1_General_100_BIN2 IN
+                  (N'LENLTRIMRTRIMCONSORCIADA>0',N'LENRTRIMLTRIMCONSORCIADA>0')
+            THEN N'DIVERGENTE'
+            ELSE N'REVISAR_DEFINICAO' END AS resultado,
+       e.definicao AS definicao_esperada,c.definition AS definicao_real,
+       c.is_disabled,c.is_not_trusted,c.is_not_for_replication,c.parent_column_id,
+       CASE WHEN c.definition IS NULL THEN N'Definicao nao visivel: equivalencia nao certificada'
+            ELSE N'OK exige representacao reconhecida e CHECK ativo/confiavel; outras expressoes requerem revisao' END AS criterio
 FROM esperadas e LEFT JOIN sys.schemas s ON s.name=N'dbo'
 LEFT JOIN sys.tables t ON t.schema_id=s.schema_id AND t.name=e.tabela
 LEFT JOIN sys.check_constraints c ON c.parent_object_id=t.object_id AND c.name=e.nome
-ORDER BY e.tabela,e.nome;
+LEFT JOIN simples si ON si.nome=e.nome
+LEFT JOIN sys.columns sc ON sc.object_id=t.object_id AND sc.name=si.coluna
+LEFT JOIN normalizadas r ON r.nome=e.nome AND r.lado=N'R'
+ORDER BY e.tabela,e.nome
+OPTION (MAXRECURSION 0);
 
 ;WITH esperados(tabela,coluna,nome,definicao) AS (
     SELECT * FROM (VALUES
