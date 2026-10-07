@@ -304,7 +304,7 @@ model ItemFolhaCI {
   tipoPosicao           String?  @map("tipo_posicao") @db.NVarChar(10)
   ordemPosicao          Int?     @map("ordem_posicao") @db.Int
   prefixo               String   @map("prefixo") @db.NVarChar(10)
-  consorciada           String   @map("consorciada") @db.NVarChar(10)
+  consorciada           String?  @map("consorciada") @db.NVarChar(10)
   subTipo               String?  @map("sub_tipo") @db.NVarChar(50)
   horarioReforco        String?  @map("horario_reforco") @db.NVarChar(20)
   motivo                String?  @map("motivo") @db.NVarChar(255)

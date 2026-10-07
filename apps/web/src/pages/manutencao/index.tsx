@@ -514,8 +514,8 @@ export function ManutencaoPage() {
     const old = items.find(it => it.prefixo === prefixo && (c4Enabled(c4Scope) || it.emExecucao || it.liberado));
     const released: ManutencaoCarroItem = {
       id: old?.id || 'manut-' + clean + '-' + Date.now(), prefixo,
-      consorciada: old?.consorciada || getConsorciadaByPrefix(prefixo), observacao: novaObservacao || old?.observacao || '',
-      observacaoOficina: novaObservacao || old?.observacaoOficina || old?.observacao || '',
+      consorciada: old?.consorciada || getConsorciadaByPrefix(prefixo), observacao: c4Enabled(c4Scope) ? novaObservacao || (old?.observacao ?? null) : novaObservacao || old?.observacao || '',
+      observacaoOficina: c4Enabled(c4Scope) ? novaObservacao || (old?.observacaoOficina ?? null) : novaObservacao || old?.observacaoOficina || old?.observacao || '',
       bloqueado: false, emExecucao: false, liberado: true, data: dataOperacao,
     };
     const updated = [...items.filter(it => it.prefixo !== prefixo), released];
@@ -623,7 +623,7 @@ export function ManutencaoPage() {
   // Salvar alteração de observação
   const handleSaveObservacao = async () => {
     if (!editItem) return;
-    const cleanObs = editObs.trim().toUpperCase();
+    const cleanObs = c4Enabled(c4Scope) ? editObs === (editItem.observacao ?? '') ? editItem.observacao : editObs.trim().toUpperCase() || null : editObs.trim().toUpperCase();
     const updated = items.map(it => {
       if (it.id === editItem.id) {
         return c4Enabled(c4Scope) ? { ...it, ...(editItem.campoObservacao === 'oficina' || !editItem.bloqueado ? { observacaoOficina: cleanObs } : { observacaoBloqueio: cleanObs }) } : { ...it, observacao: cleanObs };
@@ -736,7 +736,7 @@ export function ManutencaoPage() {
     const existingC4 = c4Enabled(c4Scope) ? items.find(i => i.prefixo === cleanPrefix) : undefined;
     if (existingC4) {
       const next = items.map(i => i.id !== existingC4.id ? i : { ...i, bloqueado: toStatus === 'LIBERADO' ? false : i.bloqueado || toStatus === 'BLOQUEADO', emExecucao: toStatus === 'LIBERADO' ? false : i.emExecucao || toStatus === 'EM_EXECUCAO', liberado: toStatus === 'LIBERADO',
-        ...(toStatus === 'BLOQUEADO' ? { observacaoBloqueio: newObservacao.trim().toUpperCase() } : { observacaoOficina: newObservacao.trim().toUpperCase() }) });
+        ...(toStatus === 'BLOQUEADO' ? { observacaoBloqueio: newObservacao.trim().toUpperCase() || (i.observacaoBloqueio ?? null) } : { observacaoOficina: newObservacao.trim().toUpperCase() || (i.observacaoOficina ?? null) }) });
       if (!(await commitMaintenance(next))) return;
       setModalAddOpen(false); setNewPrefixo(''); setNewObservacao(''); return;
     }
@@ -746,7 +746,7 @@ export function ManutencaoPage() {
       id: toStatus === "BLOQUEADO" ? `manut-ci-${dataOperacao}-${cleanPrefix}` : `manut-${cleanPrefix}-${Date.now()}`,
       prefixo: cleanPrefix,
       consorciada,
-      observacao: newObservacao.trim().toUpperCase(),
+      observacao: c4Enabled(c4Scope) ? newObservacao.trim().toUpperCase() || null : newObservacao.trim().toUpperCase(),
       bloqueado: toStatus === "BLOQUEADO",
       emExecucao: toStatus === "EM_EXECUCAO",
       liberado: toStatus === "LIBERADO",
@@ -830,7 +830,7 @@ export function ManutencaoPage() {
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchPref = item.prefixo.toLowerCase().includes(q);
-        const matchObs = item.observacao.toLowerCase().includes(q);
+        const matchObs = (item.observacao ?? "").toLowerCase().includes(q);
         if (!matchPref && !matchObs) return false;
       }
 
@@ -842,14 +842,14 @@ export function ManutencaoPage() {
   const sortedBloqueados = useMemo(() => {
     return filteredItems
       .filter(it => it.bloqueado && !it.liberado)
-      .map(it => c4Enabled(c4Scope) ? { ...it, campoObservacao: 'bloqueio' as const, observacao: it.observacaoBloqueio || '' } : it)
+      .map(it => c4Enabled(c4Scope) ? { ...it, campoObservacao: 'bloqueio' as const, observacao: it.observacaoBloqueio ?? null } : it)
       .sort((a, b) => a.prefixo.localeCompare(b.prefixo, undefined, { numeric: true }));
   }, [filteredItems]);
 
   const sortedEmExecucao = useMemo(() => {
     return filteredItems
       .filter(it => it.emExecucao && !it.liberado)
-      .map(it => c4Enabled(c4Scope) ? { ...it, campoObservacao: 'oficina' as const, observacao: it.observacaoOficina || '' } : it)
+      .map(it => c4Enabled(c4Scope) ? { ...it, campoObservacao: 'oficina' as const, observacao: it.observacaoOficina ?? null } : it)
       .sort((a, b) => a.prefixo.localeCompare(b.prefixo, undefined, { numeric: true }));
   }, [filteredItems]);
 
@@ -1300,7 +1300,7 @@ export function ManutencaoPage() {
                           </span>
                         </td>
                         <td 
-                          onClick={() => { setEditItem(item); setEditObs(item.observacao); }}
+                          onClick={() => { setEditItem(item); setEditObs(item.observacao ?? ""); }}
                           className="py-2 px-3 font-semibold uppercase text-[11px] text-gray-800 dark:text-slate-200 cursor-pointer group/cell"
                           title="Clique para editar defeito/observação"
                         >
@@ -1325,7 +1325,7 @@ export function ManutencaoPage() {
                                 Em Manutenção
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => { setEditItem(item); setEditObs(item.observacao); }}>
+                              <DropdownMenuItem onClick={() => { setEditItem(item); setEditObs(item.observacao ?? ""); }}>
                                 <Edit2 className="w-3.5 h-3.5 text-gray-500 mr-2" />
                                 Editar Defeito
                               </DropdownMenuItem>
@@ -1392,7 +1392,7 @@ export function ManutencaoPage() {
                           </span>
                         </td>
                         <td 
-                          onClick={() => { setEditItem(item); setEditObs(item.observacao); }}
+                          onClick={() => { setEditItem(item); setEditObs(item.observacao ?? ""); }}
                           className="py-2 px-3 font-semibold uppercase text-[11px] text-gray-800 dark:text-slate-200 cursor-pointer group/cell"
                           title="Clique para editar defeito/observação"
                         >
@@ -1413,7 +1413,7 @@ export function ManutencaoPage() {
                                 Liberar
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => { setEditItem(item); setEditObs(item.observacao); }}>
+                              <DropdownMenuItem onClick={() => { setEditItem(item); setEditObs(item.observacao ?? ""); }}>
                                 <Edit2 className="w-3.5 h-3.5 text-gray-500 mr-2" />
                                 Editar Defeito
                               </DropdownMenuItem>
@@ -1480,7 +1480,7 @@ export function ManutencaoPage() {
                           </span>
                         </td>
                         <td 
-                          onClick={() => { setEditItem(item); setEditObs(item.observacao); }}
+                          onClick={() => { setEditItem(item); setEditObs(item.observacao ?? ""); }}
                           className="py-2 px-3 font-semibold uppercase text-[11px] text-gray-800 dark:text-slate-200 cursor-pointer group/cell"
                           title="Clique para editar defeito/observação"
                         >
@@ -1501,7 +1501,7 @@ export function ManutencaoPage() {
                                 Em Manutencao
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => { setEditItem(item); setEditObs(item.observacao); }}>
+                              <DropdownMenuItem onClick={() => { setEditItem(item); setEditObs(item.observacao ?? ""); }}>
                                 <Edit2 className="w-3.5 h-3.5 text-gray-500 mr-2" />
                                 Editar Defeito
                               </DropdownMenuItem>

@@ -9,10 +9,10 @@ export const titles = ['INSPEÇÃO', 'LUBRIFICAÇÃO', 'EM MANUTENÇÃO', 'TROCA
 const company = z.enum(['VSF', 'VCG', 'JTU', 'VCM']);
 const prefix = z.string().regex(/^\d{1,10}$/);
 const itemSchema = z.object({
-  id: z.string().min(1).max(100), chaveItem: z.string().uuid().optional(), prefixo: prefix, consorciada: company,
+  id: z.string().min(1).max(100), chaveItem: z.string().uuid().optional(), prefixo: prefix, consorciada: company.nullish(),
   garagem: z.enum(['VCG', 'VCM']), data: z.string(),
   categoriaPlanilha: z.enum(['PREVENTIVA', 'OFICINA', 'REFORCO', 'BLOQUEADO']),
-  motivo: z.string().max(255), os: z.string().max(255).nullish(),
+  motivo: z.string().max(255).nullish(), os: z.string().max(255).nullish(),
   setorOficina: z.string().max(50).nullish(), tipoPreventiva: z.string().max(50).nullish(),
   horarioReforco: z.string().max(20).nullish(), tipoPosicao: z.enum(['FIXO', 'EXTRA']).nullish(), ordemPosicao: z.number().int().positive().max(2147483647).nullish(),
   dataBloqueio: z.string().nullish(), hora: z.string().max(10).nullish(), gravidade: z.string().max(10).nullish(),
@@ -21,7 +21,7 @@ const itemSchema = z.object({
 });
 const stateSchema = z.object({
   id: z.string().min(1).max(100), prefixo: prefix, consorciada: company, data: z.string(),
-  observacao: z.string().max(255), observacaoBloqueio: z.string().max(255).nullish(), observacaoOficina: z.string().max(255).nullish(),
+  observacao: z.string().max(255).nullish(), observacaoBloqueio: z.string().max(255).nullish(), observacaoOficina: z.string().max(255).nullish(),
   bloqueado: z.boolean(), emExecucao: z.boolean(), liberado: z.boolean(), dataBloqueio: z.string().nullish(),
 });
 const commandSchema = z.object({
@@ -49,13 +49,13 @@ export function projectItem(i: ItemFolhaCI, scope: string, day: string) {
     setorOficina: i.categoria === 'OFICINA' ? i.subTipo : undefined, tipoPreventiva: i.categoria === 'PREVENTIVA' ? i.subTipo : undefined,
     horarioReforco: i.horarioReforco, tipoPosicao: i.tipoPosicao, ordemPosicao: i.ordemPosicao,
     reforcoSlotId: i.tipoPosicao ? `${i.tipoPosicao === 'EXTRA' ? 'ref-extra' : 'ref'}-${i.ordemPosicao}` : undefined,
-    motivo: i.motivo || '', os: i.observacoes, dataBloqueio: i.dataBloqueio ? dateString(i.dataBloqueio) : undefined,
-    hora: i.horaBloqueio, gravidade: i.gravidade || 'ALTA', responsavel: i.responsavel,
-    status: i.statusItem || 'BLOQUEADO', tipo: i.categoria === 'BLOQUEADO' ? 'BLOQUEADO_CORRETIVA' : 'REFORCO_REVISAO',
+    motivo: i.motivo, os: i.observacoes, dataBloqueio: i.dataBloqueio ? dateString(i.dataBloqueio) : null,
+    hora: i.horaBloqueio, gravidade: i.gravidade, responsavel: i.responsavel,
+    status: i.statusItem, tipo: i.categoria === 'BLOQUEADO' ? 'BLOQUEADO_CORRETIVA' : 'REFORCO_REVISAO',
     dataLiberacao: i.dataLiberacao, motivoLiberacao: i.motivoLiberacao, responsavelLiberacao: i.responsavelLiberacao };
 }
 export function projectState(s: EstadoManutencao, day: string) {
-  return { ...s, id: `c4-m-${s.id}`, data: day, observacao: s.bloqueado ? s.observacaoBloqueio || '' : s.observacaoOficina || '' };
+  return { ...s, id: `c4-m-${s.id}`, data: day, observacao: s.bloqueado ? s.observacaoBloqueio : s.observacaoOficina };
 }
 export async function readContext(db: PrismaClient, scope: Garage, day: string) {
   civil(day);
@@ -78,6 +78,8 @@ export function validateItems(items: z.infer<typeof itemSchema>[], scope: Garage
   for (const i of items) {
     if (i.garagem !== scope || i.data !== day) throw new MvpError(400, 'Item fora da folha explicita.');
     if (i.categoriaPlanilha === 'BLOQUEADO') {
+      if (i.consorciada == null) throw new MvpError(400, 'BLOQUEADO exige consorciada explicita.');
+      company.parse(i.consorciada);
       if (blocks.has(i.prefixo)) throw new MvpError(409, 'Segundo BLOQUEADO para o mesmo prefixo/folha.');
       blocks.add(i.prefixo);
       if (civil(i.dataBloqueio) > blockCutoff) throw new MvpError(400, 'Data de bloqueio futura no contexto operacional.');
@@ -92,11 +94,11 @@ export function validateItems(items: z.infer<typeof itemSchema>[], scope: Garage
   }
 }
 function itemData(i: z.infer<typeof itemSchema>) {
-  return { categoria: i.categoriaPlanilha, prefixo: i.prefixo, consorciada: i.consorciada,
+  return { categoria: i.categoriaPlanilha, prefixo: i.prefixo, consorciada: i.consorciada ?? null,
     subTipo: i.categoriaPlanilha === 'OFICINA' ? i.setorOficina ?? null : i.categoriaPlanilha === 'PREVENTIVA' ? i.tipoPreventiva ?? null : null,
     tipoPosicao: i.tipoPosicao ?? null, ordemPosicao: i.ordemPosicao ?? null, horarioReforco: i.horarioReforco ?? null,
-    motivo: i.motivo, observacoes: i.os ?? null, dataBloqueio: i.categoriaPlanilha === 'BLOQUEADO' ? dateValue(civil(i.dataBloqueio)) : null,
-    horaBloqueio: i.hora ?? null, gravidade: i.gravidade ?? null, responsavel: i.responsavel ?? null, statusItem: i.status ?? 'BLOQUEADO',
+    motivo: i.motivo ?? null, observacoes: i.os ?? null, dataBloqueio: i.categoriaPlanilha === 'BLOQUEADO' ? dateValue(civil(i.dataBloqueio)) : null,
+    horaBloqueio: i.hora ?? null, gravidade: i.gravidade ?? null, responsavel: i.responsavel ?? null, statusItem: i.status ?? null,
     dataLiberacao: i.dataLiberacao ?? null, motivoLiberacao: i.motivoLiberacao ?? null, responsavelLiberacao: i.responsavelLiberacao ?? null };
 }
 function explicitRemovals(before: string[], after: string[], requested: string[]) {
@@ -136,7 +138,7 @@ export async function saveC4(db: PrismaClient, userId: number | undefined, body:
     }
     // Divergencia preexistente nao pode ser corrigida implicitamente por uma gravacao.
     const oldBlocks = folha.itens.filter(i => i.categoria === 'BLOQUEADO');
-    if (oldBlocks.length !== b.states.filter(s => s.bloqueado).length || oldBlocks.some(i => !b.states.some(s => s.bloqueado && s.prefixo === i.prefixo && s.consorciada === i.consorciada && (s.observacaoBloqueio || '') === (i.motivo || '')))) throw new MvpError(409, 'CI e Controle divergentes; revisao explicita necessaria.');
+    if (oldBlocks.length !== b.states.filter(s => s.bloqueado).length || oldBlocks.some(i => !b.states.some(s => s.bloqueado && s.prefixo === i.prefixo && s.consorciada === i.consorciada && (s.observacaoBloqueio ?? null) === (i.motivo ?? null)))) throw new MvpError(409, 'CI e Controle divergentes; revisao explicita necessaria.');
     if (kind === 'ci') {
       explicitRemovals(oldBlocks.map(i => i.prefixo), items.filter(i => i.categoriaPlanilha === 'BLOQUEADO').map(i => i.prefixo), c.removeBlocked);
       for (const i of items) {
@@ -157,10 +159,10 @@ export async function saveC4(db: PrismaClient, userId: number | undefined, body:
       }
       for (const s of b.states) {
         const block = items.find(i => i.categoriaPlanilha === 'BLOQUEADO' && i.prefixo === s.prefixo);
-        if (block && (!s.bloqueado || s.liberado || s.consorciada !== block.consorciada || (s.observacaoBloqueio || '') !== block.motivo)) await tx.estadoManutencao.update({ where: { id: s.id }, data: { bloqueado: true, liberado: false, consorciada: block.consorciada, observacaoBloqueio: block.motivo, responsavelRegistroId: userId } });
+        if (block && (!s.bloqueado || s.liberado || s.consorciada !== block.consorciada || (s.observacaoBloqueio ?? null) !== (block.motivo ?? null))) await tx.estadoManutencao.update({ where: { id: s.id }, data: { bloqueado: true, liberado: false, consorciada: company.parse(block.consorciada), observacaoBloqueio: block.motivo ?? null, responsavelRegistroId: userId } });
         else if (!block && s.bloqueado) await tx.estadoManutencao.update({ where: { id: s.id }, data: { bloqueado: false, observacaoBloqueio: null, responsavelRegistroId: userId } });
       }
-      for (const i of items.filter(i => i.categoriaPlanilha === 'BLOQUEADO' && !b.states.some(s => s.prefixo === i.prefixo))) await tx.estadoManutencao.create({ data: { cicloId: cycle.id, prefixo: i.prefixo, consorciada: i.consorciada, bloqueado: true, emExecucao: false, liberado: false, observacaoBloqueio: i.motivo, responsavelRegistroId: userId } });
+      for (const i of items.filter(i => i.categoriaPlanilha === 'BLOQUEADO' && !b.states.some(s => s.prefixo === i.prefixo))) await tx.estadoManutencao.create({ data: { cicloId: cycle.id, prefixo: i.prefixo, consorciada: company.parse(i.consorciada), bloqueado: true, emExecucao: false, liberado: false, observacaoBloqueio: i.motivo ?? null, responsavelRegistroId: userId } });
       if (c.tituloColunaAdicional !== undefined && c.tituloColunaAdicional !== folha.tituloColunaAdicional) await tx.folhaCI.update({ where: { id: folha.id }, data: { tituloColunaAdicional: c.tituloColunaAdicional, responsavelRegistroId: userId } });
     } else {
       explicitRemovals(oldBlocks.map(i => i.prefixo), states.filter(s => s.bloqueado).map(s => s.prefixo), c.removeBlocked);
@@ -177,8 +179,8 @@ export async function saveC4(db: PrismaClient, userId: number | undefined, body:
         const blockDate = s.bloqueado ? civil(s.dataBloqueio ?? (block?.dataBloqueio ? dateString(block.dataBloqueio) : day)) : null;
         if (blockDate && blockDate > day) throw new MvpError(400, 'Data de bloqueio futura.');
         const data = { prefixo: s.prefixo, consorciada: s.consorciada, bloqueado: s.bloqueado, emExecucao: s.emExecucao, liberado: s.liberado,
-          observacaoBloqueio: s.bloqueado ? s.observacaoBloqueio ?? s.observacao : null,
-          observacaoOficina: s.emExecucao || s.liberado ? s.observacaoOficina ?? s.observacao : null, responsavelRegistroId: userId };
+          observacaoBloqueio: s.bloqueado ? s.observacaoBloqueio !== undefined ? s.observacaoBloqueio : s.observacao ?? null : null,
+          observacaoOficina: s.emExecucao || s.liberado ? s.observacaoOficina !== undefined ? s.observacaoOficina : s.observacao ?? null : null, responsavelRegistroId: userId };
         if (old) {
           if (Object.entries(data).some(([key, value]) => key !== 'responsavelRegistroId' && (old as unknown as Record<string, unknown>)[key] !== value)) await tx.estadoManutencao.update({ where: { id: old.id }, data });
         }
@@ -189,7 +191,7 @@ export async function saveC4(db: PrismaClient, userId: number | undefined, body:
           if (block) {
             if (block.consorciada !== blockData.consorciada || block.motivo !== blockData.motivo || !block.dataBloqueio || dateString(block.dataBloqueio) !== blockDate) await tx.itemFolhaCI.update({ where: { id: block.id }, data: blockData });
           }
-          else await tx.itemFolhaCI.create({ data: { ...blockData, folhaId: folha.id, chaveItem: randomUUID(), prefixo: s.prefixo, categoria: 'BLOQUEADO', statusItem: 'BLOQUEADO' } });
+          else await tx.itemFolhaCI.create({ data: { ...blockData, folhaId: folha.id, chaveItem: randomUUID(), prefixo: s.prefixo, categoria: 'BLOQUEADO' } });
         } else if (block) await tx.itemFolhaCI.delete({ where: { id: block.id } });
       }
       for (const old of b.states.filter(r => !states.some(s => s.id === `c4-m-${r.id}`))) {
@@ -227,7 +229,7 @@ export async function startCycle(db: PrismaClient, scope: Garage, now = () => ne
     if (normal) for (const item of source!.itens) {
       const { id: _id, folhaId: _folha, createdAt: _created, updatedAt: _updated, ...snapshot } = item;
       await tx.itemFolhaCI.create({ data: { ...snapshot, folhaId: folha.id } });
-      if (item.categoria === 'BLOQUEADO') await tx.estadoManutencao.create({ data: { cicloId: cycle.id, prefixo: item.prefixo, consorciada: item.consorciada, bloqueado: true, emExecucao: false, liberado: false, observacaoBloqueio: item.motivo } });
+      if (item.categoria === 'BLOQUEADO') await tx.estadoManutencao.create({ data: { cicloId: cycle.id, prefixo: item.prefixo, consorciada: company.parse(item.consorciada), bloqueado: true, emExecucao: false, liberado: false, observacaoBloqueio: item.motivo } });
     }
     return { result: origem, garagem: scope, day };
   }, { isolationLevel: 'Serializable' });

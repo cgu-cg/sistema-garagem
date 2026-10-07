@@ -10,7 +10,7 @@ export interface ManutencaoCarroItem {
   id: string;
   prefixo: string;
   consorciada: "VSF" | "JTU" | "VCG" | "VCM";
-  observacao: string;
+  observacao: string | null;
   bloqueado: boolean;
   emExecucao: boolean;
   liberado: boolean;
@@ -227,7 +227,7 @@ export function checkCarroStatusManutencao(prefixo: string, data?: string): {
   isBloqueado: boolean;
   isEmExecucao: boolean;
   isLiberado: boolean;
-  observacao?: string;
+  observacao?: string | null;
   origem: "MANUTENCAO" | "CI" | "LIVRE";
 } {
   if (!prefixo) return { isBloqueado: false, isEmExecucao: false, isLiberado: true, origem: "LIVRE" };

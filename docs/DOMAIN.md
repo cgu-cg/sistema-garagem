@@ -11,6 +11,18 @@ operacional autorizados; este documento não afirma implantação no banco.
   bloqueados, inclusive 3083/VCM e veículos fisicamente VCM. Não converter
   consorciada nem corrigir históricos silenciosamente. VCG/VCM continuam
   contextos separados; cópia somente dentro da mesma garagem.
+- ItemFolhaCI exige consorciada VSF/VCG/JTU/VCM somente em BLOQUEADO.
+  Nas demais categorias, ausência no documento é NULL; informação explicitamente
+  conhecida pode ser preservada. Nunca inferir pelo prefixo, garagem física,
+  garagem da folha ou participação do mesmo veículo em outra categoria.
+  Os sete Excel oficiais de 01–07/10/2026 identificam consorciada explicitamente
+  somente nos grupos BLOQUEADOS. Prefixo 23/Bilhetagem permanece "23", sem zeros
+  adicionais e sem atribuir consorciada ausente.
+- Campos opcionais ausentes permanecem NULL na consulta, cópia e persistência
+  C4; não fabricar motivo, gravidade ALTA ou status BLOQUEADO. Motivo permanece
+  nullable, inclusive em BLOQUEADO: os documentos não estabelecem obrigatoriedade
+  universal desse campo e o contrato anterior aceitava ausência. Isso não
+  flexibiliza consorciada/data obrigatórias dos bloqueados nem posições do reforço.
 - Em `America/Campo_Grande`, todos os dias, às 03:00 inicia-se o ciclo D e
   copia-se integralmente a folha D finalizada para D+1 em EM_PREPARACAO.
   Novas PKs preservam chave lógica dos itens, categorias/subtipos/setores,

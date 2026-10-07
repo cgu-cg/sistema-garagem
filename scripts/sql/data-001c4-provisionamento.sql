@@ -113,7 +113,7 @@ BEGIN TRY
         tipo_posicao NVARCHAR(10) NULL,
         ordem_posicao INT NULL,
         prefixo NVARCHAR(10) NOT NULL,
-        consorciada NVARCHAR(10) NOT NULL,
+        consorciada NVARCHAR(10) NULL,
         sub_tipo NVARCHAR(50) NULL,
         horario_reforco NVARCHAR(20) NULL,
         motivo NVARCHAR(255) NULL,
@@ -135,7 +135,7 @@ BEGIN TRY
         CONSTRAINT CK_item_folha_ci_data_bloqueio CHECK (categoria <> N'BLOQUEADO' OR data_bloqueio IS NOT NULL),
         CONSTRAINT CK_item_folha_ci_posicao CHECK ((categoria = N'REFORCO' AND tipo_posicao IS NOT NULL AND ordem_posicao IS NOT NULL AND ((tipo_posicao = N'FIXO' AND ordem_posicao BETWEEN 1 AND 12) OR (tipo_posicao = N'EXTRA' AND ordem_posicao > 0))) OR (categoria <> N'REFORCO' AND tipo_posicao IS NULL AND ordem_posicao IS NULL)),
         CONSTRAINT CK_item_folha_ci_prefixo CHECK (LEN(LTRIM(RTRIM(prefixo))) > 0),
-        CONSTRAINT CK_item_folha_ci_consorciada CHECK (LEN(LTRIM(RTRIM(consorciada))) > 0),
+        CONSTRAINT CK_item_folha_ci_consorciada CHECK ((consorciada IS NULL OR consorciada IN (N'VSF', N'VCG', N'JTU', N'VCM')) AND (categoria <> N'BLOQUEADO' OR consorciada IS NOT NULL)),
         CONSTRAINT FK_item_folha_ci_folha FOREIGN KEY (folha_id) REFERENCES dbo.folha_ci (id) ON DELETE NO ACTION ON UPDATE NO ACTION,
         CONSTRAINT FK_item_folha_ci_responsavel FOREIGN KEY (responsavel_registro_id) REFERENCES dbo.users (id) ON DELETE NO ACTION ON UPDATE NO ACTION
     );

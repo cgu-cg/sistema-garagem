@@ -29,24 +29,24 @@ export interface BloqueioCarro {
   prefixo: string;
   garagem?: "VCG" | "VCM" | "TODAS";
   tipo: "BLOQUEADO_CORRETIVA" | "EM_MANUTENCAO" | "REFORCO_REVISAO" | "BLOQUEADO_MOTOR" | "BLOQUEADO_MOLA" | "BLOQUEADO_CAMBIO" | "BLOQUEADO_FREIO" | "BLOQUEADO_MODULO" | "BLOQUEADO_AGETRAN" | "BLOQUEADO_AR" | "BLOQUEADO_SINISTRO";
-  motivo: string;
+  motivo: string | null;
   data: string;
-  dataBloqueio?: string;
-  hora?: string;
-  gravidade?: "ALTA" | "MEDIA" | "BAIXA";
-  responsavel?: string;
+  dataBloqueio?: string | null;
+  hora?: string | null;
+  gravidade?: "ALTA" | "MEDIA" | "BAIXA" | null;
+  responsavel?: string | null;
   previsao?: string;
-  os?: string;
-  status?: "BLOQUEADO" | "EM_MANUTENCAO" | "AGUARDANDO_PECA" | "TESTE_PISTA" | "LIBERADO";
-  dataLiberacao?: string;
-  motivoLiberacao?: string;
-  responsavelLiberacao?: string;
+  os?: string | null;
+  status?: "BLOQUEADO" | "EM_MANUTENCAO" | "AGUARDANDO_PECA" | "TESTE_PISTA" | "LIBERADO" | null;
+  dataLiberacao?: string | null;
+  motivoLiberacao?: string | null;
+  responsavelLiberacao?: string | null;
   // Campos da Planilha CI - Solicitação de Veículos (CGU.REG.MT0005)
   categoriaPlanilha?: "PREVENTIVA" | "OFICINA" | "REFORCO" | "BLOQUEADO";
-  setorOficina?: "MECANICA" | "ELEVADOR" | "ELETRICA" | "BORRACHARIA" | "FUNILARIA" | "TACOGRAFO" | "BILHETAGEM" | "LIMPEZA";
-  tipoPreventiva?: "PREVENTIVA" | "LUBRIFICACAO" | "TROCA_OLEO" | "REVISAO_GERAL" | "SISEP";
-  horarioReforco?: string;
-  consorciada?: "VSF" | "VCG" | "JTU" | "VCM";
+  setorOficina?: "MECANICA" | "ELEVADOR" | "ELETRICA" | "BORRACHARIA" | "FUNILARIA" | "TACOGRAFO" | "BILHETAGEM" | "LIMPEZA" | null;
+  tipoPreventiva?: "PREVENTIVA" | "LUBRIFICACAO" | "TROCA_OLEO" | "REVISAO_GERAL" | "SISEP" | null;
+  horarioReforco?: string | null;
+  consorciada?: "VSF" | "VCG" | "JTU" | "VCM" | null;
 }
 
 export interface TerminalReserva {

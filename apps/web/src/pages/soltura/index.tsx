@@ -829,7 +829,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   }, [ciList, dataOperacao]);
 
   // Alerta sonner + scroll suave + efeito pulsante no carro pendurado
-  const triggerPenduradoAlert = useCallback((prefixo: string, motivo?: string) => {
+  const triggerPenduradoAlert = useCallback((prefixo: string, motivo?: string | null) => {
     const cleanPrefixo = prefixo.trim();
     if (!cleanPrefixo) return;
 
@@ -2769,7 +2769,7 @@ interface FolhaTableRowProps {
   onRelease: (item: SolturaItem, carro?: string, moto?: string) => void;
   onDraftChange: (itemId: string, field: "carro" | "moto", value: string) => void;
   onTrocarCarro?: (item: SolturaItem, novoCarro: string, motivo: string) => void;
-  onPenduradoAlert?: (prefixo: string, motivo?: string) => void;
+  onPenduradoAlert?: (prefixo: string, motivo?: string | null) => void;
   getOutraLinhaComCarroRealiz?: (carro: string, currentItemId: string) => SolturaItem | undefined | null;
   getOutraLinhaComMoto?: (moto: string, currentItemId: string) => SolturaItem | undefined | null;
   historicoTrocas?: TrocaCarroItem[];

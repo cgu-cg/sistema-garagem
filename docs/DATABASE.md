@@ -2,6 +2,31 @@
 
 ## DATA-001/C4 — Evolução operacional local e ativação manual
 
+### Correção de nulabilidade antes da carga histórica — preparada, não aplicada
+
+`ItemFolhaCI.consorciada` passa a String? / NVARCHAR(10) NULL. O CHECK aceita
+NULL nas categorias não bloqueadas e exige VSF/VCG/JTU/VCM em BLOQUEADO;
+valores informados nas demais categorias também devem pertencer ao enum.
+O teste explícito IS NOT NULL impede aceitação de BLOQUEADO nulo pela lógica
+de três valores do SQL Server 2012. EstadoManutencao mantém consorciada obrigatória.
+
+As quatro tabelas foram provisionadas manualmente, conforme informado pelo
+responsável; não foram consultadas nesta correção. Para esse baseline, revisar
+`scripts/sql/data-001c4-ajuste-item-consorciada-nullable.sql`, SEM reaplicar o
+provisionamento: o delta recusa transação externa/IMPLICIT_TRANSACTIONS,
+verifica as 23 colunas e o CHECK antigo, bloqueia a tabela, valida dados e
+dependências antes de alterar somente coluna/CHECK de consorciada. Não saneia
+nem apaga registros; falha desfaz a transação própria. Baseline já atualizado
+também é recusado. Após execução separadamente autorizada, rodar a validação
+administrativa atualizada e revisar eventuais diferenças textuais de CHECKs.
+Nenhum delta foi executado, nenhuma importação foi gerada e C4 não foi ativado.
+
+Motivo/gravidade/status e outros opcionais preservam NULL em API, cópia 03:00
+e save/load. Motivo já era nullable no banco; não há contrato confirmado de
+obrigatoriedade universal para BLOQUEADO. Consorciada/data do bloqueado e
+tipo/ordem do reforço continuam obrigatórios condicionalmente. String vazia
+usada em inputs é somente apresentação; não preenche dado histórico ausente.
+
 O baseline da fase 2 abaixo foi evoluído para runtime opt-in. Nenhum banco
 foi acessado/provisionado nesta entrega. Schema/script continuam administrativos;
 não há migrations nem DDL no startup/controllers. C4 reutiliza CicloOperacional,
@@ -385,7 +410,7 @@ Recomenda-se tabela nova para o fluxo oficial, conservando ci_bloqueios intacta 
 | folhaId | Int, obrigatório | FK FolhaCI, NO ACTION |
 | chaveItem | String NVarChar(100), obrigatório | Chave lógica dentro da folha, preservada na cópia |
 | prefixo | String NVarChar(10), obrigatório | Veículo |
-| consorciada | String NVarChar(10), obrigatório | Valor operacional atual |
+| consorciada | String? NVarChar(10), condicional | Obrigatória em BLOQUEADO; NULL quando desconhecida nas demais categorias (correção C4 acima) |
 | categoria | String NVarChar(20), obrigatório | PREVENTIVA / OFICINA / REFORCO / BLOQUEADO |
 | subTipo | String NVarChar(50), opcional | Subtipo de preventiva/setor oficina |
 | horarioReforco | String NVarChar(20), opcional | Valor persistido do horário ou serviço atual |
@@ -484,7 +509,7 @@ Prisma representa PKs identity, UNIQUEs convencionais, índices comuns e FKs, in
 - UQ_item_folha_ci_bloqueado_prefixo: (folha_id,prefixo) WHERE categoria = N'BLOQUEADO'. Não usar UNIQUE geral de folha/prefixo; demais categorias mantêm multiplicidade.
 - UQ_item_folha_ci_reforco_posicao: (folha_id,tipo_posicao,ordem_posicao) WHERE categoria = N'REFORCO'. Título fica no cabeçalho mesmo sem itens.
 
-CHECKs: garagem VCG/VCM em ciclo/folha; origens e status aprovados; não autorreferência; título NULL ou uma das seis opções confirmadas; relações/timestamps obrigatórios por origem/estado; categorias; posição condicional com testes explícitos de NULL; prefixo/consorciada não vazios em item/estado; liberação incompatível com bloqueio/execução. statusItem e campos de liberação são nullable para compatibilidade, sem controlar finalização e sem CHECK baseado somente em enum observado.
+CHECKs: garagem VCG/VCM em ciclo/folha; origens e status aprovados; não autorreferência; título NULL ou uma das seis opções confirmadas; relações/timestamps obrigatórios por origem/estado; categorias; posição condicional com testes explícitos de NULL; prefixo não vazio; consorciada do item condicional conforme a correção C4 acima e consorciada do estado não vazia; liberação incompatível com bloqueio/execução. statusItem e campos de liberação são nullable para compatibilidade, sem controlar finalização e sem CHECK baseado somente em enum observado.
 
 UNIQUE(id,garagem) em ciclo/folha permite FKs compostas que impedem vínculo entre garagens diferentes: folha → ciclo e folha → origem. Itens/estado derivam contexto do pai. Igualdade dataFolha=dataOperacional+1, predecessor FINALIZADA, cópia, sincronização, confirmação, janela 03:00–18:30, imutabilidade e locks continuam responsabilidades de serviços futuros. Este schema não implementa essas proteções operacionais nem torna GET read-only.
 

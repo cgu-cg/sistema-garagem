@@ -57,7 +57,7 @@ ORDER BY a.tabela;
     (N'item_folha_ci', N'tipo_posicao', 5, N'nvarchar', 20, 1, 0, NULL),
     (N'item_folha_ci', N'ordem_posicao', 6, N'int', NULL, 1, 0, NULL),
     (N'item_folha_ci', N'prefixo', 7, N'nvarchar', 20, 0, 0, NULL),
-    (N'item_folha_ci', N'consorciada', 8, N'nvarchar', 20, 0, 0, NULL),
+    (N'item_folha_ci', N'consorciada', 8, N'nvarchar', 20, 1, 0, NULL),
     (N'item_folha_ci', N'sub_tipo', 9, N'nvarchar', 100, 1, 0, NULL),
     (N'item_folha_ci', N'horario_reforco', 10, N'nvarchar', 40, 1, 0, NULL),
     (N'item_folha_ci', N'motivo', 11, N'nvarchar', 510, 1, 0, NULL),
@@ -205,7 +205,7 @@ FROM esperadas e LEFT JOIN reais r ON r.tabela=e.tabela AND r.name=e.nome ORDER 
     (N'item_folha_ci', N'CK_item_folha_ci_data_bloqueio', N'(categoria <> N''BLOQUEADO'' OR data_bloqueio IS NOT NULL)'),
     (N'item_folha_ci', N'CK_item_folha_ci_posicao', N'((categoria = N''REFORCO'' AND tipo_posicao IS NOT NULL AND ordem_posicao IS NOT NULL AND ((tipo_posicao = N''FIXO'' AND ordem_posicao BETWEEN 1 AND 12) OR (tipo_posicao = N''EXTRA'' AND ordem_posicao > 0))) OR (categoria <> N''REFORCO'' AND tipo_posicao IS NULL AND ordem_posicao IS NULL))'),
     (N'item_folha_ci', N'CK_item_folha_ci_prefixo', N'(LEN(LTRIM(RTRIM(prefixo))) > 0)'),
-    (N'item_folha_ci', N'CK_item_folha_ci_consorciada', N'(LEN(LTRIM(RTRIM(consorciada))) > 0)'),
+    (N'item_folha_ci', N'CK_item_folha_ci_consorciada', N'((consorciada IS NULL OR consorciada IN (N''VSF'', N''VCG'', N''JTU'', N''VCM'')) AND (categoria <> N''BLOQUEADO'' OR consorciada IS NOT NULL))'),
     (N'estado_manutencao_ciclo', N'CK_estado_manutencao_ciclo_liberacao', N'(liberado = 0 OR (bloqueado = 0 AND em_execucao = 0))'),
     (N'estado_manutencao_ciclo', N'CK_estado_manutencao_ciclo_prefixo', N'(LEN(LTRIM(RTRIM(prefixo))) > 0)'),
     (N'estado_manutencao_ciclo', N'CK_estado_manutencao_ciclo_consorciada', N'(LEN(LTRIM(RTRIM(consorciada))) > 0)')

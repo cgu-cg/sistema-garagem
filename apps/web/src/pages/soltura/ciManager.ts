@@ -68,7 +68,7 @@ export function checkCarroBloqueado(prefixo: string, list: BloqueioCarro[], data
     const maintenance = ctx?.maintenance?.find(i => i.prefixo === clean);
     if (maintenance?.liberado) return null;
     if (maintenance?.bloqueado || maintenance?.emExecucao) return { id: maintenance.id, prefixo: clean, consorciada: maintenance.consorciada, garagem: officialGarage, data: selectedDay,
-      tipo: maintenance.bloqueado ? 'BLOQUEADO_CORRETIVA' : 'EM_MANUTENCAO', motivo: (maintenance.bloqueado ? maintenance.observacaoBloqueio : maintenance.observacaoOficina) || '', status: maintenance.bloqueado ? 'BLOQUEADO' : 'EM_MANUTENCAO' };
+      tipo: maintenance.bloqueado ? 'BLOQUEADO_CORRETIVA' : 'EM_MANUTENCAO', motivo: (maintenance.bloqueado ? maintenance.observacaoBloqueio : maintenance.observacaoOficina) ?? null, status: maintenance.bloqueado ? 'BLOQUEADO' : 'EM_MANUTENCAO' };
     return list.find(i => i.prefixo === clean && i.data === selectedDay && i.garagem === officialGarage && i.categoriaPlanilha === 'BLOQUEADO') || null;
   }
 

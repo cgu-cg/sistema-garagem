@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/popover";
 import { c4Enabled, c4Folha, c4Mutable, c4Configured } from '@/lib/c4';
 import { garageOne } from '@/lib/c4Vehicles';
+import { c4KnownFields, c4EditedText } from '@/lib/c4ItemFields';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -381,7 +382,7 @@ function normalizeIsoDate(d?: string): string {
 }
 
 // Utilitário para comparar identificadores de setores de forma insensível a maiúsculas/minúsculas e acentos
-function isSetorMatch(cSetor?: string, targetSetorId?: string): boolean {
+function isSetorMatch(cSetor?: string | null, targetSetorId?: string): boolean {
   if (!cSetor || !targetSetorId) return false;
   const s1 = String(cSetor).trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   const s2 = String(targetSetorId).trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -641,10 +642,10 @@ export function CiManutencaoView({
     const reforco = active.filter(c => c.categoriaPlanilha === "REFORCO").sort(sortByCarro);
     const bloqueados = active.filter(c => c.categoriaPlanilha === "BLOQUEADO" || !c.categoriaPlanilha).sort(sortByCarro);
 
-    const bloqVSF = bloqueados.filter(c => c.consorciada === "VSF" || (!c.consorciada && c.prefixo.startsWith("2"))).sort(sortByCarro);
-    const bloqVCG = bloqueados.filter(c => c.consorciada === "VCG" || (!c.consorciada && c.prefixo.startsWith("4"))).sort(sortByCarro);
-    const bloqJTU = bloqueados.filter(c => c.consorciada === "JTU" || (!c.consorciada && c.prefixo.startsWith("3"))).sort(sortByCarro);
-    const bloqVCM = bloqueados.filter(c => c.consorciada === "VCM" || (!c.consorciada && c.prefixo.startsWith("1"))).sort(sortByCarro);
+    const bloqVSF = bloqueados.filter(c => c.consorciada === "VSF" || (!c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && !c.consorciada && c.prefixo.startsWith("2"))).sort(sortByCarro);
+    const bloqVCG = bloqueados.filter(c => c.consorciada === "VCG" || (!c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && !c.consorciada && c.prefixo.startsWith("4"))).sort(sortByCarro);
+    const bloqJTU = bloqueados.filter(c => c.consorciada === "JTU" || (!c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && !c.consorciada && c.prefixo.startsWith("3"))).sort(sortByCarro);
+    const bloqVCM = bloqueados.filter(c => c.consorciada === "VCM" || (!c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && !c.consorciada && c.prefixo.startsWith("1"))).sort(sortByCarro);
 
     // Linhas dinâmicas para nunca truncar veículos na visualização e na impressão
     const numLinhasBloqSuperiores = Math.max(11, bloqVSF.length, bloqVCG.length);
@@ -946,7 +947,7 @@ export function CiManutencaoView({
       let locNome = "";
       const isBloqueado = item.categoriaPlanilha === "BLOQUEADO" || (!item.categoriaPlanilha && !item.setorOficina && !item.tipoPreventiva && !item.horarioReforco);
       if (isBloqueado) {
-        const cons = item.consorciada || getConsorciadaByCarro(clean);
+        const cons = c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? item.consorciada : item.consorciada || getConsorciadaByCarro(clean);
         locNome = `Bloqueados ${cons}`;
       } else if (item.categoriaPlanilha === "OFICINA" || item.setorOficina) {
         const setorObj = SETORES_OFICINA.find(s => s.id === item.setorOficina);
@@ -1048,7 +1049,9 @@ export function CiManutencaoView({
     setQuickAddSelectorOpen(false);
     setIsOutroMotivo(false);
 
-    if (category === "PREVENTIVA") {
+    if (c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')) {
+      setQuickAddMotivo('');
+    } else if (category === "PREVENTIVA") {
       const cardInfo = PREVENTIVAS_CARDS.find(p => p.id === subType);
       setQuickAddMotivo(cardInfo ? cardInfo.label : subType);
     } else if (category === "OFICINA") {
@@ -1075,7 +1078,8 @@ export function CiManutencaoView({
       category === "OFICINA" && SETORES_SEM_MOTIVO_OBRIGATORIO.includes(subType.toUpperCase() as any)
     );
 
-    if (!isSetorSemDefeito) {
+    const isC4 = c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG');
+    if (!isSetorSemDefeito && !isC4) {
       if (isOutroMotivo && !quickAddMotivo.trim()) {
         toast.error("Por favor, digite o motivo / defeito.");
         return;
@@ -1092,7 +1096,7 @@ export function CiManutencaoView({
         ? ""
         : (quickAddMotivo.trim() || `Setor ${subType}`);
     const carroGaragemFisica = c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? (activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') : fleetCars.find(c => c.prefixo === cleanCar)?.garagem || getGaragemFisicaByCarro(cleanCar);
-    const autoConsorciada = getConsorciadaByCarro(cleanCar);
+    const autoConsorciada = isC4 ? null : getConsorciadaByCarro(cleanCar);
 
     let mappedTipo: BloqueioCarro["tipo"] = "EM_MANUTENCAO";
     if (category === "PREVENTIVA") mappedTipo = "REFORCO_REVISAO";
@@ -1123,14 +1127,14 @@ export function CiManutencaoView({
               ...item,
               id: existingId.startsWith("clone-") ? `ci-${cleanData}-${Date.now()}-${cleanCar}` : item.id,
               data: cleanData,
-              motivo: motivoFinal,
+              motivo: isC4 ? c4EditedText(quickAddMotivo, item.motivo) : motivoFinal,
               ...(category === 'BLOQUEADO' && c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? { dataBloqueio: quickAddDataBloqueio } : {}),
               tipo: mappedTipo,
               os: item.os,
               categoriaPlanilha: category,
               setorOficina: category === "OFICINA" ? (subType as any) : undefined,
               tipoPreventiva: category === "PREVENTIVA" ? (subType as any) : undefined,
-              consorciada: category === "BLOQUEADO" ? (subType as any) : (item.consorciada || autoConsorciada),
+              consorciada: category === "BLOQUEADO" ? (subType as any) : isC4 ? item.consorciada ?? null : (item.consorciada || autoConsorciada),
             };
           }
           return item;
@@ -1156,14 +1160,15 @@ export function CiManutencaoView({
         setorOficina: category === "OFICINA" ? (subType as any) : undefined,
         tipoPreventiva: category === "PREVENTIVA" ? (subType as any) : undefined,
         tipo: mappedTipo,
-        motivo: motivoFinal,
+        motivo: isC4 ? c4EditedText(quickAddMotivo) : motivoFinal,
         data: cleanData,
         dataBloqueio: category === 'BLOQUEADO' ? quickAddDataBloqueio : undefined,
         hora: new Date().toLocaleTimeString("pt-BR", { timeZone: 'America/Campo_Grande', hour: "2-digit", minute: "2-digit" }),
         gravidade: "ALTA",
         responsavel: category === "OFICINA" ? `Oficina ${subType}` : (category === "PREVENTIVA" ? "Oficina Preventiva" : "Oficina Central"),
         os: undefined,
-        status: "BLOQUEADO"
+        status: "BLOQUEADO",
+        ...(isC4 ? { ...c4KnownFields(), consorciada: category === 'BLOQUEADO' ? subType as BloqueioCarro['consorciada'] : null } : {})
       };
 
       // Garante que os demais carros herdados sejam congelados na folha desta data se for nova
@@ -1401,14 +1406,14 @@ export function CiManutencaoView({
     // O motivo vem do draft (se editado) ou do item salvo, ou defaultMotivo
     const motivo = draft?.motivo !== undefined 
       ? draft.motivo 
-      : (item?.motivo !== undefined && item.motivo !== "" ? item.motivo : defaultMotivo);
+      : c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? item?.motivo ?? '' : (item?.motivo != null && item.motivo !== "" ? item.motivo : defaultMotivo);
 
     // A obs vem do draft (se editado) ou do item salvo
     const obs = draft?.obs !== undefined 
       ? draft.obs 
       : (item?.os !== undefined ? item.os : "");
 
-    const isSaved = Boolean(item && item.prefixo && item.motivo);
+    const isSaved = Boolean(item && item.prefixo && (c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') || item.motivo));
     const isDirty = draft !== undefined && (
       (draft.prefixo !== undefined && draft.prefixo !== (item?.prefixo || "")) ||
       (draft.motivo !== undefined && draft.motivo !== (item?.motivo || "")) ||
@@ -1475,13 +1480,13 @@ export function CiManutencaoView({
     }
 
     // Validação solicitada pelo usuário: só salva se adicionar motivo e prefixo (obs opcional)
-    if (!cleanMotivo) {
+    if (!cleanMotivo && !c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')) {
       toast.error(`Por favor, selecione um motivo para o horário ${horario}.`);
       return;
     }
 
     const carroGaragemFisica = c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? (activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') : fleetCars.find(c => c.prefixo === cleanPrefixo)?.garagem || getGaragemFisicaByCarro(cleanPrefixo);
-    const autoConsorciada = ciListNaData.find(i => i.prefixo === cleanPrefixo)?.consorciada || getConsorciadaByCarro(cleanPrefixo);
+    const autoConsorciada = c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? slotData.savedItem?.consorciada ?? null : ciListNaData.find(i => i.prefixo === cleanPrefixo)?.consorciada || getConsorciadaByCarro(cleanPrefixo);
 
     const newReforcoItem: BloqueioCarro & { reforcoSlotId?: string } = {
       ...(c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? slotData.savedItem : {}),
@@ -1490,7 +1495,7 @@ export function CiManutencaoView({
       garagem: carroGaragemFisica,
       consorciada: autoConsorciada,
       categoriaPlanilha: "REFORCO",
-      horarioReforco: slotData.savedItem?.horarioReforco ?? horario,
+      horarioReforco: c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && slotData.savedItem ? slotData.savedItem.horarioReforco ?? null : slotData.savedItem?.horarioReforco ?? horario,
       reforcoSlotId: slotId,
       tipo: "REFORCO_REVISAO",
       motivo: cleanMotivo,
@@ -1499,7 +1504,8 @@ export function CiManutencaoView({
       gravidade: "ALTA",
       responsavel: "Pista / Reforço",
       os: cleanObs || undefined,
-      status: "BLOQUEADO"
+      status: "BLOQUEADO",
+      ...(c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? { ...c4KnownFields(slotData.savedItem), motivo: c4EditedText(slotData.motivo, slotData.savedItem?.motivo), os: c4EditedText(slotData.obs, slotData.savedItem?.os) } : {})
     };
 
     // Executa a gravação do slot sem remover o carro de outros setores (coexistência)
@@ -1582,7 +1588,7 @@ export function CiManutencaoView({
     }
 
     const carroGaragemFisica = c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? (activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') : fleetCars.find(c => c.prefixo === cleanPrefixo)?.garagem || getGaragemFisicaByCarro(cleanPrefixo);
-    const autoConsorciada = ciListNaData.find(i => i.prefixo === cleanPrefixo)?.consorciada || getConsorciadaByCarro(cleanPrefixo);
+    const autoConsorciada = c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? slotData.savedItem?.consorciada ?? null : ciListNaData.find(i => i.prefixo === cleanPrefixo)?.consorciada || getConsorciadaByCarro(cleanPrefixo);
 
     const newReforcoItem: BloqueioCarro & { reforcoSlotId?: string } = {
       ...(c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? slotData.savedItem : {}),
@@ -1600,7 +1606,8 @@ export function CiManutencaoView({
       gravidade: "ALTA",
       responsavel: "Pista / Reforço",
       os: c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? slotData.obs : reforcoServicoTipo,
-      status: "BLOQUEADO"
+      status: "BLOQUEADO",
+      ...(c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? { ...c4KnownFields(slotData.savedItem), motivo: slotData.savedItem?.motivo ?? null, os: c4EditedText(slotData.obs, slotData.savedItem?.os) } : {})
     };
 
     const executeSaveExtra = async () => {
@@ -1657,9 +1664,10 @@ export function CiManutencaoView({
       if (!c4Enabled(scope) && getGaragemFisicaByCarro(prefixo) !== 'VCG') { toast.error('MVP permite alteracoes somente na VCG.'); return; }
       const id = 'ci-reforco-' + slot.id + '-' + dataOperacao;
       next = next.filter(c => !(normalizeIsoDate(c.data) === normalizeIsoDate(dataOperacao) && (c.id === id || c.id === draft.savedItem?.id)));
-      next = [...next, { ...(c4Enabled(scope) ? draft.savedItem : {}), id: c4Enabled(scope) ? draft.savedItem?.id || id : id, prefixo, garagem: scope, consorciada: ciListNaData.find(i => i.prefixo === prefixo)?.consorciada || getConsorciadaByCarro(prefixo), categoriaPlanilha: 'REFORCO',
+      next = [...next, { ...(c4Enabled(scope) ? draft.savedItem : {}), id: c4Enabled(scope) ? draft.savedItem?.id || id : id, prefixo, garagem: scope, consorciada: c4Enabled(scope) ? draft.savedItem?.consorciada ?? null : ciListNaData.find(i => i.prefixo === prefixo)?.consorciada || getConsorciadaByCarro(prefixo), categoriaPlanilha: 'REFORCO',
         horarioReforco: c4Enabled(scope) ? draft.savedItem?.horarioReforco : reforcoServicoTipo, tipo: 'REFORCO_REVISAO', motivo: reforcoServicoTipo,
-        data: normalizeIsoDate(dataOperacao), responsavel: 'Pista / Reforço', os: draft.obs, status: 'BLOQUEADO' }];
+        data: normalizeIsoDate(dataOperacao), responsavel: 'Pista / Reforço', os: draft.obs, status: 'BLOQUEADO',
+        ...(c4Enabled(scope) ? { ...c4KnownFields(draft.savedItem), motivo: draft.savedItem?.motivo ?? null, os: c4EditedText(draft.obs, draft.savedItem?.os) } : {}) }];
       changed.push(slot.id);
     }
     if (!changed.length) { toast.info('Nenhuma alteração pendente nesta coluna.'); return; }
@@ -1771,7 +1779,7 @@ export function CiManutencaoView({
       title = `Editar Setor ${setorInfo?.label || subType} • Carro ${carro}`;
       chips = setorInfo?.chips || [];
     } else {
-      subType = existingCI.consorciada || getConsorciadaByCarro(carro);
+      subType = c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? existingCI.consorciada ?? '' : existingCI.consorciada || getConsorciadaByCarro(carro);
       title = `Editar Bloqueado ${subType} • Carro ${carro}`;
       chips = [...BLOQUEIOS_MOTIVOS_RAPIDOS];
     }
@@ -2639,7 +2647,7 @@ export function CiManutencaoView({
               const items = ciListNaData.filter(c => 
                 c.status !== "LIBERADO" && 
                 (c.categoriaPlanilha === "BLOQUEADO" || (!c.categoriaPlanilha && !c.setorOficina && !c.tipoPreventiva && !c.horarioReforco)) && 
-                (c.consorciada === cons.id || (!c.consorciada && (c.prefixo || "").trim().startsWith(cons.prefixDigit))) &&
+                (c.consorciada === cons.id || (!c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && !c.consorciada && (c.prefixo || "").trim().startsWith(cons.prefixDigit))) &&
                 (activeGaragemScope === "TODAS" || (c.garagem || getGaragemFisicaByCarro(c.prefixo)) === activeGaragemScope)
               ).sort((a, b) => (a.prefixo || "").localeCompare(b.prefixo || "", undefined, { numeric: true }));
 
@@ -3495,7 +3503,7 @@ export function CiManutencaoView({
                   {isOutroMotivo && (
                     <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-150 pt-1">
                       <Label className="text-xs font-bold">
-                        Motivo / Defeito <span className="text-rose-500">*</span>
+                        Motivo / Defeito {!c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && <span className="text-rose-500">*</span>}
                       </Label>
                       <Input
                         value={quickAddMotivo}
@@ -3504,7 +3512,7 @@ export function CiManutencaoView({
                         placeholder="Digite o motivo ou defeito do veículo..."
                         className="text-xs h-9"
                         autoFocus
-                        required
+                        required={!c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')}
                       />
                     </div>
                   )}
