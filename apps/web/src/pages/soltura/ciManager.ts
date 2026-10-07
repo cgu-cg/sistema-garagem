@@ -1,5 +1,9 @@
 import { BloqueioCarro } from "@/data/solturaData";
 import { api } from "@/lib/api";
+import { operationalContext, canMutate, revision, beginMutation, endMutation, requireRefresh, SavedRefreshRequired, getMutationState, readTicket, assertReadTicket } from "@/lib/mvpTemporal";
+let officialCI: BloqueioCarro[] | null = null;
+let requestNumber = 0;
+const ciReads = new Map<string, Promise<BloqueioCarro[]>>();
 
 const STORAGE_KEY = "soltura_ci_bloqueios_v2";
 
@@ -25,13 +29,7 @@ export function getGaragemFisicaByCarro(carro: string): "VCM" | "VCG" {
   return "VCG";
 }
 
-export function getHojeIso(): string {
-  const d = new Date();
-  const ano = d.getFullYear();
-  const mes = String(d.getMonth() + 1).padStart(2, "0");
-  const dia = String(d.getDate()).padStart(2, "0");
-  return `${ano}-${mes}-${dia}`;
-}
+export function getHojeIso(): string { return operationalContext().today; }
 
 export function getInitialCIBloqueios(): BloqueioCarro[] {
   try {
@@ -53,92 +51,9 @@ export function getInitialCIBloqueios(): BloqueioCarro[] {
   return [];
 }
 
-export function saveCIBloqueiosToStorage(list: BloqueioCarro[], syncFolhas = true): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-    // Disparar evento customizado para sincronização entre componentes
-    window.dispatchEvent(new CustomEvent("ci_bloqueios_updated", { detail: list }));
-
-    if (!syncFolhas) return;
-
-    // Sincronizar com as folhas de manutenção salvas
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && (key.startsWith("manutencao_carros_v2_") || key.startsWith("manutencao_carros_v1_"))) {
-          const raw = localStorage.getItem(key);
-          if (raw) {
-            const mItems = JSON.parse(raw);
-            if (Array.isArray(mItems)) {
-              let hasChange = false;
-              const handledPrefixes = new Set<string>();
-
-              const updatedMItems = mItems.map((m: any) => {
-                const clean = String(m.prefixo || "").replace(/\D/g, "");
-                handledPrefixes.add(clean);
-                const ciMatch = list.find(c => c.prefixo.replace(/\D/g, "") === clean);
-
-                if (ciMatch) {
-                  if (ciMatch.status === "LIBERADO" && (!m.liberado || m.bloqueado || m.emExecucao)) {
-                    hasChange = true;
-                    return { ...m, liberado: true, bloqueado: false, emExecucao: false, observacao: ciMatch.motivoLiberacao || m.observacao };
-                  }
-                  if (ciMatch.status === "EM_MANUTENCAO" && (!m.emExecucao || !m.bloqueado || m.liberado)) {
-                    hasChange = true;
-                    return { ...m, emExecucao: true, bloqueado: true, liberado: false, observacao: ciMatch.motivo || m.observacao };
-                  }
-                  if (ciMatch.status !== "LIBERADO" && ciMatch.status !== "EM_MANUTENCAO") {
-                    if (!m.bloqueado || m.liberado || m.emExecucao || (ciMatch.motivo && m.observacao !== ciMatch.motivo)) {
-                      hasChange = true;
-                      return { ...m, bloqueado: true, emExecucao: false, liberado: false, observacao: ciMatch.motivo || m.observacao };
-                    }
-                  }
-                }
-                return m;
-              });
-
-              // Insere carros da CI não presentes na folha (APENAS BLOQUEADOS REAIS DE FROTA)
-              list.forEach(ci => {
-                // Preventiva, oficina e reforço não viram bloqueados na folha de manutenção
-                const isRealBloqueado = ci.categoriaPlanilha === "BLOQUEADO" || (!ci.categoriaPlanilha && !ci.setorOficina && !ci.tipoPreventiva && !ci.horarioReforco);
-                if (!isRealBloqueado || ci.status === "LIBERADO") return;
-
-                const clean = ci.prefixo.replace(/\D/g, "");
-                if (!handledPrefixes.has(clean)) {
-                  hasChange = true;
-                  updatedMItems.push({
-                    id: `manut-ci-${clean}`,
-                    prefixo: clean,
-                    consorciada: ci.consorciada || getConsorciadaByCarro(clean),
-                    observacao: ci.motivo || "",
-                    bloqueado: true,
-                    emExecucao: ci.status === "EM_MANUTENCAO",
-                    liberado: false,
-                    data: key.includes("manutencao_carros_v2_") ? key.replace("manutencao_carros_v2_", "") : key.replace("manutencao_carros_v1_", "")
-                  });
-                  handledPrefixes.add(clean);
-                }
-              });
-
-              if (hasChange) {
-                localStorage.setItem(key, JSON.stringify(updatedMItems));
-                const datePart = key.includes("manutencao_carros_v2_") 
-                  ? key.replace("manutencao_carros_v2_", "") 
-                  : key.replace("manutencao_carros_v1_", "");
-                window.dispatchEvent(new CustomEvent("manutencao_updated", {
-                  detail: { data: datePart, items: updatedMItems, fromCISync: true }
-                }));
-              }
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.error("Erro ao sincronizar CI com Manutenção:", e);
-    }
-  } catch (e) {
-    console.error("Erro ao salvar CIs no localStorage:", e);
-  }
+export function saveCIBloqueiosToStorage(list: BloqueioCarro[], _syncFolhas = false): void {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); } catch { /* Cache nao e autoridade operacional. */ }
+  window.dispatchEvent(new CustomEvent('ci_bloqueios_updated', { detail: list }));
 }
 
 export function checkCarroBloqueado(prefixo: string, list: BloqueioCarro[], data?: string): BloqueioCarro | null {
@@ -210,74 +125,50 @@ export function subscribeCIUpdates(callback: (list: BloqueioCarro[]) => void): (
  * Consulta a lista de Bloqueios da CI diretamente do banco de dados oficial (SQL Server)
  * e atualiza o cache local.
  */
-export async function fetchCIBloqueiosFromApi(params?: { garagem?: string; status?: string }): Promise<BloqueioCarro[]> {
-  try {
-    const data = await api.listCiBloqueios(params);
-    if (Array.isArray(data)) {
-      // Filtra quaisquer sementes antigas com prefixo ci-doc-*
-      const userCreated = data.filter((item: BloqueioCarro) => !item.id?.startsWith("ci-doc-"));
-      saveCIBloqueiosToStorage(userCreated);
-      return userCreated;
-    }
-  } catch (err) {
-    console.warn("[CI Manager] Falha ao carregar bloqueios da API, usando cache local:", err);
-  }
-
-  return getInitialCIBloqueios();
+export async function fetchCIBloqueiosFromApi(params?: { garagem?: string; status?: string }, afterCommit = false): Promise<BloqueioCarro[]> {
+  if (getMutationState().pending && !afterCommit) throw new Error('Gravacao pendente; aguarde antes de consultar.');
+  const ticket = readTicket();
+  const normalized = { garagem: params?.garagem === 'TODAS' ? undefined : params?.garagem, status: params?.status };
+  const key = JSON.stringify([ticket, normalized]);
+  const running = ciReads.get(key);
+  if (running) return running;
+  const number = ++requestNumber;
+  const request = (async () => {
+    const data = await api.listCiBloqueios(normalized);
+    assertReadTicket(ticket);
+    if (number !== requestNumber) throw new Error('Consulta substituida por uma mais recente.');
+    if (!Array.isArray(data)) throw new Error('Resposta invalida ao consultar CI.');
+    officialCI = data; saveCIBloqueiosToStorage(data);
+    return data;
+  })();
+  ciReads.set(key, request);
+  try { return await request; } finally { if (ciReads.get(key) === request) ciReads.delete(key); }
 }
 
-/**
- * Persiste um bloqueio no banco de dados oficial em segundo plano.
- */
-export async function persistCIBloqueio(item: BloqueioCarro): Promise<void> {
+export async function saveCISnapshot(list: BloqueioCarro[], date: string, baseline: BloqueioCarro[], removeBlocked: string[] = [], operation: 'save' | 'prepare' = 'save'): Promise<BloqueioCarro[]> {
+  if (!canMutate(date, 'ci')) throw new Error('CI fora da janela de edicao.');
+  if (!officialCI) throw new Error('Carregue a CI oficial antes de alterar.');
+  const current = baseline.filter(i => i.data === date && i.garagem === 'VCG');
+  const items = operation === 'prepare' ? [] : list.filter(i => i.data === date && i.garagem === 'VCG');
+  beginMutation();
+  let saved = false;
   try {
-    await api.createOrUpdateCiBloqueio({
-      id: item.id,
-      prefixo: item.prefixo,
-      garagem: item.garagem,
-      consorciada: item.consorciada,
-      categoriaPlanilha: item.categoriaPlanilha || "OFICINA",
-      setorOficina: item.setorOficina,
-      tipoPreventiva: item.tipoPreventiva,
-      horarioReforco: item.horarioReforco,
-      motivo: item.motivo,
-      data: item.data,
-      hora: item.hora,
-      gravidade: item.gravidade || "ALTA",
-      responsavel: item.responsavel,
-      observacoes: item.os,
-      status: item.status || "BLOQUEADO",
-    });
-  } catch (err) {
-    console.error("[CI Manager] Erro ao persistir bloqueio no banco:", err);
-  }
+    await api.post('/ci-bloqueios/sync', { data: date, items, base: revision(current), removeBlocked, operation });
+    saved = true;
+    return await fetchCIBloqueiosFromApi(undefined, true);
+  } catch (error) {
+    requireRefresh();
+    if (saved) throw new SavedRefreshRequired();
+    throw error;
+  } finally { endMutation(); }
 }
-
-/**
- * Registra a liberação (baixa) de um carro bloqueado no banco de dados.
- */
-export async function releaseCIBloqueioApi(data: {
-  id?: string;
-  prefixo?: string;
-  dataLiberacao?: string;
-  motivoLiberacao?: string;
-  responsavelLiberacao?: string;
-}): Promise<void> {
-  try {
-    await api.releaseCiBloqueio(data);
-  } catch (err) {
-    console.error("[CI Manager] Erro ao liberar carro no banco:", err);
-  }
+// Compatibilidade para consumidores externos: erro explicito, sem gravação global por prefixo.
+export async function persistCIBloqueio(_item: BloqueioCarro): Promise<void> {
+  throw new Error('Use o comando de CI com contexto e versao.');
 }
-
-/**
- * Remove um bloqueio no banco de dados.
- */
-export async function deleteCIBloqueioApi(id: string): Promise<void> {
-  try {
-    await api.deleteCiBloqueio(id);
-  } catch (err) {
-    console.error("[CI Manager] Erro ao remover bloqueio no banco:", err);
-  }
+export async function releaseCIBloqueioApi(_data: { id?: string; prefixo?: string; dataLiberacao?: string; motivoLiberacao?: string; responsavelLiberacao?: string }): Promise<void> {
+  throw new Error('Use a retirada direcionada da CI em preparacao.');
 }
-
+export async function deleteCIBloqueioApi(_id: string): Promise<void> {
+  throw new Error('Use a retirada direcionada da CI em preparacao.');
+}

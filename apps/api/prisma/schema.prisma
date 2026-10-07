@@ -28,6 +28,10 @@ model User {
   ciBloqueios                CiBloqueio[]
   manutencaoCarros           ManutencaoCarro[]
 
+  folhasCIRegistradas FolhaCI[] @relation("FolhaResponsavel")
+  itensFolhaCIRegistrados ItemFolhaCI[] @relation("ItemFolhaResponsavel")
+  estadosManutencaoRegistrados EstadoManutencao[] @relation("EstadoManutencaoResponsavel")
+
   @@map("users")
 }
 
@@ -236,4 +240,112 @@ model ManutencaoCarro {
   @@index([prefixo])
   @@index([data, prefixo])
   @@map("manutencao_carros")
+}
+
+// DATA-001C4: models candidatos; nao provisionados nem usados pelo runtime.
+// CHECKs e UNIQUEs filtrados: scripts/sql/data-001c4-provisionamento.sql.
+// Nao substituir filtros por @@unique geral/nullable. Legado preservado.
+// Prisma 6.10 nao aceita precisao em @db.DateTime2; SQL fixa DATETIME2(3).
+
+model CicloOperacional {
+  id                      Int                @id(map: "PK_ciclo_operacional") @default(autoincrement()) @map("id") @db.Int
+  garagem                 String             @map("garagem") @db.NVarChar(10)
+  dataOperacional         DateTime           @map("data_operacional") @db.Date
+  origem                  String             @map("origem") @db.NVarChar(20)
+  inicializacaoPrevistaEm DateTime           @map("inicializacao_prevista_em") @db.DateTime2
+  inicializadoEm          DateTime           @map("inicializado_em") @db.DateTime2
+  referenciaOrigem        String?            @map("referencia_origem") @db.NVarChar(255)
+  createdAt               DateTime           @default(dbgenerated("SYSUTCDATETIME()"), map: "DF_ciclo_operacional_created_at") @map("created_at") @db.DateTime2
+  updatedAt               DateTime           @default(dbgenerated("SYSUTCDATETIME()"), map: "DF_ciclo_operacional_updated_at") @updatedAt @map("updated_at") @db.DateTime2
+
+  folhasPreparadas        FolhaCI[]          @relation("CicloFolhas")
+  estadosManutencao       EstadoManutencao[]
+
+  @@unique([garagem, dataOperacional], map: "UQ_ciclo_operacional_garagem_data")
+  @@unique([id, garagem], map: "UQ_ciclo_operacional_id_garagem")
+  @@map("ciclo_operacional")
+}
+
+model FolhaCI {
+  id                      Int               @id(map: "PK_folha_ci") @default(autoincrement()) @map("id") @db.Int
+  garagem                 String            @map("garagem") @db.NVarChar(10)
+  dataFolha               DateTime          @map("data_folha") @db.Date
+  status                  String            @map("status") @db.NVarChar(20)
+  origem                  String            @map("origem") @db.NVarChar(20)
+  cicloPreparacaoId       Int?              @map("ciclo_preparacao_id") @db.Int
+  folhaOrigemId           Int?              @map("folha_origem_id") @db.Int
+  tituloColunaAdicional   String?           @map("titulo_coluna_adicional") @db.NVarChar(30)
+  inicializacaoPrevistaEm DateTime?         @map("inicializacao_prevista_em") @db.DateTime2
+  inicializadaEm          DateTime?         @map("inicializada_em") @db.DateTime2
+  finalizacaoPrevistaEm   DateTime?         @map("finalizacao_prevista_em") @db.DateTime2
+  finalizadaEm            DateTime?         @map("finalizada_em") @db.DateTime2
+  referenciaOrigem        String?           @map("referencia_origem") @db.NVarChar(255)
+  responsavelRegistroId   Int?              @map("responsavel_registro_id") @db.Int
+  createdAt               DateTime          @default(dbgenerated("SYSUTCDATETIME()"), map: "DF_folha_ci_created_at") @map("created_at") @db.DateTime2
+  updatedAt               DateTime          @default(dbgenerated("SYSUTCDATETIME()"), map: "DF_folha_ci_updated_at") @updatedAt @map("updated_at") @db.DateTime2
+
+  cicloPreparacao         CicloOperacional? @relation("CicloFolhas", fields: [cicloPreparacaoId, garagem], references: [id, garagem], onDelete: NoAction, onUpdate: NoAction, map: "FK_folha_ci_ciclo_garagem")
+  folhaOrigem             FolhaCI?          @relation("OrigemFolha", fields: [folhaOrigemId, garagem], references: [id, garagem], onDelete: NoAction, onUpdate: NoAction, map: "FK_folha_ci_origem_garagem")
+  folhasDerivadas         FolhaCI[]         @relation("OrigemFolha")
+  responsavelRegistro     User?             @relation("FolhaResponsavel", fields: [responsavelRegistroId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_folha_ci_responsavel")
+  itens                   ItemFolhaCI[]
+
+  @@unique([garagem, dataFolha], map: "UQ_folha_ci_garagem_data")
+  @@unique([id, garagem], map: "UQ_folha_ci_id_garagem")
+  @@index([folhaOrigemId, garagem], map: "IX_folha_ci_folha_origem_garagem")
+  @@map("folha_ci")
+}
+
+model ItemFolhaCI {
+  id                    Int      @id(map: "PK_item_folha_ci") @default(autoincrement()) @map("id") @db.Int
+  folhaId               Int      @map("folha_id") @db.Int
+  chaveItem             String   @map("chave_item") @db.UniqueIdentifier
+  categoria             String   @map("categoria") @db.NVarChar(20)
+  tipoPosicao           String?  @map("tipo_posicao") @db.NVarChar(10)
+  ordemPosicao          Int?     @map("ordem_posicao") @db.Int
+  prefixo               String   @map("prefixo") @db.NVarChar(10)
+  consorciada           String   @map("consorciada") @db.NVarChar(10)
+  subTipo               String?  @map("sub_tipo") @db.NVarChar(50)
+  horarioReforco        String?  @map("horario_reforco") @db.NVarChar(20)
+  motivo                String?  @map("motivo") @db.NVarChar(255)
+  observacoes           String?  @map("observacoes") @db.NVarChar(255)
+  horaBloqueio          String?  @map("hora_bloqueio") @db.NVarChar(10)
+  gravidade             String?  @map("gravidade") @db.NVarChar(10)
+  responsavel           String?  @map("responsavel") @db.NVarChar(100)
+  statusItem            String?  @map("status_item") @db.NVarChar(20)
+  dataLiberacao         String?  @map("data_liberacao") @db.NVarChar(50)
+  motivoLiberacao       String?  @map("motivo_liberacao") @db.NVarChar(255)
+  responsavelLiberacao  String?  @map("responsavel_liberacao") @db.NVarChar(100)
+  responsavelRegistroId Int?     @map("responsavel_registro_id") @db.Int
+  createdAt             DateTime @default(dbgenerated("SYSUTCDATETIME()"), map: "DF_item_folha_ci_created_at") @map("created_at") @db.DateTime2
+  updatedAt             DateTime @default(dbgenerated("SYSUTCDATETIME()"), map: "DF_item_folha_ci_updated_at") @updatedAt @map("updated_at") @db.DateTime2
+
+  folha                 FolhaCI  @relation(fields: [folhaId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_item_folha_ci_folha")
+  responsavelRegistro   User?    @relation("ItemFolhaResponsavel", fields: [responsavelRegistroId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_item_folha_ci_responsavel")
+
+  @@unique([folhaId, chaveItem], map: "UQ_item_folha_ci_folha_chave")
+  @@index([folhaId, categoria], map: "IX_item_folha_ci_folha_categoria")
+  @@index([folhaId, prefixo], map: "IX_item_folha_ci_folha_prefixo")
+  @@map("item_folha_ci")
+}
+
+model EstadoManutencao {
+  id                    Int              @id(map: "PK_estado_manutencao_ciclo") @default(autoincrement()) @map("id") @db.Int
+  cicloId               Int              @map("ciclo_id") @db.Int
+  prefixo               String           @map("prefixo") @db.NVarChar(10)
+  consorciada           String           @map("consorciada") @db.NVarChar(10)
+  bloqueado             Boolean          @default(false, map: "DF_estado_manutencao_ciclo_bloqueado") @map("bloqueado") @db.Bit
+  emExecucao            Boolean          @default(false, map: "DF_estado_manutencao_ciclo_em_execucao") @map("em_execucao") @db.Bit
+  liberado              Boolean          @default(false, map: "DF_estado_manutencao_ciclo_liberado") @map("liberado") @db.Bit
+  observacaoBloqueio    String?          @map("observacao_bloqueio") @db.NVarChar(255)
+  observacaoOficina     String?          @map("observacao_oficina") @db.NVarChar(255)
+  responsavelRegistroId Int?             @map("responsavel_registro_id") @db.Int
+  createdAt             DateTime         @default(dbgenerated("SYSUTCDATETIME()"), map: "DF_estado_manutencao_ciclo_created_at") @map("created_at") @db.DateTime2
+  updatedAt             DateTime         @default(dbgenerated("SYSUTCDATETIME()"), map: "DF_estado_manutencao_ciclo_updated_at") @updatedAt @map("updated_at") @db.DateTime2
+
+  ciclo                 CicloOperacional @relation(fields: [cicloId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_estado_manutencao_ciclo_ciclo")
+  responsavelRegistro   User?            @relation("EstadoManutencaoResponsavel", fields: [responsavelRegistroId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_estado_manutencao_ciclo_responsavel")
+
+  @@unique([cicloId, prefixo], map: "UQ_estado_manutencao_ciclo_ciclo_prefixo")
+  @@map("estado_manutencao_ciclo")
 }

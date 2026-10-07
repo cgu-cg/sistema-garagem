@@ -20,6 +20,7 @@ export interface SolturaItem {
 }
 
 export interface BloqueioCarro {
+  updatedAt?: string;
   id?: string;
   prefixo: string;
   garagem?: "VCG" | "VCM" | "TODAS";

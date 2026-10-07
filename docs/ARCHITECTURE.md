@@ -224,3 +224,54 @@ As divergências abaixo foram observadas entre documentação antiga e código a
 - Os detalhes completos de todos os serviços de integração legado não foram documentados neste arquivo; apenas foi observada a estrutura do código e os artefatos de apoio do repositório.
 - A documentação de regras de negócio operacionais detalhadas exige validação separada em módulos específicos e não deve ser inferida apenas pela arquitetura.
 - Não foi feita análise de runtime em execução; a descrição acima é baseada na análise estática do código atual.
+
+## CI diária — separação conceitual da DATA-001A
+
+Conforme o [contrato confirmado](./DOMAIN.md#data-001a--contrato-operacional-da-ci):
+
+| Responsabilidade | Contrato |
+|---|---|
+| Leitura da fotografia | Estado registrado da CI finalizada, sem mutação/reconstrução silenciosa; GET somente leitura |
+| Preparação da próxima CI | Ajustes durante preparação, historicamente a partir da anterior; cópia integral confirmada na C3 |
+| Finalização | Preservar fotografia para uso operacional; automática às 18:30 conforme C3; implementação pendente |
+| Alterações explícitas | Retirada confirmada dirigida à preparação, preservando finalizadas |
+| Controle de Manutenção | Oficina distinta da CI; execução e bloqueio podem coexistir |
+
+Esta separação não define novos endpoints, serviços, tabelas ou arquitetura futura implementada. Data futura não equivale automaticamente a preparação.
+
+**ATUAL/OBSERVADO:** interface calcula herança e permite edição de amanhã; algumas ações persistem cópias. Não há ciclo persistido de preparação/finalização identificado. Após DATA-001B1/B2, os controllers de CI/manutenção não executam saneamentos históricos ou provisionamento estrutural; GET de manutenção ainda materializa, reconcilia e exclui registros funcionalmente; managers locais acrescentam sincronização. Isso não garante fotografias imutáveis.
+
+Pendências estão centralizadas no contrato de DOMAIN.md; etapas propostas na DATA-001 de BACKLOG.md. DATA-001A não altera aplicação.
+
+
+## DATA-001C1 — Correspondência dos ciclos, sem implementação técnica
+
+A fonte das regras é [DOMAIN.md](./DOMAIN.md#data-001c1--ciclos-operacionais-e-continuidade-dos-bloqueados). Durante o dia D, BLOQUEADOS da manutenção D sincronizam bidirecionalmente com BLOQUEADOS da CI do próximo dia operacional em preparação. Essa correspondência não autoriza mutar manutenção anterior ou CIs finalizadas.
+
+Bloqueios vigentes continuam no novo ciclo; execução e liberados começam limpos. BLOQUEADO + EM MANUTENÇÃO coexistem. Retirada explícita reflete na preparação correspondente; liberação de bloqueado depende de confirmação antes de qualquer alteração, com cancelamento sem efeitos.
+
+Inicialização e sincronização devem ficar separadas da consulta, preservando fotografias. C3 confirma entidades distintas, timezone e horários; persistência, contratos de comandos e transações continuam sem implementação. Não inferir destino pela data futura nem interpretar esta separação como implementação existente. GET de manutenção e propagadores atuais ainda precisam ser corrigidos nas etapas C/D/E/F.
+
+
+## DATA-001C3 — Desenho aprovado e implementação futura
+
+Contrato em [DOMAIN.md](./DOMAIN.md#data-001c3--contrato-consolidado-do-ciclo-e-da-fotografia-ci); schema apenas proposto em [DATABASE.md](./DATABASE.md#data-001c3--proposta-de-schema-nao-implementada). FolhaCI e CicloOperacional são distintos, segregados por garagem; ADMIN opera ambos os contextos. Não derivar autorização de user.garagem. Piloto VCG; VCM requer habilitação explícita futura.
+
+Fonte temporal comum America/Campo_Grande: todos os dias 03:00 inicializa ciclo/copia folha inteira; 18:30 finaliza e fecha mutações do Controle e da CI. A janela noturna é consulta, sem comandos operacionais. Cópia inclui título/slots de reforço; sincronização durante o dia envolve somente Bloqueados.
+
+Operações de domínio devem ficar em serviço separado de HTTP e agendamento. Inicialização transacional inclui ciclo, folha, itens/metadados, estado diário e conclusão; finalização serializa com comandos. Autorização ADMIN, contexto de garagem, janela temporal e EM_PREPARACAO são revalidados dentro da fronteira segura. Chamadas antes do prazo não garantem autorização. GET é consulta do persistido, nunca recuperação oculta.
+
+Scheduler sem biblioteca escolhida dispara operações idempotentes. Recuperação no mesmo dia processa evento pendente com horários previstos/efetivos; vários dias geram estruturas vazias identificadas, sem replay de realidade nem cópia repetida. Importação Excel é procedimento externo/manual posterior. Imutabilidade operacional não é revogada pelo futuro procedimento administrativo de recuperação.
+
+Proposta mínima de habilitação: lista explícita de garagens do novo fluxo em configuração central do backend (padrão nenhuma; VCG habilitada no rollout). O config.ts atual trata secrets/conexão, sem catálogo de garagens habilitadas. Não criar tabela/perfis por garagem. Scheduler e comandos compartilham a configuração; ADMIN pode consultar VCM, mas mutações do novo fluxo exigem habilitação. Não há alteração de configuração nesta etapa.
+
+Controllers/frontend atuais ainda usam prefixos globais, clones e caches mutáveis. Não há scheduler/ciclo/finalização ou garantia transacional implementados. C4/D/E/F precisam substituir esses caminhos de forma coordenada, sem manter dupla escrita entre fonte oficial nova e legado.
+
+
+## DATA-001C4 — Fase 2: artefatos sem ativação do fluxo
+
+A consolidação C3 está no commit 2c39fd1. A C4 fase 2 adiciona somente os models candidatos CicloOperacional, FolhaCI, ItemFolhaCI e EstadoManutencao ao schema Prisma e os scripts administrativos data-001c4-provisionamento.sql / data-001c4-validacao.sql. Detalhes e limites em [DATABASE.md](./DATABASE.md#data-001c4--fase-2-schema-candidato-e-provisionamento-administrativo).
+
+Nenhum script foi executado, nenhuma migration/Prisma Client foi gerada e nenhuma tabela foi provisionada nesta fase. Não há integração com HTTP/startup/npm/Docker. Legado e consumidores permanecem intactos; novo fluxo desabilitado, sem feature flag ativa ou corte VCG. GET de manutenção continua mutável.
+
+Prisma representa relações/uniques convencionais; CHECKs, três UNIQUEs filtrados e precisão DATETIME2(3) exigem SQL administrativo complementar. FKs compostas de garagem impedem vínculos cruzados; não garantem sozinhas a correspondência D/D+1 ou imutabilidade temporal. Inicialização atômica, fechamento protegido, autorização ADMIN/temporal, scheduler, recuperação e sincronização continuam por implementar. Compatibilidade controlada do stack Prisma 6.10/SQL Server 2012 fica para antes do rollout, sem atualização de dependências nesta modelagem.

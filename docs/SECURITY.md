@@ -162,3 +162,24 @@ Observações relevantes:
 - Não houve revisão de logs, infraestrutura de deploy, reverse proxy ou política de ambiente em produção.
 - Não foi validado se existem middlewares adicionais, proxy reverso ou regras externas em infraestrutura que reforcem segurança além do código lido.
 - Este arquivo registra riscos observáveis e não conclui que uma falha específica foi explorada em produção.
+
+## Proteção temporal da CI — DATA-001A
+
+**Requisito para futuras mutações:** validar no backend a folha destinatária e o escopo temporal permitido. Retirada confirmada na manutenção deve atingir somente CI em preparação; fotografias finalizadas permanecem intactas. GETs devem ser somente leitura.
+
+Autenticação, confirmação na interface ou data futura não demonstram preparação. Finalização foi confirmada na C3; persistência e proteção continuam pendentes no [contrato de domínio](./DOMAIN.md#data-001a--contrato-operacional-da-ci).
+
+**ATUAL/OBSERVADO:** rotas examinadas usam authenticate; não foi identificada validação backend de preparação/finalização. Restrições por data existem na interface, mas exclusões por prefixo atingem diferentes datas e GETs podem escrever. Este registro descreve lacuna/requisito, não proteção implementada ou dano comprovado em produção.
+
+
+## DATA-001C3 — Requisitos confirmados, ainda não implementados
+
+Conforme [DOMAIN.md](./DOMAIN.md#data-001c3--contrato-consolidado-do-ciclo-e-da-fotografia-ci), CI/Controle do novo fluxo são exclusivos de ADMIN. ADMIN acessa VCG e VCM; user.garagem não define autorização nem perfil/contexto obrigatório. Garagem é isolamento de dados, não novo RBAC.
+
+Comandos devem identificar garagem, ciclo/folha e item, validar pertencimento no backend e recusar alcance em outra garagem. Não excluir globalmente por prefixo. Habilitação do fluxo é explícita; VCM não participa automaticamente do agendamento.
+
+Validação temporal compartilhada em America/Campo_Grande: mutação somente entre 03:00 inclusive e 18:30 exclusive, com ciclo inicializado e destino EM_PREPARACAO quando envolve CI. Verificar sob a proteção transacional; requisição anterior ao limite não tem direito adquirido. Estado EM_PREPARACAO atrasado não libera comando depois de 18:30. Bloquear alterações de Controle e CI; confirmação prévia da liberação e cancelamento sem efeitos. Finalização serializa com comandos para evitar atualização parcial.
+
+FINALIZADA é imutável operacionalmente; nenhuma reabertura implementada. Recuperação distingue origem/horários reais e não reconstrói históricos. Correção administrativa posterior e carga Excel manual exigem procedimento próprio, não autorização ampla embutida em endpoints. GETs não executam recuperação.
+
+ATUAL/OBSERVADO: rotas CI/manutenção usam authenticate, sem exigência ADMIN/validação de janela ou folha. Controllers inferem garagem também por usuário/email e realizam operações amplas. Esses comportamentos divergem do contrato C3 e permanecem intactos. Nenhuma proteção foi implementada nesta etapa; SEC-006 permanece separada.
