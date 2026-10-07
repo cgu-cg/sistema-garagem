@@ -5,7 +5,8 @@ import { assertContext, assertFlags, isVCG, MvpError, revision } from './mvpTemp
 
 const common = z.object({
   id: z.string().min(1).max(100), prefixo: z.string().regex(/^\d{1,10}$/),
-  consorciada: z.enum(['VCG', 'VSF', 'JTU']),
+  // Valor legado pode atravessar o snapshot somente quando comprovadamente preservado.
+  consorciada: z.string().max(10),
 });
 const maintenance = common.extend({
   observacao: z.string().max(255), bloqueado: z.boolean(), emExecucao: z.boolean(), liberado: z.boolean(),
@@ -39,6 +40,23 @@ function verifyExistingVCG(records: { prefixo: string; garagem?: string }[]) {
     throw new MvpError(409, 'Registro existente fora da VCG ou inconsistente. Revisao administrativa necessaria.');
   }
 }
+function validConsortium(value: string) { return ['VCG', 'VSF', 'JTU'].includes(value); }
+function unchanged(existing: { updatedAt: Date }, received: object) {
+  return revision([existing]) === revision([{ ...received, updatedAt: existing.updatedAt }]);
+}
+function verifySnapshotConsortium(current: { id: string; consorciada: string; updatedAt: Date }[], items: { id: string; consorciada: string }[]) {
+  for (const row of current.filter(r => !validConsortium(r.consorciada))) {
+    const received = items.find(i => i.id === row.id);
+    if (!received || !unchanged(row, received)) throw new MvpError(409, 'Registro legado inconsistente deve permanecer inalterado; revisao administrativa necessaria.');
+  }
+  for (const i of items) {
+    const existing = current.find(r => r.id === i.id);
+    if ((!existing || !unchanged(existing, i)) && !validConsortium(i.consorciada)) throw new MvpError(400, 'Consorciada invalida para mutacao.');
+  }
+}
+function verifyAffectedConsortium(records: { prefixo: string; consorciada: string }[], prefixes: string[]) {
+  if (records.some(r => prefixes.includes(r.prefixo) && !validConsortium(r.consorciada))) throw new MvpError(409, 'Operacao afetaria registro legado inconsistente; revisao administrativa necessaria.');
+}
 const removals = z.array(z.string().regex(/^\d{1,10}$/)).max(1000).default([]);
 function verifyUniqueBlocks(prefixes: string[]) {
   if (new Set(prefixes).size !== prefixes.length) throw new MvpError(409, 'BLOQUEADOS existentes duplicados; revisao administrativa necessaria.');
@@ -71,11 +89,14 @@ export async function saveMaintenance(db: PrismaClient, userId: number | undefin
     verifyExistingVCG(current);
     verifyUniqueBlocks(current.filter(r => r.bloqueado).map(r => r.prefixo));
     verifyBase(input.base, current);
+    verifySnapshotConsortium(current, input.items);
     await verifyIds(tx, 'manutencao', input.items.map(i => i.id), current);
     const cis = await tx.ciBloqueio.findMany({ where: { dataBloqueio: ctx.tomorrow, garagem: 'VCG', categoria: 'BLOQUEADO', OR: [{ status: { not: 'LIBERADO' } }, { status: null }] } });
     verifyExistingVCG(cis);
     verifyUniqueBlocks(cis.map(r => r.prefixo));
     const blocked = input.items.filter(i => i.bloqueado);
+    const changedBlocked = blocked.filter(i => !current.some(r => r.prefixo === i.prefixo && r.bloqueado && r.observacao === i.observacao && r.consorciada === i.consorciada));
+    verifyAffectedConsortium(cis, [...input.removeBlocked, ...changedBlocked.map(i => i.prefixo)]);
     const before = current.filter(r => r.bloqueado).map(r => r.prefixo);
     // CI exclusiva nao mencionada continua intacta. Remocao exige intencao nominal.
     verifyRemovals(input.removeBlocked, before, blocked.map(i => i.prefixo));
@@ -100,7 +121,7 @@ export async function saveMaintenance(db: PrismaClient, userId: number | undefin
     for (const old of cis) {
       if (input.removeBlocked.includes(old.prefixo)) await tx.ciBloqueio.deleteMany({ where: { id: old.id, dataBloqueio: ctx.tomorrow, garagem: 'VCG', categoria: 'BLOQUEADO' } });
     }
-    for (const i of blocked.filter(i => !current.some(r => r.prefixo === i.prefixo && r.bloqueado && r.observacao === i.observacao && r.consorciada === i.consorciada))) {
+    for (const i of changedBlocked) {
       const matches = cis.filter(c => c.prefixo === i.prefixo);
       if (matches.length > 1) throw new MvpError(409, 'CI possui BLOQUEADOS duplicados; revisao administrativa necessaria.');
       const id = matches[0]?.id || `ci-${randomUUID()}`;
@@ -133,10 +154,13 @@ export async function saveCI(db: PrismaClient, userId: number | undefined, body:
       return { success: true, unchanged: true };
     }
     const before = new Set(current.filter(c => c.categoria === 'BLOQUEADO' && c.status !== 'LIBERADO').map(c => c.prefixo));
+    verifySnapshotConsortium(current, input.items);
     verifyRemovals(input.removeBlocked, [...before], blocked.map(i => i.prefixo));
     await verifyIds(tx, 'ci', input.items.map(i => i.id), current);
     const ms = (await tx.manutencaoCarro.findMany({ where: { data: ctx.today } })).filter(m => isVCG(m.prefixo));
     verifyExistingVCG(ms);
+    const changed = blocked.filter(b => !current.some(c => c.prefixo === b.prefixo && c.categoria === 'BLOQUEADO' && c.status !== 'LIBERADO' && (c.motivo || '') === b.motivo && c.consorciada === b.consorciada));
+    verifyAffectedConsortium(ms, [...input.removeBlocked, ...changed.map(i => i.prefixo)]);
     if (blocked.some(b => ms.filter(m => m.prefixo === b.prefixo && m.bloqueado).length > 1)) throw new MvpError(409, 'Controle possui bloqueios duplicados; revisao necessaria.');
     await tx.ciBloqueio.deleteMany({ where: { garagem: 'VCG', dataBloqueio: ctx.tomorrow, id: { in: current.filter(r => !input.items.some(i => i.id === r.id)).map(r => r.id) } } });
     for (const i of input.items) {
@@ -149,7 +173,6 @@ export async function saveCI(db: PrismaClient, userId: number | undefined, body:
         dataLiberacao: i.dataLiberacao || null, motivoLiberacao: i.motivoLiberacao || null, responsavelLiberacao: i.responsavelLiberacao || null, userId };
       await tx.ciBloqueio.upsert({ where: { id: i.id }, create: { id: i.id, ...data }, update: data });
     }
-    const changed = blocked.filter(b => !current.some(c => c.prefixo === b.prefixo && c.categoria === 'BLOQUEADO' && c.status !== 'LIBERADO' && (c.motivo || '') === b.motivo && c.consorciada === b.consorciada));
     for (const prefixo of new Set([...input.removeBlocked, ...changed.map(i => i.prefixo)])) {
       const b = blocked.find(i => i.prefixo === prefixo);
       const rows = ms.filter(m => m.prefixo === prefixo);

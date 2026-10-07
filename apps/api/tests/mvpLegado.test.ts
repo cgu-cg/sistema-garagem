@@ -4,6 +4,50 @@ import { assertContext, assertFlags, operationalContext, revision } from '../src
 import { operationalContext as webContext, revision as webRevision, beginMutation, endMutation, requireRefresh, confirmRefresh, getMutationState, readTicket, assertReadTicket, SavedRefreshRequired } from '../../web/src/lib/mvpTemporal';
 import { saveCI, saveMaintenance } from '../src/services/mvpLegado';
 
+test('3083 legado preservado nao impede alteracao independente nem recebe UPDATE', async () => {
+  const legacy = m('legacy', { prefixo: '3083', consorciada: 'VCM', userId: 7 });
+  const f = fixture([], [legacy, m()]);
+  await saveMaintenance(f.db, 1, { data: '2026-10-07', base: revision(f.state().manut), items: [legacy, m('m1', { emExecucao: true })] }, now);
+  assert.deepEqual(f.state().manut.find(r => r.id === 'legacy'), legacy);
+  assert.equal(f.state().manut.find(r => r.id === 'm1')?.emExecucao, true);
+  assert.equal(f.calls(), 2); // deleteMany vazio + upsert somente do outro veiculo.
+});
+test('3083 inconsistente nao pode ser saneado, alterado, removido ou recriado', async () => {
+  for (const changes of [{ consorciada: 'JTU' }, { observacao: 'Outra' }, { prefixo: '1000', consorciada: 'VCG' }, { id: 'novo' }, null]) {
+    const legacy = m('legacy', { prefixo: '3083', consorciada: 'VCM' });
+    const f = fixture([], [legacy]);
+    const before = structuredClone(f.state());
+    await assert.rejects(saveMaintenance(f.db, 1, { data: '2026-10-07', base: revision([legacy]), items: changes ? [{ ...legacy, ...changes }] : [], removeBlocked: changes ? [] : ['3083'] }, now));
+    assert.equal(f.calls(), 0); assert.deepEqual(f.state(), before);
+  }
+});
+test('nova inclusao fisica VCG com consorciada VCM nao recebe tolerancia', async () => {
+  const f = fixture([], []);
+  await assert.rejects(saveMaintenance(f.db, 1, { data: '2026-10-07', base: revision([]), items: [m('new', { prefixo: '3083', consorciada: 'VCM' })] }, now));
+  assert.equal(f.calls(), 0);
+});
+test('CI preserva legado intacto mas nao pode altera-lo', async () => {
+  const legacy = c('legacy', { prefixo: '3083', consorciada: 'VCM' });
+  const f = fixture([legacy], []);
+  await saveCI(f.db, 1, { data: '2026-10-08', base: revision([legacy]), items: [item(legacy), item(c('other', { categoria: 'OFICINA' }))] }, now);
+  assert.deepEqual(f.state().ci.find(r => r.id === 'legacy'), legacy);
+  const g = fixture([legacy], []);
+  await assert.rejects(saveCI(g.db, 1, { data: '2026-10-08', base: revision([legacy]), items: [item({ ...legacy, consorciada: 'JTU' })] }, now));
+  assert.equal(g.calls(), 0);
+});
+test('sincronizacao CI nao saneia legado inconsistente do Controle', async () => {
+  const legacy = m('legacy', { prefixo: '3083', consorciada: 'VCM' });
+  const f = fixture([], [legacy]);
+  await assert.rejects(saveCI(f.db, 1, { data: '2026-10-08', base: revision([]), items: [item(c('new', { prefixo: '3083', consorciada: 'JTU' }))] }, now));
+  assert.equal(f.calls(), 0); assert.deepEqual(f.state().manut, [legacy]);
+});
+test('sincronizacao Controle nao saneia legado inconsistente da CI', async () => {
+  const legacy = c('legacy', { prefixo: '3083', consorciada: 'VCM' });
+  const f = fixture([legacy], []);
+  await assert.rejects(saveMaintenance(f.db, 1, { data: '2026-10-07', base: revision([]), items: [m('new', { prefixo: '3083', consorciada: 'JTU' })] }, now));
+  assert.equal(f.calls(), 0); assert.deepEqual(f.state().ci, [legacy]);
+});
+
 const now = () => new Date('2026-10-07T12:00:00Z');
 const stamp = new Date('2026-10-07T10:00:00Z');
 const m = (id = 'm1', changes = {}) => ({ id, prefixo: '4000', consorciada: 'VCG', data: '2026-10-07', bloqueado: true, emExecucao: false, liberado: false, observacao: 'Motor', updatedAt: stamp, ...changes });
