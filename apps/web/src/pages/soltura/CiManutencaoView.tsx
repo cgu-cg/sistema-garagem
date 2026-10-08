@@ -570,7 +570,7 @@ export function CiManutencaoView({
   const ciListNaData = useMemo(() => ciList.filter(c => normalizeIsoDate(c.data) === normalizeIsoDate(dataOperacao)), [ciList, dataOperacao]);
   const [extraDraftOrders, setExtraDraftOrders] = useState<number[]>([]);
   const extraSlots = useMemo(() => {
-    const keys = new Set([...FIXED_REFORCO_EXTRA_SLOTS.map(s => Number(s.id.split('-').at(-1))), ...extraDraftOrders, ...ciListNaData.filter(i => i.tipoPosicao === 'EXTRA').map(i => i.ordemPosicao || 0)]);
+    const keys = new Set([...FIXED_REFORCO_EXTRA_SLOTS.map(s => Number(s.id.split('-').slice(-1)[0])), ...extraDraftOrders, ...ciListNaData.filter(i => i.tipoPosicao === 'EXTRA').map(i => i.ordemPosicao || 0)]);
     return [...keys].filter(n => n > 0).sort((a, b) => a - b).map(n => ({ id: `ref-extra-${n}` }));
   }, [ciListNaData, extraDraftOrders]);
   useEffect(() => { setExtraDraftOrders([]); }, [dataOperacao, activeGaragemScope]);
@@ -2532,7 +2532,7 @@ export function CiManutencaoView({
                     <option value="PREVENTIVA">PREVENTIVA</option>
                   </select>
                 </div>
-                {c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && <button type="button" disabled={!isDataEditavel} className="text-[10px] font-bold mr-2" onClick={() => setExtraDraftOrders(previous => [...previous, Math.max(...extraSlots.map(s => Number(s.id.split('-').at(-1)))) + 1])}>+ POSIÇÃO</button>}
+                {c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && <button type="button" disabled={!isDataEditavel} className="text-[10px] font-bold mr-2" onClick={() => setExtraDraftOrders(previous => [...previous, Math.max(...extraSlots.map(s => Number(s.id.split('-').slice(-1)[0]))) + 1])}>+ POSIÇÃO</button>}
                 <button
                   type="button"
                   disabled={!isDataEditavel}
