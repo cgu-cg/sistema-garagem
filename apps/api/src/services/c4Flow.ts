@@ -3,6 +3,7 @@ import type { Prisma, PrismaClient, ItemFolhaCI, EstadoManutencao } from '@prism
 import { z } from 'zod';
 import { MvpError, operationalContext, assertContext, assertFlags, revision } from './mvpTemporal';
 import { Garage, garage, civil, dateValue, dateString, addDays, eventInstant } from './c4Temporal';
+import { canWriteC4 } from './c4Authorization';
 
 type Tx = Prisma.TransactionClient;
 export const titles = ['INSPEÇÃO', 'LUBRIFICAÇÃO', 'EM MANUTENÇÃO', 'TROCA DE ÓLEO', 'REVISÃO', 'PREVENTIVA'] as const;
@@ -105,9 +106,9 @@ function explicitRemovals(before: string[], after: string[], requested: string[]
   const removed = before.filter(p => !after.includes(p));
   if (new Set(requested).size !== requested.length || requested.some(p => !removed.includes(p)) || removed.some(p => !requested.includes(p))) throw new MvpError(409, 'Retirada de BLOQUEADO exige intencao explicita.');
 }
-async function authorized(tx: Tx, userId: number | undefined, day: string, kind: 'ci' | 'manutencao', now: () => Date) {
-  const user = userId ? await tx.user.findUnique({ where: { id: userId }, select: { role: true } }) : null;
-  if (user?.role !== 'ADMIN') throw new MvpError(403, 'Fluxo C4 exige ADMIN.');
+async function authorized(tx: Tx, userId: number | undefined, day: string, kind: 'ci' | 'manutencao', now: () => Date, scope: Garage) {
+  const user = userId ? await tx.user.findUnique({ where: { id: userId }, select: { role: true, garagem: true } }) : null;
+  if (!canWriteC4(user, scope)) throw new MvpError(403, 'Fluxo C4 exige ADMIN ou manutencao vinculada a VCG.');
   return assertContext(day, kind, now());
 }
 
@@ -125,7 +126,7 @@ export async function saveC4(db: PrismaClient, userId: number | undefined, body:
   }
   return db.$transaction(async tx => {
     await lock(tx, c.garagem, day);
-    await authorized(tx, userId, c.data, kind, now);
+    await authorized(tx, userId, c.data, kind, now, c.garagem);
     const b = await bundle(tx, c.garagem, day);
     if (!b.cycle || !b.folha || b.folha.status !== 'EM_PREPARACAO' || b.folha.cicloPreparacaoId !== b.cycle.id) throw new MvpError(409, 'Ciclo/folha em preparacao indisponivel; consulta nunca inicializa.');
     if (c.baseC4 !== b.baseC4) throw new MvpError(409, 'Snapshot C4 desatualizado. Recarregue CI e Controle.');

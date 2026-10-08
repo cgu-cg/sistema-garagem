@@ -36,10 +36,10 @@ router.post("/auth/login", validate(loginSchema), authController.login);
 router.get("/auth/me", authenticate, authController.me);
 
 // Users (admin only)
-router.get("/users", authenticate, authorize("ADMIN"), usersController.list);
-router.post("/users", authenticate, authorize("ADMIN"), validate(createUserSchema), usersController.create);
-router.put("/users/:id", authenticate, authorize("ADMIN"), validate(updateUserSchema), usersController.update);
-router.delete("/users/:id", authenticate, authorize("ADMIN"), usersController.remove);
+router.get("/users", authenticate, requireRole("ADMIN"), usersController.list);
+router.post("/users", authenticate, requireRole("ADMIN"), validate(createUserSchema), usersController.create);
+router.put("/users/:id", authenticate, requireRole("ADMIN"), validate(updateUserSchema), usersController.update);
+router.delete("/users/:id", authenticate, requireRole("ADMIN"), usersController.remove);
 
 // Groups (admin only)
 router.get("/groups", authenticate, authorize("ADMIN"), groupsController.list);

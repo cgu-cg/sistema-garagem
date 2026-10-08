@@ -1,3 +1,4 @@
+import { assertC4Read } from '../services/c4Authorization';
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import prisma from '../utils/prisma';
@@ -123,7 +124,10 @@ export async function list(req: AuthRequest, res: Response) {
     const enabled = enabledGarages();
     if (enabled.length && (!req.query.garagem || req.query.garagem === 'TODAS')) return res.status(400).json({ message: 'C4 exige contexto explicito.' });
     if (enabled.length) garage(req.query.garagem);
-    if (enabled.includes(req.query.garagem as 'VCG' | 'VCM')) return res.json((await readContext(prisma, garage(req.query.garagem), civil(data))).maintenance);
+    if (enabled.includes(req.query.garagem as 'VCG' | 'VCM')) {
+      await assertC4Read(prisma, req.userId, garage(req.query.garagem));
+      return res.json((await readContext(prisma, garage(req.query.garagem), civil(data))).maintenance);
+    }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return res.status(400).json({ message: 'Data invalida.' });
     const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { garagem: true, email: true, role: true } });
     const userGarage = user?.garagem?.toUpperCase() || (user?.email?.toLowerCase().includes('vcm') ? 'VCM' : user?.email?.toLowerCase().includes('vcg') ? 'VCG' : undefined);

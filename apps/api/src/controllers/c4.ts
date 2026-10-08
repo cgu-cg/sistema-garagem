@@ -1,3 +1,4 @@
+import { assertC4Read } from '../services/c4Authorization';
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import prisma from '../utils/prisma';
@@ -10,6 +11,7 @@ export async function context(req: AuthRequest, res: Response) {
     const scope = garage(req.query.garagem);
     const garages = enabledGarages();
     if (!garages.includes(scope)) return res.json({ mode: 'LEGADO', garagem: scope, garages });
+    await assertC4Read(prisma, req.userId, scope);
     return res.json({ ...await readContext(prisma, scope, civil(req.query.data || operationalContext().today)), garages });
   } catch (error) {
     if (error instanceof MvpError) return res.status(error.status).json({ error: error.message });

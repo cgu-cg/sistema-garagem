@@ -1,3 +1,4 @@
+import { assertC4Read } from '../services/c4Authorization';
 import { Response } from "express";
 import prisma from "../utils/prisma";
 import { AuthRequest } from "../middleware/auth";
@@ -24,6 +25,7 @@ export async function list(req: AuthRequest, res: Response) {
     if (enabled.length && (!garagem || garagem === 'TODAS')) return res.status(400).json({ error: 'C4 exige contexto explicito VCG ou VCM.' });
     if (enabled.length) garage(garagem);
     if (enabled.includes(garagem as 'VCG' | 'VCM')) {
+      await assertC4Read(prisma, req.userId, garage(garagem));
       const snapshot = await readContext(prisma, garage(garagem), operationalContext().today);
       return res.json(snapshot.ci.filter(i => (!data || i.data === civil(data)) && (!categoria || i.categoriaPlanilha === categoria) && (!status || i.status === status)));
     }

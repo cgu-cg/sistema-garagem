@@ -49,7 +49,8 @@ function fixture(source = true, empty = false, historical: boolean | '2026-10-08
     if (v instanceof Date) return r[k] instanceof Date && r[k].getTime() === v.getTime();
     return r[k] === v;
   });
-  const tx: any = { user: { findUnique: async () => ({ role: admin ? 'ADMIN' : 'COLABORADOR' }) },
+  let operationalUser: any = null;
+  const tx: any = { user: { findUnique: async () => operationalUser || ({ role: admin ? 'ADMIN' : 'COLABORADOR' }) },
     $queryRaw: async (parts: TemplateStringsArray, ...values: unknown[]) => { queries.push({ sql: parts.join('?'), values }); return []; } };
   for (const name of Object.keys(tables)) {
     const include = (row: any, options: any) => row && { ...row, ...(options.include?.itens ? { itens: tables.itemFolhaCI.filter(i => i.folhaId === row.id).map(i => ({ ...i })) } : {}) };
@@ -68,7 +69,7 @@ function fixture(source = true, empty = false, historical: boolean | '2026-10-08
     const result = queue.then(async () => { const before = structuredClone(tables); try { return await fn(tx); } catch (error) { tables = before; throw error; } });
     queue = result.then(() => undefined, () => undefined); return result;
   } };
-  return { db, tables: () => structuredClone(tables), writes: () => mutations, queries, role: (value: boolean) => { admin = value; } };
+  return { db, tables: () => structuredClone(tables), writes: () => mutations, queries, identity: (value: any) => { operationalUser = value; }, role: (value: boolean) => { admin = value; } };
 }
 async function ready() { const f = fixture(); await startCycle(f.db, 'VCG', clock()); return f; }
 test('origem importada de 08/10 cria preparacao de 09/10 com 77 itens e 28 estados sem alterar historia', async () => {
@@ -510,4 +511,38 @@ test('NULL de oficina nao e preenchido pelo motivo conhecido do bloqueio coexist
   const before = f.tables();
   await saveC4(f.db, 1, await command(f, 'manutencao'), 'manutencao', clock());
   assert.deepEqual(f.tables(), before);
+});
+
+for (const kind of ['ci', 'manutencao'] as const) test('oficina VCG pode gravar ' + kind + ' sem ADMIN e historico intacto', async () => {
+ const f = await ready(); f.identity({ role: 'manutencao', garagem: 'VCG' });
+ const history = f.tables().itemFolhaCI.filter(i => i.folhaId === 10);
+ const c = await command(f, kind);
+ if(kind === 'ci') (c.items as any[])[0].motivo = 'REGISTRO REAL OFICINA';
+ else (c.items as any[])[0].observacaoBloqueio = 'REGISTRO REAL OFICINA';
+ await saveC4(f.db, 1, c, kind, clock());
+ assert.ok(f.tables().itemFolhaCI.some(i => i.folhaId !== 10 && i.motivo === 'REGISTRO REAL OFICINA'));
+ assert.ok(f.tables().estadoManutencao.some(i => i.observacaoBloqueio === 'REGISTRO REAL OFICINA'));
+
+ assert.deepEqual(f.tables().itemFolhaCI.filter(i => i.folhaId === 10), history);
+ for (const identity of [{role:'manutencao', garagem:'VCM'}, {role:'manutencao', email:'manutencao_vcg@teste.com'}, {role:'COLABORADOR', garagem:'VCG'}, {role:'soltura', garagem:'VCG'}]) {
+  f.identity(identity); const before=f.tables(); await assert.rejects(saveC4(f.db,1,c,kind,clock()), /ADMIN/); assert.deepEqual(f.tables(),before);
+ }
+ f.identity({role:'manutencao',garagem:'VCG'});
+ await assert.rejects(saveC4(f.db,1,c,kind,clock('2026-10-07T22:30:00Z')), /Janela/);
+ await finalizeCycle(f.db,'VCG',clock('2026-10-07T22:30:00Z'));
+ await assert.rejects(saveC4(f.db,1,c,kind,clock()), /preparacao/);
+});
+test('autorizacao C4 frontend/backend equivalente e leitura isolada', async () => {
+ const server=require('../src/services/c4Authorization'); const client=require('../../web/src/lib/c4Authorization');
+ for(const role of ['ADMIN','manutencao','COLABORADOR','soltura']) for(const garagem of ['VCG','VCM',null]) for(const scope of ['VCG','VCM']) {
+  assert.equal(client.canWriteC4({role,garagem},scope),server.canWriteC4({role,garagem},scope));
+ }
+ const db:any={user:{findUnique:async()=>({role:'manutencao',garagem:'VCG'})}};
+ await server.assertC4Read(db,1,'VCG'); await assert.rejects(server.assertC4Read(db,1,'VCM'), /garagem/); await assert.rejects(server.assertC4Read(db,undefined,'VCG'), /garagem/);
+});
+
+test('administracao de usuarios exige role ADMIN sem permissao de grupo alternativa', () => {
+ const source=require('node:fs').readFileSync(path.resolve('apps/api/src/routes/index.ts'),'utf8');
+ const routes=source.split('\n').filter(line=>line.includes('"/users'));
+ assert.equal(routes.length,4); assert.ok(routes.every(line=>line.includes('requireRole("ADMIN")')));
 });

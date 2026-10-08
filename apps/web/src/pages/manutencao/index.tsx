@@ -1,3 +1,4 @@
+import { canWriteC4 } from '@/lib/c4Authorization';
 import { canMutate, getMutationState, subscribeMutationState, confirmRefresh, requireRefresh, SavedRefreshRequired } from '@/lib/mvpTemporal';
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { c4Enabled, c4Context, c4Configured } from '@/lib/c4';
@@ -72,7 +73,7 @@ export function ManutencaoPage() {
   // - VCG (Garagem 2)
   const hasC4Configuration = c4Configured();
   const userGaragemFixa: "VCM" | "VCG" | undefined = useMemo(() => {
-    if (user?.role === 'ADMIN' && hasC4Configuration) return undefined;
+    if (hasC4Configuration) return user?.role === 'ADMIN' ? undefined : user?.garagem === 'VCG' || user?.garagem === 'VCM' ? user.garagem : undefined;
     if (user?.garagem === "VCM" || user?.email?.toLowerCase().includes("vcm")) return "VCM";
     if (user?.garagem === "VCG" || user?.email?.toLowerCase().includes("vcg")) return "VCG";
     return undefined;
@@ -102,7 +103,7 @@ export function ManutencaoPage() {
   const activeContextRef = useRef(dataOperacao + "|" + activeGaragem);
   activeContextRef.current = dataOperacao + "|" + activeGaragem;
   const c4Scope = activeGaragem === 'VCM' ? 'VCM' : 'VCG';
-  const mutationAllowed = Boolean(clock && ready && !writeState.pending && !writeState.refreshRequired && user?.role === 'ADMIN' && (c4Enabled(c4Scope) ? activeGaragem !== 'TODAS' && c4Context(c4Scope, dataOperacao)?.mutable : activeGaragem !== 'VCM') && canMutate(dataOperacao, 'manutencao'));
+  const mutationAllowed = Boolean(clock && ready && !writeState.pending && !writeState.refreshRequired && (c4Enabled(c4Scope) ? canWriteC4(user, c4Scope) : user?.role === 'ADMIN') && (c4Enabled(c4Scope) ? activeGaragem !== 'TODAS' && c4Context(c4Scope, dataOperacao)?.mutable : activeGaragem !== 'VCM') && canMutate(dataOperacao, 'manutencao'));
   const dateInputRef = useRef<HTMLInputElement>(null);
   const relatorioManutencaoRef = useRef<HTMLDivElement>(null);
   
@@ -434,7 +435,7 @@ export function ManutencaoPage() {
     const vcg = (i: ManutencaoCarroItem) => getGaragemFisicaByCarro(i.prefixo) === 'VCG';
     if (!c4Enabled(c4Scope) && JSON.stringify(next.filter(i => !vcg(i))) !== JSON.stringify(items.filter(i => !vcg(i)))) { toast.error('MVP permite alteracoes somente na VCG.'); return false; }
     if (!mutationAllowed) {
-      toast.error('Controle somente leitura: ADMIN e janela 03:00–18:30 sao obrigatorios.'); return false;
+      toast.error('Controle somente leitura: permissao de manutencao e janela 03:00–18:30 sao obrigatorios.'); return false;
     }
     const context = activeContextRef.current;
     try { const records = await saveManutencaoData(dataOperacao, next, confirmed, items, removeBlocked, c4Scope); if (activeContextRef.current === context) setItems(records); return true; }
@@ -1070,7 +1071,7 @@ export function ManutencaoPage() {
     <div className="space-y-6 max-w-7xl mx-auto pb-16">
       {writeState.pending && <p role="status">Salvando. Aguarde antes de outra operacao.</p>}
       {writeState.refreshRequired && <p role="alert">Atualize os dados oficiais antes de continuar.</p>}
-      {!mutationAllowed && <p role="status" className="p-3 text-sm">Somente leitura. Alterações VCG requerem ADMIN, data atual e janela 03:00–18:30 (America/Campo_Grande).</p>}
+      {!mutationAllowed && <p role="status" className="p-3 text-sm">Somente leitura. Alterações VCG requerem permissao de manutencao, data atual e janela 03:00–18:30 (America/Campo_Grande).</p>}
 
       {/* ==========================================================
           1. HEADER PRINCIPAL (ESTILO DONEZO / BENTO GRID)
