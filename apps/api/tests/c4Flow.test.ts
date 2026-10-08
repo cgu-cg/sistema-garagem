@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { startCycle, finalizeCycle, readContext, saveC4 } from '../src/services/c4Flow';
 import { dateValue, eventInstant, enabledGarages, nextEvent, civil, mutationMode } from '../src/services/c4Temporal';
 import { revision, operationalContext } from '../src/services/mvpTemporal';
-import { recoverCurrentDay } from '../src/services/c4Scheduler';
+import { recoverCurrentDay, startC4Scheduler } from '../src/services/c4Scheduler';
 import { garageOne } from '../../web/src/lib/c4Vehicles';
 import { c4KnownFields, c4EditedText } from '../../web/src/lib/c4ItemFields';
 import Module from 'node:module';
@@ -13,7 +13,7 @@ import path from 'node:path';
 
 const day = '2026-10-07', target = '2026-10-08';
 const clock = (value = '2026-10-07T12:00:00Z') => () => new Date(value);
-function fixture(source = true, empty = false) {
+function fixture(source = true, empty = false, historical: boolean | '2026-10-08' = false) {
   let tables: Record<string, any[]> = { cicloOperacional: [], folhaCI: [], itemFolhaCI: [], estadoManutencao: [] };
   let serial = 100, mutations = 0, admin = true;
   const queries: { sql: string; values: unknown[] }[] = [];
@@ -26,6 +26,23 @@ function fixture(source = true, empty = false) {
       [4, 'REFORCO', { tipoPosicao: 'FIXO', ordemPosicao: 1, horarioReforco: '07:40' }],
       [5, 'REFORCO', { tipoPosicao: 'EXTRA', ordemPosicao: 1, horarioReforco: '07:40' }],
     ] as const) tables.itemFolhaCI.push({ id: 10 + n, folhaId: 10, chaveItem: randomUUID(), categoria, prefixo: '4000', consorciada: null, motivo: null, gravidade: null, statusItem: null, observacoes: null, horaBloqueio: null, responsavel: null, tipoPosicao: null, ordemPosicao: null, createdAt: stamp, updatedAt: stamp, ...extra });
+  }
+  if (source && historical) {
+    const historicalDay = historical === true ? day : historical;
+    const filename = historical === true ? 'data-001c4-importacao-historico-2026-10-01-a-07.sql' : 'data-001c4-importacao-historico-2026-10-08.sql';
+    const sql = readFileSync(path.resolve(__dirname, '../../../scripts/sql', filename), 'utf8');
+    const records = sql.split(/\r?\n/).filter(line => line.startsWith('-- AUDIT-ITEM ')).map(line => JSON.parse(line.slice(14))).filter(item => item.date === historicalDay);
+    tables.folhaCI[0].dataFolha = dateValue(historicalDay);
+    tables.itemFolhaCI = records.map((item, index) => ({
+      id: index + 11, folhaId: 10, chaveItem: item.guid, categoria: item.categoria,
+      prefixo: item.prefixo, consorciada: item.consorciada, subTipo: item.sub_tipo,
+      tipoPosicao: item.tipo_posicao, ordemPosicao: item.ordem_posicao,
+      horarioReforco: item.horario_reforco, motivo: item.motivo, observacoes: item.observacoes,
+      dataBloqueio: item.data_bloqueio ? dateValue(item.data_bloqueio) : null,
+      horaBloqueio: null, gravidade: null, responsavel: null, statusItem: null,
+      dataLiberacao: null, motivoLiberacao: null, responsavelLiberacao: null,
+      responsavelRegistroId: null, createdAt: stamp, updatedAt: stamp,
+    }));
   }
   const match = (r: any, where: any = {}): boolean => Object.entries(where).every(([k, v]: [string, any]) => {
     if (k === 'garagem_dataFolha' || k === 'garagem_dataOperacional') return match(r, v);
@@ -54,6 +71,92 @@ function fixture(source = true, empty = false) {
   return { db, tables: () => structuredClone(tables), writes: () => mutations, queries, role: (value: boolean) => { admin = value; } };
 }
 async function ready() { const f = fixture(); await startCycle(f.db, 'VCG', clock()); return f; }
+test('origem importada de 08/10 cria preparacao de 09/10 com 77 itens e 28 estados sem alterar historia', async () => {
+  const f = fixture(true, false, '2026-10-08'), before = f.tables();
+  assert.equal(before.itemFolhaCI.length, 77);
+  assert.equal((await startCycle(f.db, 'VCG', clock('2026-10-08T12:00:00Z'))).result, 'NORMAL');
+  const after = f.tables();
+  assert.deepEqual(after.folhaCI.find(row => row.id === 10), before.folhaCI[0]);
+  assert.deepEqual(after.itemFolhaCI.filter(row => row.folhaId === 10), before.itemFolhaCI);
+  const preparation = after.folhaCI.find(row => row.id !== 10)!;
+  assert.equal(preparation.dataFolha.toISOString().slice(0, 10), '2026-10-09');
+  assert.equal(preparation.folhaOrigemId, 10);
+  const copied = after.itemFolhaCI.filter(row => row.folhaId === preparation.id);
+  assert.equal(copied.length, 77);
+  for (const original of before.itemFolhaCI) {
+    const copy = copied.find(row => row.chaveItem === original.chaveItem)!;
+    for (const key of Object.keys(original).filter(key => !['id', 'folhaId', 'createdAt', 'updatedAt'].includes(key))) assert.deepEqual(copy[key], original[key]);
+  }
+  assert.equal(after.estadoManutencao.length, 28);
+  assert.ok(after.estadoManutencao.every(row => row.bloqueado && !row.emExecucao && !row.liberado));
+});
+test('flag ausente ou vazia impede bootstrap e scheduler de acessar persistencia', async () => {
+  const previous = process.env.CI_NOVO_FLUXO_GARAGENS;
+  try {
+    for (const value of [undefined, '', '   ']) {
+      if (value === undefined) delete process.env.CI_NOVO_FLUXO_GARAGENS;
+      else process.env.CI_NOVO_FLUXO_GARAGENS = value;
+      const db = new Proxy({}, { get() { throw new Error('Persistencia acessada com C4 desativado'); } }) as any;
+      assert.deepEqual(enabledGarages(), []);
+      assert.equal(mutationMode(undefined), 'LEGADO');
+      assert.equal(mutationMode('VCG'), 'LEGADO');
+      const logs: object[] = [];
+      await recoverCurrentDay(db, clock(), value => logs.push(value));
+      assert.deepEqual(logs, []);
+      startC4Scheduler(db)();
+    }
+  } finally {
+    if (previous === undefined) delete process.env.CI_NOVO_FLUXO_GARAGENS;
+    else process.env.CI_NOVO_FLUXO_GARAGENS = previous;
+  }
+});
+test('primeira ativacao em 07/10 copia manifesto importado: 75 itens, 32 bloqueados e historia imutavel', async () => {
+  const f = fixture(true, false, true), before = f.tables();
+  assert.equal(before.itemFolhaCI.length, 75);
+  assert.equal((await startCycle(f.db, 'VCG', clock())).result, 'NORMAL');
+  const after = f.tables();
+  assert.deepEqual(after.folhaCI.find(row => row.id === 10), before.folhaCI[0]);
+  assert.deepEqual(after.itemFolhaCI.filter(row => row.folhaId === 10), before.itemFolhaCI);
+  const copied = after.itemFolhaCI.filter(row => row.folhaId !== 10);
+  assert.equal(copied.length, 75);
+  for (const original of before.itemFolhaCI) {
+    const copy = copied.find(row => row.chaveItem === original.chaveItem)!;
+    for (const key of Object.keys(original).filter(key => !['id', 'folhaId', 'createdAt', 'updatedAt'].includes(key))) assert.deepEqual(copy[key], original[key]);
+  }
+  assert.equal(after.estadoManutencao.length, 32);
+  assert.ok(after.estadoManutencao.every(row => row.bloqueado && !row.emExecucao && !row.liberado));
+});
+test('ativacao com lacuna apos 18:30 cria e finaliza apenas preparacao atual vazia', async () => {
+  const f = fixture(true, false, true), before = f.tables();
+  const previous = process.env.CI_NOVO_FLUXO_GARAGENS;
+  try {
+    process.env.CI_NOVO_FLUXO_GARAGENS = 'VCG';
+    await recoverCurrentDay(f.db, clock('2026-10-10T23:00:00Z'), () => undefined);
+    const after = f.tables();
+    assert.equal(after.cicloOperacional.length, 1);
+    assert.equal(after.cicloOperacional[0].origem, 'RECUPERACAO');
+    assert.equal(after.cicloOperacional[0].dataOperacional.toISOString().slice(0, 10), '2026-10-10');
+    assert.equal(after.folhaCI.length, 2);
+    const preparation = after.folhaCI.find(row => row.id !== 10)!;
+    assert.equal(preparation.dataFolha.toISOString().slice(0, 10), '2026-10-11');
+    assert.equal(preparation.status, 'FINALIZADA');
+    assert.equal(preparation.folhaOrigemId, null);
+    assert.deepEqual(after.itemFolhaCI, before.itemFolhaCI);
+    assert.equal(after.estadoManutencao.length, 0);
+    await recoverCurrentDay(f.db, clock('2026-10-10T23:01:00Z'), () => undefined);
+    assert.deepEqual(f.tables(), after);
+  } finally {
+    if (previous === undefined) delete process.env.CI_NOVO_FLUXO_GARAGENS;
+    else process.env.CI_NOVO_FLUXO_GARAGENS = previous;
+  }
+});
+test('destino FINALIZADA preexistente recusa inicializacao sem sobrescrever historia', async () => {
+  const f = fixture(true, false, true);
+  await f.db.folhaCI.create({ data: { garagem: 'VCG', dataFolha: dateValue(target), status: 'FINALIZADA', origem: 'IMPORTACAO', cicloPreparacaoId: null } });
+  const before = f.tables();
+  await assert.rejects(startCycle(f.db, 'VCG', clock()), /Estrutura C4 parcial/);
+  assert.deepEqual(f.tables(), before);
+});
 async function command(f: ReturnType<typeof fixture>, kind: 'ci' | 'manutencao') {
   const ctx = await readContext(f.db, 'VCG', day);
   const items = kind === 'ci' ? ctx.ci.filter(i => i.data === target) : ctx.maintenance;
