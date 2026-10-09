@@ -1,3 +1,4 @@
+import { normalizeIsoDate, selectCIReportItems, ciReportExtraSlots, ciReportSlot } from './ciReport';
 import { operationalContext } from '@/lib/mvpTemporal';
 import { c4OperationalContext, initialCIDate } from '@/lib/c4';
 import { canWriteC4 } from '@/lib/c4Authorization';
@@ -367,23 +368,6 @@ const BLOQUEIOS_MOTIVOS_RAPIDOS = [
   "Falta de Peça Para-brisa", "Posto de Molas", "Módulo", "Suspensão", "Câmbio", "Freio", "Elétrica"
 ];
 
-// Utilitário para normalizar qualquer string de data para o padrão ISO "YYYY-MM-DD"
-function normalizeIsoDate(d?: string): string {
-  if (!d) return "";
-  const trimmed = String(d).trim();
-  const clean = trimmed.split(/[\sT]/)[0];
-  if (clean.includes("/")) {
-    const parts = clean.split("/");
-    if (parts.length === 3) {
-      if (parts[0].length === 4) {
-        return `${parts[0]}-${parts[1].padStart(2, "0")}-${parts[2].padStart(2, "0")}`;
-      }
-      return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
-    }
-  }
-  return clean;
-}
-
 // Utilitário para comparar identificadores de setores de forma insensível a maiúsculas/minúsculas e acentos
 function isSetorMatch(cSetor?: string | null, targetSetorId?: string): boolean {
   if (!cSetor || !targetSetorId) return false;
@@ -602,6 +586,12 @@ export function CiManutencaoView({
   // Modal de Relatório Oficial da CI Manutenção (CGU.REG.MT0005)
   const [modalRelatorioOpen, setModalRelatorioOpen] = useState(false);
   const relatorioFolhaRef = useRef<HTMLDivElement>(null);
+  const reportItems = useMemo(() => ready ? selectCIReportItems(ciList, dataOperacao, activeGaragemScope) : [], [ciList, dataOperacao, activeGaragemScope, ready]);
+  const reportC4 = c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG');
+  const reportExtraSlots = useMemo(() => ciReportExtraSlots(reportItems), [reportItems]);
+  const reportTitle = reportC4 && activeGaragemScope !== 'TODAS'
+    ? c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope)?.tituloColunaAdicional ?? '' : '';
+
 
   // Auxiliar para formatação da data do bloqueio na folha oficial (ex: 2026-09-25 -> 25/set)
   const formatDataBloqueio = (d?: string) => {
@@ -640,16 +630,16 @@ export function CiManutencaoView({
     const sortByCarro = (a: BloqueioCarro, b: BloqueioCarro) =>
       (a.prefixo || "").localeCompare(b.prefixo || "", undefined, { numeric: true });
 
-    const active = ciListNaData.filter(c => c.status !== "LIBERADO");
+    const active = reportItems;
     const preventivas = active.filter(c => c.categoriaPlanilha === "PREVENTIVA").sort(sortByCarro);
     const oficina = active.filter(c => c.categoriaPlanilha === "OFICINA").sort(sortByCarro);
     const reforco = active.filter(c => c.categoriaPlanilha === "REFORCO").sort(sortByCarro);
     const bloqueados = active.filter(c => c.categoriaPlanilha === "BLOQUEADO" || !c.categoriaPlanilha).sort(sortByCarro);
 
-    const bloqVSF = bloqueados.filter(c => c.consorciada === "VSF" || (!c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && !c.consorciada && c.prefixo.startsWith("2"))).sort(sortByCarro);
-    const bloqVCG = bloqueados.filter(c => c.consorciada === "VCG" || (!c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && !c.consorciada && c.prefixo.startsWith("4"))).sort(sortByCarro);
-    const bloqJTU = bloqueados.filter(c => c.consorciada === "JTU" || (!c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && !c.consorciada && c.prefixo.startsWith("3"))).sort(sortByCarro);
-    const bloqVCM = bloqueados.filter(c => c.consorciada === "VCM" || (!c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && !c.consorciada && c.prefixo.startsWith("1"))).sort(sortByCarro);
+    const bloqVSF = bloqueados.filter(c => c.consorciada === "VSF" || (!reportC4 && !c.consorciada && c.prefixo.startsWith("2"))).sort(sortByCarro);
+    const bloqVCG = bloqueados.filter(c => c.consorciada === "VCG" || (!reportC4 && !c.consorciada && c.prefixo.startsWith("4"))).sort(sortByCarro);
+    const bloqJTU = bloqueados.filter(c => c.consorciada === "JTU" || (!reportC4 && !c.consorciada && c.prefixo.startsWith("3"))).sort(sortByCarro);
+    const bloqVCM = bloqueados.filter(c => c.consorciada === "VCM" || (!reportC4 && !c.consorciada && c.prefixo.startsWith("1"))).sort(sortByCarro);
 
     // Linhas dinâmicas para nunca truncar veículos na visualização e na impressão
     const numLinhasBloqSuperiores = Math.max(11, bloqVSF.length, bloqVCG.length);
@@ -702,7 +692,7 @@ export function CiManutencaoView({
       numLinhasPreventivas,
       numLinhasOficina,
     };
-  }, [ciListNaData]);
+  }, [reportItems, reportC4]);
 
   // Data da Informação no padrão oficial: DIA_DA_SEMANA DD/MM/AAAA baseado na data selecionada
   const dataInformacaoFormatada = useMemo(() => {
@@ -1961,6 +1951,7 @@ export function CiManutencaoView({
 
           <Button
             onClick={() => setModalRelatorioOpen(true)}
+            disabled={!ready || activeGaragemScope === 'TODAS'}
             variant="outline"
             size="sm"
             className="rounded-full px-5 py-2 h-9 border border-gray-200 dark:border-slate-700 bg-white dark:bg-[#0E1420] text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-800 shadow-xs font-semibold text-xs flex items-center gap-2 cursor-pointer"
@@ -3018,28 +3009,28 @@ export function CiManutencaoView({
                       <th className="border border-black py-0.5 w-[10%]">PREFIXO</th>
                       <th className="border border-black py-0.5 w-[10%]">OBS</th>
                       {/* Coluna Extra de Serviço */}
-                      <th className="border border-black py-0.5 w-[10%]">{reforcoServicoTipo.toUpperCase()}</th>
+                      <th className="border border-black py-0.5 w-[10%]">{reportTitle.toUpperCase()}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {Array.from({ length: Math.max(6, extraSlots.length) }).map((_, rIdx) => {
-                      const slotEsq = FIXED_REFORCO_SLOTS[rIdx];
-                      const slotDir = FIXED_REFORCO_SLOTS[rIdx + 6];
-                      const slotExtra = extraSlots[rIdx];
-                      const dataEsq = getReforcoSlotData(slotEsq?.id || '', slotEsq?.horario || '', "", rIdx);
-                      const dataDir = getReforcoSlotData(slotDir?.id || '', slotDir?.horario || '', "", rIdx + 6);
-                      const dataExtra = getReforcoSlotData(slotExtra.id, reforcoServicoTipo);
+                    {Array.from({ length: Math.max(6, reportExtraSlots.length) }).map((_, rIdx) => {
+                      const slotEsq = rIdx < 6 ? FIXED_REFORCO_SLOTS[rIdx] : undefined;
+                      const slotDir = rIdx < 6 ? FIXED_REFORCO_SLOTS[rIdx + 6] : undefined;
+                      const slotExtra = reportExtraSlots[rIdx];
+                      const dataEsq = ciReportSlot(reportItems, slotEsq?.id || '', reportC4, slotEsq?.horario || '', FIXED_REFORCO_SLOTS);
+                      const dataDir = ciReportSlot(reportItems, slotDir?.id || '', reportC4, slotDir?.horario || '', FIXED_REFORCO_SLOTS);
+                      const dataExtra = ciReportSlot(reportItems, slotExtra?.id || '', reportC4);
 
                       return (
                         <tr key={rIdx} className="text-[8px] text-center h-[17.5px]">
                           {/* Lado Esquerdo */}
-                          <td className="border border-black font-mono font-bold py-0.5 leading-normal align-middle">{dataEsq.savedItem?.horarioReforco || slotEsq?.horario}</td>
+                          <td className="border border-black font-mono font-bold py-0.5 leading-normal align-middle">{dataEsq.savedItem?.horarioReforco || "\u00A0"}</td>
                           <td className="border border-black uppercase font-semibold text-[7.5px] py-0.5 leading-normal align-middle">{dataEsq.motivo || "\u00A0"}</td>
                           <td className="border border-black font-mono font-bold py-0.5 leading-normal align-middle">{dataEsq.prefixo || "\u00A0"}</td>
                           <td className="border border-black font-mono font-bold py-0.5 leading-normal align-middle">{dataEsq.obs || "\u00A0"}</td>
 
                           {/* Lado Direito */}
-                          <td className="border border-black font-mono font-bold py-0.5 leading-normal align-middle">{dataDir.savedItem?.horarioReforco || slotDir?.horario}</td>
+                          <td className="border border-black font-mono font-bold py-0.5 leading-normal align-middle">{dataDir.savedItem?.horarioReforco || "\u00A0"}</td>
                           <td className="border border-black uppercase font-semibold text-[7.5px] py-0.5 leading-normal align-middle">{dataDir.motivo || "\u00A0"}</td>
                           <td className="border border-black font-mono font-bold py-0.5 leading-normal align-middle">{dataDir.prefixo || "\u00A0"}</td>
                           <td className="border border-black font-mono font-bold text-[7.5px] py-0.5 leading-normal align-middle">{dataDir.obs || "\u00A0"}</td>
