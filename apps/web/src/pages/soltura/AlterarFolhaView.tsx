@@ -11,10 +11,10 @@ interface AlterarFolhaViewProps {
   escalaTipo: "SEG_SEX" | "SABADO" | "DOM_FER";
   turnoTipo?: "MATUTINO" | "VESPERTINO";
   schedules: SolturaItem[];
-  onUpdateField: (itemId: string, field: keyof SolturaItem, value: any) => void;
-  onUpdateMultipleFields?: (itemId: string, updates: Partial<SolturaItem>) => void;
-  onAddSchedule?: (newItem: SolturaItem) => void;
-  onDeleteSchedule?: (itemId: string) => void;
+  onUpdateField: (itemId: string, field: keyof SolturaItem, value: any) => Promise<boolean>;
+  onUpdateMultipleFields?: (itemId: string, updates: Partial<SolturaItem>) => Promise<boolean>;
+  onAddSchedule?: (newItem: SolturaItem) => Promise<boolean>;
+  onDeleteSchedule?: (itemId: string) => Promise<boolean>;
   onSelectGaragem?: (garagem: "VCG" | "VCM") => void;
   onSelectEscalaTipo?: (escala: "SEG_SEX" | "SABADO" | "DOM_FER") => void;
   onSelectTurnoTipo?: (turno: "MATUTINO" | "VESPERTINO") => void;
@@ -91,7 +91,7 @@ export function AlterarFolhaView({
     };
   }, [displayedSchedules, filteredSchedules, isVCGMatutino, activePage, searchQuery]);
 
-  const handleCreateNewTrip = () => {
+  const handleCreateNewTrip = async () => {
     if (!newLine.trim()) {
       toast.error("Informe a Linha.");
       return;
@@ -119,7 +119,7 @@ export function AlterarFolhaView({
     };
 
     if (onAddSchedule) {
-      onAddSchedule(newItem);
+      if (!await onAddSchedule(newItem)) return;
     }
 
     setNewLine("");
@@ -493,9 +493,9 @@ export function AlterarFolhaView({
 interface AlterarFolhaTableRowProps {
   item: SolturaItem;
   index: number;
-  onUpdateField: (itemId: string, field: keyof SolturaItem, value: any) => void;
-  onUpdateMultipleFields?: (itemId: string, updates: Partial<SolturaItem>) => void;
-  onDeleteSchedule?: (itemId: string) => void;
+  onUpdateField: (itemId: string, field: keyof SolturaItem, value: any) => Promise<boolean>;
+  onUpdateMultipleFields?: (itemId: string, updates: Partial<SolturaItem>) => Promise<boolean>;
+  onDeleteSchedule?: (itemId: string) => Promise<boolean>;
 }
 
 function AlterarFolhaTableRow({ item, index, onUpdateField, onUpdateMultipleFields, onDeleteSchedule }: AlterarFolhaTableRowProps) {
@@ -514,7 +514,7 @@ function AlterarFolhaTableRow({ item, index, onUpdateField, onUpdateMultipleFiel
     setBairro(item.inicioBairro || item.chegadaGaragem || item.inicioLinha || "");
   }, [item.linha, item.tabela, item.carroProgramado, item.saidaGaragem, item.inicioBairro, item.chegadaGaragem, item.inicioLinha]);
 
-  const handleAlterar = () => {
+  const handleAlterar = async () => {
     if (!linha.trim()) {
       toast.error("A Linha não pode ficar vazia.");
       return;
@@ -539,15 +539,15 @@ function AlterarFolhaTableRow({ item, index, onUpdateField, onUpdateMultipleFiel
     };
 
     if (onUpdateMultipleFields) {
-      onUpdateMultipleFields(item.id, updates);
+      if (!await onUpdateMultipleFields(item.id, updates)) return;
     } else {
-      onUpdateField(item.id, "linha", updates.linha);
-      onUpdateField(item.id, "tabela", updates.tabela);
-      onUpdateField(item.id, "carroProgramado", updates.carroProgramado);
-      onUpdateField(item.id, "saidaGaragem", updates.saidaGaragem);
-      onUpdateField(item.id, "inicioBairro", updates.inicioBairro);
-      onUpdateField(item.id, "chegadaGaragem", updates.chegadaGaragem);
-      onUpdateField(item.id, "inicioLinha", updates.inicioLinha);
+      if (!await onUpdateField(item.id, "linha", updates.linha)) return;
+      if (!await onUpdateField(item.id, "tabela", updates.tabela)) return;
+      if (!await onUpdateField(item.id, "carroProgramado", updates.carroProgramado)) return;
+      if (!await onUpdateField(item.id, "saidaGaragem", updates.saidaGaragem)) return;
+      if (!await onUpdateField(item.id, "inicioBairro", updates.inicioBairro)) return;
+      if (!await onUpdateField(item.id, "chegadaGaragem", updates.chegadaGaragem)) return;
+      if (!await onUpdateField(item.id, "inicioLinha", updates.inicioLinha)) return;
     }
   };
 

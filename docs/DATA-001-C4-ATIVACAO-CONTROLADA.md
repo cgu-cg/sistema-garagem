@@ -1,5 +1,10 @@
 # DATA-001/C4 — auditoria de primeira ativação
 
+> Baseline histórico: referências abaixo a 18:30 e ADMIN exclusivo foram
+> substituídas pelo [horário C4 às 20h](DATA-001-C4-HORARIO-20H.md) e pelas
+> [permissões C4](DATA-001-C4-PERMISSOES.md). A consolidação não executou
+> a ativação; veja as [pendências atuais](CONSOLIDACAO-5173.md).
+
 Auditoria local atualizada em 08/10/2026 na branch
 `feat/data-001-c4-operational-flow`, sobre a base `50f708a`. O responsável informou
 importação validada no banco garagem: oito folhas VCG FINALIZADA/IMPORTACAO

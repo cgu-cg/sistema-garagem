@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/stores/auth";
 import { api } from "@/lib/api";
+import { confirmedWrite } from "@/lib/confirmedWrite";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 import { toast } from "sonner";
@@ -53,12 +54,8 @@ import { CiManutencaoView } from "./CiManutencaoView";
 import { AlterarFolhaView } from "./AlterarFolhaView";
 import { AlterarCarroProgramadoView } from "./AlterarCarroProgramadoView";
 import { CarroRealizadoView } from "./CarroRealizadoView";
-import { getInitialCIBloqueios, checkCarroBloqueado, subscribeCIUpdates, fetchCIBloqueiosFromApi, getGaragemFisicaByCarro } from "./ciManager";
-import {
-  getInitialCustomSchedules,
-  saveCustomSchedulesToStorage,
-  subscribeCustomSchedulesUpdates
-} from "./folhaStorage";
+import { checkCarroBloqueado, subscribeCIUpdates, fetchCIBloqueiosFromApi, getGaragemFisicaByCarro } from "./ciManager";
+import { loadSharedEscala, saveSharedEscala, SharedEscala, EscalaContext } from '@/lib/sharedEscala';
 
 type GaragemType = "VCG" | "VCM";
 export type EscalaTipo = "SEG_SEX" | "SABADO" | "DOM_FER";
@@ -276,15 +273,17 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const [isListaEstendida, setIsListaEstendida] = useState(false);
 
   // Base de CIs Bloqueados sincronizada e persistida
-  const [ciList, setCiList] = useState<BloqueioCarro[]>(() => getInitialCIBloqueios());
+  const [ciList, setCiList] = useState<BloqueioCarro[]>([]);
+
+  const [ciReadError, setCIReadError] = useState('');
 
   // Carregar CIs Bloqueados diretamente do banco oficial SQL Server
   useEffect(() => {
     fetchCIBloqueiosFromApi({ garagem }).then((data) => {
       if (Array.isArray(data)) {
-        setCiList(data);
+        setCiList(data); setCIReadError('');
       }
-    });
+    }).catch(() => { setCIReadError('Consulta oficial indisponivel; disponibilidade nao confirmada.'); });
   }, [garagem]);
 
   useEffect(() => {
@@ -298,8 +297,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       const customEvt = e as CustomEvent;
       if (customEvt.detail?.fromCISync) return;
       fetchCIBloqueiosFromApi({ garagem }).then(data => {
-        if (Array.isArray(data)) setCiList(data);
-      });
+        if (Array.isArray(data)) { setCiList(data); setCIReadError(''); }
+      }).catch(() => { setCIReadError('Consulta oficial indisponivel; disponibilidade nao confirmada.'); });
     };
     window.addEventListener("manutencao_updated", handleManutUpdate);
 
@@ -316,6 +315,9 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
   // Despachos em memória sincronizados estritamente com o backend SQL Server
   const [dispatches, setDispatches] = useState<Record<string, DispatchedRecord>>({});
+  const dispatchContextKey = JSON.stringify([garagem, escalaTipo, turnoTipo, dataOperacao]);
+  const selectedDispatchKey = useRef(dispatchContextKey);
+  selectedDispatchKey.current = dispatchContextKey;
 
   // Rascunhos de digitação na folha antes da liberação
   const [drafts, setDrafts] = useState<Record<string, { carro?: string; moto?: string }>>({});
@@ -338,7 +340,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
   // Persistir despachos no localStorage (apenas como cache local)
   const saveDispatches = (newDispatches: Record<string, DispatchedRecord>) => {
-    setDispatches(newDispatches);
+    if (selectedDispatchKey.current === dispatchContextKey) setDispatches(newDispatches);
     try {
       const key = getDispatchStorageKey(garagem, escalaTipo, turnoTipo, dataOperacao);
       if (Object.keys(newDispatches).length === 0) {
@@ -351,26 +353,56 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     }
   };
 
-  // Base de dados ativa baseada na Garagem, Escala e Turno (persistida no localStorage e offline-db)
-  const [customSchedules, setCustomSchedules] = useState<Record<string, SolturaItem[]>>(() => getInitialCustomSchedules());
-
-  // Sincronizar alterações da folha entre componentes e abas do navegador
+  const [customSchedules, setCustomSchedules] = useState<Record<string, SolturaItem[]>>({});
+  const [sharedScale, setSharedScale] = useState<SharedEscala | null>(null);
+  const [scaleError, setScaleError] = useState('');
+  const scaleWritePending = useRef(false);
+  const scaleWriteContext = useRef<string | null>(null);
+  const scaleReadSequence = useRef(0);
+  const scaleContext: EscalaContext = { garagem, escalaTipo, turno: escalaTipo === 'SEG_SEX' ? turnoTipo : 'PADRAO' };
+  const scaleContextKey = JSON.stringify(scaleContext);
+  const selectedScaleKey = useRef(scaleContextKey);
+  selectedScaleKey.current = scaleContextKey;
+  const reloadSharedScale = async () => {
+    if (scaleWritePending.current && scaleWriteContext.current === scaleContextKey) return;
+    const request = ++scaleReadSequence.current;
+    const key = scaleContextKey;
+    try {
+      const loaded = await loadSharedEscala(scaleContext);
+      if (selectedScaleKey.current !== key || request !== scaleReadSequence.current) return;
+      setSharedScale(loaded); setScaleError('');
+      setCustomSchedules({ [scheduleKey]: loaded.itens });
+    } catch (error) {
+      if (selectedScaleKey.current !== key || request !== scaleReadSequence.current) return;
+      setSharedScale(null); setCustomSchedules({});
+      setScaleError(error instanceof Error ? error.message : 'Escala oficial indisponivel.');
+    }
+  };
   useEffect(() => {
-    const unsubscribe = subscribeCustomSchedulesUpdates((updated) => {
-      setCustomSchedules(updated);
-    });
-    return unsubscribe;
-  }, []);
-
-  // Função auxiliar para atualizar o estado e persistir imediatamente no armazenamento
-  const persistCustomSchedules = (
-    updater: (prev: Record<string, SolturaItem[]>) => Record<string, SolturaItem[]>
-  ) => {
-    setCustomSchedules(prev => {
-      const next = updater(prev);
-      saveCustomSchedulesToStorage(next);
-      return next;
-    });
+    setSharedScale(null); setCustomSchedules({});
+    void reloadSharedScale();
+    const refresh = () => { if (!scaleWritePending.current) void reloadSharedScale(); };
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, [scaleContextKey]);
+  const persistCustomSchedules = async (updater: (prev: Record<string, SolturaItem[]>) => Record<string, SolturaItem[]>) => {
+    if (!isAdmin || !sharedScale || JSON.stringify(sharedScale.contexto) !== scaleContextKey || scaleWritePending.current) {
+      toast.error('Carregue a escala oficial e aguarde a gravacao; publicacao requer ADMIN.'); return false;
+    }
+    const next = updater(customSchedules)[scheduleKey];
+    if (!next) { toast.error('Escala sem contexto.'); return false; }
+    const key = scaleContextKey;
+    scaleWritePending.current = true;
+    scaleWriteContext.current = key;
+    ++scaleReadSequence.current; // Uma leitura anterior nao pode sobrescrever a publicacao.
+    try {
+      const saved = await saveSharedEscala(scaleContext, sharedScale.revisao, next);
+      if (selectedScaleKey.current === key) { setSharedScale(saved); setCustomSchedules({ [scheduleKey]: saved.itens }); }
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Escala nao gravada.');
+      return false;
+    } finally { scaleWritePending.current = false; scaleWriteContext.current = null; }
   };
 
   const defaultSchedules = useMemo<SolturaItem[]>(() => {
@@ -388,7 +420,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   }, [garagem, escalaTipo, turnoTipo]);
 
   const scheduleKey = `${garagem}_${escalaTipo}_${escalaTipo === "SEG_SEX" ? turnoTipo : "PADRAO"}`;
-  const rawBaseSchedules = customSchedules[scheduleKey] || defaultSchedules;
+  const rawBaseSchedules = customSchedules[scheduleKey] || [];
   const baseSchedules = useMemo(() => {
     return [...rawBaseSchedules].sort((a, b) => {
       // Priorizar a ordem sequencial oficial da folha de soltura
@@ -446,15 +478,9 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         }
       })
       .catch((err) => {
-        console.error("Erro ao carregar solturas do banco:", err);
-        // Em caso de falha de rede/offline, tenta ler do cache local de contingência
-        try {
-          const key = getDispatchStorageKey(garagem, escalaTipo, turnoTipo, dataOperacao);
-          const saved = localStorage.getItem(key);
-          if (saved) {
-            setDispatches(JSON.parse(saved));
-          }
-        } catch {}
+        if (isCancelled) return;
+        setDispatches({});
+        toast.error(err instanceof Error ? err.message : 'Historico oficial indisponivel. Cache local nao confirma solturas.');
       })
       .finally(() => {
         if (!isCancelled) setIsSyncingDb(false);
@@ -466,8 +492,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   }, [garagem, escalaTipo, turnoTipo, dataOperacao]);
 
   // Persistir despacho individual na API
+  const dispatchWritePending = useRef(false);
   const persistDispatchToApi = async (item: SolturaItem, record: DispatchedRecord) => {
-    try {
       await api.createSoltura({
         scheduleId: item.id,
         carroProgramado: item.carroProgramado || null,
@@ -488,14 +514,11 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         status: "LIBERADO",
         notes: record.observacoes || null,
       });
-    } catch (err) {
-      console.error("Erro ao salvar soltura no banco:", err);
-    }
   };
 
   // Salvar múltiplos despachos (usado pelo CarroRealizadoView)
-  const handleSaveDispatchFromView = (newDispatches: Record<string, DispatchedRecord>) => {
-    saveDispatches(newDispatches);
+  const handleSaveDispatchFromView = async (newDispatches: Record<string, DispatchedRecord>): Promise<boolean> => {
+    if (dispatchWritePending.current) { toast.error("Aguarde a gravacao pendente."); return false; }
     const itemsToPersist = Object.values(newDispatches).map(disp => {
       const sched = baseSchedules.find(s => s.id === disp.scheduleId);
       return {
@@ -516,18 +539,22 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       };
     }).filter(i => i.linha && i.tabela);
 
-    if (itemsToPersist.length > 0) {
-      api.batchSyncSolturas({
-        dataOperacao,
-        garagem,
-        turno: escalaTipo === "SEG_SEX" ? turnoTipo : "PADRAO",
-        escalaTipo,
-        items: itemsToPersist
-      }).catch(e => console.error("Erro ao sincronizar do CarroRealizadoView:", e));
+    if (!itemsToPersist.length || itemsToPersist.length !== Object.keys(newDispatches).length) {
+      toast.error("Viagem sem contexto oficial. Nada foi gravado."); return false;
     }
+    dispatchWritePending.current = true;
+    try {
+      await confirmedWrite(() => api.batchSyncSolturas({ dataOperacao, garagem,
+        turno: escalaTipo === "SEG_SEX" ? turnoTipo : "PADRAO", escalaTipo, items: itemsToPersist }),
+        () => saveDispatches(newDispatches));
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Soltura nao confirmada."); return false;
+    } finally { dispatchWritePending.current = false; }
+
   };
 
-  const handleUpdateScheduleField = (itemId: string, field: keyof SolturaItem, value: any) => {
+  const handleUpdateScheduleField = async (itemId: string, field: keyof SolturaItem, value: any) => {
     // Regra: Bloquear duplicidade de carro programado na mesma escala
     if (field === "carroProgramado" && value) {
       const cleanVal = String(value).trim();
@@ -536,12 +563,12 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         const duplicate = current.find(s => s.id !== itemId && s.carroProgramado?.trim() === cleanVal);
         if (duplicate) {
           toast.error(`O carro ${cleanVal} já está programado na Linha ${duplicate.linha} (Tab ${duplicate.tabela})! Não é permitido o mesmo carro programado.`);
-          return;
+          return false;
         }
       }
     }
 
-    persistCustomSchedules(prev => {
+    const saved = await persistCustomSchedules(prev => {
       const current = prev[scheduleKey] ? [...prev[scheduleKey]] : [...defaultSchedules];
       const idx = current.findIndex(s => s.id === itemId);
       if (idx >= 0) {
@@ -549,10 +576,11 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       }
       return { ...prev, [scheduleKey]: current };
     });
-    toast.success("Alteração salva com sucesso!");
+    if (saved) toast.success("Alteração salva com sucesso!");
+    return saved;
   };
 
-  const handleUpdateScheduleMultipleFields = (itemId: string, updates: Partial<SolturaItem>) => {
+  const handleUpdateScheduleMultipleFields = async (itemId: string, updates: Partial<SolturaItem>) => {
     if (updates.carroProgramado !== undefined) {
       const cleanVal = String(updates.carroProgramado || "").trim();
       if (cleanVal) {
@@ -560,12 +588,12 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         const duplicate = current.find(s => s.id !== itemId && s.carroProgramado?.trim() === cleanVal);
         if (duplicate) {
           toast.error(`O carro ${cleanVal} já está programado na Linha ${duplicate.linha} (Tab ${duplicate.tabela})! Não é permitido o mesmo carro programado.`);
-          return;
+          return false;
         }
       }
     }
 
-    persistCustomSchedules(prev => {
+    const saved = await persistCustomSchedules(prev => {
       const current = prev[scheduleKey] ? [...prev[scheduleKey]] : [...defaultSchedules];
       const idx = current.findIndex(s => s.id === itemId);
       if (idx >= 0) {
@@ -573,10 +601,11 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       }
       return { ...prev, [scheduleKey]: current };
     });
-    toast.success("Alteração salva com sucesso!");
+    if (saved) toast.success("Alteração salva com sucesso!");
+    return saved;
   };
 
-  const handleAddSchedule = (newItem: SolturaItem) => {
+  const handleAddSchedule = async (newItem: SolturaItem) => {
     // Regra: Bloquear duplicidade de carro programado ao adicionar
     if (newItem.carroProgramado && newItem.carroProgramado.trim()) {
       const cleanVal = newItem.carroProgramado.trim();
@@ -584,24 +613,26 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       const duplicate = current.find(s => s.carroProgramado?.trim() === cleanVal);
       if (duplicate) {
         toast.error(`O carro ${cleanVal} já está programado na Linha ${duplicate.linha} (Tab ${duplicate.tabela})! Não é permitido o mesmo carro programado.`);
-        return;
+        return false;
       }
     }
 
-    persistCustomSchedules(prev => {
+    const saved = await persistCustomSchedules(prev => {
       const current = prev[scheduleKey] ? [...prev[scheduleKey]] : [...defaultSchedules];
       return { ...prev, [scheduleKey]: [...current, newItem] };
     });
-    toast.success("Novo horário adicionado e salvo com sucesso!");
+    if (saved) toast.success("Novo horário adicionado e salvo com sucesso!");
+    return saved;
   };
 
-  const handleDeleteSchedule = (itemId: string) => {
-    persistCustomSchedules(prev => {
+  const handleDeleteSchedule = async (itemId: string) => {
+    const saved = await persistCustomSchedules(prev => {
       const current = prev[scheduleKey] ? [...prev[scheduleKey]] : [...defaultSchedules];
       const filtered = current.filter(s => s.id !== itemId);
       return { ...prev, [scheduleKey]: filtered };
     });
-    toast.success("Viagem removida da folha!");
+    if (saved) toast.success("Viagem removida da folha!");
+    return saved;
   };
 
   // Reservas de terminais persistidas no banco de dados
@@ -963,7 +994,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   }, [activeSchedules, dispatches, drafts]);
 
   // Liberação de Saída (acionada unicamente pelo clique no botão 'Liberar')
-  const handleRelease = (item: SolturaItem, customCarro?: string, customMoto?: string) => {
+  const handleRelease = async (item: SolturaItem, customCarro?: string, customMoto?: string) => {
     const draft = drafts[item.id];
     const rawCarro = customCarro !== undefined ? customCarro : draft?.carro;
     const rawMoto = customMoto !== undefined ? customMoto : draft?.moto;
@@ -1010,7 +1041,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     let finalNome = "";
     if (finalMoto) {
       const driverObj = drivers.find(d => d.code === finalMoto);
-      finalNome = driverObj ? driverObj.name : `Motorista ${finalMoto}`;
+      finalNome = driverObj ? driverObj.name : "";
     }
 
     const newRecord: DispatchedRecord = {
@@ -1023,8 +1054,15 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     };
 
     const updated = { ...dispatches, [item.id]: newRecord };
-    saveDispatches(updated);
-    persistDispatchToApi(item, newRecord);
+    if (dispatchWritePending.current) { toast.error("Aguarde a gravacao pendente."); return; }
+    dispatchWritePending.current = true;
+    try {
+      await confirmedWrite(() => persistDispatchToApi(item, newRecord), () => saveDispatches(updated));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Soltura nao confirmada."); return;
+    } finally { dispatchWritePending.current = false; }
+
+    if (selectedDispatchKey.current !== dispatchContextKey) return;
 
     // Limpar rascunho
     setDrafts(prev => {
@@ -1048,7 +1086,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   };
 
   // Alteração de carro com motivo e registro de histórico de trocas (Prints 2 e 3)
-  const handleTrocarCarro = (item: SolturaItem, novoCarro: string, motivo: string) => {
+  const handleTrocarCarro = async (item: SolturaItem, novoCarro: string, motivo: string) => {
     const cleanNovo = novoCarro.trim();
     if (!cleanNovo) {
       toast.error("Informe o prefixo do novo carro.");
@@ -1084,17 +1122,6 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     const historicoAtual = currentDisp?.historicoTrocas || [];
     const novoHistorico = [...historicoAtual, novaTroca];
 
-    // Se o novo carro estiver em Reserva Terminal, remover da reserva
-    const reservaEncontrada = reservasTerminais.find(r => r.carro.trim() === cleanNovo);
-    if (reservaEncontrada) {
-      api.deleteReservaTerminal(reservaEncontrada.id).then(() => {
-        setReservasTerminais(prev => prev.filter(r => r.id !== reservaEncontrada.id));
-        toast.info(`Carro ${cleanNovo} consumido e liberado da reserva do ${reservaEncontrada.terminal}.`);
-      }).catch(err => {
-        console.error("Erro ao remover da reserva:", err);
-      });
-    }
-
     const newRecord: DispatchedRecord = {
       scheduleId: item.id,
       carroRealizado: cleanNovo,
@@ -1106,10 +1133,26 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     };
 
     const updated = { ...dispatches, [item.id]: newRecord };
-    saveDispatches(updated);
-    persistDispatchToApi(item, newRecord);
+    if (dispatchWritePending.current) { toast.error("Aguarde a gravacao pendente."); return; }
+    dispatchWritePending.current = true;
+    try {
+      await confirmedWrite(() => persistDispatchToApi(item, newRecord), () => saveDispatches(updated));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Soltura nao confirmada."); return;
+    } finally { dispatchWritePending.current = false; }
 
-    toast.success(`Carro da Linha ${item.linha} alterado para ${cleanNovo}!`);
+    // Se o novo carro estiver em Reserva Terminal, remover da reserva
+    const reservaEncontrada = reservasTerminais.find(r => r.carro.trim() === cleanNovo);
+    if (reservaEncontrada) {
+      api.deleteReservaTerminal(reservaEncontrada.id).then(() => {
+        setReservasTerminais(prev => prev.filter(r => r.id !== reservaEncontrada.id));
+        toast.info(`Carro ${cleanNovo} consumido e liberado da reserva do ${reservaEncontrada.terminal}.`);
+      }).catch(err => {
+        console.error("Erro ao remover da reserva:", err);
+      });
+    }
+
+    if (selectedDispatchKey.current === dispatchContextKey) toast.success(`Carro da Linha ${item.linha} alterado para ${cleanNovo}!`);
   };
 
   // Imprimir folha A4
@@ -1310,6 +1353,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                 key={ci.id || ci.prefixo}
                 className="relative group inline-block"
               >
+
+
                 <div
                   className={cn(
                     "px-3 py-1 rounded-lg border font-mono font-bold text-xs flex items-center justify-center gap-1 shadow-2xs select-none transition-all duration-300 cursor-pointer print:border-neutral-400 print:text-black",
@@ -1488,6 +1533,18 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
   return (
     <div className="space-y-5 animate-in fade-in duration-300 pb-16">
+      <div role="alert" className="p-3 border rounded print:hidden">
+        <p>Soltura depende da CI finalizada da data de operacao e da manutencao oficial atual, confirmadas pela API. CI em preparacao, legado e VCM nao autorizam soltura neste piloto.</p>
+        {ciReadError && <p>{ciReadError}</p>}
+        {scaleError || (!sharedScale ? 'Carregando escala oficial...' : sharedScale.publicada ? 'Escala oficial carregada.' : 'Escala ainda nao publicada. Nenhum dado local foi importado.')}
+        <Button type="button" variant="outline" onClick={() => void reloadSharedScale()}>Recarregar escala</Button>
+        {isAdmin && sharedScale && !sharedScale.publicada && <details><summary>Revisar programacao padrao antes de publicar</summary><ul>{defaultSchedules.map(i => <li key={i.id}>{i.linha} / {i.tabela} / {i.carroProgramado} / {i.saidaGaragem}</li>)}</ul></details>}
+        {isAdmin && sharedScale && !sharedScale.publicada && <Button type="button" onClick={async () => {
+          if (!window.confirm('Publicar a programacao padrao exibida na revisao da equipe? Nenhum dado de localStorage sera usado.')) return;
+          const saved = await persistCustomSchedules(() => ({ [scheduleKey]: defaultSchedules }));
+          if (saved) toast.success('Escala publicada no servidor.');
+        }}>Publicar programacao padrao</Button>}
+      </div>
 
       {/* ========================================================= */}
       {/* CABEÇALHO PRINCIPAL E SELETORES (Folha de Soltura e Histórico) */}

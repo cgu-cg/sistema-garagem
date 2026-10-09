@@ -1,5 +1,23 @@
 # Domain model e entendimento operacional atual
 
+## Consolidação em 09/10/2026 — precedência vigente
+
+O C4 abre às 03:00 inclusivo e fecha às 20:00 exclusivo, em
+America/Campo_Grande. A seleção inicial da CI usa hoje antes das 03h e
+amanhã a partir das 03h; sua data é independente da Soltura e do Histórico.
+ADMIN pode escrever nos contextos habilitados; manutencao vinculada
+explicitamente a VCG pode escrever apenas VCG. Leituras C4 e de Escala e
+gravações de Soltura verificam a garagem do usuário no backend; ADMIN pode
+consultar todos os contextos. Publicação de Escala exige ADMIN.
+
+As referências históricas abaixo a 18:30/ADMIN exclusivo foram substituídas
+pelo [horário vigente](DATA-001-C4-HORARIO-20H.md) e pelas
+[permissões vigentes](DATA-001-C4-PERMISSOES.md). O legado mantém 18:30.
+As restrições recentes de Soltura estão em
+[SOLTURA-ESCALA-SEGURANCA.md](SOLTURA-ESCALA-SEGURANCA.md).
+A integração não certifica dados nem autoriza publicação; consulte o
+[relatório da consolidação](CONSOLIDACAO-5173.md).
+
 ## DATA-001/C4 — Contrato operacional confirmado em 07/10/2026
 
 Esta seção atualiza os baselines históricos A/C1/C3 abaixo. A implementação
@@ -597,3 +615,16 @@ Não existem os modelos/ciclo/status de folha propostos. As quatro seções usam
 ### PENDENTE — desenho e implementação
 
 A proposta técnica está em DATABASE.md. Schema, constraints, comandos, transações, scheduler, habilitação do rollout e adaptação do frontend precisam de revisão/implementação. data_folha continua sem finalidade comprovada e não será reutilizada. Definir posteriormente o procedimento administrativo de preenchimento/correção da recuperação, preservando a imutabilidade operacional; dados/arquivo inicial e data de rollout ainda precisam ser fornecidos/aprovados. Não há nova dúvida sobre horários, timezone, cópia integral, acesso ADMIN, isolamento de garagens ou janela noturna.
+
+
+### Soltura VCG: resolucao temporal explicita
+
+CONFIRMADO nesta etapa: equipe prepara CI D+1 em D; portaria consulta D+1
+na tarde/noite D e na madrugada D+1. Consultar EM_PREPARACAO nao equivale
+a autorizar soltura. Manutencao oficial atual tambem deve ser considerada.
+
+ATUAL/OBSERVADO: o piloto autoriza somente VCG/C4 com CI FINALIZADA da
+dataOperacao explicita e ciclo NORMAL de manutencao atual. Legado, VCM,
+preparacao, recuperacao e madrugada antes das 03:00 permanecem recusados.
+A escala possui armazenamento proprio/revisao e nao confirma disponibilidade.
+Limites e verificacoes em [SOLTURA-ESCALA-SEGURANCA.md](SOLTURA-ESCALA-SEGURANCA.md).

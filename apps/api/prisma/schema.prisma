@@ -350,3 +350,31 @@ model EstadoManutencao {
   @@unique([cicloId, prefixo], map: "UQ_estado_manutencao_ciclo_ciclo_prefixo")
   @@map("estado_manutencao_ciclo")
 }
+
+model EscalaCarros {
+  id            Int                @id @default(autoincrement())
+  garagem       String             @db.NVarChar(10)
+  escalaTipo    String             @map("escala_tipo") @db.NVarChar(10)
+  turno         String             @db.NVarChar(10)
+  revisao       Int                @default(1)
+  responsavelId Int                @map("responsavel_id")
+  createdAt     DateTime           @default(dbgenerated("SYSUTCDATETIME()")) @map("created_at") @db.DateTime2
+  updatedAt     DateTime           @default(dbgenerated("SYSUTCDATETIME()")) @updatedAt @map("updated_at") @db.DateTime2
+  itens         ItemEscalaCarros[]
+
+  @@unique([garagem, escalaTipo, turno], map: "UQ_escala_carros_contexto")
+  @@map("escala_carros")
+}
+
+model ItemEscalaCarros {
+  id        Int          @id @default(autoincrement())
+  escalaId  Int          @map("escala_id")
+  chaveItem String       @map("chave_item") @db.NVarChar(100)
+  ordem     Int
+  conteudo  String       @db.NVarChar(Max)
+  escala    EscalaCarros @relation(fields: [escalaId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([escalaId, chaveItem], map: "UQ_item_escala_carros_chave")
+  @@unique([escalaId, ordem], map: "UQ_item_escala_carros_ordem")
+  @@map("item_escala_carros")
+}

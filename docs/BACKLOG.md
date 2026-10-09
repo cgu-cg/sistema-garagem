@@ -1,5 +1,31 @@
 # Backlog do Projeto
 
+## Pendências identificadas na consolidação 5173 — 09/10/2026
+
+- **DATA-003 — Origem da frota:** pendente de validação da fonte antes de
+  alterar filtros. Os dois worktrees têm as mesmas listas de 464 prefixos:
+  168 iniciados por 1 e 296 restantes. Isso explica uma possível contagem por
+  filtro, sem certificar a frota real. C4 seleciona garagemFonte=1; o legado
+  normaliza valor 1 como VCM e mantém fallback por prefixo/2002. Contexto de
+  folha, garagem física e consorciada são distintos. Conferir a fonte com o
+  responsável; não inferir empresa nem corrigir históricos. Sem consulta ao banco.
+- **SEC-004 — Históricos e reservas:** revisão antes de disponibilizar a
+  várias garagens. A nova consulta de Escala e escrita de Soltura validam
+  vínculo de garagem. Endpoints preexistentes de histórico de Soltura e
+  reservas ainda aceitam filtros/IDs sem a mesma validação contextual no
+  controller. Revisar permissões, inclusive exclusão de reserva por ID.
+  A exclusão após Soltura confirmada é outra requisição: uma falha pode
+  deixar reserva pendente. Não há atomicidade entre essas operações.
+- **OPS-002 — Programação e fontes de Soltura:** pendente de validação antes
+  de certificar publicação. A API de Escala preserva viagens distintas com
+  o mesmo carro; a interface impede algumas inclusões/edições repetidas.
+  Validar antes de unificar. CI em preparação, madrugada antes das 03h, VCM
+  e legado permanecem impedidos no escritor recente; não relaxar contenção
+  sem fonte oficial definida. Escalas locais anteriores exigem revisão e
+  publicação explícita; não são importadas automaticamente.
+
+Origem e detalhes: [relatório da consolidação](CONSOLIDACAO-5173.md).
+
 Este documento registra pendências técnicas, operacionais, de segurança
 e de experiência do usuário identificadas durante o desenvolvimento que
 não precisam ser resolvidas imediatamente.

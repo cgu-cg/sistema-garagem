@@ -43,9 +43,9 @@ interface CarroRealizadoViewProps {
   setDataOperacao: (d: string) => void;
   schedules: SolturaItem[];
   dispatches: Record<string, DispatchedRecord>;
-  onSaveDispatch: (newDispatches: Record<string, DispatchedRecord>) => void;
+  onSaveDispatch: (newDispatches: Record<string, DispatchedRecord>) => Promise<boolean>;
   ciList: BloqueioCarro[];
-  onAddSchedule?: (newItem: SolturaItem) => void;
+  onAddSchedule?: (newItem: SolturaItem) => Promise<boolean>;
 }
 
 export function CarroRealizadoView({
@@ -178,7 +178,7 @@ export function CarroRealizadoView({
   }, [currentItem, inputCarroRealizado]);
 
   // Salvar Formulário de Carro Realizado (P)
-  const handleSaveForm = (e: React.FormEvent) => {
+  const handleSaveForm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentItem) return;
 
@@ -188,12 +188,10 @@ export function CarroRealizadoView({
       return;
     }
 
-    if (bloqueioCI) {
-      toast.warning(`Aviso: Carro ${finalCarro} está no CI (${bloqueioCI.motivo}). Liberação registrada com pendência.`, {
-        duration: 5000
-      });
+    if (checkCarroBloqueado(finalCarro, ciList, dataOperacao)) {
+      toast.error("Veiculo bloqueado. Soltura impedida."); return;
     }
-
+    if (!inputMotoCodigo.trim()) { toast.error("Informe o motorista real."); return; }
     const agora = new Date();
     const horaFinal = inputHoraSaida || `${String(agora.getHours()).padStart(2, "0")}:${String(agora.getMinutes()).padStart(2, "0")}`;
     const substituido = finalCarro !== currentItem.carroProgramado;
@@ -207,14 +205,14 @@ export function CarroRealizadoView({
       scheduleId: currentItem.id,
       carroRealizado: finalCarro,
       motoristaCodigo: inputMotoCodigo.trim(),
-      motoristaNome: inputMotoNome.trim() || (inputMotoCodigo ? `Motorista ${inputMotoCodigo}` : ""),
+      motoristaNome: inputMotoNome.trim(),
       horaLiberacao: horaFinal,
       observacoes: obsFinal,
       substituido
     };
 
     const updated = { ...dispatches, [currentItem.id]: newRecord };
-    onSaveDispatch(updated);
+    if (!await onSaveDispatch(updated)) return;
 
     toast.success(`Carro Realizado ${finalCarro} salvo para Linha ${currentItem.linha} / Tabela ${currentItem.tabela}!`);
 
@@ -227,7 +225,7 @@ export function CarroRealizadoView({
   };
 
   // Edição rápida de célula na grade
-  const handleCellChange = (itemId: string, field: "carro" | "moto", value: string) => {
+  const handleCellChange = async (itemId: string, field: "carro" | "moto", value: string) => {
     const item = mergedItems.find(i => i.id === itemId);
     if (!item) return;
 
@@ -248,7 +246,7 @@ export function CarroRealizadoView({
     } else {
       moto = value.trim();
       const drv = drivers.find(d => d.code === moto);
-      nome = drv ? drv.name : (moto ? `Motorista ${moto}` : "");
+      nome = drv ? drv.name : "";
     }
 
     const updatedRecord: DispatchedRecord = {
@@ -260,38 +258,23 @@ export function CarroRealizadoView({
       substituido: carro !== item.carroProgramado
     };
 
-    onSaveDispatch({ ...dispatches, [itemId]: updatedRecord });
+    if (checkCarroBloqueado(carro, ciList, dataOperacao)) { toast.error("Veiculo bloqueado."); return; }
+    if (!moto.trim()) { toast.error("Informe o motorista real."); return; }
+    await onSaveDispatch({ ...dispatches, [itemId]: updatedRecord });
   };
 
   // Ação em Lote: Preencher todos os pendentes com o Carro Programado
   const handleBatchFillProgramados = () => {
-    if (!confirm(`Deseja preencher todos os carros programados para as viagens pendentes da escala de hoje (${garagem})?`)) return;
+    const next = mergedItems.find(item => !item.isPreenchido && item.carroProgramado && !checkCarroBloqueado(item.carroProgramado, ciList, dataOperacao));
+    if (!next) { toast.error("Nenhum carro programado elegivel."); return; }
+    handleSelectSchedule(next);
+    setInputCarroRealizado(next.carroProgramado);
+    toast.info("Rascunho preenchido. Informe o motorista real e confirme individualmente. Nada foi gravado.");
 
-    const agora = new Date();
-    const horaAtual = `${String(agora.getHours()).padStart(2, "0")}:${String(agora.getMinutes()).padStart(2, "0")}`;
-    const newDispatches = { ...dispatches };
-    let count = 0;
-
-    schedules.forEach((item, index) => {
-      if (!newDispatches[item.id]) {
-        newDispatches[item.id] = {
-          scheduleId: item.id,
-          carroRealizado: item.carroProgramado,
-          motoristaCodigo: String(index + 101),
-          motoristaNome: `Motorista ${index + 1}`,
-          horaLiberacao: horaAtual,
-          substituido: false
-        };
-        count++;
-      }
-    });
-
-    onSaveDispatch(newDispatches);
-    toast.success(`${count} viagem(ns) preenchida(s) com o Carro Programado!`);
   };
 
   // Salvar cadastro de novo carro programado
-  const handleCreateSchedule = (e: React.FormEvent) => {
+  const handleCreateSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newLinha.trim()) {
       toast.error("Informe a Linha do carro programado.");
@@ -333,7 +316,7 @@ export function CarroRealizadoView({
     };
 
     if (onAddSchedule) {
-      onAddSchedule(newItem);
+      if (!await onAddSchedule(newItem)) return;
     } else {
       toast.success(`Carro ${newItem.carroProgramado} programado com sucesso para a Linha ${newItem.linha}!`);
     }
@@ -1003,10 +986,10 @@ export function CarroRealizadoView({
               size="sm"
               onClick={handleBatchFillProgramados}
               className="h-8 text-xs gap-1.5"
-              title="Preenche todos os pendentes com o carro da escala"
+              title="Preenche o proximo rascunho sem liberar veiculos"
             >
               <Sparkles className="w-3.5 h-3.5 text-primary" />
-              Preencher Pendentes c/ Programados
+              Preencher rascunho
             </Button>
           </div>
 

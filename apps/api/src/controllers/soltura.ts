@@ -1,6 +1,9 @@
 import { Response } from "express";
 import prisma from "../utils/prisma";
 import { AuthRequest } from "../middleware/auth";
+import { writeSafeRelease, AvailabilityError } from "../services/solturaAvailability";
+import { MvpError } from "../services/mvpTemporal";
+import { ZodError } from "zod";
 
 export async function list(req: AuthRequest, res: Response) {
   try {
@@ -67,195 +70,14 @@ export async function list(req: AuthRequest, res: Response) {
   }
 }
 
-export async function create(req: AuthRequest, res: Response) {
-  try {
-    const {
-      busId,
-      programmedBusId,
-      scheduleId,
-      carroProgramado,
-      carroRealizado,
-      linha,
-      tabela,
-      driverCode,
-      driverName,
-      saidaGaragem,
-      inicioLinha,
-      horaLiberacao,
-      garagem,
-      turno,
-      escalaTipo,
-      dataOperacao,
-      substituido,
-      historicoTrocas,
-      status,
-      notes,
-    } = req.body;
-
-    const strHistoricoTrocas =
-      typeof historicoTrocas === "object" && historicoTrocas !== null
-        ? JSON.stringify(historicoTrocas)
-        : typeof historicoTrocas === "string"
-        ? historicoTrocas
-        : null;
-
-    // Verificar se já existe registro desse scheduleId para a dataOperacao e garagem
-    let existing = null;
-    if (scheduleId && dataOperacao) {
-      existing = await prisma.soltura.findFirst({
-        where: {
-          scheduleId,
-          dataOperacao,
-          ...(garagem ? { garagem } : {}),
-          ...(turno ? { turno } : {}),
-        },
-      });
-    }
-
-    if (existing) {
-      const updated = await prisma.soltura.update({
-        where: { id: existing.id },
-        data: {
-          busId: busId ?? existing.busId,
-          programmedBusId: programmedBusId ?? existing.programmedBusId,
-          carroProgramado: carroProgramado ?? existing.carroProgramado,
-          carroRealizado: carroRealizado ?? existing.carroRealizado,
-          linha: linha ?? existing.linha,
-          tabela: tabela ?? existing.tabela,
-          driverCode: driverCode ?? existing.driverCode,
-          driverName: driverName ?? existing.driverName,
-          saidaGaragem: saidaGaragem ?? existing.saidaGaragem,
-          inicioLinha: inicioLinha ?? existing.inicioLinha,
-          horaLiberacao: horaLiberacao ?? existing.horaLiberacao,
-          garagem: garagem ?? existing.garagem,
-          turno: turno ?? existing.turno,
-          escalaTipo: escalaTipo ?? existing.escalaTipo,
-          substituido: substituido ?? existing.substituido,
-          historicoTrocas: strHistoricoTrocas ?? existing.historicoTrocas,
-          status: status ?? existing.status,
-          notes: notes ?? existing.notes,
-          userId: req.userId ?? existing.userId,
-        },
-      });
-      return res.json(updated);
-    }
-
-    const record = await prisma.soltura.create({
-      data: {
-        busId: busId || null,
-        programmedBusId: programmedBusId || null,
-        scheduleId: scheduleId || null,
-        carroProgramado: carroProgramado || null,
-        carroRealizado,
-        linha,
-        tabela,
-        driverCode: driverCode || null,
-        driverName: driverName || null,
-        saidaGaragem: saidaGaragem || null,
-        inicioLinha: inicioLinha || null,
-        horaLiberacao: horaLiberacao || null,
-        garagem: garagem || null,
-        turno: turno || null,
-        escalaTipo: escalaTipo || null,
-        dataOperacao: dataOperacao || null,
-        substituido: !!substituido,
-        historicoTrocas: strHistoricoTrocas,
-        status: status || "LIBERADO",
-        notes: notes || null,
-        userId: req.userId || null,
-      },
-      include: {
-        bus: { select: { plate: true, prefix: true } },
-        programmedBus: { select: { plate: true, prefix: true } },
-      },
-    });
-
-    return res.status(201).json(record);
-  } catch (error: any) {
-    console.error("Erro ao salvar soltura:", error);
-    return res.status(500).json({ error: error?.message || "Erro interno ao salvar soltura" });
+async function persist(req: AuthRequest, res: Response, batch: boolean) {
+  try { return res.json(await writeSafeRelease(prisma, req.userId, req.body, batch)); }
+  catch (error) {
+    if (error instanceof AvailabilityError) return res.status(409).json({ code: error.code, error: error.message });
+    if (error instanceof MvpError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof ZodError) return res.status(400).json({ error: 'Contexto ou itens de soltura invalidos.' });
+    return res.status(409).json({ code: 'DISPONIBILIDADE_NAO_CONFIRMADA', error: 'Consulta ou gravacao nao confirmada; nenhuma soltura autorizada por esta resposta. Recarregue o historico oficial antes de tentar novamente.' });
   }
 }
-
-export async function syncBatch(req: AuthRequest, res: Response) {
-  try {
-    const { dataOperacao, garagem, turno, escalaTipo, items } = req.body;
-
-    if (!items || !Array.isArray(items)) {
-      return res.status(400).json({ error: "Array de items obrigatório" });
-    }
-
-    const savedRecords = [];
-
-    for (const item of items) {
-      const strHistoricoTrocas =
-        typeof item.historicoTrocas === "object" && item.historicoTrocas !== null
-          ? JSON.stringify(item.historicoTrocas)
-          : typeof item.historicoTrocas === "string"
-          ? item.historicoTrocas
-          : null;
-
-      let existing = await prisma.soltura.findFirst({
-        where: {
-          scheduleId: item.scheduleId,
-          dataOperacao,
-          ...(garagem ? { garagem } : {}),
-          ...(turno ? { turno } : {}),
-        },
-      });
-
-      if (existing) {
-        const updated = await prisma.soltura.update({
-          where: { id: existing.id },
-          data: {
-            carroProgramado: item.carroProgramado ?? existing.carroProgramado,
-            carroRealizado: item.carroRealizado ?? existing.carroRealizado,
-            linha: item.linha ?? existing.linha,
-            tabela: item.tabela ?? existing.tabela,
-            driverCode: item.driverCode ?? existing.driverCode,
-            driverName: item.driverName ?? existing.driverName,
-            saidaGaragem: item.saidaGaragem ?? existing.saidaGaragem,
-            inicioLinha: item.inicioLinha ?? existing.inicioLinha,
-            horaLiberacao: item.horaLiberacao ?? existing.horaLiberacao,
-            substituido: item.substituido ?? existing.substituido,
-            historicoTrocas: strHistoricoTrocas ?? existing.historicoTrocas,
-            status: item.status ?? existing.status,
-            notes: item.notes ?? existing.notes,
-            userId: req.userId ?? existing.userId,
-          },
-        });
-        savedRecords.push(updated);
-      } else {
-        const created = await prisma.soltura.create({
-          data: {
-            scheduleId: item.scheduleId,
-            carroProgramado: item.carroProgramado || null,
-            carroRealizado: item.carroRealizado,
-            linha: item.linha,
-            tabela: item.tabela,
-            driverCode: item.driverCode || null,
-            driverName: item.driverName || null,
-            saidaGaragem: item.saidaGaragem || null,
-            inicioLinha: item.inicioLinha || null,
-            horaLiberacao: item.horaLiberacao || null,
-            garagem: garagem || null,
-            turno: turno || null,
-            escalaTipo: escalaTipo || null,
-            dataOperacao,
-            substituido: !!item.substituido,
-            historicoTrocas: strHistoricoTrocas,
-            status: item.status || "LIBERADO",
-            notes: item.notes || null,
-            userId: req.userId || null,
-          },
-        });
-        savedRecords.push(created);
-      }
-    }
-
-    return res.json({ success: true, count: savedRecords.length, records: savedRecords });
-  } catch (error: any) {
-    console.error("Erro no syncBatch de soltura:", error);
-    return res.status(500).json({ error: error?.message || "Erro interno na sincronização de soltura" });
-  }
-}
+export async function create(req: AuthRequest, res: Response) { return persist(req, res, false); }
+export async function syncBatch(req: AuthRequest, res: Response) { return persist(req, res, true); }

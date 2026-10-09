@@ -66,50 +66,13 @@ export function checkCarroBloqueado(prefixo: string, list: BloqueioCarro[], data
     const selectedDay = data || operationalContext().today;
     const ctx = c4Context(officialGarage, selectedDay);
     const maintenance = ctx?.maintenance?.find(i => i.prefixo === clean);
-    if (maintenance?.liberado) return null;
+
     if (maintenance?.bloqueado || maintenance?.emExecucao) return { id: maintenance.id, prefixo: clean, consorciada: maintenance.consorciada, garagem: officialGarage, data: selectedDay,
       tipo: maintenance.bloqueado ? 'BLOQUEADO_CORRETIVA' : 'EM_MANUTENCAO', motivo: (maintenance.bloqueado ? maintenance.observacaoBloqueio : maintenance.observacaoOficina) ?? null, status: maintenance.bloqueado ? 'BLOQUEADO' : 'EM_MANUTENCAO' };
     return list.find(i => i.prefixo === clean && i.data === selectedDay && i.garagem === officialGarage && i.categoriaPlanilha === 'BLOQUEADO') || null;
   }
 
-  // 1. Checa a folha de manutenção salva
-  try {
-    const today = new Date().toISOString().split("T")[0];
-    const keysToCheck = [
-      ...(data ? [`manutencao_carros_v2_${data}`, `manutencao_carros_v1_${data}`] : []),
-      `manutencao_carros_v2_${today}`,
-      "manutencao_carros_v2_2026-09-09",
-      `manutencao_carros_v1_${today}`,
-      "manutencao_carros_v1_2026-09-09"
-    ];
-    for (const k of keysToCheck) {
-      const raw = localStorage.getItem(k);
-      if (raw) {
-        const mItems = JSON.parse(raw);
-        if (Array.isArray(mItems)) {
-          const m = mItems.find((it: any) => String(it.prefixo || "").replace(/\D/g, "") === clean);
-          if (m) {
-            // Se foi explicitamente marcado como liberado na manutenção:
-            if (m.liberado) return null;
-            // Se está bloqueado ou em execução na manutenção:
-            if (m.bloqueado || m.emExecucao) {
-              return {
-                id: `manut-lock-${clean}`,
-                prefixo: clean,
-                garagem: getGaragemFisicaByCarro(clean),
-                tipo: m.bloqueado && !m.emExecucao ? "BLOQUEADO_CORRETIVA" : "EM_MANUTENCAO",
-                motivo: m.observacao || (m.emExecucao ? "Em Manutenção na Oficina" : "Bloqueado na Manutenção"),
-                data: m.data || data || today,
-                status: m.emExecucao ? "EM_MANUTENCAO" : "BLOQUEADO",
-                responsavel: "Oficina Manutenção"
-              };
-            }
-          }
-        }
-      }
-    }
-  } catch {}
-
+  // Cache local nunca determina disponibilidade oficial.
   // 2. Consulta a lista de CIs fornecida (apenas bloqueios reais de frota)
   return list.find(b => 
     b.status !== "LIBERADO" &&

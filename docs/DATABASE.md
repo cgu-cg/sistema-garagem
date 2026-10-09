@@ -524,3 +524,19 @@ SQL Server alvo é 2012; scripts não usam recursos posteriores. A matriz oficia
 ### Próximas etapas e legado
 
 Provisionar apenas após revisão/autorização específica e confirmação do banco alvo; validar metadados em execução separada também autorizada. Depois implementar domínio/serviços e adaptar todos os consumidores antes de carga/corte VCG. Sem dupla escrita prolongada, fallback reconstrutivo ou interpretação de data_folha. Excel, conflitos IMPORTACAO/RECUPERACAO, folha inicial e data de ativação continuam pendentes antes da carga/rollout. VCM não é habilitada automaticamente; existência da garagem não é feature flag nem RBAC.
+
+## Consolidação 5173 — Escala compartilhada (proposta não executada)
+
+Integra os modelos candidatos `EscalaCarros` e `ItemEscalaCarros` do trabalho
+local original. Programação recorrente separada de Soltura, FolhaCI e Ciclo:
+chave única garagem/tipo/turno, revisão otimista e identificação do responsável.
+Itens possuem chave e ordem únicas por escala, com programação validada por
+Zod em NVARCHAR(MAX), sem funções JSON posteriores ao SQL Server 2012.
+
+O candidato `scripts/sql/escala-carros-provisionamento.sql` cria somente as
+duas tabelas, recusa destino existente e não migra cache ou dados legados.
+Não foi executado. Nenhuma migration foi criada ou executada. A aplicação
+não cria essas tabelas; sem provisionamento, o endpoint retorna 503.
+Revisar schema, precisão de timestamps, constraints, índices, permissões e
+backup antes de autorizar execução. Testes locais não certificam o banco real.
+Consulte o [relatório da consolidação](CONSOLIDACAO-5173.md).

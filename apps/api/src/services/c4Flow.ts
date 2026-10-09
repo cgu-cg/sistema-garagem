@@ -33,7 +33,7 @@ const commandSchema = z.object({
 
 // Todos os escritores (inclusive jobs) tomam os mesmos locks por garagem/dia.
 // HOLDLOCK protege tambem a chave ausente; nunca trava globalmente todas as garagens.
-async function lock(tx: Tx, scope: Garage, day: string) {
+export async function lockC4Context(tx: Tx, scope: Garage, day: string) {
   await tx.$queryRaw`SELECT id FROM dbo.ciclo_operacional WITH (UPDLOCK, HOLDLOCK) WHERE garagem = ${scope} AND data_operacional = ${dateValue(day)}`;
   await tx.$queryRaw`SELECT id FROM dbo.folha_ci WITH (UPDLOCK, HOLDLOCK) WHERE garagem = ${scope} AND data_folha = ${dateValue(addDays(day, 1))}`;
 }
@@ -125,7 +125,7 @@ export async function saveC4(db: PrismaClient, userId: number | undefined, body:
     if (states.some(s => s.data !== day)) throw new MvpError(400, 'Estado fora do ciclo.');
   }
   return db.$transaction(async tx => {
-    await lock(tx, c.garagem, day);
+    await lockC4Context(tx, c.garagem, day);
     await authorized(tx, userId, c.data, kind, now, c.garagem);
     const b = await bundle(tx, c.garagem, day);
     if (!b.cycle || !b.folha || b.folha.status !== 'EM_PREPARACAO' || b.folha.cicloPreparacaoId !== b.cycle.id) throw new MvpError(409, 'Ciclo/folha em preparacao indisponivel; consulta nunca inicializa.');
@@ -213,7 +213,7 @@ export async function startCycle(db: PrismaClient, scope: Garage, now = () => ne
   const instant = now(), day = operationalContext(instant).today;
   if (instant < eventInstant(day, 3)) return { result: 'NOT_DUE', garagem: scope, day };
   return db.$transaction(async tx => {
-    await lock(tx, scope, day);
+    await lockC4Context(tx, scope, day);
     const b = await bundle(tx, scope, day);
     if (b.cycle && b.folha && b.folha.cicloPreparacaoId === b.cycle.id) return { result: 'ALREADY_DONE', garagem: scope, day };
     if (b.cycle || b.folha) throw new MvpError(409, 'Estrutura C4 parcial; nao corrigir implicitamente.');
@@ -240,7 +240,7 @@ export async function finalizeCycle(db: PrismaClient, scope: Garage, now = () =>
   const instant = now(), day = operationalContext(instant).today;
   if (instant < eventInstant(day, C4_CLOSE_HOUR)) return { result: 'NOT_DUE', garagem: scope, day };
   return db.$transaction(async tx => {
-    await lock(tx, scope, day);
+    await lockC4Context(tx, scope, day);
     const b = await bundle(tx, scope, day);
     if (!b.folha || !b.cycle || b.folha.cicloPreparacaoId !== b.cycle.id) throw new MvpError(409, 'Ciclo atual ausente/ambiguo; finalizacao nao cria folha.');
     if (b.folha.status === 'FINALIZADA') return { result: 'ALREADY_DONE', garagem: scope, day };

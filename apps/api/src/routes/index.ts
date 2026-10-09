@@ -28,8 +28,12 @@ import * as controleOperacionalController from "../controllers/controleOperacion
 import * as ciBloqueiosController from "../controllers/ciBloqueios";
 import * as manutencaoController from "../controllers/manutencao";
 import * as c4Controller from '../controllers/c4';
+import * as escalaCarrosController from '../controllers/escalaCarros';
 
 const router: Router = Router();
+
+router.get("/escala-carros", authenticate, authorize("ADMIN", "soltura", "COLABORADOR"), escalaCarrosController.list);
+router.post("/escala-carros", authenticate, requireRole("ADMIN"), escalaCarrosController.save);
 
 // Auth
 router.post("/auth/login", validate(loginSchema), authController.login);

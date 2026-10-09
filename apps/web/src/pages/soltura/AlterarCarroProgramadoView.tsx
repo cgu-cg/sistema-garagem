@@ -26,8 +26,8 @@ interface AlterarCarroProgramadoViewProps {
   escalaTipo: "SEG_SEX" | "SABADO" | "DOM_FER";
   schedules: SolturaItem[];
   ciList: BloqueioCarro[];
-  onUpdateField: (itemId: string, field: keyof SolturaItem, value: any) => void;
-  onUpdateMultipleFields?: (itemId: string, updates: Partial<SolturaItem>) => void;
+  onUpdateField: (itemId: string, field: keyof SolturaItem, value: any) => Promise<boolean>;
+  onUpdateMultipleFields?: (itemId: string, updates: Partial<SolturaItem>) => Promise<boolean>;
   checkBloqueioCI: (prefixo: string) => BloqueioCarro | null | undefined;
   onSelectGaragem?: (garagem: "VCG" | "VCM") => void;
   onSelectEscalaTipo?: (escala: "SEG_SEX" | "SABADO" | "DOM_FER") => void;
@@ -983,8 +983,8 @@ interface EscalaTableRowProps {
   index: number;
   schedules: SolturaItem[];
   checkBloqueioCI: (prefixo: string) => BloqueioCarro | null | undefined;
-  onUpdateField: (itemId: string, field: keyof SolturaItem, value: any) => void;
-  onUpdateMultipleFields?: (itemId: string, updates: Partial<SolturaItem>) => void;
+  onUpdateField: (itemId: string, field: keyof SolturaItem, value: any) => Promise<boolean>;
+  onUpdateMultipleFields?: (itemId: string, updates: Partial<SolturaItem>) => Promise<boolean>;
 }
 
 function EscalaTableRow({
@@ -1014,7 +1014,7 @@ function EscalaTableRow({
   }, [carroProg, schedules, item.id]);
 
   // Salvar Carro Programado (sincroniza com a soltura imediatamente)
-  const handleSaveCarro = () => {
+  const handleSaveCarro = async () => {
     const clean = carroProg.trim();
     if (clean === (item.carroProgramado || "").trim()) return;
 
@@ -1024,9 +1024,9 @@ function EscalaTableRow({
     }
 
     if (onUpdateMultipleFields) {
-      onUpdateMultipleFields(item.id, { carroProgramado: clean });
+      if (!await onUpdateMultipleFields(item.id, { carroProgramado: clean })) return;
     } else {
-      onUpdateField(item.id, "carroProgramado", clean);
+      if (!await onUpdateField(item.id, "carroProgramado", clean)) return;
     }
 
     if (bloqueioProg) {
@@ -1037,7 +1037,7 @@ function EscalaTableRow({
   };
 
   // Salvar / Alterar Horário de Chegada (sincroniza com a soltura imediatamente)
-  const handleSaveChegada = () => {
+  const handleSaveChegada = async () => {
     let clean = hrChegada.trim();
 
     // Auto-formatação prática caso digite 4 dígitos contínuos (ex: 0820 -> 08:20)
@@ -1056,9 +1056,9 @@ function EscalaTableRow({
     };
 
     if (onUpdateMultipleFields) {
-      onUpdateMultipleFields(item.id, updates);
+      if (!await onUpdateMultipleFields(item.id, updates)) return;
     } else {
-      onUpdateField(item.id, "chegadaGaragem", clean);
+      if (!await onUpdateField(item.id, "chegadaGaragem", clean)) return;
     }
 
     if (clean) {
