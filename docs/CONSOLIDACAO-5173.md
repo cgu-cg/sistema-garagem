@@ -106,9 +106,44 @@ em execução, Docker/Ubuntu ou publicação. Builds e mocks não certificam ess
 
 ## Possíveis gravações automáticas no banco
 
+### Controle independente do scheduler por instância
+
+`C4_SCHEDULER_ENABLED` tem padrão `true`. Somente o valor `false` desabilita
+a inicialização automática; espaços nas extremidades e maiúsculas são aceitos.
+Variável ausente ou vazia mantém o comportamento anterior.
+
+Configuração prevista para a instância consolidada publicada na 5173:
+
+```text
+CI_NOVO_FLUXO_GARAGENS=VCG
+C4_SCHEDULER_ENABLED=false
+```
+
+Assim, as rotas C4 continuam habilitadas, mas essa instância não dispara
+bootstrap, timers de abertura/fechamento ou retries do scheduler. A instância
+C4 da 5174 permanece responsável pelo processamento automático no banco
+compartilhado, conforme a topologia informada. Sua configuração não foi alterada.
+
+A flag é lida quando `startC4Scheduler` é chamado na inicialização da API;
+não é um interruptor dinâmico de um scheduler já iniciado. Não controla portas,
+`enabledGarages()`, `mutationMode()`, rotas ou comandos de domínio explícitos.
+Operações manuais continuam podendo gravar no banco conforme autorização,
+janela e validações existentes; esta flag não torna a API somente leitura.
+Sem outra instância responsável pelo scheduler, a preparação/finalização
+automática não ocorrerá nesta instância desabilitada.
+
+Nenhum `.env` foi modificado. Configuração efetiva e reinicialização continuam
+pendentes de autorização de publicação; nenhum deploy foi executado.
+
+Validação desta configuração: `node scripts/test-sem-banco.cjs` passou com
+141 testes, incluindo cinco novos cenários (padrão ausente, `true`, vazio,
+`false` e ` FALSE `). Os testes simulam comandos e timers, verificam ausência
+de bootstrap com a flag desabilitada e preservação do modo C4/comando explícito.
+`npm run build:api` e `git diff --check` também passaram, sem acesso ao banco.
+
 | Caminho | Efeito observado |
 | --- | --- |
-| `apps/api/src/index.ts` após `app.listen` | Chama `startC4Scheduler(prisma)`. Iniciar API não é ação neutra com C4 habilitado. |
+| `apps/api/src/index.ts` após `app.listen` | Chama `startC4Scheduler(prisma)`, que retorna sem bootstrap ou timers quando `C4_SCHEDULER_ENABLED=false`. Com scheduler habilitado e garagens C4 configuradas, pode gravar. |
 | `c4Scheduler.ts` / `recoverCurrentDay` | Bootstrap imediato para garagens habilitadas; eventos às 03h e 20h; retry em 60 s após falha. |
 | `c4Flow.ts` / `startCycle` | Pode criar Ciclo D, Folha D+1, copiar itens e criar estados bloqueados; sem origem válida cria recuperação atual vazia. |
 | `c4Flow.ts` / `finalizeCycle` | Atualiza folha para FINALIZADA e timestamp efetivo. Bootstrap após 20h pode abrir e finalizar no mesmo processamento. |
@@ -117,7 +152,7 @@ em execução, Docker/Ubuntu ou publicação. Builds e mocks não certificam ess
 | `npm run db:migrate` | Executa `prisma migrate dev`; manual e não executado. |
 | `utils/createReservasTable.ts` | Contém DDL via executeRawUnsafe; só executa explicitamente como script, sem import/chamada no bootstrap localizado. Não executado. |
 | SQL em `scripts/sql/` | Scripts administrativos separados, inclusive o candidato da Escala; não chamados no bootstrap. Nenhum executado. |
-| Dockerfile da API | Build gera Prisma Client e compila; CMD inicia `dist/index.js` e, portanto, o scheduler. Não há migration/seed no CMD observado. Docker não foi executado. |
+| Dockerfile da API | Build gera Prisma Client e compila; CMD inicia `dist/index.js`, respeitando `C4_SCHEDULER_ENABLED` no startup do scheduler. Não há migration/seed no CMD observado. Docker não foi executado. |
 
 GETs de CI/Controle C4 não inicializam nem reconciliam dados. Rotas de escrita
 de Escala, Soltura e demais módulos continuam gravando quando chamadas;

@@ -21,6 +21,8 @@ export async function recoverCurrentDay(db: PrismaClient, now = () => new Date()
 // Timeout de evento civil + recuperacao no bootstrap. Retries nao repetem dias passados.
 // Idempotencia persistida/locks permitem mais de um processo sem duplicar ciclos.
 export function startC4Scheduler(db: PrismaClient) {
+  // Controla somente o processamento automatico desta instancia, nao as rotas C4.
+  if (process.env.C4_SCHEDULER_ENABLED?.trim().toLowerCase() === 'false') return () => undefined;
   if (!enabledGarages().length) return () => undefined;
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
