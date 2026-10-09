@@ -195,7 +195,7 @@ function cache(data: string, items: ManutencaoCarroItem[]) {
   window.dispatchEvent(new CustomEvent('manutencao_updated', { detail: { data, items, fromCISync: true } }));
 }
 export async function saveManutencaoData(data: string, items: ManutencaoCarroItem[], confirmRelease: boolean, baseline: ManutencaoCarroItem[], removeBlocked: string[] = [], garagem: C4Garage = 'VCG'): Promise<ManutencaoCarroItem[]> {
-  if (!canMutate(data, 'manutencao')) throw new Error('Controle fora da janela operacional.');
+  if (!canMutate(data, 'manutencao', c4Enabled(garagem))) throw new Error('Controle fora da janela operacional.');
   const base = official.get(data);
   if (!base) throw new Error('Carregue o Controle oficial antes de alterar.');
   const vcg = (i: ManutencaoCarroItem) => !i.prefixo.startsWith('1') && i.prefixo !== '2002';

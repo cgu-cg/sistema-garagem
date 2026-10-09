@@ -1,4 +1,4 @@
-export function operationalContext(now = new Date()) {
+export function operationalContext(now = new Date(), closingSeconds = 66600) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Campo_Grande', year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
@@ -8,11 +8,11 @@ export function operationalContext(now = new Date()) {
   const tomorrow = new Date(`${today}T12:00:00Z`);
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
   const seconds = Number(get('hour')) * 3600 + Number(get('minute')) * 60 + Number(get('second'));
-  return { today, tomorrow: tomorrow.toISOString().slice(0, 10), open: seconds >= 10800 && seconds < 66600 };
+  return { today, tomorrow: tomorrow.toISOString().slice(0, 10), open: seconds >= 10800 && seconds < closingSeconds };
 }
 
-export function canMutate(date: string, kind: 'ci' | 'manutencao') {
-  const ctx = operationalContext();
+export function canMutate(date: string, kind: 'ci' | 'manutencao', c4 = false) {
+  const ctx = operationalContext(new Date(), c4 ? 72000 : 66600);
   return ctx.open && date === (kind === 'ci' ? ctx.tomorrow : ctx.today);
 }
 

@@ -30,3 +30,9 @@ export function c4Items(items: BloqueioCarro[]) {
     return { ...i, ...(i.categoriaPlanilha === 'REFORCO' && match ? { tipoPosicao: match[1] ? 'EXTRA' : 'FIXO', ordemPosicao: Number(match[2]) } : {}) };
   });
 }
+
+// Navegacao independente da janela de escrita; muda somente as 03h civis.
+export { initialCIDate } from './ciInitialDate';
+export function c4OperationalContext(garagem: C4Garage, now = new Date()) {
+ return operationalContext(now, c4Context(garagem, operationalContext(now).today)?.mode === 'C4' ? 72000 : 66600);
+}

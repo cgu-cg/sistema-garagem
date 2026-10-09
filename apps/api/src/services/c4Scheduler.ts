@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
-import { enabledGarages, nextEvent, eventInstant } from './c4Temporal';
-import { operationalContext, MvpError } from './mvpTemporal';
+import { enabledGarages, nextEvent, eventInstant, C4_CLOSE_HOUR, operationalContext } from './c4Temporal';
+import { MvpError } from './mvpTemporal';
 import { startCycle, finalizeCycle } from './c4Flow';
 
 export async function recoverCurrentDay(db: PrismaClient, now = () => new Date(), log: (value: object) => void = value => console.info('[C4]', value), trigger = 'BOOTSTRAP') {
@@ -10,7 +10,7 @@ export async function recoverCurrentDay(db: PrismaClient, now = () => new Date()
     log({ event: 'START', garagem, day, recovery: trigger !== 'SCHEDULED', trigger });
     try {
       log(await startCycle(db, garagem, now));
-      if (now() >= eventInstant(day, 18, 30)) log(await finalizeCycle(db, garagem, now));
+      if (now() >= eventInstant(day, C4_CLOSE_HOUR)) log(await finalizeCycle(db, garagem, now));
     } catch (error) {
       failed = true;
       log({ event: 'ERROR', garagem, day, name: error instanceof Error ? error.name : 'UnknownError', reason: error instanceof MvpError ? error.message : 'Falha tecnica/estrutura invalida; verificar preflight e disponibilidade.' });

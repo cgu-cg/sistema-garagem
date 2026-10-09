@@ -1,5 +1,7 @@
+import { operationalContext } from '@/lib/mvpTemporal';
+import { c4OperationalContext, initialCIDate } from '@/lib/c4';
 import { canWriteC4 } from '@/lib/c4Authorization';
-import { canMutate, operationalContext, getMutationState, subscribeMutationState, confirmRefresh, requireRefresh, SavedRefreshRequired } from '@/lib/mvpTemporal';
+import { canMutate, getMutationState, subscribeMutationState, confirmRefresh, requireRefresh, SavedRefreshRequired } from '@/lib/mvpTemporal';
 import { fetchManutencaoDataFromApi } from '../manutencao/manutencaoManager';
 import { saveCISnapshot } from './ciManager';
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
@@ -409,7 +411,7 @@ export function CiManutencaoView({
   useEffect(() => subscribeMutationState(() => setWriteState(getMutationState())), []);
   const [clock, setClock] = useState(Date.now());
   useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
-  const [internalDataOperacao, setInternalDataOperacao] = useState<string>(getTodayString);
+  const [internalDataOperacao, setInternalDataOperacao] = useState<string>(() => c4Enabled(garagemFiltro === 'VCM' ? 'VCM' : 'VCG') ? initialCIDate() : getTodayString());
   const dataOperacao = propDataOperacao || internalDataOperacao;
   const setDataOperacao = propSetDataOperacao || setInternalDataOperacao;
   const dateInputRef = useRef<HTMLInputElement>(null);
@@ -538,14 +540,14 @@ export function CiManutencaoView({
     const target = normalizeIsoDate(dataOperacao);
     const tomorrow = getTomorrowString();
     const scope = activeGaragemScope === 'VCM' ? 'VCM' : 'VCG';
-    return Boolean(ready && !writeState.pending && !writeState.refreshRequired && target && target === tomorrow && (c4Enabled(scope) ? canWriteC4(user, scope) : isAdmin) && canMutate(target, 'ci') && (c4Enabled(scope) ? activeGaragemScope !== 'TODAS' && c4Mutable(target, scope) : activeGaragemScope !== 'VCM'));
+    return Boolean(ready && !writeState.pending && !writeState.refreshRequired && target && target === tomorrow && (c4Enabled(scope) ? canWriteC4(user, scope) : isAdmin) && canMutate(target, 'ci', c4Enabled(scope)) && (c4Enabled(scope) ? activeGaragemScope !== 'TODAS' && c4Mutable(target, scope) : activeGaragemScope !== 'VCM'));
   }, [dataOperacao, clock, user, isAdmin, activeGaragemScope, ready, writeState]);
 
   // Bloqueio de edição: impede qualquer alteração se a data for <= hoje (fechada) ou > amanhã (futura demais)
   const checkDataFuturaBloqueio = useCallback((): boolean => {
     const target = normalizeIsoDate(dataOperacao);
     const scope = activeGaragemScope === 'VCM' ? 'VCM' : 'VCG';
-    if (!ready || getMutationState().pending || getMutationState().refreshRequired || !(c4Enabled(scope) ? canWriteC4(user, scope) : isAdmin) || !canMutate(target, 'ci') || (c4Enabled(scope) ? activeGaragemScope === 'TODAS' || !c4Mutable(target, scope) : activeGaragemScope === 'VCM')) { toast.error('CI somente leitura: contexto, folha em preparacao e janela operacional obrigatorios.'); return true; }
+    if (!ready || getMutationState().pending || getMutationState().refreshRequired || !(c4Enabled(scope) ? canWriteC4(user, scope) : isAdmin) || !canMutate(target, 'ci', c4Enabled(scope)) || (c4Enabled(scope) ? activeGaragemScope === 'TODAS' || !c4Mutable(target, scope) : activeGaragemScope === 'VCM')) { toast.error('CI somente leitura: contexto, folha em preparacao e janela operacional obrigatorios.'); return true; }
     const today = getTodayString();
     const tomorrow = getTomorrowString();
 
@@ -586,8 +588,8 @@ export function CiManutencaoView({
   };
 
   const handlePrepareTomorrow = async () => {
-    const ctx = operationalContext();
     const scope = activeGaragemScope === 'VCM' ? 'VCM' : 'VCG';
+    const ctx = c4OperationalContext(scope);
     if (!ready || getMutationState().pending || getMutationState().refreshRequired || !(c4Enabled(scope) ? canWriteC4(user, scope) : isAdmin) || !ctx.open || (activeGaragemScope === 'VCM' && !c4Enabled(scope)) || (c4Enabled(scope) && activeGaragemScope === 'TODAS')) return;
     try {
       // Apenas valida a preparacao existente; nunca copia D, inclusive destino vazio.
@@ -1967,7 +1969,7 @@ export function CiManutencaoView({
             Visualizar Relatório
           </Button>
 
-          <Button onClick={handlePrepareTomorrow} disabled={!ready || writeState.pending || writeState.refreshRequired || !(c4Enabled('VCG') ? canEditC4 : isAdmin) || !operationalContext().open || activeGaragemScope === 'VCM'} variant="outline" size="sm">Verificar preparação de amanhã</Button>
+          <Button onClick={handlePrepareTomorrow} disabled={!ready || writeState.pending || writeState.refreshRequired || !(c4Enabled('VCG') ? canEditC4 : isAdmin) || !c4OperationalContext(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG').open || activeGaragemScope === 'VCM'} variant="outline" size="sm">Verificar preparação de amanhã</Button>
           <Button
             onClick={handleRefreshData}
             variant="ghost"
@@ -1985,7 +1987,7 @@ export function CiManutencaoView({
       {writeState.refreshRequired && <p role="alert">Atualize os dados oficiais antes de continuar.</p>}
       {!c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && <p className="text-sm">Copia automatica indisponivel no legado: CI vazia nao comprova primeira preparacao. Inclusoes e retiradas devem ser explicitas.</p>}
       {c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && <p role="status" className="text-sm">Folha: {c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')?.status === 'FINALIZADA' ? 'Finalizada' : c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')?.status === 'EM_PREPARACAO' ? 'Em preparação' : 'Não preparada'}</p>}
-      {!isDataEditavel && <p role="status" className="rounded-2xl border border-slate-300 bg-slate-100 p-3 text-sm dark:border-slate-700 dark:bg-slate-800">Somente leitura. Alterações requerem ADMIN ou manutencao VCG autorizada, contexto explícito e folha em preparação, entre 03:00 e 18:30 em America/Campo_Grande.</p>}
+      {!isDataEditavel && <p role="status" className="rounded-2xl border border-slate-300 bg-slate-100 p-3 text-sm dark:border-slate-700 dark:bg-slate-800">Somente leitura. Alterações requerem ADMIN ou manutencao VCG autorizada, contexto explícito e folha em preparação, entre 03:00 e {c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? '20:00' : '18:30'} em America/Campo_Grande.</p>}
       {/* PRANCHETA DIGITAL (LAYOUT PRINT 01 & PRINT 02) */}
       {/* ========================================================= */}
       <div className="space-y-6">

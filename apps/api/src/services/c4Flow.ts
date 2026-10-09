@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient, ItemFolhaCI, EstadoManutencao } from '@prisma/client';
 import { z } from 'zod';
-import { MvpError, operationalContext, assertContext, assertFlags, revision } from './mvpTemporal';
-import { Garage, garage, civil, dateValue, dateString, addDays, eventInstant } from './c4Temporal';
+import { MvpError, assertFlags, revision } from './mvpTemporal';
+import { operationalContext, assertC4Context, C4_CLOSE_HOUR, Garage, garage, civil, dateValue, dateString, addDays, eventInstant } from './c4Temporal';
 import { canWriteC4 } from './c4Authorization';
 
 type Tx = Prisma.TransactionClient;
@@ -109,7 +109,7 @@ function explicitRemovals(before: string[], after: string[], requested: string[]
 async function authorized(tx: Tx, userId: number | undefined, day: string, kind: 'ci' | 'manutencao', now: () => Date, scope: Garage) {
   const user = userId ? await tx.user.findUnique({ where: { id: userId }, select: { role: true, garagem: true } }) : null;
   if (!canWriteC4(user, scope)) throw new MvpError(403, 'Fluxo C4 exige ADMIN ou manutencao vinculada a VCG.');
-  return assertContext(day, kind, now());
+  return assertC4Context(day, kind, now());
 }
 
 export async function saveC4(db: PrismaClient, userId: number | undefined, body: unknown, kind: 'ci' | 'manutencao', now = () => new Date()) {
@@ -201,9 +201,9 @@ export async function saveC4(db: PrismaClient, userId: number | undefined, body:
         if (block) await tx.itemFolhaCI.delete({ where: { id: block.id } });
       }
     }
-    // Esperas/escritas tambem podem atravessar 18:30: rollback integral nesse caso.
+    // Esperas/escritas tambem podem atravessar 20:00: rollback integral nesse caso.
     const result = await bundle(tx, c.garagem, day);
-    assertContext(c.data, kind, now());
+    assertC4Context(c.data, kind, now());
     return { records: result.states.map(s => projectState(s, day)), baseC4: result.baseC4 };
   }, { isolationLevel: 'Serializable' });
 }
@@ -226,7 +226,7 @@ export async function startCycle(db: PrismaClient, scope: Garage, now = () => ne
     const cycle = await tx.cicloOperacional.create({ data: { garagem: scope, dataOperacional: dateValue(day), origem, inicializacaoPrevistaEm: eventInstant(day, 3), inicializadoEm: effective } });
     const folha = await tx.folhaCI.create({ data: { garagem: scope, dataFolha: dateValue(addDays(day, 1)), status: 'EM_PREPARACAO', origem, cicloPreparacaoId: cycle.id,
       folhaOrigemId: normal ? source!.id : null, tituloColunaAdicional: normal ? source!.tituloColunaAdicional : null,
-      inicializacaoPrevistaEm: eventInstant(day, 3), inicializadaEm: effective, finalizacaoPrevistaEm: eventInstant(day, 18, 30), referenciaOrigem: normal ? null : 'Sem fotografia finalizada do dia; recuperacao sem reconstruir historico.' } });
+      inicializacaoPrevistaEm: eventInstant(day, 3), inicializadaEm: effective, finalizacaoPrevistaEm: eventInstant(day, C4_CLOSE_HOUR), referenciaOrigem: normal ? null : 'Sem fotografia finalizada do dia; recuperacao sem reconstruir historico.' } });
     if (normal) for (const item of source!.itens) {
       const { id: _id, folhaId: _folha, createdAt: _created, updatedAt: _updated, ...snapshot } = item;
       await tx.itemFolhaCI.create({ data: { ...snapshot, folhaId: folha.id } });
@@ -238,7 +238,7 @@ export async function startCycle(db: PrismaClient, scope: Garage, now = () => ne
 export async function finalizeCycle(db: PrismaClient, scope: Garage, now = () => new Date()) {
   garage(scope);
   const instant = now(), day = operationalContext(instant).today;
-  if (instant < eventInstant(day, 18, 30)) return { result: 'NOT_DUE', garagem: scope, day };
+  if (instant < eventInstant(day, C4_CLOSE_HOUR)) return { result: 'NOT_DUE', garagem: scope, day };
   return db.$transaction(async tx => {
     await lock(tx, scope, day);
     const b = await bundle(tx, scope, day);
@@ -246,7 +246,7 @@ export async function finalizeCycle(db: PrismaClient, scope: Garage, now = () =>
     if (b.folha.status === 'FINALIZADA') return { result: 'ALREADY_DONE', garagem: scope, day };
     if (b.folha.status !== 'EM_PREPARACAO') throw new MvpError(409, 'Estado de folha invalido.');
     const effective = now();
-    if (operationalContext(effective).today !== day || effective < eventInstant(day, 18, 30)) throw new MvpError(409, 'Evento fora do dia/horario de finalizacao.');
+    if (operationalContext(effective).today !== day || effective < eventInstant(day, C4_CLOSE_HOUR)) throw new MvpError(409, 'Evento fora do dia/horario de finalizacao.');
     await tx.folhaCI.update({ where: { id: b.folha.id }, data: { status: 'FINALIZADA', finalizadaEm: effective } });
     return { result: 'FINALIZADA', garagem: scope, day };
   }, { isolationLevel: 'Serializable' });

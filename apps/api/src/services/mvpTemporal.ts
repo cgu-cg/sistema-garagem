@@ -2,7 +2,7 @@
 export class MvpError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
-export function operationalContext(now = new Date()) {
+export function operationalContext(now = new Date(), closingSeconds = 66600) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Campo_Grande', year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
@@ -12,11 +12,11 @@ export function operationalContext(now = new Date()) {
   const tomorrow = new Date(`${today}T12:00:00Z`);
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
   const seconds = Number(get('hour')) * 3600 + Number(get('minute')) * 60 + Number(get('second'));
-  return { today, tomorrow: tomorrow.toISOString().slice(0, 10), open: seconds >= 10800 && seconds < 66600 };
+  return { today, tomorrow: tomorrow.toISOString().slice(0, 10), open: seconds >= 10800 && seconds < closingSeconds };
 }
-export function assertContext(date: unknown, kind: 'ci' | 'manutencao', now = new Date()) {
-  const ctx = operationalContext(now);
-  if (!ctx.open) throw new MvpError(409, 'Janela operacional fechada (03:00 ate 18:30 em America/Campo_Grande).');
+export function assertContext(date: unknown, kind: 'ci' | 'manutencao', now = new Date(), closingSeconds = 66600) {
+  const ctx = operationalContext(now, closingSeconds);
+  if (!ctx.open) throw new MvpError(409, `Janela operacional fechada (03:00 ate ${closingSeconds === 72000 ? '20:00' : '18:30'} em America/Campo_Grande).`);
   if (date !== (kind === 'ci' ? ctx.tomorrow : ctx.today)) throw new MvpError(409, 'Data fora do contexto operacional permitido.');
   return ctx;
 }

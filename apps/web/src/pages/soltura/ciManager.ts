@@ -162,7 +162,7 @@ export async function fetchCIBloqueiosFromApi(params?: { garagem?: string; statu
 }
 
 export async function saveCISnapshot(list: BloqueioCarro[], date: string, baseline: BloqueioCarro[], removeBlocked: string[] = [], operation: 'save' | 'prepare' = 'save', garagem: C4Garage = 'VCG', tituloColunaAdicional?: string): Promise<BloqueioCarro[]> {
-  if (!canMutate(date, 'ci')) throw new Error('CI fora da janela de edicao.');
+  if (!canMutate(date, 'ci', c4Enabled(garagem))) throw new Error('CI fora da janela de edicao.');
   if (!officialCI) throw new Error('Carregue a CI oficial antes de alterar.');
   const current = baseline.filter(i => i.data === date && i.garagem === garagem);
   const items = operation === 'prepare' ? [] : list.filter(i => i.data === date && i.garagem === garagem);

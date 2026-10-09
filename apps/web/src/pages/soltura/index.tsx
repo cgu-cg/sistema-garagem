@@ -1,3 +1,5 @@
+import { c4Context } from '@/lib/c4';
+import { ciSelectionDate } from '@/lib/ciInitialDate';
 import { useEffect, useState, useMemo, useCallback, useRef, Fragment } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -199,6 +201,14 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const [escalaTipo, setEscalaTipo] = useState<EscalaTipo>("SEG_SEX");
   const [turnoTipo, setTurnoTipo] = useState<TurnoTipo>("MATUTINO");
   const [dataOperacao, setDataOperacao] = useState(() => getHojeLocal());
+  // A CI nao altera a data compartilhada pelas telas de soltura e historico.
+  const [ciDate, setCIDate] = useState<string | null>(null);
+  const ciDateManual = useRef(false);
+  const ciDateContext = useRef<{ garagem: string; c4: boolean } | null>(null);
+  const chooseCIDate = useCallback((date: string) => {
+    ciDateManual.current = true;
+    setCIDate(date);
+  }, []);
 
   // Modos de visualização
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
@@ -210,6 +220,24 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     if (location.pathname.includes("/reservas")) return "RESERVAS";
     return defaultTab || "FOLHA";
   });
+
+  const isCIView = viewMode === 'CI_MANUTENCAO' || viewMode === 'CI_BLOQUEIOS';
+  const ciMode = c4Context(garagem === 'VCM' ? 'VCM' : 'VCG')?.mode;
+  const ciC4Enabled = ciMode ? ciMode === 'C4' : ciDateContext.current?.garagem === garagem && ciDateContext.current.c4;
+  useEffect(() => {
+    if (!isCIView) {
+      setCIDate(null);
+      ciDateManual.current = false;
+      ciDateContext.current = null;
+      return;
+    }
+    const previous = ciDateContext.current;
+    if (previous?.garagem !== garagem || (!ciDateManual.current && previous.c4 !== ciC4Enabled)) {
+      setCIDate(ciC4Enabled ? ciSelectionDate(null, true) : getHojeLocal());
+      ciDateManual.current = false;
+    }
+    ciDateContext.current = { garagem, c4: ciC4Enabled };
+  }, [isCIView, garagem, ciC4Enabled]);
 
   // Atualizar viewMode baseado na URL quando a rota mudar
   useEffect(() => {
@@ -232,10 +260,11 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     }
   }, [location.pathname, defaultTab]);
 
-  // Na Folha de Soltura (/soltura) e na CI Manutenção (/soltura/ci-manutencao), a data inicia na data de hoje local.
+
+  // Legado mantem sua data inicial; C4 usa a preferencia civil das 03h acima.
   // No Histórico (/soltura/historico), inicia por padrão em ontem para consulta imediata de outros dias.
   useEffect(() => {
-    if (viewMode === "FOLHA" || viewMode === "CI_MANUTENCAO" || viewMode === "CI_BLOQUEIOS") {
+    if (viewMode === "FOLHA") {
       setDataOperacao(getHojeLocal());
     } else if (viewMode === "HISTORICO") {
       setDataOperacao(getOntemLocal());
@@ -2504,8 +2533,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           ciList={ciList}
           setCiList={setCiList}
           garagemFiltro={garagem}
-          dataOperacao={dataOperacao}
-          setDataOperacao={setDataOperacao}
+          dataOperacao={ciDateContext.current?.garagem === garagem && ciDate ? ciDate : ciC4Enabled ? ciSelectionDate(null, true) : getHojeLocal()}
+          setDataOperacao={chooseCIDate}
         />
       )}
 

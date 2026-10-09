@@ -1,4 +1,8 @@
-import { MvpError, operationalContext } from './mvpTemporal';
+import { MvpError, operationalContext as legacyContext, assertContext } from './mvpTemporal';
+
+export const C4_CLOSE_HOUR = 20;
+export const operationalContext = (now = new Date()) => legacyContext(now, C4_CLOSE_HOUR * 3600);
+export const assertC4Context = (date: unknown, kind: 'ci' | 'manutencao', now = new Date()) => assertContext(date, kind, now, C4_CLOSE_HOUR * 3600);
 
 export type Garage = 'VCG' | 'VCM';
 export const TIME_ZONE = 'America/Campo_Grande';
@@ -42,6 +46,6 @@ export function eventInstant(day: string, hour: number, minute = 0) {
 }
 export function nextEvent(now = new Date()) {
   const { today } = operationalContext(now);
-  const events = [eventInstant(today, 3), eventInstant(today, 18, 30), eventInstant(addDays(today, 1), 3)];
+  const events = [eventInstant(today, 3), eventInstant(today, C4_CLOSE_HOUR), eventInstant(addDays(today, 1), 3)];
   return events.find(e => e > now)!;
 }
