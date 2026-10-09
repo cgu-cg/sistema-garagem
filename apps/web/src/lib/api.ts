@@ -77,9 +77,13 @@ async function request(path: string, options: RequestCustomOptions = {}, include
         (res.status === 502 || res.status === 504 || res.status === 500
           ? "Servidor da API indisponível. Verifique se o backend está em execução."
           : `Erro na requisição (${res.status})`);
-      const error = new Error(errorMsg) as any;
+      const category = res.status === 401 ? 'AUTHENTICATION' : res.status === 403 ? 'AUTHORIZATION' : res.status === 409 ? 'OPERATIONAL' : 'TECHNICAL';
+      const displayMessage = res.status === 401 ? `Sessao invalida ou expirada. ${errorMsg}`
+        : res.status === 403 ? `Acesso nao autorizado. ${errorMsg}` : errorMsg;
+      const error = new Error(displayMessage) as any;
+      error.category = category;
       error.status = res.status;
-      error.code = data?.error;
+      error.code = data?.code || data?.error;
       throw error;
     }
 

@@ -1,3 +1,4 @@
+import { explicitGarage } from '@/lib/operationalAccess';
 import { normalizeIsoDate, selectCIReportItems, ciReportExtraSlots, ciReportSlot } from './ciReport';
 import { operationalContext } from '@/lib/mvpTemporal';
 import { c4OperationalContext, initialCIDate } from '@/lib/c4';
@@ -419,10 +420,7 @@ export function CiManutencaoView({
   // - VCG (Garagem 2)
   const hasC4Configuration = c4Configured();
   const userGaragemFixa: "VCM" | "VCG" | undefined = useMemo(() => {
-    if (hasC4Configuration) return user?.role === 'ADMIN' ? undefined : user?.garagem === 'VCG' || user?.garagem === 'VCM' ? user.garagem : undefined;
-    if (user?.garagem === "VCM" || user?.email?.toLowerCase().includes("vcm")) return "VCM";
-    if (user?.garagem === "VCG" || user?.email?.toLowerCase().includes("vcg")) return "VCG";
-    return undefined;
+    return user?.role === 'ADMIN' ? undefined : explicitGarage(user);
   }, [user, hasC4Configuration]);
 
   // Seletor de Garagem: Se o usuário tiver garagem fixa (VCG ou VCM), trava nela. Se for ADMIN geral, permite alternar ou respeita o filtro vindo da Soltura.

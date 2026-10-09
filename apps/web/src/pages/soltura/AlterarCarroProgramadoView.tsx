@@ -22,6 +22,7 @@ import { toast } from "sonner";
 import { getGaragemFisicaByCarro } from "./ciManager";
 
 interface AlterarCarroProgramadoViewProps {
+  readOnly?: boolean;
   garagem: "VCG" | "VCM";
   escalaTipo: "SEG_SEX" | "SABADO" | "DOM_FER";
   schedules: SolturaItem[];
@@ -34,6 +35,7 @@ interface AlterarCarroProgramadoViewProps {
 }
 
 export function AlterarCarroProgramadoView({
+  readOnly = true,
   garagem,
   escalaTipo,
   schedules,
@@ -330,7 +332,8 @@ export function AlterarCarroProgramadoView({
       </div>
 
       {/* Grid Principal: Tabela à Esquerda (70%) + Painel Lateral à Direita (30%) */}
-      <div className="grid grid-cols-1 lg:grid-cols-10 gap-4 xl:gap-6 items-start">
+      {readOnly && <p role="status" className="text-sm text-muted-foreground">Consulta de Escala. Alteracoes e publicacao exigem ADMIN.</p>}
+      <fieldset disabled={readOnly} className="grid grid-cols-1 lg:grid-cols-10 gap-4 xl:gap-6 items-start min-w-0">
         
         {/* ========================================================= */}
         {/* ÁREA ESQUERDA: CARD PRINCIPAL COM A TABELA DE ESCALA (70%) */}
@@ -905,10 +908,10 @@ export function AlterarCarroProgramadoView({
 
         </div>
 
-      </div>
+      </fieldset>
 
       {/* Modal / Popup de Adição Rápida */}
-      {modalType && (
+      {!readOnly && modalType && (
         <div className="fixed inset-0 bg-black/60 dark:bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="w-full max-w-xs rounded-2xl border border-border bg-card text-card-foreground p-4 shadow-2xl space-y-3 dark:border-slate-700 dark:bg-[#0E1420]">
             <div className="flex items-center justify-between border-b border-border pb-2 dark:border-slate-800">

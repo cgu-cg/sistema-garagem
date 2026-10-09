@@ -1,3 +1,4 @@
+import { explicitGarage } from '../services/operationalAccess';
 import { assertC4Read } from '../services/c4Authorization';
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
@@ -130,7 +131,8 @@ export async function list(req: AuthRequest, res: Response) {
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return res.status(400).json({ message: 'Data invalida.' });
     const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { garagem: true, email: true, role: true } });
-    const userGarage = user?.garagem?.toUpperCase() || (user?.email?.toLowerCase().includes('vcm') ? 'VCM' : user?.email?.toLowerCase().includes('vcg') ? 'VCG' : undefined);
+    const userGarage = explicitGarage(user);
+    if (user?.role !== 'ADMIN' && !userGarage) throw new MvpError(403, 'Usuario sem garagem cadastrada.');
     const scope = user?.role !== 'ADMIN' && userGarage ? userGarage : req.query.garagem;
     if (enabled.includes(scope as 'VCG' | 'VCM')) throw new MvpError(400, 'Consulte a garagem C4 explicitamente; legado nao e fallback.');
     const records = await prisma.manutencaoCarro.findMany({ where: { data }, orderBy: { prefixo: 'asc' } });

@@ -1,3 +1,4 @@
+import { operationPageAccess } from '@/lib/operationalAccess';
 import { Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth, roleLabels } from "@/stores/auth";
 import {
@@ -202,33 +203,8 @@ export function Layout() {
 
     if (user?.role === "ADMIN") return true;
 
-    // Usuário de Manutenção (manutencao_vcg@teste.com, role "manutencao" ou emails de manutencao)
-    if (user?.role === "manutencao" || user?.email?.toLowerCase().includes("manutencao")) {
-      return to === "/manutencao" || to === "/manutencao/ci-manutencao";
-    }
-
-    // Usuário de soltura estrito (soltura_vcg, soltura_vcm ou role "soltura") visualiza ESTRITAMENTE o menu Soltura e seus submenus
-    if ((user?.role === "soltura" || user?.email?.toLowerCase().includes("soltura")) && !user?.email?.toLowerCase().includes("teste")) {
-      return to === "/soltura" || to === "/soltura/historico";
-    }
-
-    // Usuário teste@teste.com visualiza ESTRITAMENTE os menus solicitados
-    if (user?.email?.toLowerCase() === "teste@teste.com") {
-      const allowed = [
-        "/abastecimento",
-        "/abastecimento-carro",
-        "/soltura",
-        "/manutencao",
-        "/ci-manutencao",
-        "/soltura/ci-manutencao",
-        "/soltura-adm",
-        "/escala-carros",
-        "/escala-carros/alterar-carro-programado",
-        "/alterar-carro-programado",
-        "/controle-operacional"
-      ];
-      return allowed.some(route => to === route || to.startsWith(route + "/") || route.startsWith(to + "/"));
-    }
+    const operational = operationPageAccess(user, to);
+    if (operational !== undefined) return operational;
 
     if (user?.groups && user.groups.length > 0) {
       // Normalização com prefixos mais específicos primeiro para não haver colisão (ex: /soltura-adm antes de /soltura)

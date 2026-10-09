@@ -1,4 +1,5 @@
-import { c4Context } from '@/lib/c4';
+import { explicitGarage, canDispatch, canReadScale, canOfferRelease } from '@/lib/operationalAccess';
+import { c4Context, c4Folha } from '@/lib/c4';
 import { ciSelectionDate } from '@/lib/ciInitialDate';
 import { useEffect, useState, useMemo, useCallback, useRef, Fragment } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -175,22 +176,19 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   // Determinar empresa permitida:
   // Se for ADMIN, permite alternar livremente.
   // Se for colaborador (ex: soltura_vcg@teste.com ou soltura_vcm@teste.com), fixa na sua respectiva empresa.
-  const userGaragem: GaragemType = useMemo(() => {
-    if (user?.garagem === "VCM" || user?.email?.toLowerCase().includes("vcm")) return "VCM";
-    return "VCG";
-  }, [user]);
+  const userGaragem = explicitGarage(user);
 
   // Garagem e tipo de escala
   const [garagem, setGaragem] = useState<GaragemType>(() => {
     if (user && user.role !== "ADMIN") {
-      return (user.garagem === "VCM" || user.email?.toLowerCase().includes("vcm")) ? "VCM" : "VCG";
+      return explicitGarage(user)!;
     }
     return "VCG";
   });
 
   // Garantir que perfis não-admin sempre fiquem fixos em sua própria garagem
   useEffect(() => {
-    if (!isAdmin) {
+    if (!isAdmin && userGaragem) {
       setGaragem(userGaragem);
     }
   }, [isAdmin, userGaragem]);
@@ -235,6 +233,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     }
     ciDateContext.current = { garagem, c4: ciC4Enabled };
   }, [isCIView, garagem, ciC4Enabled]);
+  const releaseUiAllowed = canOfferRelease(user, garagem, Boolean(ciC4Enabled), c4Folha(dataOperacao, garagem)?.status);
 
   // Atualizar viewMode baseado na URL quando a rota mudar
   useEffect(() => {
@@ -380,6 +379,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   };
   useEffect(() => {
     setSharedScale(null); setCustomSchedules({});
+    if (!canReadScale(user)) return;
     void reloadSharedScale();
     const refresh = () => { if (!scaleWritePending.current) void reloadSharedScale(); };
     window.addEventListener('focus', refresh);
@@ -437,6 +437,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
   // Sincronizar com o banco de dados oficial (SQL Server)
   useEffect(() => {
+    if (!canDispatch(user)) return;
     let isCancelled = false;
     setIsSyncingDb(true);
 
@@ -494,6 +495,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   // Persistir despacho individual na API
   const dispatchWritePending = useRef(false);
   const persistDispatchToApi = async (item: SolturaItem, record: DispatchedRecord) => {
+      if (!releaseUiAllowed) throw new Error('Soltura indisponivel para este perfil ou contexto de CI.');
       await api.createSoltura({
         scheduleId: item.id,
         carroProgramado: item.carroProgramado || null,
@@ -518,6 +520,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
   // Salvar múltiplos despachos (usado pelo CarroRealizadoView)
   const handleSaveDispatchFromView = async (newDispatches: Record<string, DispatchedRecord>): Promise<boolean> => {
+    if (!releaseUiAllowed) { toast.error('Soltura indisponivel para este perfil ou contexto de CI.'); return false; }
     if (dispatchWritePending.current) { toast.error("Aguarde a gravacao pendente."); return false; }
     const itemsToPersist = Object.values(newDispatches).map(disp => {
       const sched = baseSchedules.find(s => s.id === disp.scheduleId);
@@ -747,7 +750,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   }, [garagem, dataOperacao]);
 
   useEffect(() => {
-    loadReservas();
+    if (canDispatch(user)) loadReservas();
   }, [loadReservas]);
 
   const handleOpenAddModal = (terminal: string) => {
@@ -1536,8 +1539,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       <div role="alert" className="p-3 border rounded print:hidden">
         <p>Soltura depende da CI finalizada da data de operacao e da manutencao oficial atual, confirmadas pela API. CI em preparacao, legado e VCM nao autorizam soltura neste piloto.</p>
         {ciReadError && <p>{ciReadError}</p>}
-        {scaleError || (!sharedScale ? 'Carregando escala oficial...' : sharedScale.publicada ? 'Escala oficial carregada.' : 'Escala ainda nao publicada. Nenhum dado local foi importado.')}
-        <Button type="button" variant="outline" onClick={() => void reloadSharedScale()}>Recarregar escala</Button>
+        {canReadScale(user) && (scaleError || (!sharedScale ? 'Carregando escala oficial...' : sharedScale.publicada ? 'Escala oficial carregada.' : 'Escala ainda nao publicada. Nenhum dado local foi importado.'))}
+        {canReadScale(user) && <Button type="button" variant="outline" onClick={() => void reloadSharedScale()}>Recarregar escala</Button>}
         {isAdmin && sharedScale && !sharedScale.publicada && <details><summary>Revisar programacao padrao antes de publicar</summary><ul>{defaultSchedules.map(i => <li key={i.id}>{i.linha} / {i.tabela} / {i.carroProgramado} / {i.saidaGaragem}</li>)}</ul></details>}
         {isAdmin && sharedScale && !sharedScale.publicada && <Button type="button" onClick={async () => {
           if (!window.confirm('Publicar a programacao padrao exibida na revisao da equipe? Nenhum dado de localStorage sera usado.')) return;
@@ -2169,7 +2172,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                             getOutraLinhaComCarroRealiz={getOutraLinhaComCarroRealiz}
                             getOutraLinhaComMoto={getOutraLinhaComMoto}
                             historicoTrocas={dispatches[item.id]?.historicoTrocas || []}
-                            isReadOnly={viewMode === "HISTORICO" || dataOperacao !== getHojeLocal()}
+                            isReadOnly={!releaseUiAllowed || viewMode === "HISTORICO" || dataOperacao !== getHojeLocal()}
                           />
                         </>
                       );
@@ -2548,6 +2551,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                   ) : (
                     <Button
                       size="sm"
+                      disabled={!releaseUiAllowed}
                       onClick={() => handleRelease(item)}
                       className="flex-1 h-8 text-xs font-bold rounded-lg bg-[#164E3A] hover:bg-[#113C2D] text-white shadow-2xs"
                     >
@@ -2675,6 +2679,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       {/* ========================================================= */}
       {viewMode === "ALTERAR_CARRO_PROGRAMADO" && (
         <AlterarCarroProgramadoView
+          readOnly={!isAdmin}
           garagem={garagem}
           escalaTipo={escalaTipo}
           schedules={baseSchedules}

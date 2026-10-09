@@ -1,3 +1,4 @@
+import { canDispatch } from '@/lib/operationalAccess';
 import { create } from "zustand";
 import { api } from "@/lib/api";
 
@@ -92,9 +93,9 @@ export const useAuth = create<AuthState>((set) => ({
 
 export function getDefaultRoute(user: User | null): string {
   if (!user) return "/";
-  if (user.role === "manutencao" || user.email?.toLowerCase().includes("manutencao")) return "/manutencao";
-  if (user.email?.toLowerCase() === "teste@teste.com") return "/soltura";
+  if (user.role === "manutencao") return "/manutencao";
   if (user.role === "ADMIN") return "/home";
+  if (canDispatch(user)) return "/soltura";
   if (user.role === "tanque") return "/abastecimento";
   if (user.role === "soltura") return "/soltura";
   if (user.role === "operacional") return "/controle-operacional";

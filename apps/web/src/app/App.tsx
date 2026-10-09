@@ -1,3 +1,4 @@
+import { operationPageAccess, explicitGarage } from '@/lib/operationalAccess';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useEffect } from "react";
 import { Toaster } from "sonner";
@@ -32,57 +33,14 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function PermissionRoute({ to, fallbackRoles, children }: { to: string; fallbackRoles: Role[]; children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const location = useLocation();
-  if (loading && !user) return <LoadingScreen />;
+  if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/" replace />;
   if (user.role === "ADMIN") return <>{children}</>;
 
-  // Usuário de Manutenção (manutencao_vcg@teste.com, role 'manutencao' ou emails de manutencao)
-  if (user.role === "manutencao" || user.email?.toLowerCase().includes("manutencao")) {
-    const isAllowed = 
-      location.pathname === "/manutencao" ||
-      location.pathname === "/manutencao/ci-manutencao" ||
-      location.pathname === "/ci-manutencao";
-
-    if (!isAllowed) {
-      return <Navigate to="/manutencao" replace />;
-    }
-    return <>{children}</>;
-  }
-
-  // Usuário de soltura (soltura_vcg, soltura_vcm ou role 'soltura') tem acesso ESTRITO apenas a /soltura e /soltura/historico
-  if ((user.role === "soltura" || user.email?.toLowerCase().includes("soltura")) && !user.email?.toLowerCase().includes("teste")) {
-    const isAllowed = to === "/soltura" && (location.pathname === "/soltura" || location.pathname === "/soltura/historico");
-    if (!isAllowed) {
-      const defaultRoute = getDefaultRoute(user);
-      return <Navigate to={defaultRoute} replace />;
-    }
-    return <>{children}</>;
-  }
-
-  // Usuário teste@teste.com tem acesso aos menus solicitados
-  if (user.email?.toLowerCase() === "teste@teste.com") {
-    const allowed = [
-      "/abastecimento",
-      "/abastecimento-carro",
-      "/soltura",
-      "/alterar-folha",
-      "/manutencao",
-      "/ci-manutencao",
-      "/soltura/ci-manutencao",
-      "/escala-carros",
-      "/escala-carros/alterar-carro-programado",
-      "/alterar-carro-programado",
-      "/soltura/alterar-carro-programado",
-      "/soltura/carro-realizado",
-      "/soltura-adm",
-      "/controle-operacional"
-    ];
-    const isAllowed = allowed.some(route => to === route || to.startsWith(route + "/") || route.startsWith(to + "/"));
-    if (!isAllowed) {
-      const defaultRoute = getDefaultRoute(user);
-      return <Navigate to={defaultRoute} replace />;
-    }
-    return <>{children}</>;
+  const operational = operationPageAccess(user, location.pathname);
+  if (operational !== undefined) {
+    if (!explicitGarage(user)) return <p role="alert">Usuario sem garagem cadastrada. Solicite revisao ao administrador.</p>;
+    return operational ? <>{children}</> : <p role="alert">Seu perfil ou grupo nao permite esta tela.</p>;
   }
 
   if (user.groups && user.groups.length > 0) {

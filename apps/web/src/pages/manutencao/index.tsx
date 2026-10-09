@@ -1,3 +1,4 @@
+import { explicitGarage } from '@/lib/operationalAccess';
 import { canWriteC4 } from '@/lib/c4Authorization';
 import { canMutate, getMutationState, subscribeMutationState, confirmRefresh, requireRefresh, SavedRefreshRequired } from '@/lib/mvpTemporal';
 import React, { useState, useMemo, useEffect, useRef } from "react";
@@ -73,17 +74,14 @@ export function ManutencaoPage() {
   // - VCG (Garagem 2)
   const hasC4Configuration = c4Configured();
   const userGaragemFixa: "VCM" | "VCG" | undefined = useMemo(() => {
-    if (hasC4Configuration) return user?.role === 'ADMIN' ? undefined : user?.garagem === 'VCG' || user?.garagem === 'VCM' ? user.garagem : undefined;
-    if (user?.garagem === "VCM" || user?.email?.toLowerCase().includes("vcm")) return "VCM";
-    if (user?.garagem === "VCG" || user?.email?.toLowerCase().includes("vcg")) return "VCG";
-    return undefined;
+    return user?.role === 'ADMIN' ? undefined : explicitGarage(user);
   }, [user, hasC4Configuration]);
 
   // Seletor de Garagem:
   // Usuário de garagem fixa fica travado em sua garagem (ex: VCG).
   // Se for ADMIN geral, permite alternar entre TODAS, VCG ou VCM (padrão VCG)
   const [activeGaragem, setActiveGaragem] = useState<"TODAS" | "VCG" | "VCM">(() => {
-    if (user?.garagem === "VCM" || user?.email?.toLowerCase().includes("vcm")) return "VCM";
+    if (explicitGarage(user) === "VCM") return "VCM";
     return "VCG";
   });
 

@@ -1,3 +1,5 @@
+import { removeReserva } from '../services/reservaTerminal';
+import { MvpError } from '../services/mvpTemporal';
 import { Response } from "express";
 import prisma from "../utils/prisma";
 import { AuthRequest } from "../middleware/auth";
@@ -68,18 +70,9 @@ export async function create(req: AuthRequest, res: Response) {
 
 export async function remove(req: AuthRequest, res: Response) {
   try {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) {
-      return res.status(400).json({ message: "ID inválido" });
-    }
-
-    await prisma.reservaTerminal.delete({
-      where: { id },
-    });
-
-    return res.json({ message: "Reserva removida com sucesso" });
+    return res.json(await removeReserva(prisma, req.userId, Number(req.params.id)));
   } catch (error) {
-    console.error("Erro ao remover reserva de terminal:", error);
-    return res.status(500).json({ message: "Erro ao remover reserva de terminal" });
+    if (error instanceof MvpError) return res.status(error.status).json({ message: error.message });
+    return res.status(503).json({ message: 'Exclusao de reserva nao confirmada. Recarregue antes de tentar novamente.' });
   }
 }

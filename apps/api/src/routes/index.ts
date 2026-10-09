@@ -1,3 +1,4 @@
+import { operationalAccess } from '../middleware/operationalAccess';
 import { Router } from "express";
 import { authenticate, authorize, requireRole } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -32,8 +33,8 @@ import * as escalaCarrosController from '../controllers/escalaCarros';
 
 const router: Router = Router();
 
-router.get("/escala-carros", authenticate, authorize("ADMIN", "soltura", "COLABORADOR"), escalaCarrosController.list);
-router.post("/escala-carros", authenticate, requireRole("ADMIN"), escalaCarrosController.save);
+router.get("/escala-carros", authenticate, operationalAccess('scale'), escalaCarrosController.list);
+router.post("/escala-carros", authenticate, operationalAccess('admin'), escalaCarrosController.save);
 
 // Auth
 router.post("/auth/login", validate(loginSchema), authController.login);
@@ -69,12 +70,12 @@ router.get("/abastecimento-carro/sessions", authenticate, authorize("ADMIN", "ab
 router.get("/abastecimento-carro/sessions/:id", authenticate, authorize("ADMIN", "abastecimento"), abastecimentoCarroController.getSessionDetails);
 
 // Soltura
-router.get("/solturas", authenticate, authorize("ADMIN", "soltura"), solturaController.list);
-router.post("/solturas", authenticate, authorize("ADMIN", "soltura"), validate(createSolturaSchema), solturaController.create);
-router.post("/solturas/batch-sync", authenticate, authorize("ADMIN", "soltura"), validate(batchSyncSolturaSchema), solturaController.syncBatch);
-router.get("/solturas/reservas-terminais", authenticate, authorize("ADMIN", "soltura", "COLABORADOR"), reservasTerminaisController.list);
-router.post("/solturas/reservas-terminais", authenticate, authorize("ADMIN", "soltura"), validate(createReservaTerminalSchema), reservasTerminaisController.create);
-router.delete("/solturas/reservas-terminais/:id", authenticate, authorize("ADMIN", "soltura"), reservasTerminaisController.remove);
+router.get("/solturas", authenticate, operationalAccess('dispatch'), solturaController.list);
+router.post("/solturas", authenticate, operationalAccess('dispatch'), validate(createSolturaSchema), solturaController.create);
+router.post("/solturas/batch-sync", authenticate, operationalAccess('dispatch'), validate(batchSyncSolturaSchema), solturaController.syncBatch);
+router.get("/solturas/reservas-terminais", authenticate, operationalAccess('reservations'), reservasTerminaisController.list);
+router.post("/solturas/reservas-terminais", authenticate, operationalAccess('dispatch'), validate(createReservaTerminalSchema), reservasTerminaisController.create);
+router.delete("/solturas/reservas-terminais/:id", authenticate, operationalAccess('deleteReservation'), reservasTerminaisController.remove);
 
 // Catracas
 router.use("/catracas", authenticate, requireRole("ADMIN"));
@@ -96,21 +97,21 @@ router.delete("/controle-operacional/:id", authenticate, authorize("ADMIN"), con
 router.put("/controle-operacional/:id", authenticate, authorize("ADMIN", "operacional"), controleOperacionalController.update);
 
 // CI Manutenção & Bloqueios de Veículos (Soltura & Manutenção)
-router.get("/ci-bloqueios", authenticate, ciBloqueiosController.list);
-router.get('/c4/contexto', authenticate, c4Controller.context);
-router.post("/ci-bloqueios", authenticate, ciBloqueiosController.createOrUpdate);
-router.post("/ci-bloqueios/release", authenticate, ciBloqueiosController.release);
-router.post("/ci-bloqueios/sync", authenticate, ciBloqueiosController.sync);
-router.delete("/ci-bloqueios/:id", authenticate, ciBloqueiosController.remove);
+router.get("/ci-bloqueios", authenticate, operationalAccess('read'), ciBloqueiosController.list);
+router.get('/c4/contexto', authenticate, operationalAccess('read'), c4Controller.context);
+router.post("/ci-bloqueios", authenticate, operationalAccess('read'), ciBloqueiosController.createOrUpdate);
+router.post("/ci-bloqueios/release", authenticate, operationalAccess('read'), ciBloqueiosController.release);
+router.post("/ci-bloqueios/sync", authenticate, operationalAccess('read'), ciBloqueiosController.sync);
+router.delete("/ci-bloqueios/:id", authenticate, operationalAccess('read'), ciBloqueiosController.remove);
 
 // Manutenção (Controle de Frota)
-router.get("/manutencao", authenticate, manutencaoController.list);
-router.post("/manutencao", authenticate, manutencaoController.createOrUpdate);
-router.put("/manutencao/:id", authenticate, manutencaoController.update);
-router.delete("/manutencao/:id", authenticate, manutencaoController.remove);
-router.post("/manutencao/sync", authenticate, manutencaoController.sync);
-router.post("/manutencao/clear-list", authenticate, manutencaoController.clearList);
-router.post("/manutencao/reset", authenticate, manutencaoController.reset);
+router.get("/manutencao", authenticate, operationalAccess('read'), manutencaoController.list);
+router.post("/manutencao", authenticate, operationalAccess('read'), manutencaoController.createOrUpdate);
+router.put("/manutencao/:id", authenticate, operationalAccess('read'), manutencaoController.update);
+router.delete("/manutencao/:id", authenticate, operationalAccess('read'), manutencaoController.remove);
+router.post("/manutencao/sync", authenticate, operationalAccess('read'), manutencaoController.sync);
+router.post("/manutencao/clear-list", authenticate, operationalAccess('read'), manutencaoController.clearList);
+router.post("/manutencao/reset", authenticate, operationalAccess('read'), manutencaoController.reset);
 
 export default router;
 

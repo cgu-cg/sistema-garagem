@@ -1,3 +1,4 @@
+import { explicitGarage } from '../services/operationalAccess';
 import { assertC4Read } from '../services/c4Authorization';
 import { Response } from "express";
 import prisma from "../utils/prisma";
@@ -38,12 +39,8 @@ export async function list(req: AuthRequest, res: Response) {
       select: { garagem: true, email: true, role: true }
     });
 
-    let userGaragem = user?.garagem?.toUpperCase();
-    if (!userGaragem) {
-      const emailLower = (user?.email || "").toLowerCase();
-      if (emailLower.includes("vcg")) userGaragem = "VCG";
-      else if (emailLower.includes("vcm")) userGaragem = "VCM";
-    }
+    const userGaragem = explicitGarage(user);
+    if (user?.role !== 'ADMIN' && !userGaragem) throw new MvpError(403, 'Usuario sem garagem cadastrada.');
 
     const isAdmin = user?.role === "ADMIN";
     const effectiveGaragem = (!isAdmin && userGaragem)
