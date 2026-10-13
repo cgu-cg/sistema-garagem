@@ -3,7 +3,31 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readContext } from '../src/services/c4Flow';
 import { dateValue } from '../src/services/c4Temporal';
-import { selectCIReportItems, ciReportSlot, ciReportExtraSlots, groupCIReportSubtypes, matchesCISubtype } from '../../web/src/pages/soltura/ciReport';
+import { selectCIReportItems, ciReportSlot, ciReportExtraSlots, groupCIReportSubtypes, matchesCISubtype, ciBlockDate } from '../../web/src/pages/soltura/ciReport';
+
+test('folha selecionada isola veiculos e preserva a data original do bloqueio na tela e no relatorio', () => {
+  const items = [
+    { id: '14', prefixo: '2424', garagem: 'VCG', data: '2026-10-14', dataBloqueio: '2026-06-06', categoriaPlanilha: 'BLOQUEADO', consorciada: 'VSF', motivo: 'MOTOR' },
+    { id: '15', prefixo: '2424', garagem: 'VCG', data: '2026-10-15', dataBloqueio: '2026-06-06', categoriaPlanilha: 'BLOQUEADO', consorciada: 'VSF', motivo: 'FREIO' },
+    { id: 'vcm', prefixo: '1119', garagem: 'VCM', data: '2026-10-14', dataBloqueio: '2026-10-01', categoriaPlanilha: 'BLOQUEADO', consorciada: 'VCM' },
+  ] as any;
+  const before = structuredClone(items);
+  const selected = selectCIReportItems(items, '2026-10-14', 'VCG');
+  assert.deepEqual(selected.map(i => [i.prefixo, i.motivo, ciBlockDate(i, true)]), [['2424', 'MOTOR', '2026-06-06']]);
+  assert.equal(selectCIReportItems(items, '2026-10-15', 'VCG')[0].motivo, 'FREIO');
+  assert.deepEqual(items, before);
+  const source = readFileSync('apps/web/src/pages/soltura/CiManutencaoView.tsx', 'utf8');
+  assert.ok(source.includes('formatarDataBr(ciBlockDate(item, reportC4))'));
+  assert.equal(source.split('formatDataBloqueio(ciBlockDate(item, reportC4))').length - 1, 4);
+  assert.ok(!source.includes('formatarDataBr(item.data || dataOperacao)'));
+});
+
+test('data de bloqueio ausente nao e inventada no C4; legado preserva fallback', () => {
+  const item = { id: 'x', data: '2026-10-14', dataBloqueio: null } as any;
+  assert.equal(ciBlockDate(item, true), '');
+  assert.equal(ciBlockDate(item, false), '2026-10-14');
+  assert.equal(ciBlockDate(undefined, true), '');
+});
 
 function fixture() {
   const folhas = [

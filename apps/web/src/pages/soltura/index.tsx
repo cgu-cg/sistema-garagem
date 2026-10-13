@@ -1547,7 +1547,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
   return (
     <div className="space-y-5 animate-in fade-in duration-300 pb-16">
-      <div role="alert" className="p-3 border rounded print:hidden">
+      {!isCIView && <div role="alert" className="p-3 border rounded print:hidden">
         {ciReadError && <p>{ciReadError}</p>}
         {canReadScale(user) && (scaleError || (!sharedScale ? 'Carregando escala oficial...' : sharedScale.publicada ? 'Escala oficial carregada.' : 'Escala ainda nao publicada. Nenhum dado local foi importado.'))}
         {canReadScale(user) && <Button type="button" variant="outline" onClick={() => void reloadSharedScale()}>Recarregar escala</Button>}
@@ -1557,7 +1557,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           const saved = await persistCustomSchedules(() => ({ [scheduleKey]: defaultSchedules }));
           if (saved) toast.success('Escala publicada no servidor.');
         }}>Publicar programacao padrao</Button>}
-      </div>
+      </div>}
 
       {/* ========================================================= */}
       {/* CABEÇALHO PRINCIPAL E SELETORES (Folha de Soltura e Histórico) */}

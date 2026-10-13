@@ -67,6 +67,7 @@ const SUGESTOES_OBS = [
 ];
 
 export function ManutencaoPage() {
+  const showManualRefresh = false;
   const { user } = useAuth();
   const isAdmin = user?.role === "ADMIN";
 
@@ -1100,7 +1101,7 @@ export function ManutencaoPage() {
             Visualizar Relatório
           </Button>
 
-          <Button
+          {showManualRefresh && <Button
             onClick={handleResetSeed}
             variant="ghost"
             size="sm"
@@ -1108,7 +1109,7 @@ export function ManutencaoPage() {
             title="Atualizar dados oficiais sem alterar a folha"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-          </Button>
+          </Button>}
         </div>
       </div>
 

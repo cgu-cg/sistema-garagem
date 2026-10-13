@@ -13,6 +13,12 @@ O vínculo C4 é `ItemFolhaCI.folhaId -> FolhaCI.id`. A restrição única
 `FolhaCI(garagem, dataFolha)` permite selecionar exatamente uma folha pelos
 campos `garagem` e `data` projetados pelo serviço a partir do pai.
 Data do bloqueio, garagem física e consorciada não identificam a folha.
+Na tela e no relatório, a coluna Data Bloq. usa a mesma data original persistida
+em `dataBloqueio`. A folha de 14/10 pode conter bloqueios iniciados antes de 14/10;
+isso não significa que o relatório esteja usando outra folha. No C4, ausência
+da data original não recebe a data da folha como fallback. Somente o legado
+admite `data` como fallback. DATA DA INFORMAÇÃO continua sendo a data selecionada;
+DATA DA CRIAÇÃO e DATA DA REVISÃO pertencem ao formulário, não à folha operacional.
 Uma folha VCG pode conter legitimamente bloqueados da consorciada VCM.
 Não existe revisão numérica de CI no modelo atual: `baseC4` é um token de
 concorrência para gravações. A revisão impressa no cabeçalho é do formulário.
@@ -32,6 +38,12 @@ Todas as seções usam exclusivamente os itens da garagem/data selecionadas:
 O relatório filtrava somente a data, sem a garagem. Reforço reutilizava o
 resolvedor do editor, incluindo rascunhos locais indexados apenas pela data,
 posições extras locais e horários padrão sem item salvo.
+
+Por orientação operacional, as 12 posições fixas de Reforço com Horário exibem
+seus horários também quando vazias, na prévia e na impressão, como na tela.
+Horário persistido no item tem precedência, preservando fotografias históricas.
+Prefixo, motivo e observação continuam vindo exclusivamente da folha selecionada;
+exibir o horário fixo não cria nem herda lançamentos de veículos.
 
 A seleção agora está isolada em `ciReport.ts`, exclui itens liberados e não
 agrega garagens na opção TODAS. Reforço usa apenas os itens da folha; não

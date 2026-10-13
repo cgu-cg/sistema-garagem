@@ -20,6 +20,11 @@ export function selectCIReportItems(items: BloqueioCarro[], date: string, garage
   return items.filter(i => normalizeIsoDate(i.data) === day && i.garagem === garage && i.status !== 'LIBERADO');
 }
 
+// Data da folha seleciona a fotografia; dataBloqueio identifica o inicio do bloqueio.
+export function ciBlockDate(item: BloqueioCarro | undefined, c4: boolean): string {
+  return normalizeIsoDate(item?.dataBloqueio || (c4 ? '' : item?.data));
+}
+
 function legacySlot(item: BloqueioCarro) {
   return item.reforcoSlotId || item.id?.match(/(?:^|[-_])(ref(?:-extra)?-\d+)(?:[-_]|$)/)?.[1];
 }

@@ -1,5 +1,5 @@
 import { explicitGarage } from '@/lib/operationalAccess';
-import { normalizeIsoDate, selectCIReportItems, ciReportExtraSlots, ciReportSlot, groupCIReportSubtypes, matchesCISubtype } from './ciReport';
+import { normalizeIsoDate, selectCIReportItems, ciReportExtraSlots, ciReportSlot, groupCIReportSubtypes, matchesCISubtype, ciBlockDate } from './ciReport';
 import { operationalContext } from '@/lib/mvpTemporal';
 import { c4OperationalContext, initialCIDate } from '@/lib/c4';
 import { canWriteC4 } from '@/lib/c4Authorization';
@@ -388,6 +388,8 @@ export function CiManutencaoView({
   const { user } = useAuth();
   const isAdmin = user?.role === "ADMIN";
   const canEditC4 = canWriteC4(user, 'VCG');
+  // Mantem as rotinas de recarga, sem apresentar acoes manuais no cabecalho.
+  const showManualActions = false;
 
   // Identificação e Gestão da Data de Operação (Padrão Controle de Frota)
   const getTodayString = () => operationalContext().today;
@@ -1930,6 +1932,7 @@ export function CiManutencaoView({
             Visualizar Relatório
           </Button>
 
+          {showManualActions && <>
           <Button onClick={handlePrepareTomorrow} disabled={!ready || writeState.pending || writeState.refreshRequired || !(c4Enabled('VCG') ? canEditC4 : isAdmin) || !c4OperationalContext(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG').open || activeGaragemScope === 'VCM'} variant="outline" size="sm">Verificar preparação de amanhã</Button>
           <Button
             onClick={handleRefreshData}
@@ -1940,6 +1943,7 @@ export function CiManutencaoView({
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </Button>
+          </>}
         </div>
       </div>
 
@@ -1947,7 +1951,6 @@ export function CiManutencaoView({
       {writeState.pending && <p role="status">Salvando. Aguarde antes de outra operacao.</p>}
       {writeState.refreshRequired && <p role="alert">Atualize os dados oficiais antes de continuar.</p>}
       {c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && <p role="status" className="text-sm">Folha: {c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')?.status === 'FINALIZADA' ? 'Finalizada' : c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')?.status === 'EM_PREPARACAO' ? 'Em preparação' : 'Não preparada'}</p>}
-      {!isDataEditavel && <p role="status" className="rounded-2xl border border-slate-300 bg-slate-100 p-3 text-sm dark:border-slate-700 dark:bg-slate-800">Somente leitura.</p>}
       {/* PRANCHETA DIGITAL (LAYOUT PRINT 01 & PRINT 02) */}
       {/* ========================================================= */}
       <div className="space-y-6">
@@ -2679,7 +2682,7 @@ export function CiManutencaoView({
                                   {item.motivo}
                                 </td>
                                 <td className="py-1.5 px-1.5 text-[10px] text-muted-foreground font-mono">
-                                  {formatarDataBr(item.data || dataOperacao)}
+                                  {formatarDataBr(ciBlockDate(item, reportC4))}
                                 </td>
                                 <td className="py-1.5 px-1.5 text-right">
                                   <DropdownMenu>
@@ -3000,13 +3003,13 @@ export function CiManutencaoView({
                       return (
                         <tr key={rIdx} className="text-[8px] text-center h-[17.5px]">
                           {/* Lado Esquerdo */}
-                          <td className="border border-black font-mono font-bold py-0.5 leading-normal align-middle">{dataEsq.savedItem?.horarioReforco || "\u00A0"}</td>
+                          <td className="border border-black font-mono font-bold py-0.5 leading-normal align-middle">{dataEsq.savedItem?.horarioReforco || slotEsq?.horario || "\u00A0"}</td>
                           <td className="border border-black uppercase font-semibold text-[7.5px] py-0.5 leading-normal align-middle">{dataEsq.motivo || "\u00A0"}</td>
                           <td className="border border-black font-mono font-bold py-0.5 leading-normal align-middle">{dataEsq.prefixo || "\u00A0"}</td>
                           <td className="border border-black font-mono font-bold py-0.5 leading-normal align-middle">{dataEsq.obs || "\u00A0"}</td>
 
                           {/* Lado Direito */}
-                          <td className="border border-black font-mono font-bold py-0.5 leading-normal align-middle">{dataDir.savedItem?.horarioReforco || "\u00A0"}</td>
+                          <td className="border border-black font-mono font-bold py-0.5 leading-normal align-middle">{dataDir.savedItem?.horarioReforco || slotDir?.horario || "\u00A0"}</td>
                           <td className="border border-black uppercase font-semibold text-[7.5px] py-0.5 leading-normal align-middle">{dataDir.motivo || "\u00A0"}</td>
                           <td className="border border-black font-mono font-bold py-0.5 leading-normal align-middle">{dataDir.prefixo || "\u00A0"}</td>
                           <td className="border border-black font-mono font-bold text-[7.5px] py-0.5 leading-normal align-middle">{dataDir.obs || "\u00A0"}</td>
@@ -3070,7 +3073,7 @@ export function CiManutencaoView({
                               <tr key={idx} className="text-[7.5px] h-[16.5px]">
                                 <td className="border border-black text-center font-mono font-bold py-0.5 px-1 leading-normal align-middle">{item?.prefixo || "\u00A0"}</td>
                                 <td className="border border-black text-left py-0.5 px-1 uppercase font-semibold text-[7.5px] truncate max-w-[130px] leading-normal align-middle">{item?.motivo || "\u00A0"}</td>
-                                <td className="border border-black text-center font-mono py-0.5 px-1 text-[7.5px] leading-normal align-middle">{formatDataBloqueio(item?.dataBloqueio || item?.data) || "\u00A0"}</td>
+                                <td className="border border-black text-center font-mono py-0.5 px-1 text-[7.5px] leading-normal align-middle">{formatDataBloqueio(ciBlockDate(item, reportC4)) || "\u00A0"}</td>
                               </tr>
                             );
                           })}
@@ -3100,7 +3103,7 @@ export function CiManutencaoView({
                               <tr key={idx} className="text-[7.5px] h-[16.5px]">
                                 <td className="border border-black text-center font-mono font-bold py-0.5 px-1 leading-normal align-middle">{item?.prefixo || "\u00A0"}</td>
                                 <td className="border border-black text-left py-0.5 px-1 uppercase font-semibold text-[7.5px] truncate max-w-[130px] leading-normal align-middle">{item?.motivo || "\u00A0"}</td>
-                                <td className="border border-black text-center font-mono py-0.5 px-1 text-[7.5px] leading-normal align-middle">{formatDataBloqueio(item?.dataBloqueio || item?.data) || "\u00A0"}</td>
+                                <td className="border border-black text-center font-mono py-0.5 px-1 text-[7.5px] leading-normal align-middle">{formatDataBloqueio(ciBlockDate(item, reportC4)) || "\u00A0"}</td>
                               </tr>
                             );
                           })}
@@ -3133,7 +3136,7 @@ export function CiManutencaoView({
                               <tr key={idx} className="text-[7.5px] h-[16.5px]">
                                 <td className="border border-black text-center font-mono font-bold py-0.5 px-1 leading-normal align-middle">{item?.prefixo || "\u00A0"}</td>
                                 <td className="border border-black text-left py-0.5 px-1 uppercase font-semibold text-[7.5px] truncate max-w-[130px] leading-normal align-middle">{item?.motivo || "\u00A0"}</td>
-                                <td className="border border-black text-center font-mono py-0.5 px-1 text-[7.5px] leading-normal align-middle">{formatDataBloqueio(item?.dataBloqueio || item?.data) || "\u00A0"}</td>
+                                <td className="border border-black text-center font-mono py-0.5 px-1 text-[7.5px] leading-normal align-middle">{formatDataBloqueio(ciBlockDate(item, reportC4)) || "\u00A0"}</td>
                               </tr>
                             );
                           })}
@@ -3163,7 +3166,7 @@ export function CiManutencaoView({
                               <tr key={idx} className="text-[7.5px] h-[16.5px]">
                                 <td className="border border-black text-center font-mono font-bold py-0.5 px-1 leading-normal align-middle">{item?.prefixo || "\u00A0"}</td>
                                 <td className="border border-black text-left py-0.5 px-1 uppercase font-semibold text-[7.5px] truncate max-w-[130px] leading-normal align-middle">{item?.motivo || "\u00A0"}</td>
-                                <td className="border border-black text-center font-mono py-0.5 px-1 text-[7.5px] leading-normal align-middle">{formatDataBloqueio(item?.dataBloqueio || item?.data) || "\u00A0"}</td>
+                                <td className="border border-black text-center font-mono py-0.5 px-1 text-[7.5px] leading-normal align-middle">{formatDataBloqueio(ciBlockDate(item, reportC4)) || "\u00A0"}</td>
                               </tr>
                             );
                           })}
