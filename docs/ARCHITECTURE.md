@@ -14,8 +14,9 @@ são filtrados. Códigos desconhecidos e identificadores inválidos ainda rejeit
 a resposta inteira, mantendo a lista anterior. O diagnóstico informa contagens de registros incompletos, garagens
 desconhecidas e inconsistências, sem expor identificadores. Valores originais
 válidos ficam em `garagemOriginal` no cliente. O formato público não mudou.
-O filtro preexistente `garageOne` não foi alterado; sua adequação ao contexto
-operacional permanece pendente de análise separada.
+Por confirmação operacional, os seletores da CI VCG usam somente garagem
+cadastrada 2, independentemente da consorciada. `vehiclesForGarage` usa 1 para
+VCM e 2 para VCG. Este filtro não remove itens já salvos nem altera históricos.
 
 `mssql.getPool` usa `legacyPool`: requisições simultâneas aguardam a mesma
 promessa de conexão. Pool desconectado é fechado antes da substituição; uma
@@ -130,7 +131,7 @@ Bootstrap recupera apenas eventos de hoje; GET nunca chama esses serviços.
   para VCG não habilitada. Não apagar tabelas/dados legados nesta entrega.
 
 UI mantém aparência, quatro grupos BLOQUEADOS no contexto VCG, seleção de
-Veiculos da Garagem 1, flags independentes em uma linha, observações separadas,
+Veiculos da Garagem 2 no seletor VCG, flags independentes em uma linha, observações separadas,
 metadados persistidos e leitura explícita de FINALIZADA/ausente. Título é salvo
 no backend, inclusive folha sem itens; não é reconstruído de localStorage.
 Drafts de reforço não substituem fotografia finalizada. POST confirmado é

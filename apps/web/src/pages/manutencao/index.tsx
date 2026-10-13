@@ -120,8 +120,6 @@ export function ManutencaoPage() {
   const [modalStatusOrigem, setModalStatusOrigem] = useState<"BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO">("BLOQUEADO");
   const [newPrefixo, setNewPrefixo] = useState("");
   const [newObservacao, setNewObservacao] = useState("");
-  const [newConsorciada, setNewConsorciada] = useState<string>('');
-  useEffect(() => { setNewConsorciada(''); }, [modalAddOpen, newPrefixo]);
 
   // Estados do seletor moderno de veículos no modal
   const [carSelectorOpen, setCarSelectorOpen] = useState(false);
@@ -656,6 +654,11 @@ export function ManutencaoPage() {
       return;
     }
 
+    if (!/^[1-4]\d{0,9}$/.test(cleanPrefix)) {
+      toast.error('Carro não existe dentro da frota.');
+      return;
+    }
+
     const carroGaragem = getGaragemFisicaByCarro(cleanPrefix);
     if (activeGaragem !== "TODAS" && carroGaragem !== activeGaragem) {
       toast.error(`O veículo ${cleanPrefix} pertence à Garagem ${carroGaragem}. Seu acesso está restrito à Garagem ${activeGaragem}.`);
@@ -747,8 +750,7 @@ export function ManutencaoPage() {
       if (!(await commitMaintenance(next))) return;
       setModalAddOpen(false); setNewPrefixo(''); setNewObservacao(''); return;
     }
-    const consorciada = c4Enabled(c4Scope) ? newConsorciada as ManutencaoCarroItem['consorciada'] : getConsorciadaByPrefix(cleanPrefix);
-    if (c4Enabled(c4Scope) && !['VSF', 'VCG', 'JTU', 'VCM'].includes(consorciada)) { toast.error('Informe a consorciada real do veículo.'); return; }
+    const consorciada = getConsorciadaByPrefix(cleanPrefix);
     const newItem: ManutencaoCarroItem = {
       id: toStatus === "BLOQUEADO" ? `manut-ci-${dataOperacao}-${cleanPrefix}` : `manut-${cleanPrefix}-${Date.now()}`,
       prefixo: cleanPrefix,
@@ -1713,14 +1715,7 @@ export function ManutencaoPage() {
 
             </div>
 
-            {c4Enabled(c4Scope) && !items.some(i => i.prefixo === newPrefixo.replace(/\D/g, '')) && <label className="text-xs font-bold text-gray-500 uppercase">
-              Consorciada real do veículo
-              <select value={newConsorciada} onChange={e => setNewConsorciada(e.target.value)} disabled={!mutationAllowed} className="mt-1 w-full rounded-xl border bg-background p-2 text-foreground">
-                <option value="">Selecione</option>
-                {['VSF', 'VCG', 'JTU', 'VCM'].map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </label>}
-            <div>
+            {modalStatusOrigem !== 'LIBERADO' && <div>
               <label className="text-xs font-bold text-gray-500 uppercase">
                 Observação / Defeito
               </label>
@@ -1742,7 +1737,7 @@ export function ManutencaoPage() {
                   </button>
                 ))}
               </div>
-            </div>
+            </div>}
 
             <DialogFooter className="pt-2">
               <Button

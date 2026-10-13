@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createLegacyPool } from '../src/services/legacyPool';
 import { createCIFleetLoader, fleetError, mapFleet, FleetValidationError, type FleetState } from '../../web/src/lib/ciFleet';
-import { garageOne } from '../../web/src/lib/c4Vehicles';
+import { vehiclesForGarage } from '../../web/src/lib/c4Vehicles';
 import { inventoryVehicle } from '../src/services/fleetContract';
 
 function deferred<T>() {
@@ -108,9 +108,9 @@ const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 
 test('carga substitui lista local pela frota oficial com garagem real, inclusive resposta vazia', async () => {
   let value = response(); const f = fixture(async () => value);
-  assert.equal(garageOne(f.initial).length, 0); // Nao inventar garagemFonte na lista local.
+  assert.equal(vehiclesForGarage(f.initial, 'VCM').length, 0); // Nao inventar garagemFonte na lista local.
   await f.loader.load(); assert.equal(f.latest().source, 'real'); assert.equal(f.latest().cars[0].garagemFonte, 1);
-  assert.equal(garageOne(f.latest().cars).length, 1);
+  assert.equal(vehiclesForGarage(f.latest().cars, 'VCM').length, 1);
   value = { source: 'real', data: [] }; await f.loader.load(true);
   assert.deepEqual(f.latest().cars, []); assert.equal(f.latest().error, null); f.loader.dispose();
 });

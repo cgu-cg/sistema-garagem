@@ -1,5 +1,21 @@
 # Domain model e entendimento operacional atual
 
+## Seleção de veículos na CI VCG — confirmação operacional
+
+Novas inclusões nos seletores da CI VCG apresentam somente veículos com
+garagem cadastrada 2 (VCG), independentemente da consorciada. Garagem 1
+corresponde a VCM. A restrição do seletor não filtra itens já salvos nem
+reclassifica consorciadas, garagens ou históricos da folha.
+
+## Ajuste autorizado para inclusão no Controle de Manutenção
+
+Por orientação explícita do usuário, novas inclusões pelo modal do Controle
+preenchem consorciada pelo primeiro dígito: 1=VCM, 2=VSF, 3=JTU, 4=VCG.
+Prefixos fora desses grupos são recusados na interface. Esta é uma exceção
+local à orientação de não inferir consorciada abaixo: não altera registros
+existentes, históricos, garagem física, contexto C4 ou o contrato do backend.
+O grupo do prefixo não comprova sozinho a existência no cadastro da frota.
+
 ## Consolidação em 09/10/2026 — precedência vigente
 
 O C4 abre às 03:00 inclusivo e fecha às 20:00 exclusivo, em

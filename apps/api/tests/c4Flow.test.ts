@@ -7,7 +7,7 @@ import { operationalContext, dateValue, eventInstant, enabledGarages, nextEvent,
 import { revision } from '../src/services/mvpTemporal';
 import { revision as clientRevision } from '../../web/src/lib/mvpTemporal';
 import { recoverCurrentDay, startC4Scheduler } from '../src/services/c4Scheduler';
-import { garageOne } from '../../web/src/lib/c4Vehicles';
+import { vehiclesForGarage } from '../../web/src/lib/c4Vehicles';
 import { c4KnownFields, c4EditedText } from '../../web/src/lib/c4ItemFields';
 import Module from 'node:module';
 import path from 'node:path';
@@ -437,11 +437,23 @@ test('data de bloqueio normal ausente/invalida/futura rejeitada', async () => {
 test('sem runtime DDL nem reconciliacao em controllers GET', () => {
   for (const path of ['apps/api/src/services/c4Flow.ts', 'apps/api/src/services/c4Scheduler.ts', 'apps/api/src/controllers/c4.ts', 'apps/api/src/controllers/ciBloqueios.ts', 'apps/api/src/controllers/manutencao.ts']) assert.doesNotMatch(readFileSync(path, 'utf8'), /CREATE\s+TABLE|ALTER\s+TABLE|ensureTable/i);
   const source = readFileSync('apps/api/src/services/mssql.ts', 'utf8'); assert.match(source, /SELECT idCarro, garagem/); assert.match(source, /WHERE ativo=1/);
-  const ui = readFileSync('apps/web/src/pages/soltura/CiManutencaoView.tsx', 'utf8'); assert.match(ui, /garageOne\(fleetCars\)/); assert.match(ui, /c4Enabled\('VCG'\) \|\| cons.id !== "VCM"/);
+  const ui = readFileSync('apps/web/src/pages/soltura/CiManutencaoView.tsx', 'utf8'); assert.match(ui, /vehiclesForGarage\(fleetCars, 'VCG'\)/); assert.match(ui, /c4Enabled\('VCG'\) \|\| cons.id !== "VCM"/);
 });
 test('selecao Garagem 1 usa coluna real e inclui VCM independente do prefixo', () => {
   const vehicles = [{ prefixo: '3083', garagemFonte: 1, consorciada: 'VCM' }, { prefixo: '1322', garagemFonte: 1, consorciada: 'VCM' }, { prefixo: '4178', garagemFonte: 2, consorciada: 'VCG' }];
-  assert.deepEqual(garageOne(vehicles).map(i => i.prefixo), ['3083', '1322']); assert.equal(garageOne(vehicles)[0].consorciada, 'VCM');
+  assert.deepEqual(vehiclesForGarage(vehicles, 'VCM').map(i => i.prefixo), ['3083', '1322']); assert.equal(vehiclesForGarage(vehicles, 'VCM')[0].consorciada, 'VCM');
+});
+
+test('seletor CI VCG usa garagem 2 independentemente de prefixo e consorciada', () => {
+  const vehicles = [
+    { prefixo: '1342', garagemFonte: 1, consorciada: 'VCM' },
+    { prefixo: '2422', garagemFonte: 1, consorciada: 'VSF' },
+    ...['VCM', 'VSF', 'JTU', 'VCG'].map((consorciada, n) => ({ prefixo: `${n + 1}001`, garagemFonte: 2, consorciada })),
+    { prefixo: '4998', consorciada: 'VCG' },
+  ];
+  const before = JSON.stringify(vehicles);
+  assert.deepEqual(vehiclesForGarage(vehicles, 'VCG').map(i => i.prefixo), ['1001', '2001', '3001', '4001']);
+  assert.equal(JSON.stringify(vehicles), before);
 });
 test('remocao de bloqueio nao elimina execucao sem liberacao confirmada', async () => {
   const f = await ready(), c = await command(f, 'manutencao'); (c.items[0] as any).emExecucao = true; await saveC4(f.db, 1, c, 'manutencao', clock());

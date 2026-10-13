@@ -34,7 +34,7 @@ import {
   PopoverContent 
 } from "@/components/ui/popover";
 import { c4Enabled, c4Folha, c4Mutable, c4Configured } from '@/lib/c4';
-import { garageOne } from '@/lib/c4Vehicles';
+import { vehiclesForGarage } from '@/lib/c4Vehicles';
 import { c4KnownFields, c4EditedText } from '@/lib/c4ItemFields';
 import {
   DropdownMenu,
@@ -458,7 +458,7 @@ export function CiManutencaoView({
 
   // Veículos permitidos na visualização de acordo com a garagem
   const allowedCars = useMemo(() => {
-    if (activeGaragemScope === 'VCG' && c4Enabled('VCG')) return garageOne(fleetCars);
+    if (activeGaragemScope === 'VCG' && c4Enabled('VCG')) return vehiclesForGarage(fleetCars, 'VCG');
     if (activeGaragemScope === "TODAS") return fleetCars;
     return fleetCars.filter(c => c.garagem === activeGaragemScope);
   }, [fleetCars, activeGaragemScope, ciList]);
@@ -3186,7 +3186,19 @@ export function CiManutencaoView({
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleConfirmQuickAdd} className="space-y-3.5 pt-1">
+          <form
+            onSubmit={handleConfirmQuickAdd}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' || event.defaultPrevented || event.nativeEvent.isComposing) return;
+              const target = event.target;
+              // Enter nos campos navega; somente o botao de confirmacao envia.
+              if (!(target instanceof HTMLInputElement)) return;
+              event.preventDefault();
+              const fields = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('input:not(:disabled), textarea:not(:disabled), select:not(:disabled)'));
+              fields[fields.indexOf(target) + 1]?.focus();
+            }}
+            className="space-y-3.5 pt-1"
+          >
             {quickAddModal.category === 'BLOQUEADO' && c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && <label className="block text-xs font-semibold">Data original do bloqueio<Input type="date" value={quickAddDataBloqueio} max={operationalContext().today} onChange={e => setQuickAddDataBloqueio(e.target.value)} disabled={!isDataEditavel} required /></label>}
             {/* Banner de Modo Somente Leitura se a folha estiver fechada */}
             {!isDataEditavel && (
@@ -3221,6 +3233,16 @@ export function CiManutencaoView({
                 <Input
                   value={quickAddCarro}
                   disabled={quickAddModal.isEditing || !isDataEditavel}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+                    event.preventDefault();
+                    const selected = quickAddFilteredCars.find(car => car.prefixo === quickAddCarro.trim())
+                      || (quickAddFilteredCars.length === 1 ? quickAddFilteredCars[0] : undefined);
+                    if (selected) {
+                      setQuickAddCarro(selected.prefixo);
+                      setQuickAddSelectorOpen(false);
+                    }
+                  }}
                   onChange={(e) => {
                     if (quickAddModal.isEditing || !isDataEditavel) return;
                     setQuickAddCarro(e.target.value.replace(/\D/g, ""));
