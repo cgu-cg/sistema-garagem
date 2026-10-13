@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { MvpError, assertFlags, revision } from './mvpTemporal';
 import { operationalContext, assertC4Context, C4_CLOSE_HOUR, Garage, garage, civil, dateValue, dateString, addDays, eventInstant } from './c4Temporal';
 import { canWriteC4 } from './c4Authorization';
+import { notifyC4Updated } from './c4Events';
 
 type Tx = Prisma.TransactionClient;
 export const titles = ['INSPEÇÃO', 'LUBRIFICAÇÃO', 'EM MANUTENÇÃO', 'TROCA DE ÓLEO', 'REVISÃO', 'PREVENTIVA'] as const;
@@ -124,7 +125,8 @@ export async function saveC4(db: PrismaClient, userId: number | undefined, body:
     if (new Set(states.map(s => s.prefixo)).size !== states.length || new Set(states.map(s => s.id)).size !== states.length) throw new MvpError(409, 'C4 exige um estado por veiculo/ciclo.');
     if (states.some(s => s.data !== day)) throw new MvpError(400, 'Estado fora do ciclo.');
   }
-  return db.$transaction(async tx => {
+  let changed = false;
+  const committed = await db.$transaction(async tx => {
     await lockC4Context(tx, c.garagem, day);
     await authorized(tx, userId, c.data, kind, now, c.garagem);
     const b = await bundle(tx, c.garagem, day);
@@ -205,15 +207,18 @@ export async function saveC4(db: PrismaClient, userId: number | undefined, body:
     // Esperas/escritas tambem podem atravessar 20:00: rollback integral nesse caso.
     const result = await bundle(tx, c.garagem, day);
     assertC4Context(c.data, kind, now());
+    changed = result.baseC4 !== b.baseC4;
     return { records: result.states.map(s => projectState(s, day)), baseC4: result.baseC4 };
   }, { isolationLevel: 'Serializable' });
+  if (changed) await notifyC4Updated(c.garagem, day);
+  return committed;
 }
 
 export async function startCycle(db: PrismaClient, scope: Garage, now = () => new Date()) {
   garage(scope);
   const instant = now(), day = operationalContext(instant).today;
   if (instant < eventInstant(day, 3)) return { result: 'NOT_DUE', garagem: scope, day };
-  return db.$transaction(async tx => {
+  const committed = await db.$transaction(async tx => {
     await lockC4Context(tx, scope, day);
     const b = await bundle(tx, scope, day);
     if (b.cycle && b.folha && b.folha.cicloPreparacaoId === b.cycle.id) return { result: 'ALREADY_DONE', garagem: scope, day };
@@ -235,12 +240,14 @@ export async function startCycle(db: PrismaClient, scope: Garage, now = () => ne
     }
     return { result: origem, garagem: scope, day };
   }, { isolationLevel: 'Serializable' });
+  if (committed.result !== 'ALREADY_DONE') await notifyC4Updated(scope, day);
+  return committed;
 }
 export async function finalizeCycle(db: PrismaClient, scope: Garage, now = () => new Date()) {
   garage(scope);
   const instant = now(), day = operationalContext(instant).today;
   if (instant < eventInstant(day, C4_CLOSE_HOUR)) return { result: 'NOT_DUE', garagem: scope, day };
-  return db.$transaction(async tx => {
+  const committed = await db.$transaction(async tx => {
     await lockC4Context(tx, scope, day);
     const b = await bundle(tx, scope, day);
     if (!b.folha || !b.cycle || b.folha.cicloPreparacaoId !== b.cycle.id) throw new MvpError(409, 'Ciclo atual ausente/ambiguo; finalizacao nao cria folha.');
@@ -251,4 +258,6 @@ export async function finalizeCycle(db: PrismaClient, scope: Garage, now = () =>
     await tx.folhaCI.update({ where: { id: b.folha.id }, data: { status: 'FINALIZADA', finalizadaEm: effective } });
     return { result: 'FINALIZADA', garagem: scope, day };
   }, { isolationLevel: 'Serializable' });
+  if (committed.result === 'FINALIZADA') await notifyC4Updated(scope, day);
+  return committed;
 }

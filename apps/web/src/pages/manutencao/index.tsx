@@ -2,6 +2,8 @@ import { explicitGarage } from '@/lib/operationalAccess';
 import { canWriteC4 } from '@/lib/c4Authorization';
 import { canMutate, getMutationState, subscribeMutationState, confirmRefresh, requireRefresh, SavedRefreshRequired, readTicket } from '@/lib/mvpTemporal';
 import { useReadCoordinator } from '@/lib/readCoordination';
+import { useC4RealtimeReload } from '@/lib/useC4Realtime';
+import { createEditBaselines } from '@/lib/editBaselines';
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { c4Enabled, c4Context, c4Configured } from '@/lib/c4';
 import {
@@ -110,6 +112,15 @@ export function ManutencaoPage() {
   
   // Lista de carros de manutenção do dia
   const [items, setItems] = useState<ManutencaoCarroItem[]>(() => getManutencaoData(getTodayString()));
+  const [maintenanceEdits] = useState(() => createEditBaselines<ManutencaoCarroItem>());
+  const beginMaintenanceEdit = () => maintenanceEdits.begin('modal', activeContextRef.current, items, true);
+  const maintenanceBaseline = () => maintenanceEdits.read('modal', items);
+  useC4RealtimeReload(activeGaragem, dataOperacao, 'manutencao', reload,
+    () => Promise.all([
+      fetchManutencaoDataFromApi(dataOperacao, activeGaragem),
+      fetchCIBloqueiosFromApi({ garagem: activeGaragem === 'TODAS' ? undefined : activeGaragem }),
+    ]), ([records]) => { setItems(records); setReady(true); confirmRefresh(); },
+    () => toast.warning('Nao foi possivel atualizar o Controle em segundo plano. Dados e rascunhos foram mantidos.'));
 
   // Filtro de Empresa / Consorciada (Todas, VCG, JTU, VSF, VCM)
   const [selectedEmpresa, setSelectedEmpresa] = useState<string>("TODAS");
@@ -442,10 +453,17 @@ export function ManutencaoPage() {
       toast.error(`Controle somente leitura: permissao de manutencao e janela 03:00 ate ${c4Enabled(c4Scope) ? '20:00' : '18:30'} sao obrigatorios.`); return false;
     }
     const context = activeContextRef.current;
-    try { const records = await saveManutencaoData(dataOperacao, next, confirmed, items, removeBlocked, c4Scope); if (!reload.isActive(context)) return false; setItems(records); return true; }
+    try {
+      const editing = modalAddOpen || !!editItem || liberarBloqueioModal.isOpen || !!confirmLiberarBloqueadoAoLiberarModal || !!confirmTransferModal;
+      if (editing) maintenanceEdits.assertContext('modal', context);
+      const records = await saveManutencaoData(dataOperacao, next, confirmed, editing ? maintenanceBaseline() : items, removeBlocked, c4Scope);
+      if (!reload.isActive(context)) return false;
+      if (editing) maintenanceEdits.end('modal'); setItems(records); return true;
+    }
     catch (error) { if (!reload.isActive(context)) return false; if (error instanceof SavedRefreshRequired) toast.warning(error.message); else toast.error(error instanceof Error ? error.message : 'Operacao nao confirmada. Recarregue.'); return false; }
   };
   const handleConfirmLiberarBloqueio = async () => {
+    const items = maintenanceBaseline();
     if (!liberarBloqueioModal.item) return;
     const targetItem = liberarBloqueioModal.item;
 
@@ -511,6 +529,7 @@ export function ManutencaoPage() {
 
   // Confirmar liberação na CI ao adicionar/transferir para Liberados um veículo que consta em Bloqueados
   const handleConfirmLiberarBloqueadoAoLiberar = async () => {
+    const items = maintenanceBaseline();
     if (!confirmLiberarBloqueadoAoLiberarModal) return;
     const { prefixo, novaObservacao } = confirmLiberarBloqueadoAoLiberarModal;
     const clean = prefixo.replace(/\D/g, "");
@@ -543,6 +562,7 @@ export function ManutencaoPage() {
       // Checa se o veículo também consta atualmente na lista de Bloqueados desta folha
       const bloqItem = items.find(it => it.prefixo === targetItem.prefixo && it.bloqueado && !it.liberado);
       if (bloqItem) {
+        beginMaintenanceEdit();
         setConfirmLiberarBloqueadoAoLiberarModal({
           isOpen: true,
           prefixo: targetItem.prefixo,
@@ -616,6 +636,7 @@ export function ManutencaoPage() {
   // Abrir modal de adição com pré-configuração
   const handleOpenAddModal = (status?: "BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO") => {
     if (!mutationAllowed) { toast.error("Controle somente leitura."); return; }
+    beginMaintenanceEdit();
     const origin = status || "BLOQUEADO";
     setModalStatusOrigem(origin);
     setNewPrefixo("");
@@ -627,6 +648,7 @@ export function ManutencaoPage() {
 
   // Salvar alteração de observação
   const handleSaveObservacao = async () => {
+    const items = maintenanceBaseline();
     if (!editItem) return;
     const cleanObs = c4Enabled(c4Scope) ? editObs === (editItem.observacao ?? '') ? editItem.observacao : editObs.trim().toUpperCase() || null : editObs.trim().toUpperCase();
     const updated = items.map(it => {
@@ -647,6 +669,7 @@ export function ManutencaoPage() {
   // Adicionar novo carro à folha
   // Oficina preserva bloqueio; liberacao de bloqueado exige confirmacao previa.
   const handleAddCarro = async (e: React.FormEvent) => {
+    const items = maintenanceBaseline();
     e.preventDefault();
     const cleanPrefix = newPrefixo.trim();
     if (!cleanPrefix) {
@@ -775,6 +798,7 @@ export function ManutencaoPage() {
 
   // Confirmar transferência de situação exclusiva entre Em Manutenção e Liberado
   const handleConfirmTransfer = async () => {
+    const items = maintenanceBaseline();
     if (!confirmTransferModal) return;
     const { prefixo, itemExistente, toStatus, novaObservacao } = confirmTransferModal;
 
@@ -1309,7 +1333,7 @@ export function ManutencaoPage() {
                           </span>
                         </td>
                         <td 
-                          onClick={() => { setEditItem(item); setEditObs(item.observacao ?? ""); }}
+                          onClick={() => { beginMaintenanceEdit(); setEditItem(item); setEditObs(item.observacao ?? ""); }}
                           className="py-2 px-3 font-semibold uppercase text-[11px] text-gray-800 dark:text-slate-200 cursor-pointer group/cell"
                           title="Clique para editar defeito/observação"
                         >
@@ -1325,7 +1349,7 @@ export function ManutencaoPage() {
                               </button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-48">
-                              <DropdownMenuItem disabled={!mutationAllowed} onClick={() => setLiberarBloqueioModal({ isOpen: true, item })}>
+                              <DropdownMenuItem disabled={!mutationAllowed} onClick={() => { beginMaintenanceEdit(); setLiberarBloqueioModal({ isOpen: true, item }); }}>
                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 mr-2" />
                                 Liberar Bloqueio
                               </DropdownMenuItem>
@@ -1334,7 +1358,7 @@ export function ManutencaoPage() {
                                 Em Manutenção
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => { setEditItem(item); setEditObs(item.observacao ?? ""); }}>
+                              <DropdownMenuItem onClick={() => { beginMaintenanceEdit(); setEditItem(item); setEditObs(item.observacao ?? ""); }}>
                                 <Edit2 className="w-3.5 h-3.5 text-gray-500 mr-2" />
                                 Editar Defeito
                               </DropdownMenuItem>
@@ -1401,7 +1425,7 @@ export function ManutencaoPage() {
                           </span>
                         </td>
                         <td 
-                          onClick={() => { setEditItem(item); setEditObs(item.observacao ?? ""); }}
+                          onClick={() => { beginMaintenanceEdit(); setEditItem(item); setEditObs(item.observacao ?? ""); }}
                           className="py-2 px-3 font-semibold uppercase text-[11px] text-gray-800 dark:text-slate-200 cursor-pointer group/cell"
                           title="Clique para editar defeito/observação"
                         >
@@ -1422,7 +1446,7 @@ export function ManutencaoPage() {
                                 Liberar
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => { setEditItem(item); setEditObs(item.observacao ?? ""); }}>
+                              <DropdownMenuItem onClick={() => { beginMaintenanceEdit(); setEditItem(item); setEditObs(item.observacao ?? ""); }}>
                                 <Edit2 className="w-3.5 h-3.5 text-gray-500 mr-2" />
                                 Editar Defeito
                               </DropdownMenuItem>
@@ -1489,7 +1513,7 @@ export function ManutencaoPage() {
                           </span>
                         </td>
                         <td 
-                          onClick={() => { setEditItem(item); setEditObs(item.observacao ?? ""); }}
+                          onClick={() => { beginMaintenanceEdit(); setEditItem(item); setEditObs(item.observacao ?? ""); }}
                           className="py-2 px-3 font-semibold uppercase text-[11px] text-gray-800 dark:text-slate-200 cursor-pointer group/cell"
                           title="Clique para editar defeito/observação"
                         >
@@ -1510,7 +1534,7 @@ export function ManutencaoPage() {
                                 Em Manutencao
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => { setEditItem(item); setEditObs(item.observacao ?? ""); }}>
+                              <DropdownMenuItem onClick={() => { beginMaintenanceEdit(); setEditItem(item); setEditObs(item.observacao ?? ""); }}>
                                 <Edit2 className="w-3.5 h-3.5 text-gray-500 mr-2" />
                                 Editar Defeito
                               </DropdownMenuItem>

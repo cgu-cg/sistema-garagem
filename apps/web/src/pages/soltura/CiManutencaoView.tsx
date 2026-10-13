@@ -35,6 +35,8 @@ import {
 } from "@/components/ui/popover";
 import { c4Enabled, c4Folha, c4Mutable, c4Configured } from '@/lib/c4';
 import { ciEntryGarage, vehiclesForGarage } from '@/lib/c4Vehicles';
+import { useC4RealtimeReload } from '@/lib/useC4Realtime';
+import { createEditBaselines } from '@/lib/editBaselines';
 import { c4KnownFields, c4EditedText } from '@/lib/c4ItemFields';
 import {
   DropdownMenu,
@@ -455,6 +457,14 @@ export function CiManutencaoView({
   }, [userGaragemFixa, adminGaragemFiltro]);
   const reloadContext = activeGaragemScope + '|' + dataOperacao;
   const reload = useReadCoordinator(reloadContext, readTicket);
+  const [ciEdits] = useState(() => createEditBaselines<BloqueioCarro>());
+  const editCIBaseline = (key: string) => ciEdits.read(key, ciList);
+  useC4RealtimeReload(activeGaragemScope, normalizeIsoDate(dataOperacao), 'ci', reload,
+    () => Promise.all([
+      fetchCIBloqueiosFromApi({ garagem: activeGaragemScope === 'TODAS' ? undefined : activeGaragemScope }),
+      fetchManutencaoDataFromApi(operationalContext().today, activeGaragemScope === 'VCM' ? 'VCM' : 'VCG'),
+    ]), ([records]) => { setCiList(records); setReady(true); confirmRefresh(); },
+    () => toast.warning('Nao foi possivel atualizar a CI em segundo plano. Dados e rascunhos foram mantidos.'));
 
   // Veículos permitidos na visualização de acordo com a garagem
   const allowedCars = useMemo(() => {
@@ -527,19 +537,31 @@ export function CiManutencaoView({
   // Consulta da fotografia exata: ausencia de registros nao autoriza heranca.
   const ciListNaData = useMemo(() => ciList.filter(c => normalizeIsoDate(c.data) === normalizeIsoDate(dataOperacao)), [ciList, dataOperacao]);
   const [extraDraftOrders, setExtraDraftOrders] = useState<number[]>([]);
+  const editedSlotKeys = ciEdits.keys().join('|');
   const extraSlots = useMemo(() => {
-    const keys = new Set([...FIXED_REFORCO_EXTRA_SLOTS.map(s => Number(s.id.split('-').slice(-1)[0])), ...extraDraftOrders, ...ciListNaData.filter(i => i.tipoPosicao === 'EXTRA').map(i => i.ordemPosicao || 0)]);
+    const keys = new Set([...FIXED_REFORCO_EXTRA_SLOTS.map(s => Number(s.id.split('-').slice(-1)[0])), ...extraDraftOrders, ...ciListNaData.filter(i => i.tipoPosicao === 'EXTRA').map(i => i.ordemPosicao || 0), ...ciEdits.keys().filter(key => /^ref-extra-\d+$/.test(key)).map(key => Number(key.split('-').slice(-1)[0]))]);
     return [...keys].filter(n => n > 0).sort((a, b) => a - b).map(n => ({ id: `ref-extra-${n}` }));
-  }, [ciListNaData, extraDraftOrders]);
+  }, [ciListNaData, extraDraftOrders, editedSlotKeys]);
   useEffect(() => { setExtraDraftOrders([]); }, [dataOperacao, activeGaragemScope]);
-  const commitCI = async (next: BloqueioCarro[], removeBlocked: string[] = [], confirmRelease = false): Promise<boolean> => {
+  const commitCI = async (next: BloqueioCarro[], removeBlocked: string[] = [], confirmRelease = false, baseline = quickAddModal.isOpen ? editCIBaseline('quick') : ciList, draftKeys: string[] = quickAddModal.isOpen ? ['quick'] : []): Promise<boolean> => {
     if (checkDataFuturaBloqueio()) return false;
     const vcm = (i: BloqueioCarro) => normalizeIsoDate(i.data) === normalizeIsoDate(dataOperacao) && getGaragemFisicaByCarro(i.prefixo) === 'VCM';
     const scope = activeGaragemScope === 'VCM' ? 'VCM' : 'VCG';
     if (!c4Enabled(scope) && JSON.stringify(next.filter(vcm)) !== JSON.stringify(ciList.filter(vcm))) { toast.error('MVP permite alteracoes somente na VCG.'); return false; }
     const context = reloadContext;
-    try { const records = await saveCISnapshot(next, normalizeIsoDate(dataOperacao), ciList, removeBlocked, 'save', scope, undefined, confirmRelease); if (!reload.isActive(context)) return false; setCiList(records); return true; }
-    catch (error) { if (!reload.isActive(context)) return false; if (error instanceof SavedRefreshRequired) toast.warning(error.message); else toast.error(error instanceof Error ? error.message : 'Gravacao nao confirmada. Recarregue.'); return false; }
+    try { draftKeys.forEach(key => ciEdits.assertContext(key, context)); const records = await saveCISnapshot(next, normalizeIsoDate(dataOperacao), baseline, removeBlocked, 'save', scope, undefined, confirmRelease); if (!reload.isActive(context)) return false; draftKeys.forEach(key => ciEdits.end(key)); setCiList(records); return true; }
+    catch (error) {
+      if (!reload.isActive(context)) return false;
+      if (error instanceof SavedRefreshRequired) toast.warning(error.message);
+      else toast.error(error instanceof Error ? error.message : 'Gravacao nao confirmada. Recarregue.', {
+        action: draftKeys.length && !draftKeys.includes('quick') ? { label: 'Descartar rascunho', onClick: () => {
+          if (!reload.isActive(context)) return;
+          draftKeys.forEach(key => ciEdits.end(key));
+          setReforcoDrafts(previous => { const remaining = { ...previous }; draftKeys.forEach(key => delete remaining[key]); return remaining; });
+        } } : undefined,
+      });
+      return false;
+    }
   };
 
   const handlePrepareTomorrow = async () => {
@@ -792,6 +814,7 @@ export function CiManutencaoView({
   });
 
   useEffect(() => {
+    if (Object.keys(reforcoDrafts).some(key => ciEdits.has(key))) return;
     try {
       const saved = localStorage.getItem(`reforco_drafts_${dataOperacao}`);
       if (c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')) { setReforcoDrafts({}); return; }
@@ -803,7 +826,7 @@ export function CiManutencaoView({
     } catch {
       setReforcoDrafts({});
     }
-  }, [dataOperacao, ciList]);
+  }, [dataOperacao, activeGaragemScope, ready]);
 
   // Titulo da data exata; copia apenas no comando explicito de preparacao.
   const [reforcoServicoTipo, setReforcoServicoTipo] = useState<string>(() => {
@@ -813,8 +836,10 @@ export function CiManutencaoView({
     } catch {}
     return "INSPEÇÃO";
   });
+  const titleChanged = useRef(false);
 
   useEffect(() => {
+    if (ciEdits.has('title')) return;
     try {
       const targetDate = normalizeIsoDate(dataOperacao);
       const scope = activeGaragemScope === 'VCM' ? 'VCM' : 'VCG';
@@ -837,11 +862,15 @@ export function CiManutencaoView({
 
   const handleReforcoServicoTipoChange = async (novoTipo: string) => {
     if (checkDataFuturaBloqueio()) return;
+    ciEdits.begin('title', reloadContext, ciList);
+    titleChanged.current = true;
+    const baseline = editCIBaseline('title');
+    setReforcoServicoTipo(novoTipo);
     const scope = activeGaragemScope === 'VCM' ? 'VCM' : 'VCG';
     if (c4Enabled(scope)) {
       const context = reloadContext;
-      try { const records = await saveCISnapshot(ciList, normalizeIsoDate(dataOperacao), ciList, [], 'save', scope, novoTipo); if (!reload.isActive(context)) return; setCiList(records); setReforcoServicoTipo(novoTipo); }
-      catch (error) { if (reload.isActive(context)) toast.error(error instanceof Error ? error.message : 'Titulo nao salvo.'); }
+      try { ciEdits.assertContext('title', context); const records = await saveCISnapshot(baseline, normalizeIsoDate(dataOperacao), baseline, [], 'save', scope, novoTipo); if (!reload.isActive(context)) return; ciEdits.end('title'); titleChanged.current = false; setCiList(records); setReforcoServicoTipo(novoTipo); }
+      catch (error) { if (reload.isActive(context)) toast.error(error instanceof Error ? error.message : 'Titulo nao salvo.', { action: { label: 'Descartar edicao', onClick: () => { if (!reload.isActive(context)) return; ciEdits.end('title'); titleChanged.current = false; setReforcoServicoTipo(c4Folha(normalizeIsoDate(dataOperacao), scope)?.tituloColunaAdicional || ''); } } }); }
       return;
     }
     setReforcoServicoTipo(novoTipo);
@@ -971,6 +1000,7 @@ export function CiManutencaoView({
     chips: readonly string[] | string[] = []
   ) => {
     if (checkDataFuturaBloqueio()) return;
+    ciEdits.begin('quick', reloadContext, ciList, true);
     setQuickAddModal({
       isOpen: true,
       category,
@@ -1000,6 +1030,8 @@ export function CiManutencaoView({
   };
 
   const handleConfirmQuickAdd = async (e: React.FormEvent) => {
+    const ciList = editCIBaseline('quick');
+    const ciListNaData = ciList.filter(item => normalizeIsoDate(item.data) === normalizeIsoDate(dataOperacao));
     e.preventDefault();
     if (checkDataFuturaBloqueio()) return;
     if (!quickAddCarro) {
@@ -1298,6 +1330,7 @@ export function CiManutencaoView({
 
   // Funções para Gerenciamento dos Slots Fixos de Reforço com Horário
   const getReforcoSlotData = (slotId: string, _horario?: string, defaultMotivo: string = "", _index?: number) => {
+    const ciListNaData = editCIBaseline(slotId).filter(item => normalizeIsoDate(item.data) === normalizeIsoDate(dataOperacao));
     const slotStorageId = `ci-reforco-${slotId}-${dataOperacao}`;
     const legacySlotStorageId = `ci-reforco-${slotId}`;
 
@@ -1338,7 +1371,7 @@ export function CiManutencaoView({
       }
     }
 
-    const draft = !c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') || isDataEditavel ? reforcoDrafts[slotId] : undefined;
+    const draft = reforcoDrafts[slotId];
 
     // O prefixo vem do draft (se editado) ou do item salvo
     const prefixo = draft?.prefixo !== undefined ? draft.prefixo : (item ? item.prefixo : "");
@@ -1373,8 +1406,11 @@ export function CiManutencaoView({
 
   const handleReforcoSlotDraftChange = (slotId: string, patch: { prefixo?: string; motivo?: string; obs?: string }) => {
     if (checkDataFuturaBloqueio()) return;
+    ciEdits.begin(slotId, reloadContext, ciList);
+    const fixed = FIXED_REFORCO_SLOTS.find(slot => slot.id === slotId);
+    const initial = getReforcoSlotData(slotId, fixed?.horario || reforcoServicoTipo, fixed?.defaultMotivo || '');
     setReforcoDrafts(prev => {
-      const current = prev[slotId] || {};
+      const current = prev[slotId] || { prefixo: initial.prefixo, motivo: initial.motivo, obs: initial.obs };
       const nextSlot = { ...current, ...patch };
       const next = { ...prev, [slotId]: nextSlot };
       try {
@@ -1385,6 +1421,7 @@ export function CiManutencaoView({
   };
 
   const handleSaveReforcoSlot = async (slotId: string, horario: string) => {
+    const ciList = editCIBaseline(slotId);
     if (checkDataFuturaBloqueio()) return;
     const slotData = getReforcoSlotData(slotId, horario);
     const cleanPrefixo = (slotData.prefixo || "").trim();
@@ -1403,7 +1440,7 @@ export function CiManutencaoView({
           (c as any).reforcoSlotId !== slotId &&
           !(c.id && (c.id.includes(`-${slotId}-`) || c.id.endsWith(`-${slotId}`)))
         );
-        if (!(await commitCI(updatedList))) return;
+        if (!(await commitCI(updatedList, [], false, ciList, [slotId]))) return;
         setReforcoDrafts(prev => {
           const next = { ...prev };
           delete next[slotId];
@@ -1459,7 +1496,7 @@ export function CiManutencaoView({
       );
       const updatedList = [newReforcoItem, ...cleanList];
 
-      if (!(await commitCI(updatedList))) return;
+      if (!(await commitCI(updatedList, [], false, ciList, [slotId]))) return;
 
       // Limpa o draft deste slot, pois agora o item está salvo oficialmente na CI
       setReforcoDrafts(prev => {
@@ -1495,6 +1532,7 @@ export function CiManutencaoView({
 
   // Salva ou remove um veículo do slot extra de serviço (Card 3)
   const handleSaveReforcoExtraSlot = async (slotId: string) => {
+    const ciList = editCIBaseline(slotId);
     if (checkDataFuturaBloqueio()) return;
     const slotData = getReforcoSlotData(slotId, reforcoServicoTipo);
     const cleanPrefixo = (slotData.prefixo || "").trim();
@@ -1511,7 +1549,7 @@ export function CiManutencaoView({
           (c as any).reforcoSlotId !== slotId &&
           !(c.id && (c.id.includes(`-${slotId}-`) || c.id.endsWith(`-${slotId}`)))
         );
-        if (!(await commitCI(updatedList))) return;
+        if (!(await commitCI(updatedList, [], false, ciList, [slotId]))) return;
         setReforcoDrafts(prev => {
           const next = { ...prev };
           delete next[slotId];
@@ -1559,7 +1597,7 @@ export function CiManutencaoView({
       );
       const updatedList = [newReforcoItem, ...cleanList];
 
-      if (!(await commitCI(updatedList))) return;
+      if (!(await commitCI(updatedList, [], false, ciList, [slotId]))) return;
 
       setReforcoDrafts(prev => {
         const next = { ...prev };
@@ -1612,7 +1650,7 @@ export function CiManutencaoView({
     }
     if (!changed.length) { toast.info('Nenhuma alteração pendente nesta coluna.'); return; }
     if (!confirm('Salvar todas as alterações da coluna? Os outros setores serão preservados.')) return;
-    if (!(await commitCI(next))) return;
+    if (!(await commitCI(next, [], false, ciEdits.oldest(changed, ciList), changed))) return;
     setReforcoDrafts(prev => {
       const remaining = { ...prev }; changed.forEach(id => delete remaining[id]);
       try { localStorage.setItem('reforco_drafts_' + dataOperacao, JSON.stringify(remaining)); } catch {}
@@ -1694,6 +1732,7 @@ export function CiManutencaoView({
 
   // Ao clicar em um carro nos cards: abrir modal rápido de edição (Print 03)
   const handleCarClick = (carro: string, itemId?: number | string) => {
+    ciEdits.begin('quick', reloadContext, ciList, true);
     const existingCI = itemId
       ? ciListNaData.find(c => c.id === itemId && c.status !== "LIBERADO")
       : (activeCiMap.get(carro) || ciListNaData.find(c => c.prefixo === carro && c.status !== "LIBERADO"));
@@ -1745,6 +1784,8 @@ export function CiManutencaoView({
 
   // Liberar Carro da CI diretamente a partir do Quick Modal
   const handleReleaseQuickCarro = async () => {
+    const ciList = editCIBaseline('quick');
+    const ciListNaData = ciList.filter(item => normalizeIsoDate(item.data) === normalizeIsoDate(dataOperacao));
     if (checkDataFuturaBloqueio()) return;
     if (!quickAddCarro) return;
 
@@ -1762,6 +1803,8 @@ export function CiManutencaoView({
 
   // Excluir CI do Carro diretamente a partir do Quick Modal
   const handleDeleteQuickCarro = async () => {
+    const ciList = editCIBaseline('quick');
+    const ciListNaData = ciList.filter(item => normalizeIsoDate(item.data) === normalizeIsoDate(dataOperacao));
     if (checkDataFuturaBloqueio()) return;
     if (!quickAddCarro) return;
     const targetDate = normalizeIsoDate(dataOperacao) || getTodayString();
@@ -2266,7 +2309,7 @@ export function CiManutencaoView({
                 {FIXED_REFORCO_SLOTS.slice(0, 6).map((slot, idx) => {
                   const slotData = getReforcoSlotData(slot.id, slot.horario, slot.defaultMotivo, idx);
                   return (
-                    <div key={slot.id} className="p-2 grid grid-cols-12 gap-1.5 sm:gap-2 items-center text-xs hover:bg-muted/20 transition-colors">
+                    <div key={slot.id} onFocusCapture={() => { if (isDataEditavel) ciEdits.begin(slot.id, reloadContext, ciList); }} className="p-2 grid grid-cols-12 gap-1.5 sm:gap-2 items-center text-xs hover:bg-muted/20 transition-colors">
                       {/* Horário Fixo */}
                       <div className="col-span-2 font-mono font-bold text-xs flex items-center">
                         <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 whitespace-nowrap text-[11px]">
@@ -2366,7 +2409,7 @@ export function CiManutencaoView({
                 {FIXED_REFORCO_SLOTS.slice(6, 12).map((slot, idx) => {
                   const slotData = getReforcoSlotData(slot.id, slot.horario, slot.defaultMotivo, idx + 6);
                   return (
-                    <div key={slot.id} className="p-2 grid grid-cols-12 gap-1.5 sm:gap-2 items-center text-xs hover:bg-muted/20 transition-colors">
+                    <div key={slot.id} onFocusCapture={() => { if (isDataEditavel) ciEdits.begin(slot.id, reloadContext, ciList); }} className="p-2 grid grid-cols-12 gap-1.5 sm:gap-2 items-center text-xs hover:bg-muted/20 transition-colors">
                       {/* Horário Fixo */}
                       <div className="col-span-2 font-mono font-bold text-xs flex items-center">
                         <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 whitespace-nowrap text-[11px]">
@@ -2459,6 +2502,13 @@ export function CiManutencaoView({
                 <div className="flex-1 mr-2">
                   <select
                     value={reforcoServicoTipo}
+                    onFocus={() => ciEdits.begin('title', reloadContext, ciList)}
+                    onBlur={() => {
+                      if (!titleChanged.current) {
+                        ciEdits.end('title');
+                        if (c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')) setReforcoServicoTipo(c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')?.tituloColunaAdicional || '');
+                      }
+                    }}
                     disabled={!isDataEditavel}
                     onChange={(e) => handleReforcoServicoTipoChange(e.target.value)}
                     className={cn(
@@ -2494,7 +2544,7 @@ export function CiManutencaoView({
                 {extraSlots.map((slot) => {
                   const extraData = getReforcoSlotData(slot.id, reforcoServicoTipo);
                   return (
-                    <div key={slot.id} className="p-2 flex items-center gap-2 text-xs hover:bg-muted/20 transition-colors">
+                    <div key={slot.id} onFocusCapture={() => { if (isDataEditavel) ciEdits.begin(slot.id, reloadContext, ciList); }} className="p-2 flex items-center gap-2 text-xs hover:bg-muted/20 transition-colors">
                       {/* Prefixo (Select com Busca de Carros da Garagem) */}
                       <div className="flex-1">
                         <CarSearchSelect

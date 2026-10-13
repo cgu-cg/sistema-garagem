@@ -14,6 +14,7 @@ import { UsersPage } from "@/pages/admin/users";
 import { CatracasPage } from "@/pages/catracas";
 import { ControleOperacionalPage } from "@/pages/controle-operacional";
 import { ManutencaoPage } from "@/pages/manutencao";
+import { useC4RealtimeSession } from '@/lib/useC4Realtime';
 
 function LoadingScreen() {
   return (
@@ -89,6 +90,7 @@ function AdminOnlyRoute({ children }: { children: React.ReactNode }) {
 }
 
 export function App() {
+  useC4RealtimeSession();
   const { loadUser, token } = useAuth();
 
   useEffect(() => {

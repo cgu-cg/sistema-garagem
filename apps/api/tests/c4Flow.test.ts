@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { startCycle, finalizeCycle, readContext, saveC4 } from '../src/services/c4Flow';
+import { subscribeC4Updates, type C4Updated } from '../src/services/c4Events';
 import { operationalContext, dateValue, eventInstant, enabledGarages, nextEvent, civil, mutationMode } from '../src/services/c4Temporal';
 import { revision } from '../src/services/mvpTemporal';
 import { revision as clientRevision } from '../../web/src/lib/mvpTemporal';
@@ -805,4 +806,84 @@ test('CI preserva modo conhecido durante ausencia de contexto na meia-noite', ()
  assert.equal(resolve('LEGADO',previous,'VCG'),false);
  assert.equal(resolve(undefined,previous,'VCM'),false);
  assert.equal(resolve('C4',previous,'VCM'),true);
+});
+
+
+test('realtime: save CI e Controle notificam somente apos commit e com payload minimo', async () => {
+  const f = await ready(); let committed = false;
+  const original = f.db.$transaction;
+  f.db.$transaction = async (...args: any[]) => { committed = false; const result = await original(...args); committed = true; return result; };
+  const events: C4Updated[] = [];
+  const stop = subscribeC4Updates(event => { assert.equal(committed, true); events.push(event); });
+  try {
+    const c = await command(f, 'ci'); (c.items as any[])[0].motivo = 'ALTERADO';
+    await saveC4(f.db, 1, c, 'ci', clock());
+    assert.deepEqual(events, [{ garagem: 'VCG', dataOperacional: day, dataFolha: target }]);
+    const m = await command(f, 'manutencao'); Object.assign(m.items[0], { emExecucao: true });
+    await saveC4(f.db, 1, m, 'manutencao', clock()); assert.equal(events.length, 2);
+  } finally { stop(); }
+});
+
+test('realtime: save sem mudanca e prepare nao notificam', async () => {
+  const f = await ready(), events: C4Updated[] = [];
+  // O fake nao aplica defaults NULL do SQL; estabelecer a representacao persistida antes do no-op.
+  await saveC4(f.db, 1, await command(f, 'manutencao'), 'manutencao', clock());
+  const stop = subscribeC4Updates(event => { events.push(event); });
+  try {
+    for (const kind of ['ci', 'manutencao'] as const) {
+      await saveC4(f.db, 1, await command(f, kind), kind, clock());
+      assert.equal(events.length, 0, kind);
+    }
+    const c = await command(f, 'ci'); await saveC4(f.db, 1, { ...c, operation: 'prepare', items: [] }, 'ci', clock());
+    assert.equal(events.length, 0);
+  } finally { stop(); }
+});
+
+test('realtime: conflito 409 e rollback apos escrita nao notificam', async () => {
+  const f = await ready(), events: C4Updated[] = [];
+  const stop = subscribeC4Updates(event => { events.push(event); });
+  try {
+    const c = await command(f, 'ci'); (c.items as any[])[0].motivo = 'ALTERADO';
+    await assert.rejects(saveC4(f.db, 1, { ...c, baseC4: 'stale' }, 'ci', clock()), error => (error as any).status === 409);
+    const before = f.tables(), original = f.db.$transaction;
+    f.db.$transaction = (fn: any, options: any) => original(async (tx: any) => { await fn(tx); throw Error('COMMIT_FAILED'); }, options);
+    await assert.rejects(saveC4(f.db, 1, c, 'ci', clock()), /COMMIT_FAILED/);
+    assert.deepEqual(f.tables(), before); assert.equal(events.length, 0);
+  } finally { stop(); }
+});
+
+test('realtime: inicio e finalizacao notificam uma vez; NOT_DUE e ALREADY_DONE nao notificam', async () => {
+  const f = fixture(), events: C4Updated[] = [];
+  const stop = subscribeC4Updates(event => { events.push(event); });
+  try {
+    await startCycle(f.db, 'VCG', clock('2026-10-07T06:00:00Z')); assert.equal(events.length, 0);
+    await startCycle(f.db, 'VCG', clock()); assert.equal(events.length, 1);
+    await startCycle(f.db, 'VCG', clock()); assert.equal(events.length, 1);
+    await finalizeCycle(f.db, 'VCG', clock()); assert.equal(events.length, 1);
+    await finalizeCycle(f.db, 'VCG', clock('2026-10-08T00:00:00Z')); assert.equal(events.length, 2);
+    await finalizeCycle(f.db, 'VCG', clock('2026-10-08T00:00:00Z')); assert.equal(events.length, 2);
+  } finally { stop(); }
+});
+
+test('realtime: emissor indisponivel nao transforma commit em erro', async t => {
+  const f = await ready(), c = await command(f, 'ci'); (c.items as any[])[0].motivo = 'SALVO';
+  t.mock.method(console, 'warn', () => undefined);
+  const stop = subscribeC4Updates(async () => { throw Error('TRANSPORT_FAILED'); });
+  try { await saveC4(f.db, 1, c, 'ci', clock()); }
+  finally { stop(); }
+  assert.equal((await readContext(f.db, 'VCG', day)).ci.find(i => i.id === (c.items as any[])[0].id)!.motivo, 'SALVO');
+});
+
+test('realtime: recuperacao automatica notifica inicio/finalizacao efetivos, sem duplicar retry', async () => {
+  const f = fixture(), events: C4Updated[] = [], previous = process.env.CI_NOVO_FLUXO_GARAGENS;
+  process.env.CI_NOVO_FLUXO_GARAGENS = 'VCG';
+  const stop = subscribeC4Updates(event => { events.push(event); });
+  try {
+    await recoverCurrentDay(f.db, clock('2026-10-08T00:30:00Z'), () => undefined);
+    assert.equal(events.length, 2); assert.equal(f.tables().folhaCI[1].status, 'FINALIZADA');
+    await recoverCurrentDay(f.db, clock('2026-10-08T00:31:00Z'), () => undefined);
+    assert.equal(events.length, 2);
+  } finally {
+    stop(); if (previous === undefined) delete process.env.CI_NOVO_FLUXO_GARAGENS; else process.env.CI_NOVO_FLUXO_GARAGENS = previous;
+  }
 });

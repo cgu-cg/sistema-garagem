@@ -1,6 +1,7 @@
 import { canDispatch } from '@/lib/operationalAccess';
 import { create } from "zustand";
 import { api } from "@/lib/api";
+import { c4Realtime } from '@/lib/c4RealtimeClient';
 
 export type Role = "ADMIN" | "COLABORADOR" | "tanque" | "abastecimento" | "soltura" | "operacional" | "manutencao";
 
@@ -61,6 +62,7 @@ export const useAuth = create<AuthState>((set) => ({
   },
 
   logout: () => {
+    c4Realtime.logout();
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     set({ token: null, user: null });
@@ -86,6 +88,7 @@ export const useAuth = create<AuthState>((set) => ({
       }
       localStorage.removeItem("token");
       localStorage.removeItem("user");
+      c4Realtime.logout();
       set({ token: null, user: null, loading: false });
     }
   },

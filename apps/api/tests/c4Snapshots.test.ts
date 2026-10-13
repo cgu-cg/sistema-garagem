@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import Module from 'node:module';
 import path from 'node:path';
 import { revision } from '../src/services/mvpTemporal';
+import { createEditBaselines } from '../../web/src/lib/editBaselines';
+import { createRealtimeRefresh } from '../../web/src/lib/realtimeRefresh';
 
 const day = '2026-10-07', target = '2026-10-08';
 const wire = <T>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -106,6 +108,32 @@ test('snapshots C4 nos managers, sem rede ou banco', async t => {
       const sent = posts.at(-1)!.body;
       assert.equal(sent.confirmRelease, true); assert.ok(sent.baseC4); assert.equal(sent.base, revision(baseline));
     });
+
+    for (const kind of ['ci', 'manutencao'] as const) {
+      await t.test(`${kind}: realtime atualiza lista com formulario aberto; baseline original gera 409 somente ao salvar`, async () => {
+        const load = () => kind === 'ci' ? ci.fetchCIBloqueiosFromApi({ garagem: 'VCG' }) : maintenance.fetchManutencaoDataFromApi(day, 'VCG');
+        const baseline = await load(); temporal.confirmRefresh();
+        const edits = createEditBaselines<any>(); edits.begin('modal', 'VCG', baseline);
+        const originalTokens = c4.c4SnapshotRevision(baseline, 'VCG', kind === 'ci' ? target : day, kind);
+        const form = { open: true, text: 'MEU RASCUNHO', selection: '4000' };
+        let displayed = baseline;
+        version++; serverCI = serverCI.map(i => ({ ...i, motivo: 'OUTRO USUARIO' }));
+        serverMaintenance = serverMaintenance.map(i => ({ ...i, observacao: 'OUTRO USUARIO', observacaoBloqueio: 'OUTRO USUARIO' }));
+        const beforePosts = posts.length, refreshed = deferred<void>();
+        const queue = createRealtimeRefresh(async () => { displayed = await load(); refreshed.resolve(); }, () => false, 1);
+        queue.request(); queue.request(); await refreshed.promise; queue.dispose();
+        assert.notEqual(displayed, baseline); assert.equal(posts.length, beforePosts);
+        assert.equal(edits.read('modal', displayed), baseline);
+        assert.deepEqual(c4.c4SnapshotRevision(baseline, 'VCG', kind === 'ci' ? target : day, kind), originalTokens);
+        const before = wire([serverCI, serverMaintenance]);
+        const next = baseline.map((i: any) => ({ ...i, ...(kind === 'ci' ? { motivo: form.text } : { observacao: form.text }) }));
+        await assert.rejects(kind === 'ci' ? ci.saveCISnapshot(next, target, edits.read('modal', displayed), [], 'save', 'VCG')
+          : maintenance.saveManutencaoData(day, next, false, edits.read('modal', displayed), [], 'VCG'), (error: any) => error.status === 409);
+        assert.equal(posts.length, beforePosts + 1); assert.deepEqual([serverCI, serverMaintenance], before);
+        assert.deepEqual(form, { open: true, text: 'MEU RASCUNHO', selection: '4000' });
+        await load(); temporal.confirmRefresh(); assert.equal(posts.length, beforePosts + 1);
+      });
+    }
 
     for (const kind of ['ci', 'manutencao'] as const) {
       const load = () => kind === 'ci' ? ci.fetchCIBloqueiosFromApi({ garagem: 'VCG' }) : maintenance.fetchManutencaoDataFromApi(day, 'VCG');

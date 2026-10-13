@@ -1,5 +1,80 @@
 # Arquitetura do sistema
 
+## Notificações C4 — backend Socket.IO
+
+Uma instância de Socket.IO compartilha o servidor HTTP do Express e a porta
+existente, em `/api/socket.io`. O cliente React usa o mesmo caminho e os
+endpoints HTTP oficiais, conforme a integração descrita abaixo.
+JWT é recebido somente em `handshake.auth.token`, validado com o segredo atual;
+usuário e acesso são consultados pela mesma política `assertC4Read` do HTTP.
+Somente garagens C4 habilitadas e autorizadas recebem salas `c4:VCG`/`c4:VCM`,
+atribuídas pelo servidor. Papel e salas enviados pelo cliente não são usados.
+Tokens expirados desconectam; permissões são revalidadas antes de cada entrega.
+Revogação/usuário removido ou falha na consulta de autorização impede a entrega
+e encerra a conexão. Novas permissões exigem reconexão para atribuir novas salas.
+
+`saveC4`, `startCycle` e `finalizeCycle` notificam somente após a resolução da
+transação Serializable. `saveC4` compara o snapshot antes/depois sem alterar seu
+formato; prepare, no-op, rollback, conflito, NOT_DUE e ALREADY_DONE não emitem.
+O único evento é `c4:updated`, com garagem, dataOperacional D e dataFolha D+1.
+Controllers e scheduler não duplicam emissões. Falha de transporte é isolada
+da gravação confirmada; não há repetição de POST. A autorização de cada cliente
+é consultada após commit, acrescentando leituras proporcionais às conexões.
+
+Escopo: uma API, sem Redis, adapter distribuído, tabelas ou migrations. Eventos
+não são persistidos: falha do processo entre commit e emissão pode perder a
+notificação. O frontend recupera por HTTP ao conectar/reconectar, preservando
+rascunhos e baselines originais. Docker e Nginx não foram alterados; o proxy
+Vite habilita `ws` no caminho `/api` já existente.
+
+## Realtime C4 — cliente e edições
+
+`App` mantém uma conexão compartilhada com `socket.io-client`, autenticada
+por `auth.token`, somente após carregar a sessão. Logout e invalidação da
+sessão fecham a conexão. A contagem de consumidores e a limpeza adiada por
+microtask evitam duplicação no ciclo de efeitos StrictMode. Os listeners de
+transporte são registrados uma vez; a mudança de token substitui a conexão.
+
+O único evento de aplicação ouvido é `c4:updated`. Garagem, data operacional D
+e folha D+1 são validadas; CI considera a data da folha e Controle a data D.
+Connect/reconnect invalida as telas abertas. `useC4RealtimeReload` agrupa eventos,
+usa os managers e `readCoordination`, aguarda consultas/gravações pendentes e
+descarta respostas antigas. Não executa POST nem usa itens do evento. Recarga
+em segundo plano não faz `setReady(false)`; falha conserva lista e formulários.
+Uma leitura invalidada por mutação é reagendada; 409/POST salvo+GET falho também
+podem provocar somente recuperação de leitura. Atualização manual continua
+disponível. O listener local do Controle já ignora consultas coordenadas em
+andamento, evitando a consulta adicional disparada pelo manager da CI.
+
+`editBaselines` conserva o array original associado aos tokens WeakMap de C4.
+Modais capturam ao abrir; reforços ao focar/editar a linha; título ao focar.
+Cada rascunho conserva seus valores e baseline quando o snapshot exibido muda.
+Salvar constrói alterações sobre a baseline do editor e envia os tokens dela.
+O salvamento em lote de reforços usa a baseline mais antiga entre os rascunhos;
+não certifica rascunhos antigos com tokens novos. Data/garagem diferentes são
+recusadas na tentativa de salvar. Nova edição usa a lista oficial atual.
+
+HTTP 409 mantém rascunho e baseline; não há repetição automática de POST nem
+rebase silencioso. Fechar/reabrir o modal inicia nova edição; título e reforços
+oferecem descarte explícito no aviso de falha. Os efeitos de atualização da CI
+não apagam rascunhos de reforço em cada mudança da lista. O snapshot oficial
+e o relatório continuam atualizando, inclusive com um formulário aberto.
+
+Testes usam clientes Socket.IO/HTTP em loopback e banco simulado, além dos
+managers reais com API simulada. Não há DOM/browser runner instalado: foco,
+aparência, seletores nativos e interação visual devem ser conferidos em dois
+navegadores. Não se garante entrega durável de eventos; reconexão recupera
+o estado HTTP, não repete escritas. A arquitetura continua limitada a uma API.
+
+Verificação manual pendente em dois navegadores autorizados, no mesmo contexto:
+abrir inclusão/edição na CI e Controle e digitar sem salvar; gravar no outro
+navegador e conferir atualização da lista, texto, seleção, foco e modal intactos.
+Salvar o rascunho antigo deve enviar um único POST e receber 409, mantendo-o.
+Cancelar/reabrir deve usar a baseline nova. Repetir com liberação, reforços,
+título e remoção concorrente de uma posição EXTRA em edição. Desconectar um
+cliente, gravar no outro e reconectar deve atualizar listas sem POST. Conferir
+também alternância de contexto, duas gravações consecutivas e logout.
+
 ## Frota da CI e conexão com o legado
 
 Contrato de garagem da frota: o backend preserva `garagem` original e sua
