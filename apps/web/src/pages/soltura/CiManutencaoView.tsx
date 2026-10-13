@@ -3,7 +3,8 @@ import { normalizeIsoDate, selectCIReportItems, ciReportExtraSlots, ciReportSlot
 import { operationalContext } from '@/lib/mvpTemporal';
 import { c4OperationalContext, initialCIDate } from '@/lib/c4';
 import { canWriteC4 } from '@/lib/c4Authorization';
-import { canMutate, getMutationState, subscribeMutationState, confirmRefresh, requireRefresh, SavedRefreshRequired } from '@/lib/mvpTemporal';
+import { canMutate, getMutationState, subscribeMutationState, confirmRefresh, requireRefresh, SavedRefreshRequired, readTicket } from '@/lib/mvpTemporal';
+import { useReadCoordinator } from '@/lib/readCoordination';
 import { fetchManutencaoDataFromApi } from '../manutencao/manutencaoManager';
 import { saveCISnapshot } from './ciManager';
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
@@ -483,6 +484,8 @@ export function CiManutencaoView({
     if (userGaragemFixa) return userGaragemFixa;
     return adminGaragemFiltro;
   }, [userGaragemFixa, adminGaragemFiltro]);
+  const reloadContext = activeGaragemScope + '|' + dataOperacao;
+  const reload = useReadCoordinator(reloadContext, readTicket);
 
   // Veículos permitidos na visualização de acordo com a garagem
   const allowedCars = useMemo(() => {
@@ -565,20 +568,23 @@ export function CiManutencaoView({
     const vcm = (i: BloqueioCarro) => normalizeIsoDate(i.data) === normalizeIsoDate(dataOperacao) && getGaragemFisicaByCarro(i.prefixo) === 'VCM';
     const scope = activeGaragemScope === 'VCM' ? 'VCM' : 'VCG';
     if (!c4Enabled(scope) && JSON.stringify(next.filter(vcm)) !== JSON.stringify(ciList.filter(vcm))) { toast.error('MVP permite alteracoes somente na VCG.'); return false; }
-    try { setCiList(await saveCISnapshot(next, normalizeIsoDate(dataOperacao), ciList, removeBlocked, 'save', scope)); return true; }
-    catch (error) { if (error instanceof SavedRefreshRequired) toast.warning(error.message); else toast.error(error instanceof Error ? error.message : 'Gravacao nao confirmada. Recarregue.'); return false; }
+    const context = reloadContext;
+    try { const records = await saveCISnapshot(next, normalizeIsoDate(dataOperacao), ciList, removeBlocked, 'save', scope); if (!reload.isActive(context)) return false; setCiList(records); return true; }
+    catch (error) { if (!reload.isActive(context)) return false; if (error instanceof SavedRefreshRequired) toast.warning(error.message); else toast.error(error instanceof Error ? error.message : 'Gravacao nao confirmada. Recarregue.'); return false; }
   };
 
   const handlePrepareTomorrow = async () => {
+    const context = reloadContext;
     const scope = activeGaragemScope === 'VCM' ? 'VCM' : 'VCG';
     const ctx = c4OperationalContext(scope);
     if (!ready || getMutationState().pending || getMutationState().refreshRequired || !(c4Enabled(scope) ? canWriteC4(user, scope) : isAdmin) || !ctx.open || (activeGaragemScope === 'VCM' && !c4Enabled(scope)) || (c4Enabled(scope) && activeGaragemScope === 'TODAS')) return;
     try {
       // Apenas valida a preparacao existente; nunca copia D, inclusive destino vazio.
       const saved = await saveCISnapshot(ciList, ctx.tomorrow, ciList, [], 'prepare', scope);
+      if (!reload.isActive(context)) return;
       setCiList(saved); setDataOperacao(ctx.tomorrow);
       toast.success('Preparacao existente consultada. Nenhum item copiado ou reconciliado.');
-    } catch (error) { if (error instanceof SavedRefreshRequired) toast.warning(error.message); else toast.error(error instanceof Error ? error.message : 'Preparacao indisponivel.'); }
+    } catch (error) { if (!reload.isActive(context)) return; if (error instanceof SavedRefreshRequired) toast.warning(error.message); else toast.error(error instanceof Error ? error.message : 'Preparacao indisponivel.'); }
   };
 
   // Modal de Relatório Oficial da CI Manutenção (CGU.REG.MT0005)
@@ -864,8 +870,9 @@ export function CiManutencaoView({
     if (checkDataFuturaBloqueio()) return;
     const scope = activeGaragemScope === 'VCM' ? 'VCM' : 'VCG';
     if (c4Enabled(scope)) {
-      try { setCiList(await saveCISnapshot(ciList, normalizeIsoDate(dataOperacao), ciList, [], 'save', scope, novoTipo)); setReforcoServicoTipo(novoTipo); }
-      catch (error) { toast.error(error instanceof Error ? error.message : 'Titulo nao salvo.'); }
+      const context = reloadContext;
+      try { const records = await saveCISnapshot(ciList, normalizeIsoDate(dataOperacao), ciList, [], 'save', scope, novoTipo); if (!reload.isActive(context)) return; setCiList(records); setReforcoServicoTipo(novoTipo); }
+      catch (error) { if (reload.isActive(context)) toast.error(error instanceof Error ? error.message : 'Titulo nao salvo.'); }
       return;
     }
     setReforcoServicoTipo(novoTipo);
@@ -968,21 +975,20 @@ export function CiManutencaoView({
   const handleRefreshData = async () => {
     if (getMutationState().pending) return;
     setReady(false);
-    try {
-      const [records] = await Promise.all([fetchCIBloqueiosFromApi({ garagem: activeGaragemScope === 'TODAS' ? undefined : activeGaragemScope }), fetchManutencaoDataFromApi(operationalContext().today, activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')]);
+    await reload.run(() => Promise.all([fetchCIBloqueiosFromApi({ garagem: activeGaragemScope === 'TODAS' ? undefined : activeGaragemScope }), fetchManutencaoDataFromApi(operationalContext().today, activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')]), ([records]) => {
       setCiList(records); setReady(true); confirmRefresh();
       toast.success('Dados oficiais atualizados.');
-    } catch (error) { requireRefresh(); toast.error(error instanceof Error ? error.message : 'Consulta indisponivel.'); }
+    }, error => { setReady(false); requireRefresh(); toast.error(error instanceof Error ? error.message : 'Consulta indisponivel.'); });
   };
 
   useEffect(() => {
     let active = true;
     setReady(false);
-    Promise.all([fetchCIBloqueiosFromApi({ garagem: activeGaragemScope === 'TODAS' ? undefined : activeGaragemScope }), fetchManutencaoDataFromApi(operationalContext().today, activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')])
-      .then(([records]) => { if (active) { if (activeGaragemScope === 'TODAS' && c4Enabled('VCG')) setAdminGaragemFiltro('VCG'); setCiList(records); setReady(true); confirmRefresh(); } })
-      .catch(error => { if (active && !getMutationState().pending) { requireRefresh(); toast.error(error instanceof Error ? error.message : 'Consulta indisponivel.'); } });
+    void reload.run(() => Promise.all([fetchCIBloqueiosFromApi({ garagem: activeGaragemScope === 'TODAS' ? undefined : activeGaragemScope }), fetchManutencaoDataFromApi(operationalContext().today, activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')]),
+      ([records]) => { if (active) { if (activeGaragemScope === 'TODAS' && c4Enabled('VCG')) setAdminGaragemFiltro('VCG'); setCiList(records); setReady(true); confirmRefresh(); } },
+      error => { if (active && !getMutationState().pending) { requireRefresh(); toast.error(error instanceof Error ? error.message : 'Consulta indisponivel.'); } });
     return () => { active = false; };
-  }, [activeGaragemScope, setCiList]);
+  }, [activeGaragemScope, dataOperacao, setCiList]);
 
   // Funções de Suporte para Lançamento Rápido via botão '+' dos Cards
   const openQuickAddModal = (

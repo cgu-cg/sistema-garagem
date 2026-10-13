@@ -1,7 +1,9 @@
 import { BloqueioCarro } from "@/data/solturaData";
 import { api } from "@/lib/api";
-import { c4Context, c4Enabled, c4Items, fetchC4Context, storeC4Context, C4Garage } from '@/lib/c4';
+import { c4Context, c4Enabled, c4Items, c4SnapshotRevision, fetchC4Context, storeC4Context, C4Garage } from '@/lib/c4';
 import { operationalContext, canMutate, revision, beginMutation, endMutation, requireRefresh, SavedRefreshRequired, getMutationState, readTicket, assertReadTicket } from "@/lib/mvpTemporal";
+import { ReadInterrupted } from '@/lib/readCoordination';
+export type CIUpdateContext = { garagem: C4Garage; day: string };
 let officialCI: BloqueioCarro[] | null = null;
 let officialGarage: C4Garage = 'VCG';
 export const getCurrentCIGarage = () => officialGarage;
@@ -54,9 +56,9 @@ export function getInitialCIBloqueios(): BloqueioCarro[] {
   return [];
 }
 
-export function saveCIBloqueiosToStorage(list: BloqueioCarro[], _syncFolhas = false): void {
+export function saveCIBloqueiosToStorage(list: BloqueioCarro[], _syncFolhas = false, context?: CIUpdateContext): void {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); } catch { /* Cache nao e autoridade operacional. */ }
-  window.dispatchEvent(new CustomEvent('ci_bloqueios_updated', { detail: list }));
+  window.dispatchEvent(Object.assign(new CustomEvent('ci_bloqueios_updated', { detail: list }), { context }));
 }
 
 export function checkCarroBloqueado(prefixo: string, list: BloqueioCarro[], data?: string): BloqueioCarro | null {
@@ -82,11 +84,11 @@ export function checkCarroBloqueado(prefixo: string, list: BloqueioCarro[], data
   ) || null;
 }
 
-export function subscribeCIUpdates(callback: (list: BloqueioCarro[]) => void): () => void {
+export function subscribeCIUpdates(callback: (list: BloqueioCarro[], context?: CIUpdateContext) => void): () => void {
   const handler = (event: Event) => {
-    const customEvent = event as CustomEvent<BloqueioCarro[]>;
+    const customEvent = event as CustomEvent<BloqueioCarro[]> & { context?: CIUpdateContext };
     if (customEvent.detail) {
-      callback(customEvent.detail);
+      callback(customEvent.detail, customEvent.context);
     }
   };
 
@@ -101,7 +103,7 @@ export function subscribeCIUpdates(callback: (list: BloqueioCarro[]) => void): (
  * e atualiza o cache local.
  */
 export async function fetchCIBloqueiosFromApi(params?: { garagem?: string; status?: string }, afterCommit = false): Promise<BloqueioCarro[]> {
-  if (getMutationState().pending && !afterCommit) throw new Error('Gravacao pendente; aguarde antes de consultar.');
+  if (getMutationState().pending && !afterCommit) throw new ReadInterrupted('MUTATION', 'Gravacao pendente; aguarde antes de consultar.');
   const ticket = readTicket();
   const normalized = { garagem: params?.garagem === 'TODAS' ? undefined : params?.garagem, status: params?.status };
   const key = JSON.stringify([ticket, normalized]);
@@ -110,14 +112,15 @@ export async function fetchCIBloqueiosFromApi(params?: { garagem?: string; statu
   const number = ++requestNumber;
   const request = (async () => {
     const scope = (normalized.garagem || 'VCG') as C4Garage;
-    const context = await fetchC4Context(scope);
+    const day = operationalContext().today;
+    const context = await fetchC4Context(scope, day);
     const data = context.mode === 'C4' ? context.ci! : await api.listCiBloqueios({ ...normalized, ...(context.garages?.length ? { garagem: scope } : {}) });
     assertReadTicket(ticket);
-    if (number !== requestNumber) throw new Error('Consulta substituida por uma mais recente.');
+    if (number !== requestNumber) throw new ReadInterrupted('SUPERSEDED', 'Consulta substituida por uma mais recente.');
     if (!Array.isArray(data)) throw new Error('Resposta invalida ao consultar CI.');
-    storeC4Context(context, operationalContext().today);
+    storeC4Context(context, day);
     officialGarage = scope;
-    officialCI = data; saveCIBloqueiosToStorage(data);
+    officialCI = data; saveCIBloqueiosToStorage(data, false, { garagem: scope, day });
     return data;
   })();
   ciReads.set(key, request);
@@ -132,8 +135,9 @@ export async function saveCISnapshot(list: BloqueioCarro[], date: string, baseli
   beginMutation();
   let saved = false;
   try {
+    const snapshot = c4Enabled(garagem) ? c4SnapshotRevision(baseline, garagem, date, 'ci') : undefined;
     await api.post('/ci-bloqueios/sync', { garagem, data: date, items: c4Enabled(garagem) ? c4Items(items) : items, base: revision(current), removeBlocked, operation,
-      ...(c4Enabled(garagem) ? { baseC4: c4Context(garagem)?.baseC4, tituloColunaAdicional } : {}) });
+      ...(snapshot ? { ...snapshot, tituloColunaAdicional } : {}) });
     saved = true;
     return await fetchCIBloqueiosFromApi({ garagem }, true);
   } catch (error) {

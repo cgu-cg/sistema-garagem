@@ -1,5 +1,41 @@
 # Arquitetura do sistema
 
+## Consistência de snapshots C4 nos clientes
+
+`lib/c4.ts` compartilha consultas em andamento por garagem, dia e época de
+mutação. Respostas anteriores a uma mutação ou substituídas por uma consulta
+posterior não podem publicar contexto. Os managers preservam suas guardas de
+leitura e os eventos existentes.
+
+Cada lista oficial de CI/Controle fica associada em memória, por identidade do
+array, ao contexto, `base` e `baseC4` da mesma resposta. A gravação verifica que
+a baseline não mudou e utiliza esse par, sem buscar token no mapa compartilhado
+nem no localStorage. Uma lista antiga conserva seu token antigo: alterações de
+outro posto continuam causando 409 no backend, sem repetição automática.
+
+Após gravar, a consulta oficial fornece a próxima baseline e seus tokens. No
+Controle, a lista retornada à tela vem dessa consulta, não dos registros do POST
+combinados com token de outra leitura. Falha nessa recarga mantém a indicação
+de gravação concluída com atualização necessária. Formato de revisão, regras
+operacionais, transações e locks do backend permanecem inalterados.
+
+As telas usam `readCoordination` para coordenar carga inicial, atualização manual
+e reações a eventos. Só a conclusão mais recente do contexto ativo (garagem/data),
+na mesma época de mutação e com componente montado, pode publicar estado,
+mensagens ou flags de leitura. Interrupções tipadas por substituição/mutação
+não são falhas operacionais; falhas reais da consulta vigente mantêm o bloqueio.
+Não há repetição automática de gravações.
+
+Durante uma recarga coordenada, o listener do Controle não inicia outra consulta
+em resposta à publicação da própria CI. Fora dela, continua reagindo às consultas
+e alterações oficiais da CI. Eventos preservam o array original e acrescentam
+garagem/dia; consumidores antigos com callback de um argumento continuam válidos.
+O listener ignora outra garagem/data. A recarga oficial após POST permanece.
+
+Pendências preservadas nesta etapa: inclusão no Controle ainda restringe pela
+garagem inferida do prefixo; o botão de verificar preparação permanece desabilitado
+em VCM. Nenhuma dessas regras foi alterada pela coordenação de recargas.
+
 ## DATA-001/C4 — Runtime local opt-in (07/10/2026)
 
 As seções C3/fase 2 abaixo registram decisões e o baseline anterior.

@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { startCycle, finalizeCycle, readContext, saveC4 } from '../src/services/c4Flow';
 import { operationalContext, dateValue, eventInstant, enabledGarages, nextEvent, civil, mutationMode } from '../src/services/c4Temporal';
 import { revision } from '../src/services/mvpTemporal';
+import { revision as clientRevision } from '../../web/src/lib/mvpTemporal';
 import { recoverCurrentDay, startC4Scheduler } from '../src/services/c4Scheduler';
 import { garageOne } from '../../web/src/lib/c4Vehicles';
 import { c4KnownFields, c4EditedText } from '../../web/src/lib/c4ItemFields';
@@ -162,6 +163,58 @@ async function command(f: ReturnType<typeof fixture>, kind: 'ci' | 'manutencao')
   const ctx = await readContext(f.db, 'VCG', day);
   const items = kind === 'ci' ? ctx.ci.filter(i => i.data === target) : ctx.maintenance;
   return { garagem: 'VCG', data: kind === 'ci' ? target : day, base: revision(items), baseC4: ctx.baseC4, items: structuredClone(items), removeBlocked: [] as string[], confirmRelease: false };
+}
+
+for (const milliseconds of ['000', '001', '567', '999']) {
+  test(`revision preserva .${milliseconds} entre Date, ISO e transporte JSON`, () => {
+    const timestamp = `2026-10-07T12:34:56.${milliseconds}Z`;
+    const items = [{ id: 'c4-ci-1', updatedAt: new Date(timestamp), prefixo: '4000',
+      data: target, garagem: 'VCG', categoriaPlanilha: 'OFICINA', setorOficina: 'MECANICA' }];
+    const wire = JSON.parse(JSON.stringify(items));
+    for (const calculate of [revision, clientRevision]) {
+      assert.equal(JSON.parse(calculate(items))[0][1], timestamp);
+      assert.equal(calculate(items), calculate(wire));
+    }
+    assert.equal(revision(items), clientRevision(wire));
+  });
+}
+
+test('revision distingue timestamp e conteudo, preservando ordenacao deterministica', () => {
+  const first = { id: 'c4-ci-2', updatedAt: new Date('2026-10-07T12:34:56.567Z'), motivo: 'MOTOR' };
+  const second = { ...first, id: 'c4-ci-10' };
+  for (const calculate of [revision, clientRevision]) {
+    assert.notEqual(calculate([first]), calculate([{ ...first, updatedAt: new Date('2026-10-07T12:34:56.568Z') }]));
+    assert.notEqual(calculate([first]), calculate([{ ...first, motivo: 'FREIO' }]));
+    assert.equal(calculate([first, second]), calculate([second, first]));
+    assert.deepEqual(JSON.parse(calculate([first, second])).map((row: unknown[]) => row[0]), ['c4-ci-10', 'c4-ci-2']);
+  }
+  assert.equal(revision([first, second]), clientRevision(JSON.parse(JSON.stringify([second, first]))));
+});
+
+for (const operation of ['prepare', 'save'] as const) {
+  test(`C4 ${operation} aceita base do frontend apos JSON e rejeita base obsoleta`, async () => {
+    const f = await ready();
+    const ctx = JSON.parse(JSON.stringify(await readContext(f.db, 'VCG', day)));
+    const items = ctx.ci.filter((i: any) => i.data === target && i.garagem === 'VCG');
+    // A fixture cria itens com milissegundos nao zero, como timestamps reais do Prisma.
+    assert.ok(items.some((i: any) => new Date(i.updatedAt).getUTCMilliseconds() !== 0));
+    const payload = JSON.parse(JSON.stringify({ garagem: 'VCG', data: target, operation,
+      baseC4: ctx.baseC4, base: clientRevision(items),
+      items: operation === 'prepare' ? [] : items.map((i: any) => ({ ...i, motivo: 'REVISAO ATUALIZADA' })),
+      removeBlocked: [] }));
+    const before = f.tables();
+    await saveC4(f.db, 1, payload, 'ci', clock());
+    if (operation === 'prepare') assert.deepEqual(f.tables(), before);
+    else assert.ok((await readContext(f.db, 'VCG', day)).ci.filter(i => i.data === target).every(i => i.motivo === 'REVISAO ATUALIZADA'));
+
+    const fresh = JSON.parse(JSON.stringify(await readContext(f.db, 'VCG', day)));
+    const staleItems = fresh.ci.filter((i: any) => i.data === target);
+    staleItems[0].updatedAt = new Date(new Date(staleItems[0].updatedAt).getTime() - 1).toISOString();
+    const committed = f.tables();
+    await assert.rejects(saveC4(f.db, 1, { ...payload, baseC4: fresh.baseC4,
+      base: clientRevision(staleItems) }, 'ci', clock()), /Conteudo de origem desatualizado/);
+    assert.deepEqual(f.tables(), committed);
+  });
 }
 
 for (const [categoria, extra] of [
@@ -350,6 +403,27 @@ test('snapshot stale/duplo clique: somente um comando persiste', async () => {
   const f = await ready(), c = await command(f, 'ci'); (c.items as any[])[0].motivo = 'FREIO'; const results = await Promise.allSettled([saveC4(f.db, 1, c, 'ci', clock()), saveC4(f.db, 1, c, 'ci', clock())]);
   assert.equal(results.filter(r => r.status === 'fulfilled').length, 1); assert.equal(results.filter(r => r.status === 'rejected').length, 1);
 });
+
+test('dois usuarios com snapshots JSON: conflito preserva vencedor e recarga permite continuar', async () => {
+  const f = await ready();
+  const first = JSON.parse(JSON.stringify(await command(f, 'ci')));
+  const second = JSON.parse(JSON.stringify(await command(f, 'manutencao')));
+  first.base = clientRevision(first.items);
+  second.base = clientRevision(second.items);
+  first.items.find((i: any) => i.categoriaPlanilha === 'BLOQUEADO').motivo = 'USUARIO 1';
+  await saveC4(f.db, 1, first, 'ci', clock());
+  const committed = f.tables();
+  await assert.rejects(saveC4(f.db, 2, second, 'manutencao', clock()), /Snapshot C4 desatualizado/);
+  assert.deepEqual(f.tables(), committed);
+  const fresh = JSON.parse(JSON.stringify(await command(f, 'manutencao')));
+  fresh.base = clientRevision(fresh.items);
+  assert.equal(fresh.items[0].observacaoBloqueio, 'USUARIO 1');
+  fresh.items[0].emExecucao = true;
+  await saveC4(f.db, 2, fresh, 'manutencao', clock());
+  const result = await readContext(f.db, 'VCG', day);
+  assert.equal(result.maintenance[0].emExecucao, true);
+  assert.equal(result.ci.find(i => i.data === target && i.categoriaPlanilha === 'BLOQUEADO')?.motivo, 'USUARIO 1');
+});
 test('role ADMIN revalidada e locks contem garagem/dia parametrizados', async () => {
   const f = await ready(), c = await command(f, 'ci'); f.role(false); const before = f.tables(); await assert.rejects(saveC4(f.db, 1, c, 'ci', clock()), /ADMIN/); assert.deepEqual(f.tables(), before);
   assert.ok(f.queries.every(q => q.sql.includes('UPDLOCK, HOLDLOCK') && q.values[0] === 'VCG' && q.values[1] instanceof Date));
@@ -435,7 +509,7 @@ test('managers preservam TODAS com flag off, reset VCM e erro C4 sem fallback', 
       calls.push({ url, params: options?.params });
       if (url === '/c4/contexto') {
         if (fail) throw new Error('C4 indisponivel');
-        return { mode, garagem: options.params.garagem, garages: mode === 'C4' ? ['VCG', 'VCM'] : [], ci: [], maintenance: [] };
+        return { mode, garagem: options.params.garagem, day: options.params.data, baseC4: 'snapshot-test', garages: mode === 'C4' ? ['VCG', 'VCM'] : [], ci: [], maintenance: [] };
       }
       return [];
     },

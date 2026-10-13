@@ -1,6 +1,7 @@
 import { explicitGarage } from '@/lib/operationalAccess';
 import { canWriteC4 } from '@/lib/c4Authorization';
-import { canMutate, getMutationState, subscribeMutationState, confirmRefresh, requireRefresh, SavedRefreshRequired } from '@/lib/mvpTemporal';
+import { canMutate, getMutationState, subscribeMutationState, confirmRefresh, requireRefresh, SavedRefreshRequired, readTicket } from '@/lib/mvpTemporal';
+import { useReadCoordinator } from '@/lib/readCoordination';
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { c4Enabled, c4Context, c4Configured } from '@/lib/c4';
 import {
@@ -100,6 +101,7 @@ export function ManutencaoPage() {
   const [dataOperacao, setDataOperacao] = useState<string>(getTodayString);
   const activeContextRef = useRef(dataOperacao + "|" + activeGaragem);
   activeContextRef.current = dataOperacao + "|" + activeGaragem;
+  const reload = useReadCoordinator(activeContextRef.current, readTicket);
   const c4Scope = activeGaragem === 'VCM' ? 'VCM' : 'VCG';
   const mutationAllowed = Boolean(clock && ready && !writeState.pending && !writeState.refreshRequired && (c4Enabled(c4Scope) ? canWriteC4(user, c4Scope) : user?.role === 'ADMIN') && (c4Enabled(c4Scope) ? activeGaragem !== 'TODAS' && c4Context(c4Scope, dataOperacao)?.mutable : activeGaragem !== 'VCM') && canMutate(dataOperacao, 'manutencao', c4Enabled(c4Scope)));
   const dateInputRef = useRef<HTMLInputElement>(null);
@@ -267,7 +269,6 @@ export function ManutencaoPage() {
   // Sincronização em tempo real via storage, banco de dados (API) e custom events (Manutenção e CI)
   useEffect(() => {
     let isMounted = true;
-    let initialLoading = true;
     setReady(false);
 
     // 1. Carrega imediatamente os dados locais disponíveis
@@ -275,10 +276,10 @@ export function ManutencaoPage() {
     setItems(localList);
 
     // 2. Consulta coordenada à API oficial da Manutenção e CI
-    Promise.all([
+    void reload.run(() => Promise.all([
       fetchManutencaoDataFromApi(dataOperacao, activeGaragem),
       fetchCIBloqueiosFromApi({ garagem: activeGaragem === "TODAS" ? undefined : activeGaragem })
-    ]).then(([apiList, latestCI]) => {
+    ]), ([apiList, latestCI]) => {
       if (!isMounted) return;
 
       const ciSource = (Array.isArray(latestCI) && latestCI.length > 0)
@@ -292,25 +293,31 @@ export function ManutencaoPage() {
       const synced = syncItemsWithCI(baseList, ciSource, dataOperacao);
       setItems(synced);
       if (activeGaragem === 'TODAS' && c4Enabled('VCG')) setActiveGaragem('VCG');
-      initialLoading = false; setReady(true); if (dataOperacao === getTodayString()) confirmRefresh();
+      setReady(true); if (dataOperacao === getTodayString()) confirmRefresh();
 
       // Atualiza o cache da data no localStorage silenciosamente
       try {
         localStorage.setItem(`${STORAGE_KEY_MANUTENCAO_PREFIX}${dataOperacao}`, JSON.stringify(synced));
       } catch {}
-    }).catch(err => {
+    }, err => {
       if (isMounted && !getMutationState().pending) { setReady(false); requireRefresh(); toast.error(err instanceof Error ? err.message : "Consulta indisponivel."); }
     });
 
     const unsubscribeManut = subscribeManutencaoUpdates((detail) => {
-      if (isMounted && !getMutationState().pending && detail.data === dataOperacao) {
+      if (!reload.isActive(dataOperacao + '|' + activeGaragem)) return;
+      if (isMounted && !reload.pending && !getMutationState().pending && detail.data === dataOperacao && (!detail.garagem || detail.garagem === c4Scope)) {
         setItems(detail.items);
       }
     });
 
-    const unsubscribeCI = subscribeCIUpdates((updatedCI) => {
-      if (isMounted && !initialLoading && !getMutationState().pending && !getMutationState().refreshRequired && Array.isArray(updatedCI)) {
-        fetchManutencaoDataFromApi(dataOperacao, activeGaragem).then(data => { if (isMounted) setItems(data); }).catch(() => { if (isMounted) { setReady(false); requireRefresh(); toast.error('Controle nao atualizado. Recarregue antes de alterar.'); } });
+    const unsubscribeCI = subscribeCIUpdates((updatedCI, context) => {
+      if (!reload.isActive(dataOperacao + '|' + activeGaragem)) return;
+      if (context && (context.garagem !== c4Scope || context.day !== dataOperacao)) return;
+      if (isMounted && !reload.pending && !getMutationState().pending && !getMutationState().refreshRequired && Array.isArray(updatedCI)) {
+        setReady(false);
+        void reload.run(() => fetchManutencaoDataFromApi(dataOperacao, activeGaragem), data => {
+          setItems(data); setReady(true);
+        }, () => { setReady(false); requireRefresh(); toast.error('Controle nao atualizado. Recarregue antes de alterar.'); });
       }
     });
 
@@ -436,8 +443,8 @@ export function ManutencaoPage() {
       toast.error(`Controle somente leitura: permissao de manutencao e janela 03:00 ate ${c4Enabled(c4Scope) ? '20:00' : '18:30'} sao obrigatorios.`); return false;
     }
     const context = activeContextRef.current;
-    try { const records = await saveManutencaoData(dataOperacao, next, confirmed, items, removeBlocked, c4Scope); if (activeContextRef.current === context) setItems(records); return true; }
-    catch (error) { if (error instanceof SavedRefreshRequired) toast.warning(error.message); else toast.error(error instanceof Error ? error.message : 'Operacao nao confirmada. Recarregue.'); return false; }
+    try { const records = await saveManutencaoData(dataOperacao, next, confirmed, items, removeBlocked, c4Scope); if (!reload.isActive(context)) return false; setItems(records); return true; }
+    catch (error) { if (!reload.isActive(context)) return false; if (error instanceof SavedRefreshRequired) toast.warning(error.message); else toast.error(error instanceof Error ? error.message : 'Operacao nao confirmada. Recarregue.'); return false; }
   };
   const handleConfirmLiberarBloqueio = async () => {
     if (!liberarBloqueioModal.item) return;
@@ -816,10 +823,10 @@ export function ManutencaoPage() {
   // Restaurar / Sincronizar dados oficiais diretamente do SQL Server
   const handleResetSeed = async () => {
     if (getMutationState().pending) return;
-    const context = activeContextRef.current;
     setReady(false);
-    try { const [records] = await Promise.all([resetManutencaoSeedApi(dataOperacao, activeGaragem), fetchCIBloqueiosFromApi({ garagem: activeGaragem })]); if (activeContextRef.current !== context) return; setItems(records); setReady(true); if (dataOperacao === getTodayString()) confirmRefresh(); toast.success('Dados oficiais atualizados.'); }
-    catch { requireRefresh(); toast.error('Nao foi possivel atualizar os dados oficiais.'); }
+    await reload.run(() => Promise.all([resetManutencaoSeedApi(dataOperacao, activeGaragem), fetchCIBloqueiosFromApi({ garagem: activeGaragem })]), ([records]) => {
+      setItems(records); setReady(true); if (dataOperacao === getTodayString()) confirmRefresh(); toast.success('Dados oficiais atualizados.');
+    }, () => { setReady(false); requireRefresh(); toast.error('Nao foi possivel atualizar os dados oficiais.'); });
   };
 
   // Filtragem por empresa e busca textual

@@ -1,3 +1,5 @@
+import { ReadInterrupted } from './readCoordination';
+
 export function operationalContext(now = new Date(), closingSeconds = 66600) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Campo_Grande', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -37,7 +39,7 @@ export function confirmRefresh() {
 }
 export function readTicket() { return readEpoch; }
 export function assertReadTicket(ticket: number) {
-  if (ticket !== readEpoch) throw new Error('Consulta anterior a uma mutacao; atualize a lista.');
+  if (ticket !== readEpoch) throw new ReadInterrupted('MUTATION', 'Consulta anterior a uma mutacao; atualize a lista.');
 }
 export class SavedRefreshRequired extends Error {
   constructor() { super('Alteracao salva, mas nao foi possivel atualizar os dados. Atualize a lista antes de continuar.'); }
@@ -47,7 +49,9 @@ export function revision(items: readonly { id?: string; updatedAt?: unknown }[])
   return JSON.stringify(items.map(item => {
     const i = item as Record<string, any>;
     const category = i.categoria ?? i.categoriaPlanilha ?? null;
-    return [i.id, new Date(String(i.updatedAt)).toISOString(), i.prefixo, i.consorciada,
+    // Date.toString() descarta milissegundos; preserve o instante antes do transporte JSON.
+    const updatedAt = i.updatedAt instanceof Date ? i.updatedAt.toISOString() : new Date(String(i.updatedAt)).toISOString();
+    return [i.id, updatedAt, i.prefixo, i.consorciada,
       i.data ?? i.dataBloqueio, i.garagem ?? null, category, i.observacao ?? null,
       i.bloqueado ?? null, i.emExecucao ?? null, i.liberado ?? null,
       i.motivo || '', category === 'OFICINA' || category === 'PREVENTIVA' ? (i.subTipo ?? i.setorOficina ?? i.tipoPreventiva ?? '') : '',

@@ -26,7 +26,9 @@ export function revision(items: readonly { id?: string; updatedAt?: unknown }[])
   return JSON.stringify(items.map(item => {
     const i = item as Record<string, any>;
     const category = i.categoria ?? i.categoriaPlanilha ?? null;
-    return [i.id, new Date(String(i.updatedAt)).toISOString(), i.prefixo, i.consorciada,
+    // Date.toString() descarta milissegundos; preserve o instante antes do transporte JSON.
+    const updatedAt = i.updatedAt instanceof Date ? i.updatedAt.toISOString() : new Date(String(i.updatedAt)).toISOString();
+    return [i.id, updatedAt, i.prefixo, i.consorciada,
       i.data ?? i.dataBloqueio, i.garagem ?? null, category, i.observacao ?? null,
       i.bloqueado ?? null, i.emExecucao ?? null, i.liberado ?? null,
       i.motivo || '', category === 'OFICINA' || category === 'PREVENTIVA' ? (i.subTipo ?? i.setorOficina ?? i.tipoPreventiva ?? '') : '',

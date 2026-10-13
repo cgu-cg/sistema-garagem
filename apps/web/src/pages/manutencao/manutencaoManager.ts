@@ -1,8 +1,9 @@
 import { BloqueioCarro } from "@/data/solturaData";
 import { getInitialCIBloqueios, fetchCIBloqueiosFromApi, getCurrentCIGarage } from "@/pages/soltura/ciManager";
 import { api } from "@/lib/api";
-import { c4Context, c4Enabled, fetchC4Context, storeC4Context, C4Garage } from '@/lib/c4';
+import { c4Context, c4Enabled, c4SnapshotRevision, fetchC4Context, storeC4Context, C4Garage } from '@/lib/c4';
 import { operationalContext, canMutate, revision, beginMutation, endMutation, requireRefresh, SavedRefreshRequired, getMutationState, readTicket, assertReadTicket } from "@/lib/mvpTemporal";
+import { ReadInterrupted } from '@/lib/readCoordination';
 const official = new Map<string, ManutencaoCarroItem[]>();
 let requestNumber = 0;
 
@@ -177,22 +178,22 @@ export function getManutencaoData(data: string = getTodayString()): ManutencaoCa
   try { const items = JSON.parse(localStorage.getItem(STORAGE_KEY_MANUTENCAO_PREFIX + data) || '[]'); return Array.isArray(items) ? items : []; } catch { return []; }
 }
 export async function fetchManutencaoDataFromApi(data = getTodayString(), garagem?: string): Promise<ManutencaoCarroItem[]> {
-  if (getMutationState().pending) throw new Error('Gravacao pendente; aguarde antes de consultar.');
+  if (getMutationState().pending) throw new ReadInterrupted('MUTATION', 'Gravacao pendente; aguarde antes de consultar.');
   const ticket = readTicket(), number = ++requestNumber;
   const scope = (garagem && garagem !== 'TODAS' ? garagem : 'VCG') as C4Garage;
   const context = await fetchC4Context(scope, data);
   const records = context.mode === 'C4' ? context.maintenance! : await api.get<ManutencaoCarroItem[]>('/manutencao', { params: { data, ...(context.garages?.length ? { garagem: scope } : garagem && garagem !== 'TODAS' ? { garagem } : {}) } });
   assertReadTicket(ticket);
-  if (number !== requestNumber) throw new Error('Consulta substituida por uma mais recente.');
+  if (number !== requestNumber) throw new ReadInterrupted('SUPERSEDED', 'Consulta substituida por uma mais recente.');
   if (!Array.isArray(records)) throw new Error('Resposta invalida ao consultar manutencao.');
   storeC4Context(context, data);
   official.set(data, records);
-  cache(data, records);
+  cache(data, records, scope);
   return records;
 }
-function cache(data: string, items: ManutencaoCarroItem[]) {
+function cache(data: string, items: ManutencaoCarroItem[], garagem?: C4Garage) {
   try { localStorage.setItem(STORAGE_KEY_MANUTENCAO_PREFIX + data, JSON.stringify(items)); } catch { /* Cache nao e autoridade operacional. */ }
-  window.dispatchEvent(new CustomEvent('manutencao_updated', { detail: { data, items, fromCISync: true } }));
+  window.dispatchEvent(new CustomEvent('manutencao_updated', { detail: { data, garagem, items, fromCISync: true } }));
 }
 export async function saveManutencaoData(data: string, items: ManutencaoCarroItem[], confirmRelease: boolean, baseline: ManutencaoCarroItem[], removeBlocked: string[] = [], garagem: C4Garage = 'VCG'): Promise<ManutencaoCarroItem[]> {
   if (!canMutate(data, 'manutencao', c4Enabled(garagem))) throw new Error('Controle fora da janela operacional.');
@@ -203,17 +204,25 @@ export async function saveManutencaoData(data: string, items: ManutencaoCarroIte
   let saved = false;
   try {
     const active = c4Enabled(garagem);
+    const snapshot = active ? c4SnapshotRevision(baseline, garagem, data, 'manutencao') : undefined;
     const mapped = items.map(i => {
       const old = baseline.find(b => b.id === i.id);
       return !old || old.observacao === i.observacao ? i : { ...i, ...(i.bloqueado ? { observacaoBloqueio: i.observacao } : { observacaoOficina: i.observacao }) };
     });
     const response = await api.post<{ records: ManutencaoCarroItem[] }>('/manutencao/sync', { garagem, data, items: active ? mapped : items.filter(vcg), base: revision(active ? baseline : baseline.filter(vcg)), confirmRelease, removeBlocked,
-      ...(active ? { baseC4: c4Context(garagem, data)?.baseC4 } : {}) });
+      ...(snapshot ?? {}) });
     saved = true;
-    official.set(data, response.records);
-    cache(data, response.records);
+    if (!active) {
+      official.set(data, response.records);
+      cache(data, response.records, garagem);
+    }
     await fetchCIBloqueiosFromApi({ garagem }, true);
-    return response.records;
+    if (!active) return response.records;
+    const records = c4Context(garagem, data)?.maintenance;
+    if (!records) throw new Error('Controle oficial indisponivel apos gravacao.');
+    official.set(data, records);
+    cache(data, records, garagem);
+    return records;
   } catch (error) {
     requireRefresh();
     if (saved) throw new SavedRefreshRequired();
@@ -279,9 +288,9 @@ export function checkCarroStatusManutencao(prefixo: string, data?: string): {
 /**
  * Escuta atualizações da tela de manutenção
  */
-export function subscribeManutencaoUpdates(callback: (data: { data: string; items: ManutencaoCarroItem[] }) => void): () => void {
+export function subscribeManutencaoUpdates(callback: (data: { data: string; garagem?: C4Garage; items: ManutencaoCarroItem[] }) => void): () => void {
   const handler = (event: Event) => {
-    const customEvent = event as CustomEvent<{ data: string; items: ManutencaoCarroItem[] }>;
+    const customEvent = event as CustomEvent<{ data: string; garagem?: C4Garage; items: ManutencaoCarroItem[] }>;
     if (customEvent.detail) {
       callback(customEvent.detail);
     }

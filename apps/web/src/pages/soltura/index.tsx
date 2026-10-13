@@ -1,6 +1,8 @@
 import { explicitGarage, canDispatch, canReadScale, canOfferRelease } from '@/lib/operationalAccess';
 import { c4Context, c4Folha } from '@/lib/c4';
 import { ciSelectionDate } from '@/lib/ciInitialDate';
+import { isReadInterrupted } from '@/lib/readCoordination';
+import { operationalContext } from '@/lib/mvpTemporal';
 import { useEffect, useState, useMemo, useCallback, useRef, Fragment } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -275,18 +277,26 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const [ciList, setCiList] = useState<BloqueioCarro[]>([]);
 
   const [ciReadError, setCIReadError] = useState('');
+  const ciReadGarage = useRef(garagem);
+  ciReadGarage.current = garagem;
 
   // Carregar CIs Bloqueados diretamente do banco oficial SQL Server
   useEffect(() => {
+    let active = true;
+    setCIReadError('');
     fetchCIBloqueiosFromApi({ garagem }).then((data) => {
-      if (Array.isArray(data)) {
+      if (active && ciReadGarage.current === garagem && Array.isArray(data)) {
         setCiList(data); setCIReadError('');
       }
-    }).catch(() => { setCIReadError('Consulta oficial indisponivel; disponibilidade nao confirmada.'); });
+    }).catch(error => { if (active && ciReadGarage.current === garagem && !isReadInterrupted(error)) setCIReadError('Consulta oficial indisponivel; disponibilidade nao confirmada.'); });
+    return () => { active = false; };
   }, [garagem]);
 
   useEffect(() => {
-    const unsubscribe = subscribeCIUpdates((updated) => {
+    let active = true;
+    const unsubscribe = subscribeCIUpdates((updated, context) => {
+      if (!active || ciReadGarage.current !== garagem) return;
+      if (context && (context.garagem !== garagem || context.day !== operationalContext().today)) return;
       if (Array.isArray(updated)) {
         setCiList(updated);
       }
@@ -296,12 +306,13 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       const customEvt = e as CustomEvent;
       if (customEvt.detail?.fromCISync) return;
       fetchCIBloqueiosFromApi({ garagem }).then(data => {
-        if (Array.isArray(data)) { setCiList(data); setCIReadError(''); }
-      }).catch(() => { setCIReadError('Consulta oficial indisponivel; disponibilidade nao confirmada.'); });
+        if (active && ciReadGarage.current === garagem && Array.isArray(data)) { setCiList(data); setCIReadError(''); }
+      }).catch(error => { if (active && ciReadGarage.current === garagem && !isReadInterrupted(error)) setCIReadError('Consulta oficial indisponivel; disponibilidade nao confirmada.'); });
     };
     window.addEventListener("manutencao_updated", handleManutUpdate);
 
     return () => {
+      active = false;
       unsubscribe();
       window.removeEventListener("manutencao_updated", handleManutUpdate);
     };
@@ -1829,11 +1840,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                     });
 
                     // Sincronizar Bloqueios da CI do banco
-                    fetchCIBloqueiosFromApi({ garagem }).then((ciData) => {
-                      if (Array.isArray(ciData)) {
-                        setCiList(ciData);
-                      }
-                    }).catch(() => {});
+                    // O listener contextual recebe a lista oficial publicada pelo manager.
+                    void fetchCIBloqueiosFromApi({ garagem }).catch(() => {});
                   }}
                   className="h-8 px-3 text-xs gap-1.5 rounded-xl border font-semibold shadow-2xs hover:bg-muted/80 transition-all cursor-pointer"
                   title="Atualizar dados diretamente do banco SQL Server"
