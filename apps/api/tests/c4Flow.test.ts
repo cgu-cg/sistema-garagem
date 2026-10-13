@@ -7,7 +7,7 @@ import { operationalContext, dateValue, eventInstant, enabledGarages, nextEvent,
 import { revision } from '../src/services/mvpTemporal';
 import { revision as clientRevision } from '../../web/src/lib/mvpTemporal';
 import { recoverCurrentDay, startC4Scheduler } from '../src/services/c4Scheduler';
-import { vehiclesForGarage } from '../../web/src/lib/c4Vehicles';
+import { ciEntryGarage, vehiclesForGarage } from '../../web/src/lib/c4Vehicles';
 import { c4KnownFields, c4EditedText } from '../../web/src/lib/c4ItemFields';
 import Module from 'node:module';
 import path from 'node:path';
@@ -380,8 +380,45 @@ test('liberacao nao confirmada/cancelada nao persiste nada', async () => {
   await assert.rejects(saveC4(f.db, 1, c, 'manutencao', clock()), /Confirme/); assert.deepEqual(f.tables(), before);
 });
 test('liberacao confirmada retira bloqueio e execucao', async () => {
-  const f = await ready(), c = await command(f, 'manutencao'); Object.assign(c.items[0], { bloqueado: false, emExecucao: false, liberado: true }); c.removeBlocked = ['3083']; c.confirmRelease = true;
+  const f = await ready();
+  const running = await command(f, 'manutencao'); Object.assign(running.items[0], { emExecucao: true }); await saveC4(f.db, 1, running, 'manutencao', clock());
+  const c = await command(f, 'manutencao'); Object.assign(c.items[0], { bloqueado: false, emExecucao: false, liberado: true }); c.removeBlocked = ['3083']; c.confirmRelease = true;
   await saveC4(f.db, 1, c, 'manutencao', clock()); const ctx = await readContext(f.db, 'VCG', day); assert.equal(ctx.maintenance[0].liberado, true); assert.equal(ctx.ci.filter(i => i.data === target && i.categoriaPlanilha === 'BLOQUEADO').length, 0);
+});
+
+for (const execution of [false, true]) test(`baixa confirmada pela CI cria Liberado no Controle; execucao=${execution}`, async () => {
+  const f = await ready();
+  if (execution) {
+    const maintenance = await command(f, 'manutencao');
+    Object.assign(maintenance.items[0], { emExecucao: true, observacaoOficina: 'SERVICO' });
+    await saveC4(f.db, 1, maintenance, 'manutencao', clock());
+  }
+  const before = f.tables().itemFolhaCI.filter(i => i.folhaId === 10);
+  const c = await command(f, 'ci');
+  c.items = (c.items as any[]).filter(i => i.categoriaPlanilha !== 'BLOQUEADO');
+  c.removeBlocked = ['3083']; c.confirmRelease = true;
+  await saveC4(f.db, 1, JSON.parse(JSON.stringify(c)), 'ci', clock());
+  const ctx = await readContext(f.db, 'VCG', day);
+  const released = ctx.maintenance.find(i => i.prefixo === '3083')!;
+  assert.equal(released.bloqueado, false); assert.equal(released.emExecucao, false); assert.equal(released.liberado, true);
+  assert.equal(ctx.ci.filter(i => i.data === target && i.categoriaPlanilha === 'BLOQUEADO').length, 0);
+  assert.deepEqual(f.tables().itemFolhaCI.filter(i => i.folhaId === 10), before);
+  await assert.rejects(saveC4(f.db, 1, c, 'ci', clock()), /desatualizado/);
+});
+
+test('baixa CI exige intencao explicita de retirada e preserva dados se comando invalido', async () => {
+  const f = await ready(), c = await command(f, 'ci'), before = f.tables();
+  c.items = (c.items as any[]).filter(i => i.categoriaPlanilha !== 'BLOQUEADO'); c.confirmRelease = true;
+  await assert.rejects(saveC4(f.db, 1, c, 'ci', clock())); assert.deepEqual(f.tables(), before);
+});
+
+test('somente card BLOQUEADOS VCM usa frota VCM dentro da folha VCG', () => {
+  const vehicles = [{ prefixo: '1000', garagemFonte: 1 }, { prefixo: '4000', garagemFonte: 2 }];
+  assert.equal(ciEntryGarage('VCG', 'BLOQUEADO', 'VCM'), 'VCM');
+  assert.deepEqual(vehiclesForGarage(vehicles, ciEntryGarage('VCG', 'BLOQUEADO', 'VCM') as 'VCM').map(i => i.prefixo), ['1000']);
+  for (const [category, subType] of [['BLOQUEADO', 'VCG'], ['BLOQUEADO', 'VSF'], ['OFICINA', 'ELETRICA'], ['PREVENTIVA', 'REVISAO']]) {
+    assert.equal(ciEntryGarage('VCG', category, subType), 'VCG');
+  }
 });
 test('BLOQUEADO + LIBERADO e estados duplicados rejeitados', async () => {
   const f = await ready(), c = await command(f, 'manutencao'); (c.items[0] as any).liberado = true; await assert.rejects(saveC4(f.db, 1, c, 'manutencao', clock()), /Liberado/);

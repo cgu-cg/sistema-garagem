@@ -100,6 +100,13 @@ test('snapshots C4 nos managers, sem rede ou banco', async t => {
       assert.equal(c4.c4Context('VCG', day), fresh);
     });
 
+    await t.test('manager CI encaminha baixa confirmada com base e baseC4 oficiais', async () => {
+      const baseline = await ci.fetchCIBloqueiosFromApi({ garagem: 'VCG' });
+      await ci.saveCISnapshot(baseline, target, baseline, [], 'save', 'VCG', undefined, true);
+      const sent = posts.at(-1)!.body;
+      assert.equal(sent.confirmRelease, true); assert.ok(sent.baseC4); assert.equal(sent.base, revision(baseline));
+    });
+
     for (const kind of ['ci', 'manutencao'] as const) {
       const load = () => kind === 'ci' ? ci.fetchCIBloqueiosFromApi({ garagem: 'VCG' }) : maintenance.fetchManutencaoDataFromApi(day, 'VCG');
       const save = (next: any[], baseline: any[]) => kind === 'ci'

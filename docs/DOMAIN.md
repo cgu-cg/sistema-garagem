@@ -3,9 +3,17 @@
 ## Seleção de veículos na CI VCG — confirmação operacional
 
 Novas inclusões nos seletores da CI VCG apresentam somente veículos com
-garagem cadastrada 2 (VCG), independentemente da consorciada. Garagem 1
+garagem cadastrada 2 (VCG), independentemente da consorciada, exceto no card
+BLOQUEADOS VCM: somente nesse card, o seletor usa garagem cadastrada 1 (VCM),
+preservando o contexto operacional VCG da folha. Garagem 1
 corresponde a VCM. A restrição do seletor não filtra itens já salvos nem
 reclassifica consorciadas, garagens ou históricos da folha.
+
+Liberar (Baixa) um BLOQUEADO na CI, ou confirmar sua liberação no Controle,
+retira o bloqueio da CI em preparação e do Controle do ciclo correspondente,
+encerra eventual execução e marca LIBERADO no Controle, atomicamente.
+Apagar/retirar bloqueio sem liberação continua preservando execução. A baixa
+exige confirmação, revisões oficiais e mantém históricos finalizados intactos.
 
 ## Ajuste autorizado para inclusão no Controle de Manutenção
 

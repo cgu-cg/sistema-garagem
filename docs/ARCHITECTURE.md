@@ -14,9 +14,12 @@ são filtrados. Códigos desconhecidos e identificadores inválidos ainda rejeit
 a resposta inteira, mantendo a lista anterior. O diagnóstico informa contagens de registros incompletos, garagens
 desconhecidas e inconsistências, sem expor identificadores. Valores originais
 válidos ficam em `garagemOriginal` no cliente. O formato público não mudou.
-Por confirmação operacional, os seletores da CI VCG usam somente garagem
-cadastrada 2, independentemente da consorciada. `vehiclesForGarage` usa 1 para
-VCM e 2 para VCG. Este filtro não remove itens já salvos nem altera históricos.
+Por confirmação operacional, os seletores da CI VCG usam garagem cadastrada 2,
+exceto BLOQUEADOS VCM, que usa somente garagem 1 dentro da mesma folha VCG.
+`vehiclesForGarage` usa 1 para VCM e 2 para VCG. Este filtro não remove itens
+já salvos nem altera históricos. A baixa confirmada pela CI envia
+`confirmRelease` com a retirada explícita: a transação C4 remove o bloqueio e
+marca LIBERADO no Controle, encerrando execução; exclusão comum não libera.
 
 `mssql.getPool` usa `legacyPool`: requisições simultâneas aguardam a mesma
 promessa de conexão. Pool desconectado é fechado antes da substituição; uma

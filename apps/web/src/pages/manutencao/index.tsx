@@ -449,8 +449,8 @@ export function ManutencaoPage() {
     if (!liberarBloqueioModal.item) return;
     const targetItem = liberarBloqueioModal.item;
 
-    const updated = items.map(it => it.id === targetItem.id ? { ...it, bloqueado: false } : it).filter(it => it.bloqueado || it.emExecucao || it.liberado);
-    if (!(await commitMaintenance(updated, false, [targetItem.prefixo]))) return;
+    const updated = items.map(it => it.id === targetItem.id ? { ...it, bloqueado: false, emExecucao: false, liberado: true } : it);
+    if (!(await commitMaintenance(updated, true, [targetItem.prefixo]))) return;
 
     setLiberarBloqueioModal({ isOpen: false, item: null });
     toast.success(`Bloqueio do veículo ${targetItem.prefixo} liberado na CI.`);
@@ -2190,7 +2190,7 @@ export function ManutencaoPage() {
               <strong className="block mb-1 text-sm font-bold text-rose-700 dark:text-rose-300">
                 Atenção: Liberação Oficial na CI
               </strong>
-              Ao confirmar, este veículo sairá dos <strong>Bloqueados</strong> do Controle atual e da <strong>CI em preparação</strong>. Eventual estado Em Manutenção será preservado.
+              Ao confirmar, este veículo sairá dos <strong>Bloqueados</strong> do Controle atual e da <strong>CI em preparação</strong>, encerrará eventual execução e entrará na lista de <strong>Liberados</strong> do Controle.
             </div>
 
             {liberarBloqueioModal.item?.observacao && (

@@ -161,7 +161,8 @@ export async function saveC4(db: PrismaClient, userId: number | undefined, body:
       for (const s of b.states) {
         const block = items.find(i => i.categoriaPlanilha === 'BLOQUEADO' && i.prefixo === s.prefixo);
         if (block && (!s.bloqueado || s.liberado || s.consorciada !== block.consorciada || (s.observacaoBloqueio ?? null) !== (block.motivo ?? null))) await tx.estadoManutencao.update({ where: { id: s.id }, data: { bloqueado: true, liberado: false, consorciada: company.parse(block.consorciada), observacaoBloqueio: block.motivo ?? null, responsavelRegistroId: userId } });
-        else if (!block && s.bloqueado) await tx.estadoManutencao.update({ where: { id: s.id }, data: { bloqueado: false, observacaoBloqueio: null, responsavelRegistroId: userId } });
+        else if (!block && s.bloqueado) await tx.estadoManutencao.update({ where: { id: s.id }, data: { bloqueado: false, observacaoBloqueio: null,
+          ...(c.confirmRelease ? { emExecucao: false, liberado: true } : {}), responsavelRegistroId: userId } });
       }
       for (const i of items.filter(i => i.categoriaPlanilha === 'BLOQUEADO' && !b.states.some(s => s.prefixo === i.prefixo))) await tx.estadoManutencao.create({ data: { cicloId: cycle.id, prefixo: i.prefixo, consorciada: company.parse(i.consorciada), bloqueado: true, emExecucao: false, liberado: false, observacaoBloqueio: i.motivo ?? null, responsavelRegistroId: userId } });
       if (c.tituloColunaAdicional !== undefined && c.tituloColunaAdicional !== folha.tituloColunaAdicional) await tx.folhaCI.update({ where: { id: folha.id }, data: { tituloColunaAdicional: c.tituloColunaAdicional, responsavelRegistroId: userId } });

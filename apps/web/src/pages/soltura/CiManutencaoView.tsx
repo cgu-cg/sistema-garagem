@@ -34,7 +34,7 @@ import {
   PopoverContent 
 } from "@/components/ui/popover";
 import { c4Enabled, c4Folha, c4Mutable, c4Configured } from '@/lib/c4';
-import { vehiclesForGarage } from '@/lib/c4Vehicles';
+import { ciEntryGarage, vehiclesForGarage } from '@/lib/c4Vehicles';
 import { c4KnownFields, c4EditedText } from '@/lib/c4ItemFields';
 import {
   DropdownMenu,
@@ -532,13 +532,13 @@ export function CiManutencaoView({
     return [...keys].filter(n => n > 0).sort((a, b) => a - b).map(n => ({ id: `ref-extra-${n}` }));
   }, [ciListNaData, extraDraftOrders]);
   useEffect(() => { setExtraDraftOrders([]); }, [dataOperacao, activeGaragemScope]);
-  const commitCI = async (next: BloqueioCarro[], removeBlocked: string[] = []): Promise<boolean> => {
+  const commitCI = async (next: BloqueioCarro[], removeBlocked: string[] = [], confirmRelease = false): Promise<boolean> => {
     if (checkDataFuturaBloqueio()) return false;
     const vcm = (i: BloqueioCarro) => normalizeIsoDate(i.data) === normalizeIsoDate(dataOperacao) && getGaragemFisicaByCarro(i.prefixo) === 'VCM';
     const scope = activeGaragemScope === 'VCM' ? 'VCM' : 'VCG';
     if (!c4Enabled(scope) && JSON.stringify(next.filter(vcm)) !== JSON.stringify(ciList.filter(vcm))) { toast.error('MVP permite alteracoes somente na VCG.'); return false; }
     const context = reloadContext;
-    try { const records = await saveCISnapshot(next, normalizeIsoDate(dataOperacao), ciList, removeBlocked, 'save', scope); if (!reload.isActive(context)) return false; setCiList(records); return true; }
+    try { const records = await saveCISnapshot(next, normalizeIsoDate(dataOperacao), ciList, removeBlocked, 'save', scope, undefined, confirmRelease); if (!reload.isActive(context)) return false; setCiList(records); return true; }
     catch (error) { if (!reload.isActive(context)) return false; if (error instanceof SavedRefreshRequired) toast.warning(error.message); else toast.error(error instanceof Error ? error.message : 'Gravacao nao confirmada. Recarregue.'); return false; }
   };
 
@@ -926,8 +926,12 @@ export function CiManutencaoView({
     return "BLOQUEADO";
   };
 
+  const quickAddGarage = ciEntryGarage(activeGaragemScope, quickAddModal.category, quickAddModal.subType);
+  const quickAddAllowedCars = useMemo(() => quickAddGarage === 'VCM' && activeGaragemScope === 'VCG'
+    ? vehiclesForGarage(fleetCars, 'VCM').sort((a, b) => a.prefixo.localeCompare(b.prefixo, undefined, { numeric: true }))
+    : sortedAllowedCars, [quickAddGarage, activeGaragemScope, fleetCars, sortedAllowedCars]);
   const quickAddFilteredCars = useMemo(() => {
-    return sortedAllowedCars.filter(car => {
+    return quickAddAllowedCars.filter(car => {
       if (quickAddFilterCompany !== "TODAS") {
         const cons = getConsorciadaByCarro(car.prefixo);
         if (quickAddFilterCompany !== cons) return false;
@@ -938,7 +942,7 @@ export function CiManutencaoView({
       }
       return true;
     });
-  }, [sortedAllowedCars, quickAddFilterCompany, quickAddCarro]);
+  }, [quickAddAllowedCars, quickAddFilterCompany, quickAddCarro]);
 
   // Sincronizar dados atualizados do banco oficial SQL Server
   const handleRefreshData = async () => {
@@ -1005,6 +1009,9 @@ export function CiManutencaoView({
 
     const { category, subType, isEditing, existingId } = quickAddModal;
     const cleanCar = quickAddCarro.trim();
+    if (!isEditing && !quickAddAllowedCars.some(car => car.prefixo === cleanCar)) {
+      toast.error('Selecione um veículo cadastrado na garagem indicada.'); return;
+    }
     const cleanData = normalizeIsoDate(dataOperacao) || getTodayString();
     const cardInfo = PREVENTIVAS_CARDS.find(p => p.id === subType);
     const isSetorSemDefeito = category === "PREVENTIVA" || (
@@ -1279,12 +1286,12 @@ export function CiManutencaoView({
   const handleReleaseCarro = async (carro: string, _itemId?: string) => {
     if (checkDataFuturaBloqueio()) return;
     const targetDateIso = normalizeIsoDate(dataOperacao) || getTodayString();
-    if (!confirm(`Deseja dar BAIXA e LIBERAR o Carro ${carro} para soltura na data ${formatarDataBr(targetDateIso)}?\n\n(O veículo sairá dos bloqueados a partir desta data, mantendo o histórico dos dias anteriores intacto).`)) return;
+    if (!confirm(`Deseja dar BAIXA e LIBERAR o Carro ${carro} na CI de ${formatarDataBr(targetDateIso)}?\n\nO bloqueio será retirado e o veículo entrará em Liberados no Controle do ciclo correspondente, encerrando eventual execução. O histórico será preservado.`)) return;
 
     if (!ciListNaData.some(item => item.prefixo === carro && item.categoriaPlanilha === 'BLOQUEADO')) { toast.info('Não há BLOQUEADO desse veículo nesta CI.'); return; }
     const updatedList = ciList.filter(item => !(normalizeIsoDate(item.data) === targetDateIso && item.prefixo === carro && item.categoriaPlanilha === 'BLOQUEADO'));
 
-    if (!(await commitCI(updatedList, [carro]))) return;
+    if (!(await commitCI(updatedList, [carro], true))) return;
 
     toast.success(`Carro ${carro} liberado da CI com sucesso na data ${formatarDataBr(targetDateIso)}!`);
   };
@@ -1744,11 +1751,12 @@ export function CiManutencaoView({
     const targetDateIso = normalizeIsoDate(dataOperacao) || getTodayString();
 
     if (!ciListNaData.some(item => item.prefixo === quickAddCarro && item.categoriaPlanilha === 'BLOQUEADO')) { toast.info('Não há BLOQUEADO desse veículo nesta CI.'); return; }
+    if (!confirm(`Liberar o carro ${quickAddCarro}? O bloqueio será retirado e o veículo será colocado em Liberados no Controle, encerrando eventual execução.`)) return;
     const updatedList = ciList.filter(item => !(normalizeIsoDate(item.data) === targetDateIso && item.prefixo === quickAddCarro && item.categoriaPlanilha === 'BLOQUEADO'));
 
-    if (!(await commitCI(updatedList, [quickAddCarro]))) return;
+    if (!(await commitCI(updatedList, [quickAddCarro], true))) return;
 
-    toast.success(`Carro ${quickAddCarro} liberado da CI com sucesso na data ${formatarDataBr(targetDateIso)}. Estado de oficina preservado.`);
+    toast.success(`Carro ${quickAddCarro} liberado da CI e colocado em Liberados no Controle.`);
     setQuickAddModal(prev => ({ ...prev, isOpen: false }));
   };
 
@@ -3223,7 +3231,7 @@ export function CiManutencaoView({
                       {isDataEditavel ? "Em Edição" : "Visualização"}
                     </span>
                   ) : (
-                    `${sortedAllowedCars.length} veículos da Garagem ${activeGaragemScope === "TODAS" ? "VCG/VCM" : activeGaragemScope}`
+                    `${quickAddAllowedCars.length} veículos da Garagem ${quickAddGarage === "TODAS" ? "VCG/VCM" : quickAddGarage}`
                   )}
                 </span>
               </div>
@@ -3394,7 +3402,7 @@ export function CiManutencaoView({
 
                   {/* Rodapé do Dropdown com quantidade */}
                   <div className="p-2 border-t border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-950/20 text-center text-[10px] text-gray-400">
-                    Mostrando {quickAddFilteredCars.length} de {sortedAllowedCars.length} veículos cadastrados
+                    Mostrando {quickAddFilteredCars.length} de {quickAddAllowedCars.length} veículos cadastrados
                   </div>
                 </div>
               )}

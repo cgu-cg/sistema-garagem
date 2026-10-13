@@ -127,7 +127,7 @@ export async function fetchCIBloqueiosFromApi(params?: { garagem?: string; statu
   try { return await request; } finally { if (ciReads.get(key) === request) ciReads.delete(key); }
 }
 
-export async function saveCISnapshot(list: BloqueioCarro[], date: string, baseline: BloqueioCarro[], removeBlocked: string[] = [], operation: 'save' | 'prepare' = 'save', garagem: C4Garage = 'VCG', tituloColunaAdicional?: string): Promise<BloqueioCarro[]> {
+export async function saveCISnapshot(list: BloqueioCarro[], date: string, baseline: BloqueioCarro[], removeBlocked: string[] = [], operation: 'save' | 'prepare' = 'save', garagem: C4Garage = 'VCG', tituloColunaAdicional?: string, confirmRelease = false): Promise<BloqueioCarro[]> {
   if (!canMutate(date, 'ci', c4Enabled(garagem))) throw new Error('CI fora da janela de edicao.');
   if (!officialCI) throw new Error('Carregue a CI oficial antes de alterar.');
   const current = baseline.filter(i => i.data === date && i.garagem === garagem);
@@ -136,7 +136,7 @@ export async function saveCISnapshot(list: BloqueioCarro[], date: string, baseli
   let saved = false;
   try {
     const snapshot = c4Enabled(garagem) ? c4SnapshotRevision(baseline, garagem, date, 'ci') : undefined;
-    await api.post('/ci-bloqueios/sync', { garagem, data: date, items: c4Enabled(garagem) ? c4Items(items) : items, base: revision(current), removeBlocked, operation,
+    await api.post('/ci-bloqueios/sync', { garagem, data: date, items: c4Enabled(garagem) ? c4Items(items) : items, base: revision(current), removeBlocked, operation, confirmRelease,
       ...(snapshot ? { ...snapshot, tituloColunaAdicional } : {}) });
     saved = true;
     return await fetchCIBloqueiosFromApi({ garagem }, true);
