@@ -16,7 +16,7 @@ import {
   fetchCIBloqueiosFromApi,
 } from "./ciManager";
 import { useAuth } from "@/stores/auth";
-import { api } from "@/lib/api";
+import { useCIFleet } from "@/lib/useCIFleet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -440,44 +440,11 @@ export function CiManutencaoView({
   }, [userGaragemFixa, garagemFiltro]);
 
   // Frota padrão com base nos 464 carros conhecidos, mapeados para suas garagens físicas (incluindo 2002 na Garagem 1 - VCM)
-  const [fleetCars, setFleetCars] = useState<Array<{ prefixo: string; garagem: "VCM" | "VCG"; garagemFonte?: number }>>(() => {
-    return INVENTORY_CARS.map(c => ({
-      prefixo: c,
-      garagem: getGaragemFisicaByCarro(c),
-    }));
-  });
-  const [fleetSource, setFleetSource] = useState<"local" | "real" | "mock" | "unavailable" | "unknown">("local");
-
-  // Busca lista atualizada de veículos do SQL Server via API (tabela Veiculos, coluna garagem)
-  useEffect(() => {
-    let isMounted = true;
-    api.getBusesInventory()
-      .then((response) => {
-        if (!isMounted || !Array.isArray(response.data)) return;
-        const mapped = response.data.map((item) => {
-          const prefixo = String(item.prefixo || item.idCarro || "");
-          const garagemNome: "VCM" | "VCG" = item.garagemNome || getGaragemFisicaByCarro(prefixo);
-          return {
-            prefixo,
-            garagem: garagemNome,
-            garagemFonte: Number(item.garagem),
-          };
-        }).filter((item: { prefixo: string; garagem: "VCM" | "VCG" }) => item.prefixo.length > 0);
-
-        if (mapped.length > 0) {
-          setFleetCars(mapped);
-          setFleetSource(response.source);
-        } else {
-          setFleetSource("local");
-        }
-      })
-      .catch((err: any) => {
-        console.warn("[CI Manutenção] Usando frota padrão em cache/offline:", err);
-        if (isMounted) setFleetSource("unavailable");
-      });
-
-    return () => { isMounted = false; };
-  }, []);
+  const fleet = useCIFleet(() => INVENTORY_CARS.map(prefixo => ({
+    prefixo, garagem: getGaragemFisicaByCarro(prefixo),
+  })));
+  const fleetCars = fleet.cars;
+  const fleetSource = fleet.source;
 
   // Escopo de Garagem Ativo:
   // - Se for usuário logado na garagem VCG ou VCM: SEMPRE fixo e restrito à sua respectiva garagem!
@@ -1827,21 +1794,23 @@ export function CiManutencaoView({
 
   return (
     <div className="space-y-6">
-      {(fleetSource === "local" || fleetSource === "mock" || fleetSource === "unavailable" || fleetSource === "unknown") && (
-        <div className="flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-400">
+      {(fleet.loading || fleet.error || fleetSource !== 'real') && (
+        <div role="status" className="flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-400">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <p>
-            {fleetSource === "mock"
-              ? "A lista de veículos inclui dados simulados do SQL Server legado; confirme a frota antes de utilizá-la operacionalmente."
-              : fleetSource === "unavailable"
-                ? "A integração com o SQL Server legado está indisponível. A tela está usando a lista local padrão, que pode não refletir a frota atual."
-                : fleetSource === "unknown"
-                  ? "A origem da lista de veículos não foi informada pelo servidor. Confirme os dados antes de utilizá-los operacionalmente."
-                  : "A tela está usando a lista local padrão de veículos, que pode não refletir a frota atual."}
-          </p>
+          <div className="flex-1">
+            <p>{fleet.loading ? 'Consultando a frota...' : fleet.error || (fleetSource === 'mock'
+              ? 'A lista de veículos contém dados simulados; confirme a frota antes do uso operacional.'
+              : fleetSource === 'unknown' ? 'A origem da lista de veículos não foi informada pelo servidor.'
+              : 'A frota oficial ainda não foi carregada.')}</p>
+            {!fleet.loading && fleetSource === 'local' && <p>{activeGaragemScope === 'VCG' && c4Enabled('VCG')
+              ? 'Os seletores aguardam a frota oficial da garagem. Os itens já salvos da CI foram preservados.'
+              : 'A lista local padrão pode não refletir a frota atual.'}</p>}
+            {!fleet.loading && fleet.error && fleetSource === 'real' && <p>A última frota oficial consultada foi mantida.</p>}
+          </div>
+          <Button type="button" variant="outline" size="sm" disabled={fleet.loading} onClick={() => void fleet.reload()}>Consultar frota</Button>
         </div>
       )}
-      
+
       {/* ==========================================================
           1. HEADER PRINCIPAL (MESMO PADRÃO DO CONTROLE DE FROTA)
           ========================================================== */}

@@ -12,8 +12,8 @@ export interface DataSourceResponse<T> {
 }
 
 export interface InventoryVehicle {
-  garagem: number | string;
-  idCarro: number;
+  garagem?: number | string | null;
+  idCarro: number | string;
   prefixo: string;
   garagemNome: "VCM" | "VCG";
 }

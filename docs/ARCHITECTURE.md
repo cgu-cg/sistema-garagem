@@ -1,5 +1,49 @@
 # Arquitetura do sistema
 
+## Frota da CI e conexão com o legado
+
+Contrato de garagem da frota: o backend preserva `garagem` original e sua
+classificação histórica em `garagemNome`. O seletor reconhece explicitamente
+1/"1"/VCM/textos contendo MORENA como código 1 e 2/"2"/VCG/textos contendo
+CAMPO GRANDE como código 2, na mesma precedência do backend. Não usa o fallback
+do backend por prefixo para certificar cadastro. Veículos com garagem nula,
+ausente, vazia ou composta por espaços são omitidos somente dos seletores;
+os demais são carregados sem novas tentativas por esse motivo. A contagem
+omitida é registrada no console, sem identificadores. Itens salvos da CI não
+são filtrados. Códigos desconhecidos e identificadores inválidos ainda rejeitam
+a resposta inteira, mantendo a lista anterior. O diagnóstico informa contagens de registros incompletos, garagens
+desconhecidas e inconsistências, sem expor identificadores. Valores originais
+válidos ficam em `garagemOriginal` no cliente. O formato público não mudou.
+O filtro preexistente `garageOne` não foi alterado; sua adequação ao contexto
+operacional permanece pendente de análise separada.
+
+`mssql.getPool` usa `legacyPool`: requisições simultâneas aguardam a mesma
+promessa de conexão. Pool desconectado é fechado antes da substituição; uma
+tentativa malsucedida é fechada e permite outra consulta tentar novamente após
+5 segundos. Não há loop de conexão nem nova consulta SQL disparada por timer
+no backend. O pool atende todos os consumidores existentes do serviço legado.
+
+Na CI, `useCIFleet`/`ciFleet` carregam o inventário independentemente dos snapshots
+C4. Após falha transitória há até três novas consultas em 5, 10 e 20 segundos;
+o usuário pode consultar novamente e a volta do foco/rede permite recuperação.
+401/403 não geram tentativas automáticas por timer. Respostas antigas e de
+componentes desmontados são descartadas; consultas simultâneas da mesma
+instância não duplicam requisições.
+
+Falha de atualização mantém a última lista recebida e informa sua origem.
+Resposta oficial vazia substitui a lista anterior, sem fallback para frota
+estática. O aviso distingue sessão, permissão, timeout, indisponibilidade do
+legado, outros erros HTTP e falha de comunicação. Mock/origem desconhecida
+continuam identificados, sem serem certificados como frota oficial.
+
+A lista local não recebe `garagemFonte` inferida. Se não houver inventário válido
+para o seletor C4/VCG, a tela informa que aguarda a frota oficial; itens já salvos,
+relatórios e revisões operacionais permanecem independentes dessa consulta.
+Não foi alterada a política de gravação: validação cadastral de novas inclusões
+sem inventário oficial requer decisão operacional; edição de itens históricos
+não deve ser restringida por inferência. Validação com SQL Server real permanece
+pendente e não integra os testes locais simulados.
+
 ## Consistência de snapshots C4 nos clientes
 
 `lib/c4.ts` compartilha consultas em andamento por garagem, dia e época de

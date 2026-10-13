@@ -1,5 +1,8 @@
 import sql from "mssql";
 import dotenv from "dotenv";
+import { createLegacyPool } from './legacyPool';
+import { inventoryVehicle } from './fleetContract';
+export { normalizeGaragemVeiculo } from './fleetContract';
 
 dotenv.config();
 
@@ -19,8 +22,7 @@ const config: sql.config = {
   requestTimeout: parseInt(process.env.SQL_SERVER_REQUEST_TIMEOUT || "60000", 10),
 };
 
-let pool: sql.ConnectionPool | null = null;
-let connectionAttempted = false;
+const legacyPool = createLegacyPool(() => new sql.ConnectionPool(config));
 
 export class SqlServerUnavailableError extends Error {
   constructor() {
@@ -49,23 +51,8 @@ function mockResult<T>(data: T): SqlServerResult<T> {
 
 // Função para obter o pool de conexão
 export async function getPool(): Promise<sql.ConnectionPool | null> {
-  if (pool && pool.connected) return pool;
   if (!process.env.SQL_SERVER_HOST) return null;
-
-  if (connectionAttempted && !pool?.connected) return null;
-  connectionAttempted = true;
-
-  try {
-    console.log("[SQL Server] Tentando conectar...");
-    pool = new sql.ConnectionPool(config);
-    await pool.connect();
-    console.log("[SQL Server] Conectado com sucesso!");
-    return pool;
-  } catch (error) {
-    console.warn("[SQL Server] Falha na conexão com a integração.");
-    pool = null;
-    return null;
-  }
+  return legacyPool.get();
 }
 
 // 1. Diferenças de Catraca (fnConsisteCatracaVEICULOS)
@@ -517,19 +504,6 @@ export async function queryDetalhesVeiculo(idVeiculo: number, dateStr: string) {
   });
 }
 
-export function normalizeGaragemVeiculo(garagemRaw: any, idCarro: number | string): "VCM" | "VCG" {
-  if (garagemRaw !== null && garagemRaw !== undefined) {
-    const str = String(garagemRaw).trim().toUpperCase();
-    if (str === "1" || str.includes("VCM") || str.includes("MORENA")) return "VCM";
-    if (str === "2" || str.includes("VCG") || str.includes("CAMPO GRANDE")) return "VCG";
-  }
-  // Fallbacks de negócio: o 2002 é VSF alocado fisicamente na Garagem 1 (VCM)
-  const clean = String(idCarro).replace(/\D/g, "");
-  if (clean === "2002") return "VCM";
-  if (clean.startsWith("1")) return "VCM";
-  return "VCG";
-}
-
 // 8. Consulta de veículos (Controle Operacional / CI Manutenção / Soltura)
 export async function queryVeiculosSelect() {
   const pool = await getPool();
@@ -541,12 +515,7 @@ export async function queryVeiculosSelect() {
         WHERE ativo=1 and idCarro < 6000 and idCarro not in (1999,2999,3999,4999) 
         ORDER BY idCarro
       `);
-      return realResult(result.recordset.map((row: any) => ({
-        idCarro: row.idCarro,
-        prefixo: String(row.idCarro),
-        garagem: row.garagem,
-        garagemNome: normalizeGaragemVeiculo(row.garagem, row.idCarro),
-      })));
+      return realResult(result.recordset.map(inventoryVehicle));
     } catch (error) {
       console.warn("[SQL Server] Falha na consulta de veículos.");
     }
@@ -567,12 +536,7 @@ export async function queryVeiculosSelect() {
     { idCarro: 4178, garagem: 2 },
   ];
 
-  return mockResult(mockVeiculos.map((v) => ({
-    idCarro: v.idCarro,
-    prefixo: String(v.idCarro),
-    garagem: v.garagem,
-    garagemNome: normalizeGaragemVeiculo(v.garagem, v.idCarro),
-  })));
+  return mockResult(mockVeiculos.map(inventoryVehicle));
 }
 
 // 9. Consulta de linhas para o Controle Operacional
