@@ -1,5 +1,5 @@
 import { explicitGarage } from '@/lib/operationalAccess';
-import { normalizeIsoDate, selectCIReportItems, ciReportExtraSlots, ciReportSlot } from './ciReport';
+import { normalizeIsoDate, selectCIReportItems, ciReportExtraSlots, ciReportSlot, groupCIReportSubtypes, matchesCISubtype } from './ciReport';
 import { operationalContext } from '@/lib/mvpTemporal';
 import { c4OperationalContext, initialCIDate } from '@/lib/c4';
 import { canWriteC4 } from '@/lib/c4Authorization';
@@ -529,7 +529,7 @@ export function CiManutencaoView({
   const checkDataFuturaBloqueio = useCallback((): boolean => {
     const target = normalizeIsoDate(dataOperacao);
     const scope = activeGaragemScope === 'VCM' ? 'VCM' : 'VCG';
-    if (!ready || getMutationState().pending || getMutationState().refreshRequired || !(c4Enabled(scope) ? canWriteC4(user, scope) : isAdmin) || !canMutate(target, 'ci', c4Enabled(scope)) || (c4Enabled(scope) ? activeGaragemScope === 'TODAS' || !c4Mutable(target, scope) : activeGaragemScope === 'VCM')) { toast.error('CI somente leitura: contexto, folha em preparacao e janela operacional obrigatorios.'); return true; }
+    if (!ready || getMutationState().pending || getMutationState().refreshRequired || !(c4Enabled(scope) ? canWriteC4(user, scope) : isAdmin) || !canMutate(target, 'ci', c4Enabled(scope)) || (c4Enabled(scope) ? activeGaragemScope === 'TODAS' || !c4Mutable(target, scope) : activeGaragemScope === 'VCM')) { toast.error('Esta folha permite apenas consulta.'); return true; }
     const today = getTodayString();
     const tomorrow = getTomorrowString();
 
@@ -629,8 +629,6 @@ export function CiManutencaoView({
       (a.prefixo || "").localeCompare(b.prefixo || "", undefined, { numeric: true });
 
     const active = reportItems;
-    const preventivas = active.filter(c => c.categoriaPlanilha === "PREVENTIVA").sort(sortByCarro);
-    const oficina = active.filter(c => c.categoriaPlanilha === "OFICINA").sort(sortByCarro);
     const reforco = active.filter(c => c.categoriaPlanilha === "REFORCO").sort(sortByCarro);
     const bloqueados = active.filter(c => c.categoriaPlanilha === "BLOQUEADO" || !c.categoriaPlanilha).sort(sortByCarro);
 
@@ -643,43 +641,11 @@ export function CiManutencaoView({
     const numLinhasBloqSuperiores = Math.max(11, bloqVSF.length, bloqVCG.length);
     const numLinhasBloqInferiores = Math.max(8, bloqJTU.length, bloqVCM.length);
 
-    const prevList = preventivas.filter(c => c.tipoPreventiva === "PREVENTIVA");
-    const lubList = preventivas.filter(c => c.tipoPreventiva === "LUBRIFICACAO");
-    const oleoList = preventivas.filter(c => c.tipoPreventiva === "TROCA_OLEO");
-    const geralList = preventivas.filter(c => c.tipoPreventiva === "REVISAO_GERAL");
-    const sisepList = preventivas.filter(c => c.tipoPreventiva === "SISEP");
-    const numLinhasPreventivas = Math.max(
-      4,
-      prevList.length,
-      Math.ceil(lubList.length / 2),
-      oleoList.length,
-      geralList.length,
-      sisepList.length
-    );
-
-    const mecCount = oficina.filter(c => c.setorOficina === "MECANICA").length;
-    const elevCount = oficina.filter(c => c.setorOficina === "ELEVADOR").length;
-    const eletCount = oficina.filter(c => c.setorOficina === "ELETRICA").length;
-    const borrCount = oficina.filter(c => c.setorOficina === "BORRACHARIA").length;
-    const funCount = oficina.filter(c => c.setorOficina === "FUNILARIA").length;
-    const tacCount = oficina.filter(c => c.setorOficina === "TACOGRAFO").length;
-    const bilhCount = oficina.filter(c => c.setorOficina === "BILHETAGEM").length;
-    const limpCount = oficina.filter(c => c.setorOficina === "LIMPEZA").length;
-    const numLinhasOficina = Math.max(
-      9,
-      mecCount,
-      elevCount,
-      eletCount,
-      borrCount,
-      funCount,
-      tacCount,
-      bilhCount,
-      limpCount
-    );
+    const subtypeGroups = groupCIReportSubtypes(active);
+    const { numLinhasPreventivas, numLinhasOficina } = subtypeGroups;
 
     return {
-      preventivas,
-      oficina,
+      subtypeGroups,
       reforco,
       bloqVSF,
       bloqVCG,
@@ -1974,9 +1940,8 @@ export function CiManutencaoView({
       {/* ========================================================= */}
       {writeState.pending && <p role="status">Salvando. Aguarde antes de outra operacao.</p>}
       {writeState.refreshRequired && <p role="alert">Atualize os dados oficiais antes de continuar.</p>}
-      {!c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && <p className="text-sm">Copia automatica indisponivel no legado: CI vazia nao comprova primeira preparacao. Inclusoes e retiradas devem ser explicitas.</p>}
       {c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && <p role="status" className="text-sm">Folha: {c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')?.status === 'FINALIZADA' ? 'Finalizada' : c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')?.status === 'EM_PREPARACAO' ? 'Em preparação' : 'Não preparada'}</p>}
-      {!isDataEditavel && <p role="status" className="rounded-2xl border border-slate-300 bg-slate-100 p-3 text-sm dark:border-slate-700 dark:bg-slate-800">Somente leitura. Alterações requerem ADMIN ou manutencao VCG autorizada, contexto explícito e folha em preparação, entre 03:00 e {c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? '20:00' : '18:30'} em America/Campo_Grande.</p>}
+      {!isDataEditavel && <p role="status" className="rounded-2xl border border-slate-300 bg-slate-100 p-3 text-sm dark:border-slate-700 dark:bg-slate-800">Somente leitura.</p>}
       {/* PRANCHETA DIGITAL (LAYOUT PRINT 01 & PRINT 02) */}
       {/* ========================================================= */}
       <div className="space-y-6">
@@ -2082,7 +2047,7 @@ export function CiManutencaoView({
               const items = ciListNaData.filter(c => 
                 c.status !== "LIBERADO" && 
                 (c.categoriaPlanilha === "PREVENTIVA" || (!c.categoriaPlanilha && Boolean(c.tipoPreventiva))) && 
-                isSetorMatch(c.tipoPreventiva, card.id)
+                matchesCISubtype('PREVENTIVA', c.tipoPreventiva, card.id)
               ).sort((a, b) => (a.prefixo || "").localeCompare(b.prefixo || "", undefined, { numeric: true }));
               return (
                 <div key={card.id} className="bg-muted/20 border border-border/80 rounded-xl p-3 flex flex-col justify-between min-h-[140px] hover:border-emerald-500/40 transition-colors">
@@ -2191,7 +2156,7 @@ export function CiManutencaoView({
               const items = ciListNaData.filter(c => 
                 c.status !== "LIBERADO" && 
                 (c.categoriaPlanilha === "OFICINA" || (!c.categoriaPlanilha && Boolean(c.setorOficina))) && 
-                isSetorMatch(c.setorOficina, setor.id)
+                matchesCISubtype('OFICINA', c.setorOficina, setor.id)
               ).sort((a, b) => (a.prefixo || "").localeCompare(b.prefixo || "", undefined, { numeric: true }));
               return (
                 <div key={setor.id} className="bg-muted/20 border border-border/80 rounded-xl p-2.5 flex flex-col justify-between min-h-[170px] hover:border-emerald-500/40 transition-colors">
@@ -2868,6 +2833,20 @@ export function CiManutencaoView({
                   </table>
                 </div>
 
+                {relatorioData.subtypeGroups.unknown.length > 0 && (
+                  <div role="alert" className="border border-amber-600 bg-amber-50 p-2 text-[9px] text-black">
+                    <strong>Inconsistência: itens sem coluna reconhecida. Confira os subtipos persistidos.</strong>
+                    <ul>
+                      {relatorioData.subtypeGroups.unknown.map((item, index) => (
+                        <li key={`${item.id}-${index}`}>
+                          {item.categoriaPlanilha} — Prefixo: {item.prefixo} — Subtipo: {item.tipoPreventiva ?? item.setorOficina ?? '(ausente)'}
+                          {' — Motivo: '}{item.motivo ?? '(ausente)'}{' — Observações: '}{item.os ?? '(ausentes)'}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 {/* 2. TABELA: PREVENTIVAS */}
                 <table className="w-full border-collapse border border-black text-[9px] leading-tight">
                   <thead>
@@ -2886,24 +2865,17 @@ export function CiManutencaoView({
                   </thead>
                   <tbody>
                     {Array.from({ length: relatorioData.numLinhasPreventivas }).map((_, rIdx) => {
-                      const prevList = relatorioData.preventivas.filter(c => c.tipoPreventiva === "PREVENTIVA");
-                      const lubList = relatorioData.preventivas.filter(c => c.tipoPreventiva === "LUBRIFICACAO");
-                      const oleoList = relatorioData.preventivas.filter(c => c.tipoPreventiva === "TROCA_OLEO");
-                      const geralList = relatorioData.preventivas.filter(c => c.tipoPreventiva === "REVISAO_GERAL");
-                      const sisepList = relatorioData.preventivas.filter(c => c.tipoPreventiva === "SISEP");
+                      const prevList = relatorioData.subtypeGroups.preventivas.PREVENTIVA;
+                      const lubList = relatorioData.subtypeGroups.preventivas.LUBRIFICACAO;
+                      const oleoList = relatorioData.subtypeGroups.preventivas.TROCA_OLEO;
+                      const geralList = relatorioData.subtypeGroups.preventivas.REVISAO_GERAL;
+                      const sisepList = relatorioData.subtypeGroups.preventivas.SISEP;
 
-                      const lubItem1 = lubList[rIdx * 2];
-                      const lubItem2 = lubList[rIdx * 2 + 1];
 
                       return (
                         <tr key={rIdx} className="text-center font-mono font-bold text-[9px] h-[18px]">
                           <td className="border border-black py-0.5 px-1 leading-normal align-middle">{prevList[rIdx]?.prefixo || "\u00A0"}</td>
-                          <td className="border border-black py-0.5 px-1 leading-normal align-middle">
-                            <div className="flex justify-around items-center">
-                              <span>{lubItem1?.prefixo || "\u00A0"}</span>
-                              <span>{lubItem2?.prefixo || "\u00A0"}</span>
-                            </div>
-                          </td>
+                          <td className="border border-black py-0.5 px-1 leading-normal align-middle">{lubList[rIdx]?.prefixo || "\u00A0"}</td>
                           <td className="border border-black py-0.5 px-1 leading-normal align-middle">{oleoList[rIdx]?.prefixo || "\u00A0"}</td>
                           <td className="border border-black py-0.5 px-1 leading-normal align-middle">{geralList[rIdx]?.prefixo || "\u00A0"}</td>
                           <td className="border border-black py-0.5 px-1 leading-normal align-middle">{sisepList[rIdx]?.prefixo || "\u00A0"}</td>
@@ -2943,14 +2915,14 @@ export function CiManutencaoView({
                   </thead>
                   <tbody>
                     {Array.from({ length: relatorioData.numLinhasOficina }).map((_, rIdx) => {
-                      const mec = relatorioData.oficina.filter(c => c.setorOficina === "MECANICA")[rIdx];
-                      const elev = relatorioData.oficina.filter(c => c.setorOficina === "ELEVADOR")[rIdx];
-                      const elet = relatorioData.oficina.filter(c => c.setorOficina === "ELETRICA")[rIdx];
-                      const borr = relatorioData.oficina.filter(c => c.setorOficina === "BORRACHARIA")[rIdx];
-                      const fun = relatorioData.oficina.filter(c => c.setorOficina === "FUNILARIA")[rIdx];
-                      const tac = relatorioData.oficina.filter(c => c.setorOficina === "TACOGRAFO")[rIdx];
-                      const bilh = relatorioData.oficina.filter(c => c.setorOficina === "BILHETAGEM")[rIdx];
-                      const limp = relatorioData.oficina.filter(c => c.setorOficina === "LIMPEZA")[rIdx];
+                      const mec = relatorioData.subtypeGroups.oficina.MECANICA[rIdx];
+                      const elev = relatorioData.subtypeGroups.oficina.ELEVADOR[rIdx];
+                      const elet = relatorioData.subtypeGroups.oficina.ELETRICA[rIdx];
+                      const borr = relatorioData.subtypeGroups.oficina.BORRACHARIA[rIdx];
+                      const fun = relatorioData.subtypeGroups.oficina.FUNILARIA[rIdx];
+                      const tac = relatorioData.subtypeGroups.oficina.TACOGRAFO[rIdx];
+                      const bilh = relatorioData.subtypeGroups.oficina.BILHETAGEM[rIdx];
+                      const limp = relatorioData.subtypeGroups.oficina.LIMPEZA[rIdx];
 
                       return (
                         <tr key={rIdx} className="text-[8px] h-[17px]">

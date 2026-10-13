@@ -1537,7 +1537,6 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   return (
     <div className="space-y-5 animate-in fade-in duration-300 pb-16">
       <div role="alert" className="p-3 border rounded print:hidden">
-        <p>Soltura depende da CI finalizada da data de operacao e da manutencao oficial atual, confirmadas pela API. CI em preparacao, legado e VCM nao autorizam soltura neste piloto.</p>
         {ciReadError && <p>{ciReadError}</p>}
         {canReadScale(user) && (scaleError || (!sharedScale ? 'Carregando escala oficial...' : sharedScale.publicada ? 'Escala oficial carregada.' : 'Escala ainda nao publicada. Nenhum dado local foi importado.'))}
         {canReadScale(user) && <Button type="button" variant="outline" onClick={() => void reloadSharedScale()}>Recarregar escala</Button>}

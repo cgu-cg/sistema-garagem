@@ -49,3 +49,65 @@ export function ciReportSlot(items: BloqueioCarro[], slotId: string, c4: boolean
   }
   return { prefixo: item?.prefixo ?? '', motivo: item?.motivo ?? '', obs: item?.os ?? '', savedItem: item };
 }
+
+
+const preventivaAliases = {
+  PREVENTIVA: ['PREVENTIVA', 'PREVENTIVAS'],
+  LUBRIFICACAO: ['LUBRIFICACAO'],
+  TROCA_OLEO: ['TROCA OLEO', 'TROCA DE OLEO'],
+  REVISAO_GERAL: ['REVISAO GERAL'],
+  SISEP: ['SISEP'],
+} as const;
+const oficinaAliases = {
+  MECANICA: ['MECANICA'], ELEVADOR: ['ELEVADOR'], ELETRICA: ['ELETRICA'],
+  BORRACHARIA: ['BORRACHARIA'], FUNILARIA: ['FUNILARIA', 'FUNILARIA PINTURA'],
+  TACOGRAFO: ['TACOGRAFO'], BILHETAGEM: ['BILHETAGEM'], LIMPEZA: ['LIMPEZA'],
+} as const;
+
+export function normalizeCIReportSubtype(value?: string | null): string {
+  return String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase().replace(/[_\s/\-]+/g, ' ').trim();
+}
+
+function resolveSubtype<T extends string>(value: string | null | undefined, aliases: Record<T, readonly string[]>): T | undefined {
+  const normalized = normalizeCIReportSubtype(value);
+  return (Object.keys(aliases) as T[]).find(key =>
+    aliases[key].some(alias => normalizeCIReportSubtype(alias) === normalized));
+}
+
+export function matchesCISubtype(category: 'PREVENTIVA' | 'OFICINA', value: string | null | undefined, target: string): boolean {
+  if (category === 'PREVENTIVA') {
+    const key = resolveSubtype(value, preventivaAliases);
+    return key !== undefined && key === resolveSubtype(target, preventivaAliases);
+  }
+  const key = resolveSubtype(value, oficinaAliases);
+  return key !== undefined && key === resolveSubtype(target, oficinaAliases);
+}
+
+function groupSubtypes<T extends string>(items: BloqueioCarro[], category: string,
+  field: 'tipoPreventiva' | 'setorOficina', aliases: Record<T, readonly string[]>) {
+  const groups = Object.fromEntries(Object.keys(aliases).map(key => [key, [] as BloqueioCarro[]])) as Record<T, BloqueioCarro[]>;
+  const unknown: BloqueioCarro[] = [];
+  for (const item of items.filter(i => i.categoriaPlanilha === category)) {
+    const key = resolveSubtype(item[field], aliases);
+    if (key) groups[key].push(item);
+    else unknown.push(item);
+  }
+  const sort = (a: BloqueioCarro, b: BloqueioCarro) =>
+    (a.prefixo || '').localeCompare(b.prefixo || '', undefined, { numeric: true });
+  if (category !== 'PREVENTIVA') Object.values<BloqueioCarro[]>(groups).forEach(group => group.sort(sort));
+  return { groups, unknown: unknown.sort(sort) };
+}
+
+// Agrupamento de apresentacao: preserva os objetos e valores persistidos.
+export function groupCIReportSubtypes(items: BloqueioCarro[]) {
+  const preventiva = groupSubtypes(items, 'PREVENTIVA', 'tipoPreventiva', preventivaAliases);
+  const oficina = groupSubtypes(items, 'OFICINA', 'setorOficina', oficinaAliases);
+  return {
+    preventivas: preventiva.groups,
+    oficina: oficina.groups,
+    unknown: [...preventiva.unknown, ...oficina.unknown],
+    numLinhasPreventivas: Math.max(0, ...Object.values(preventiva.groups).map(group => group.length)),
+    numLinhasOficina: Math.max(9, ...Object.values(oficina.groups).map(group => group.length)),
+  };
+}
