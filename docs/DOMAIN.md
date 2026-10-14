@@ -24,6 +24,19 @@ local à orientação de não inferir consorciada abaixo: não altera registros
 existentes, históricos, garagem física, contexto C4 ou o contrato do backend.
 O grupo do prefixo não comprova sozinho a existência no cadastro da frota.
 
+### Selecao multipla no Controle - ajuste de 14/10/2026
+
+Os tres modais (Bloqueados, Em Manutencao e Liberados) consultam o cadastro
+oficial e filtram pela garagem cadastrada do usuario: 2=VCG, 1=VCM. ADMIN sem
+garagem cadastrada usa o contexto selecionado; TODAS exige escolher uma garagem.
+A lista estatica e a classificacao por prefixo nao servem como fonte da garagem.
+Selecionar na lista ou digitar o prefixo completo e pressionar Enter adiciona
+um badge removivel; a insercao grava os selecionados em uma unica operacao.
+A observacao informada se aplica aos carros incluidos. Registros ja no destino
+nao sao alterados pelo lote. Liberar bloqueados exige confirmacao previa;
+cancelar preserva todo o lote. Falha de consulta da frota impede novas inclusoes,
+sem alterar registros existentes ou fotografias historicas.
+
 ## Consolidação em 09/10/2026 — precedência vigente
 
 O C4 abre às 03:00 inclusivo e fecha às 20:00 exclusivo, em

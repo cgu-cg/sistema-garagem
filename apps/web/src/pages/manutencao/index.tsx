@@ -25,7 +25,8 @@ import {
   fetchCIBloqueiosFromApi,
 } from "@/pages/soltura/ciManager";
 import { useAuth } from "@/stores/auth";
-import { INVENTORY_CARS } from "@/data/inventoryCars";
+import { garageVehiclePrefixes, addMaintenanceSelection } from './maintenanceSelection';
+import { api, type InventoryVehicle } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -130,6 +131,20 @@ export function ManutencaoPage() {
   const [modalAddOpen, setModalAddOpen] = useState(false);
   const [modalStatusOrigem, setModalStatusOrigem] = useState<"BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO">("BLOQUEADO");
   const [newPrefixo, setNewPrefixo] = useState("");
+  const [selectedCars, setSelectedCars] = useState<string[]>([]);
+  const [fleet, setFleet] = useState<InventoryVehicle[]>([]);
+  const [fleetError, setFleetError] = useState('');
+  const [savingCars, setSavingCars] = useState(false);
+  const addSaving = useRef(false);
+  useEffect(() => {
+    let active = true;
+    api.getBusesInventory().then(result => {
+      if (!active) return;
+      if (result.source !== 'real') throw new Error('Frota oficial indisponivel.');
+      setFleet(result.data); setFleetError('');
+    }).catch(() => { if (active) { setFleet([]); setFleetError('Nao foi possivel consultar a frota oficial. Reabra a tela para tentar novamente.'); } });
+    return () => { active = false; };
+  }, []);
   const [newObservacao, setNewObservacao] = useState("");
 
   // Estados do seletor moderno de veículos no modal
@@ -408,19 +423,18 @@ export function ManutencaoPage() {
   }, [itemsByGaragem, selectedEmpresa]);
 
   // Veículos pertencentes à Garagem Física do usuário (para cadastro)
-  const carsOfGaragem = useMemo(() => {
-    return INVENTORY_CARS.filter(car => {
-      if (c4Enabled(c4Scope)) return true;
-      if (activeGaragem !== "TODAS") {
-        if (getGaragemFisicaByCarro(car) !== activeGaragem) return false;
-      }
-      return true;
-    });
-  }, [activeGaragem, items]);
+  const selectionGarage = explicitGarage(user) || (activeGaragem === 'TODAS' ? undefined : activeGaragem);
+  const carsOfGaragem = useMemo(() => garageVehiclePrefixes(fleet, selectionGarage), [fleet, selectionGarage]);
+  const selectCar = (prefixo: string) => {
+    if (!carsOfGaragem.includes(prefixo)) { toast.error('Selecione um carro cadastrado na sua garagem.'); return; }
+    setSelectedCars(current => current.includes(prefixo) ? current : [...current, prefixo]);
+    setNewPrefixo(''); setCarSelectorOpen(false);
+  };
 
   // Veículos filtrados para o dropdown de seleção do modal
   const filteredAvailableCars = useMemo(() => {
     return carsOfGaragem.filter(car => {
+      if (selectedCars.includes(car)) return false;
       // Filtro por empresa do modal
       if (carFilterCompany !== "TODAS") {
         const cons = getConsorciadaByPrefix(car);
@@ -433,7 +447,7 @@ export function ManutencaoPage() {
       }
       return true;
     });
-  }, [carsOfGaragem, carFilterCompany, newPrefixo]);
+  }, [carsOfGaragem, carFilterCompany, newPrefixo, selectedCars]);
 
   // Retorna o status do carro na folha do dia (se já estiver lançado)
   const getCarStatusOnCurrentSheet = (prefixo: string) => {
@@ -639,6 +653,7 @@ export function ManutencaoPage() {
     beginMaintenanceEdit();
     const origin = status || "BLOQUEADO";
     setModalStatusOrigem(origin);
+    setSelectedCars([]);
     setNewPrefixo("");
     setNewObservacao("");
     setCarSelectorOpen(false);
@@ -669,9 +684,30 @@ export function ManutencaoPage() {
   // Adicionar novo carro à folha
   // Oficina preserva bloqueio; liberacao de bloqueado exige confirmacao previa.
   const handleAddCarro = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (addSaving.current) return;
+    if (!selectionGarage || (activeGaragem !== 'TODAS' && activeGaragem !== selectionGarage)) { toast.error('Selecione a garagem do usuario para adicionar carros.'); return; }
+    const prefixes = [...new Set([...selectedCars, ...(newPrefixo.trim() ? [newPrefixo.trim()] : [])])];
+    if (!prefixes.length || prefixes.some(p => !carsOfGaragem.includes(p))) { toast.error('Selecione carros cadastrados na sua garagem.'); return; }
+    addSaving.current = true; setSavingCars(true);
+    try {
+      if (prefixes.length === 1) { await handleAddSingleCarro(e, prefixes[0]); return; }
+      const baseline = maintenanceBaseline();
+      const releasingBlocked = modalStatusOrigem === 'LIBERADO' ? prefixes.filter(p => baseline.some(i => i.prefixo === p && i.bloqueado && !i.liberado)) : [];
+      const transfers = prefixes.filter(p => baseline.some(i => i.prefixo === p && i.liberado && modalStatusOrigem !== 'LIBERADO'));
+      if (releasingBlocked.length && !window.confirm('Liberar os carros ' + releasingBlocked.join(', ') + '? Isso remove os bloqueios do Controle e da CI em preparacao. Cancelar nao altera nenhum carro.')) return;
+      if (transfers.length && !window.confirm('Transferir os carros liberados ' + transfers.join(', ') + ' para ' + getStatusLabel(modalStatusOrigem) + '?')) return;
+      const next = addMaintenanceSelection(baseline, prefixes, modalStatusOrigem, newObservacao, dataOperacao, c4Enabled(c4Scope), getConsorciadaByPrefix);
+      if (!(await commitMaintenance(next, releasingBlocked.length > 0, releasingBlocked))) return;
+      setModalAddOpen(false); setSelectedCars([]); setNewPrefixo(''); setNewObservacao('');
+      toast.success('Carros selecionados salvos.');
+    } finally { addSaving.current = false; setSavingCars(false); }
+  };
+
+  const handleAddSingleCarro = async (e: React.FormEvent, cleanPrefix: string) => {
     const items = maintenanceBaseline();
     e.preventDefault();
-    const cleanPrefix = newPrefixo.trim();
+
     if (!cleanPrefix) {
       toast.error("Informe o prefixo do veículo.");
       return;
@@ -682,7 +718,8 @@ export function ManutencaoPage() {
       return;
     }
 
-    const carroGaragem = getGaragemFisicaByCarro(cleanPrefix);
+    if (!carsOfGaragem.includes(cleanPrefix)) { toast.error("Selecione um carro cadastrado na sua garagem."); return; }
+    const carroGaragem = selectionGarage;
     if (activeGaragem !== "TODAS" && carroGaragem !== activeGaragem) {
       toast.error(`O veículo ${cleanPrefix} pertence à Garagem ${carroGaragem}. Seu acesso está restrito à Garagem ${activeGaragem}.`);
       return;
@@ -1560,7 +1597,7 @@ export function ManutencaoPage() {
           MODAL: ADICIONAR VEÍCULO À FOLHA DE MANUTENÇÃO
           Estilizado dinamicamente com a cor do card de origem
           ========================================================== */}
-      <Dialog open={modalAddOpen} onOpenChange={setModalAddOpen}>
+      <Dialog open={modalAddOpen} onOpenChange={open => { if (!addSaving.current) setModalAddOpen(open); }}>
         <DialogContent className={cn("sm:max-w-md rounded-3xl border-2 transition-colors", modalStyle.borderClass)}>
           <DialogHeader>
             <DialogTitle className="flex items-center justify-between text-base font-bold pr-6">
@@ -1583,7 +1620,7 @@ export function ManutencaoPage() {
                   Prefixo do Carro <span className="text-rose-500">*</span>
                 </label>
                 <span className="text-[10px] font-medium text-gray-500 dark:text-slate-400">
-                  {carsOfGaragem.length} veículos da Garagem {activeGaragem === "TODAS" ? "VCG/VCM" : activeGaragem}
+                  {carsOfGaragem.length} veículos da Garagem {selectionGarage || "nao definida"}
                 </span>
               </div>
 
@@ -1599,7 +1636,8 @@ export function ManutencaoPage() {
                   placeholder="Digite ou clique para selecionar..."
                   className="font-mono font-bold text-sm rounded-xl pl-9 pr-20 h-11 border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-emerald-500/20 cursor-pointer"
                   maxLength={5}
-                  required
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); selectCar(newPrefixo.trim()); } }}
+                  disabled={savingCars || !carsOfGaragem.length}
                 />
                 <Bus className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
 
@@ -1676,8 +1714,7 @@ export function ManutencaoPage() {
                             key={car}
                             type="button"
                             onClick={() => {
-                              setNewPrefixo(car);
-                              setCarSelectorOpen(false);
+                              selectCar(car);
                             }}
                             className={cn(
                               "w-full text-left px-3.5 py-2.5 flex items-center justify-between transition-colors cursor-pointer group",
@@ -1700,7 +1737,7 @@ export function ManutencaoPage() {
                                 {cons}
                               </span>
                               <span className="text-[10px] text-gray-400 dark:text-slate-500">
-                                Garagem {getGaragemFisicaByCarro(car)}
+                                Garagem {selectionGarage}
                               </span>
                             </div>
 
@@ -1739,6 +1776,12 @@ export function ManutencaoPage() {
 
             </div>
 
+            {fleetError && <p role="alert" className="text-xs text-rose-600">{fleetError}</p>}
+            <div className="flex flex-wrap gap-2" aria-label="Carros selecionados">
+              {selectedCars.map(prefixo => <span key={prefixo} className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-mono text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+                {prefixo}<button type="button" disabled={savingCars} aria-label={'Remover carro ' + prefixo} onClick={() => setSelectedCars(current => current.filter(p => p !== prefixo))}><X className="h-3 w-3" /></button>
+              </span>)}
+            </div>
             {modalStatusOrigem !== 'LIBERADO' && <div>
               <label className="text-xs font-bold text-gray-500 uppercase">
                 Observação / Defeito
@@ -1768,11 +1811,11 @@ export function ManutencaoPage() {
                 type="button"
                 variant="outline"
                 className="rounded-full"
-                onClick={() => setModalAddOpen(false)}
+                disabled={savingCars} onClick={() => setModalAddOpen(false)}
               >
                 Cancelar
               </Button>
-              <Button disabled={!mutationAllowed} type="submit" className={cn("rounded-full text-white font-bold shadow-xs transition-transform active:scale-95", modalStyle.btnClass)}>
+              <Button disabled={!mutationAllowed || savingCars || !carsOfGaragem.length || (!selectedCars.length && !newPrefixo.trim())} type="submit" className={cn("rounded-full text-white font-bold shadow-xs transition-transform active:scale-95", modalStyle.btnClass)}>
                 {modalStyle.buttonText}
               </Button>
             </DialogFooter>
