@@ -4,11 +4,12 @@ import Module from 'node:module';
 import express from 'express';
 import { readFileSync } from 'node:fs';
 import { removeReserva } from '../src/services/reservaTerminal';
+import * as dailyService from '../src/services/escalaDiaria';
 
 function fixture() {
   const state: any = { user: { role: 'soltura', garagem: 'VCG', groups: [] },
     reserve: { id: 7, garagem: 'VCG', userId: 99 }, deleted: 0, deleteCalls: 0,
-    scaleWrites: 0, scaleReads: 0, userReads: 0, revoke: false };
+    scaleWrites: 0, scaleReads: 0, userReads: 0, revoke: false, daily: null, dailyWrites: 0, blocks: [] };
   const db: any = {
     user: { findUnique: async () => {
       state.userReads++;
@@ -29,6 +30,13 @@ function fixture() {
       create: async () => { state.scaleWrites++; throw Error('Escrita nao esperada'); },
       update: async () => { state.scaleWrites++; throw Error('Escrita nao esperada'); },
     },
+    escalaDiaria: {
+      findUnique: async () => state.daily,
+      create: async ({ data }: any) => { state.dailyWrites++; state.daily = { id: 1, ...data }; return state.daily; },
+      update: async ({ data }: any) => { state.dailyWrites++; state.daily = { ...state.daily, ...data }; return state.daily; },
+    },
+    folhaCI: { findUnique: async () => ({ itens: state.blocks.map((prefixo: string) => ({ prefixo, categoria: 'BLOQUEADO' })) }) },
+    $queryRaw: async () => [],
     $transaction: async (fn: any, options: any) => {
       assert.equal(options.isolationLevel, 'Serializable');
       return fn(db);
@@ -42,6 +50,11 @@ function fixture() {
     previous.forEach(([f]) => delete require.cache[f]);
     (Module as any)._load = function(request: string, parent: any, main: boolean) {
       if (request === '../utils/prisma') return { __esModule: true, default: db };
+      if (request === '../services/escalaDiaria') {
+        const fleet = async () => ({ source: 'real', data: [{ idCarro: 5001, prefixo: '5001', garagem: 2, garagemNome: 'VCG' }] });
+        return { ...dailyService, readEscalaDiaria: (d: any, q: any, id: number) => dailyService.readEscalaDiaria(d, q, id, fleet),
+          saveEscalaDiaria: (d: any, id: number, body: any) => dailyService.saveEscalaDiaria(d, id, body, fleet) };
+      }
       return oldLoad.call(this, request, parent, main);
     };
     access = require(files[0]).operationalAccess;
@@ -56,6 +69,8 @@ function fixture() {
   router.delete('/solturas/reservas-terminais/:id', access('deleteReservation'), reserves.remove);
   router.get('/escala-carros', access('scale'), scale.list);
   router.post('/escala-carros', access('admin'), scale.save);
+  router.get('/escala-carros/diaria', access('scale'), scale.listDaily);
+  router.post('/escala-carros/diaria', access('scaleWrite'), scale.saveDaily);
   const run = (method: string, url: string, extra: any = {}) => new Promise<any>((resolve, reject) => {
     const req: any = { method, url, originalUrl: `/api${url}`, userId: 1, userRole: 'ADMIN',
       headers: {}, query: {}, body: {}, ...extra };
@@ -125,7 +140,29 @@ test('rota de producao vincula exclusao a acao explicita; view recebe modo somen
   const routes = readFileSync('apps/api/src/routes/index.ts', 'utf8');
   assert.match(routes, /router\.delete\("\/solturas\/reservas-terminais\/:id", authenticate, operationalAccess\('deleteReservation'\), reservasTerminaisController.remove\)/);
   const page = readFileSync('apps/web/src/pages/soltura/index.tsx', 'utf8');
-  assert.match(page, /<AlterarCarroProgramadoView\s+readOnly=\{!isAdmin\}/);
+  assert.match(page, /readOnly=\{!canEditDailyScale \|\| !dailyReady\}/);
   const view = readFileSync('apps/web/src/pages/soltura/AlterarCarroProgramadoView.tsx', 'utf8');
-  assert.match(view, /<fieldset disabled=\{readOnly\}/);
+  assert.match(view, /disabled=\{readOnly \|\| saving\}/);
+});
+test('Soltura VCG grava card diario da propria garagem; outra garagem e bloqueado sao recusados', async () => {
+  const { state, run } = fixture(); state.user = { role: 'soltura', garagem: 'VCG', groups: [] };
+  const contexto = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'MATUTINO', dataOperacao: '2026-10-14' };
+  const body = { contexto, revisao: 0, card: 'LIMPEZA', operacao: 'adicionar', prefixo: '5001' };
+  assert.equal((await run('POST', '/escala-carros/diaria', { body: { ...body, contexto: { ...contexto, garagem: 'VCM' } } })).status, 403);
+  state.blocks = ['5001'];
+  assert.equal((await run('POST', '/escala-carros/diaria', { body })).status, 409);
+  assert.equal(state.dailyWrites, 0);
+  state.blocks = [];
+  assert.equal((await run('POST', '/escala-carros/diaria', { body })).status, 200);
+  assert.equal(state.dailyWrites, 1);
+});
+
+test('rotas diarias preservam leitura por garagem e recusam escrita sem contexto autorizado', async () => {
+  const { state, run } = fixture();
+  state.user = { role: 'soltura', garagem: 'VCG', groups: [] };
+  const query = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'MATUTINO', dataOperacao: '2026-10-14' };
+  const read = await run('GET', '/escala-carros/diaria', { query });
+  assert.equal(read.status, 200); assert.deepEqual(read.body.itens, []);
+  assert.equal((await run('GET', '/escala-carros/diaria', { query: { ...query, garagem: 'VCM' } })).status, 403);
+  assert.equal((await run('POST', '/escala-carros/diaria', { body: {} })).status, 403);
 });

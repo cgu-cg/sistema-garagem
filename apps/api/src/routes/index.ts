@@ -35,6 +35,8 @@ const router: Router = Router();
 
 router.get("/escala-carros", authenticate, operationalAccess('scale'), escalaCarrosController.list);
 router.post("/escala-carros", authenticate, operationalAccess('admin'), escalaCarrosController.save);
+router.get("/escala-carros/diaria", authenticate, operationalAccess('scale'), escalaCarrosController.listDaily);
+router.post("/escala-carros/diaria", authenticate, operationalAccess('scaleWrite'), escalaCarrosController.saveDaily);
 
 // Auth
 router.post("/auth/login", validate(loginSchema), authController.login);

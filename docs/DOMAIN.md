@@ -651,4 +651,41 @@ ATUAL/OBSERVADO: o piloto autoriza somente VCG/C4 com CI FINALIZADA da
 dataOperacao explicita e ciclo NORMAL de manutencao atual. Legado, VCM,
 preparacao, recuperacao e madrugada antes das 03:00 permanecem recusados.
 A escala possui armazenamento proprio/revisao e nao confirma disponibilidade.
+CONFIRMADO pelo usuario em 14/10/2026, com escopo refinado para Escala de Carros:
+linha, tabela, saida, chegada e carro original sao fixos e vem de JSON do proprio
+sistema, sem consultar/publicar a programacao permanente no banco. Somente
+Carro Substituido e editavel e salvo por data/garagem/tipo/turno. No dia seguinte
+a tela usa novamente o JSON, sem transportar substituicoes. Datas anteriores
+permitem consultar as substituicoes salvas. Limpar a substituicao restaura o
+carro fixo, sem mudar o arquivo. Banco guarda apenas alteracoes e metadados.
+Alterar Folha permanece destinado a mudancas permanentes; sua revisao e a
+integracao das substituicoes com Soltura foram adiadas pelo usuario para outra
+etapa. Programar uma substituicao nao equivale a liberar o carro.
+Na falha de consulta oficial, a base pode ser mostrada com aviso, mas sem
+confirmacoes/gravacoes ate a recuperacao da consulta.
+CONFIRMADO pelo usuario na etapa seguinte de 14/10/2026: a Escala diaria pode
+ser alterada por ADMIN ou pelo perfil Soltura vinculado a propria garagem.
+Outra garagem continua vedada ao perfil Soltura. A publicacao permanente
+permanece exclusiva de ADMIN; esta permissao nao altera regras de liberacao.
+CONFIRMADO nesta continuacao: Escala de 14/10 usa BLOQUEADOS da CI 15/10
+(regra geral: CI do dia seguinte a data selecionada). Somente veiculos da
+frota oficial da garagem selecionada podem ser alocados, independentemente
+da consorciada/prefixo. CI e frota precisam estar disponiveis para gravar.
+Carros nao podem ocupar simultaneamente linhas e cards, nem dois cards.
+O carro fixo e referencia imutavel: permanece visivel em vermelho/com alerta
+quando bloqueado, fora da frota ou ocupado em outro lugar. So fica disponivel
+para outro card depois de substituido na linha e se nao estiver bloqueado.
+Confirmar a linha valida o carro efetivo (substituto, quando informado);
+fixo bloqueado sem substituto impede a confirmacao. Confirmar nao e liberar.
+Cards laterais sao compartilhados no banco por data/garagem/tipo/turno e
+retornam aos padroes no dia seguinte, sem transportar alocacoes antigas.
+Reserva e calculada pela frota oficial menos carros efetivos das linhas,
+cards e bloqueados (CI e Portaria). Nao e uma lista editavel independente.
+Confirmacao da informacao do carro da linha fica indicada apenas pelo fundo
+verde, mantendo o botao com uma marca de certo e sem texto de status. E registrada somente depois
+de gravacao validada pelo backend, por data/contexto e carro efetivo. Edicao
+local volta ao estado pendente ate nova confirmacao. A indicacao sobrevive a
+recarga, mas nao e inferida de registros antigos sem confirmacao explicita,
+nem permanece valida se o carro efetivo ficar bloqueado/duplicado/fora da frota.
+Esta confirmacao continua sendo da Escala, sem registrar uma Soltura.
 Limites e verificacoes em [SOLTURA-ESCALA-SEGURANCA.md](SOLTURA-ESCALA-SEGURANCA.md).

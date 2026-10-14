@@ -19,6 +19,9 @@ export function canReadScale(user: AccessUser | null | undefined) {
     (['soltura', 'COLABORADOR'].includes(user.role) ||
       groupAllows(user, ['/soltura', '/solturas', '/escala-carros'])))));
 }
+export function canWriteDailyScale(user: AccessUser | null | undefined, garage: string | undefined) {
+  return Boolean(user && (user.role === 'ADMIN' || (user.role === 'soltura' && explicitGarage(user) === garage && Boolean(garage))));
+}
 export function canReadOperation(user: AccessUser | null | undefined) {
   // Mantem a consulta autenticada existente, agora exigindo garagem cadastrada.
   return Boolean(user && (user.role === 'ADMIN' || explicitGarage(user)));

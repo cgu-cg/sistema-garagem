@@ -1,4 +1,4 @@
-import { explicitGarage, canDispatch, canReadScale, canOfferRelease } from '@/lib/operationalAccess';
+import { explicitGarage, canDispatch, canReadScale, canOfferRelease, canWriteDailyScale } from '@/lib/operationalAccess';
 import { c4Context, c4Folha } from '@/lib/c4';
 import { ciSelectionDate } from '@/lib/ciInitialDate';
 import { isReadInterrupted } from '@/lib/readCoordination';
@@ -58,7 +58,8 @@ import { AlterarFolhaView } from "./AlterarFolhaView";
 import { AlterarCarroProgramadoView } from "./AlterarCarroProgramadoView";
 import { CarroRealizadoView } from "./CarroRealizadoView";
 import { checkCarroBloqueado, subscribeCIUpdates, fetchCIBloqueiosFromApi, getGaragemFisicaByCarro } from "./ciManager";
-import { loadSharedEscala, saveSharedEscala, SharedEscala, EscalaContext } from '@/lib/sharedEscala';
+import { loadSharedEscala, saveSharedEscala, SharedEscala, EscalaContext, DailyEscala, loadDailyEscala, saveDailyEscala, saveDailyScaleCard, CardMutation } from '@/lib/sharedEscala';
+import { applyDailySchedule, fixedScheduleRows, fixedScheduleToken } from '@/lib/dailySchedule';
 
 type GaragemType = "VCG" | "VCM";
 export type EscalaTipo = "SEG_SEX" | "SABADO" | "DOM_FER";
@@ -235,7 +236,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     }
     ciDateContext.current = { garagem, c4: ciC4Enabled };
   }, [isCIView, garagem, ciC4Enabled]);
-  const releaseUiAllowed = canOfferRelease(user, garagem, Boolean(ciC4Enabled), c4Folha(dataOperacao, garagem)?.status);
+  const c4ReleaseAllowed = canOfferRelease(user, garagem, Boolean(ciC4Enabled), c4Folha(dataOperacao, garagem)?.status);
 
   // Atualizar viewMode baseado na URL quando a rota mudar
   useEffect(() => {
@@ -369,11 +370,82 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const scaleWritePending = useRef(false);
   const scaleWriteContext = useRef<string | null>(null);
   const scaleReadSequence = useRef(0);
+  const dailyDirtyFields = useRef(new Set<string>());
   const scaleContext: EscalaContext = { garagem, escalaTipo, turno: escalaTipo === 'SEG_SEX' ? turnoTipo : 'PADRAO' };
   const scaleContextKey = JSON.stringify(scaleContext);
+  const dailyContext = { ...scaleContext, dataOperacao };
+  const dailyContextKey = JSON.stringify(dailyContext);
+  const [dailyScale, setDailyScale] = useState<DailyEscala | null>(null);
+  const [dailyError, setDailyError] = useState('');
+  const [dailyEditEpoch, setDailyEditEpoch] = useState(0);
+  const dailyReadSequence = useRef(0);
+  const dailyWritePending = useRef(false);
+  const dailyWriteContext = useRef<string | null>(null);
+  const selectedDailyKey = useRef(dailyContextKey);
+  selectedDailyKey.current = dailyContextKey;
+  const dailyReady = Boolean(dailyScale && JSON.stringify(dailyScale.contexto) === dailyContextKey && !dailyError);
+  const canConsultDailyScale = canReadScale(user);
+  const canEditDailyScale = canWriteDailyScale(user, garagem);
+  const permanentReady = Boolean(sharedScale && JSON.stringify(sharedScale.contexto) === scaleContextKey && !scaleError);
+  const releaseUiAllowed = c4ReleaseAllowed && permanentReady;
+  const reloadDailyScale = async () => {
+    if (viewMode !== 'ALTERAR_CARRO_PROGRAMADO') return;
+    if ((dailyWritePending.current && dailyWriteContext.current === dailyContextKey) || dailyDirtyFields.current.size) return;
+    const request = ++dailyReadSequence.current, key = dailyContextKey;
+    try {
+      const loaded = await loadDailyEscala(dailyContext);
+      if (selectedDailyKey.current !== key || request !== dailyReadSequence.current) return;
+      setDailyScale(loaded); setDailyError('');
+    } catch (error) {
+      if (selectedDailyKey.current !== key || request !== dailyReadSequence.current) return;
+      setDailyScale(null); setDailyError(error instanceof Error ? error.message : 'Alteracoes do dia indisponiveis.');
+    }
+  };
+  useEffect(() => {
+    dailyDirtyFields.current.clear();
+    setDailyScale(null); setDailyError('');
+    if (viewMode !== 'ALTERAR_CARRO_PROGRAMADO' || !canConsultDailyScale) return;
+    void reloadDailyScale();
+    const refresh = () => { void reloadDailyScale(); };
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, [dailyContextKey, viewMode, canConsultDailyScale, user?.id]);
+  useEffect(() => { if (viewMode !== 'ALTERAR_CARRO_PROGRAMADO') dailyDirtyFields.current.clear(); }, [viewMode]);
+  const persistDailySchedule = async (id: string, prefixo: string) => {
+    const base = fixedScheduleToken(scaleContext, id);
+    if (!canEditDailyScale || !dailyReady || !dailyScale || dailyWritePending.current || !base) {
+      toast.error('Consulte as substituicoes oficiais antes de salvar.'); return false;
+    }
+    const key = dailyContextKey;
+    dailyWritePending.current = true; dailyWriteContext.current = key; ++dailyReadSequence.current;
+    try {
+      const saved = await saveDailyEscala(dailyContext, dailyScale.revisao, id, prefixo, base);
+      if (selectedDailyKey.current === key) { setDailyScale(saved); setDailyError(''); }
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Alteracao diaria nao gravada. Recarregue e revise.');
+      return false;
+    } finally { dailyWritePending.current = false; dailyWriteContext.current = null; }
+  };
   const selectedScaleKey = useRef(scaleContextKey);
+  const persistDailyCard = async (mutation: CardMutation) => {
+    if (!canEditDailyScale || !dailyReady || !dailyScale || dailyWritePending.current) {
+      toast.error('Consulte a escala oficial e aguarde a gravacao pendente.'); return false;
+    }
+    const key = dailyContextKey;
+    dailyWritePending.current = true; dailyWriteContext.current = key; ++dailyReadSequence.current;
+    try {
+      const saved = await saveDailyScaleCard(dailyContext, dailyScale.revisao, mutation);
+      if (selectedDailyKey.current === key) { setDailyScale(saved); setDailyError(''); }
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Card nao gravado. Recarregue e revise.'); return false;
+    } finally { dailyWritePending.current = false; dailyWriteContext.current = null; }
+  };
   selectedScaleKey.current = scaleContextKey;
   const reloadSharedScale = async () => {
+    if (viewMode === 'ALTERAR_CARRO_PROGRAMADO') return;
+    if (dailyDirtyFields.current.size) return;
     if (scaleWritePending.current && scaleWriteContext.current === scaleContextKey) return;
     const request = ++scaleReadSequence.current;
     const key = scaleContextKey;
@@ -395,9 +467,9 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     const refresh = () => { if (!scaleWritePending.current) void reloadSharedScale(); };
     window.addEventListener('focus', refresh);
     return () => window.removeEventListener('focus', refresh);
-  }, [scaleContextKey]);
+  }, [scaleContextKey, viewMode]);
   const persistCustomSchedules = async (updater: (prev: Record<string, SolturaItem[]>) => Record<string, SolturaItem[]>) => {
-    if (!isAdmin || !sharedScale || JSON.stringify(sharedScale.contexto) !== scaleContextKey || scaleWritePending.current) {
+    if (!isAdmin || !permanentReady || !sharedScale || scaleWritePending.current || dailyWritePending.current) {
       toast.error('Carregue a escala oficial e aguarde a gravacao; publicacao requer ADMIN.'); return false;
     }
     const next = updater(customSchedules)[scheduleKey];
@@ -431,7 +503,10 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   }, [garagem, escalaTipo, turnoTipo]);
 
   const scheduleKey = `${garagem}_${escalaTipo}_${escalaTipo === "SEG_SEX" ? turnoTipo : "PADRAO"}`;
-  const rawBaseSchedules = customSchedules[scheduleKey] || [];
+  const permanentSchedules = permanentReady && sharedScale?.publicada ? customSchedules[scheduleKey] ?? defaultSchedules : defaultSchedules;
+  const rawBaseSchedules = permanentSchedules;
+  const fixedRows = useMemo(() => fixedScheduleRows(scaleContext), [scaleContextKey]);
+  const dailySchedules = useMemo(() => applyDailySchedule(fixedRows, dailyReady ? dailyScale : null), [fixedRows, dailyScale, dailyReady]);
   const baseSchedules = useMemo(() => {
     return [...rawBaseSchedules].sort((a, b) => {
       // Priorizar a ordem sequencial oficial da folha de soltura
@@ -1547,10 +1622,16 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
   return (
     <div className="space-y-5 animate-in fade-in duration-300 pb-16">
-      {!isCIView && <div role="alert" className="p-3 border rounded print:hidden">
+      {!isCIView && viewMode !== 'ALTERAR_CARRO_PROGRAMADO' && <div role="alert" className="p-3 border rounded print:hidden">
         {ciReadError && <p>{ciReadError}</p>}
         {canReadScale(user) && (scaleError || (!sharedScale ? 'Carregando escala oficial...' : sharedScale.publicada ? 'Escala oficial carregada.' : 'Escala ainda nao publicada. Nenhum dado local foi importado.'))}
-        {canReadScale(user) && <Button type="button" variant="outline" onClick={() => void reloadSharedScale()}>Recarregar escala</Button>}
+        {!permanentReady && <p>Programacao base exibida para consulta. Alteracoes oficiais nao confirmadas; gravacoes e liberacoes bloqueadas.</p>}
+        {canReadScale(user) && <Button type="button" variant="outline" onClick={() => {
+          if (dailyDirtyFields.current.size && !window.confirm('Descartar as alteracoes digitadas da escala para consultar os dados oficiais?')) return;
+          dailyDirtyFields.current.clear(); setDailyScale(null);
+          setDailyEditEpoch(value => value + 1);
+          void reloadSharedScale(); void reloadDailyScale();
+        }}>Recarregar escala</Button>}
         {isAdmin && sharedScale && !sharedScale.publicada && <details><summary>Revisar programacao padrao antes de publicar</summary><ul>{defaultSchedules.map(i => <li key={i.id}>{i.linha} / {i.tabela} / {i.carroProgramado} / {i.saidaGaragem}</li>)}</ul></details>}
         {isAdmin && sharedScale && !sharedScale.publicada && <Button type="button" onClick={async () => {
           if (!window.confirm('Publicar a programacao padrao exibida na revisao da equipe? Nenhum dado de localStorage sera usado.')) return;
@@ -2670,7 +2751,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           garagem={garagem}
           escalaTipo={escalaTipo}
           turnoTipo={turnoTipo}
-          schedules={baseSchedules}
+          schedules={permanentSchedules}
           onUpdateField={handleUpdateScheduleField}
           onUpdateMultipleFields={handleUpdateScheduleMultipleFields}
           onAddSchedule={handleAddSchedule}
@@ -2685,18 +2766,38 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       {/* VISUALIZAÇÃO: ALTERAR CARRO PROGRAMADO */}
       {/* ========================================================= */}
       {viewMode === "ALTERAR_CARRO_PROGRAMADO" && (
+        <>
+        <div role="status" className="p-3 border rounded print:hidden text-sm">
+          <p>{dailyError ? 'Nao foi possivel consultar as substituicoes desta data. A programacao fixa continua visivel; gravacao bloqueada.' : dailyReady ? 'Programacao fixa do sistema. Substituicoes da data consultadas.' : 'Programacao fixa do sistema. Consultando substituicoes da data...'}</p>
+          {dailyError && <p className="text-xs text-muted-foreground">{dailyError}</p>}
+          <Button type="button" variant="outline" onClick={() => {
+            if (dailyDirtyFields.current.size && !window.confirm('Descartar as substituicoes digitadas e recarregar?')) return;
+            dailyDirtyFields.current.clear(); setDailyEditEpoch(value => value + 1); void reloadDailyScale();
+          }}>Recarregar substituicoes</Button>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 print:hidden">
+          <label className="text-xs">Data da escala <input type="date" value={dataOperacao} onChange={e => { if (e.target.value) setDataOperacao(e.target.value); }} className="border rounded px-2 py-1 bg-background" /></label>
+          {escalaTipo === 'SEG_SEX' && <select aria-label="Turno da escala" value={turnoTipo} onChange={e => setTurnoTipo(e.target.value as 'MATUTINO' | 'VESPERTINO')} className="border rounded px-2 py-1 bg-background text-xs"><option value="MATUTINO">Matutino</option><option value="VESPERTINO">Vespertino</option></select>}
+          <span className="text-xs text-muted-foreground">Somente o carro substituido e salvo para esta data. A programacao fixa permanece intacta.</span>
+        </div>
         <AlterarCarroProgramadoView
-          readOnly={!isAdmin}
+          key={`${dailyContextKey}:${dailyEditEpoch}`}
+          onEditingChange={(key, dirty) => {
+            if (dirty) { dailyDirtyFields.current.add(key); ++dailyReadSequence.current; ++scaleReadSequence.current; }
+            else dailyDirtyFields.current.delete(key);
+          }}
+          readOnly={!canEditDailyScale || !dailyReady}
+          readOnlyReason={!canEditDailyScale ? 'Seu perfil possui apenas permissao de consulta da Escala.' : dailyError ? 'Consulta das substituicoes falhou. Confira o aviso acima e recarregue apos resolver a falha.' : 'Aguardando a consulta das substituicoes da data selecionada.'}
           garagem={garagem}
           escalaTipo={escalaTipo}
-          schedules={baseSchedules}
-          ciList={ciList}
-          onUpdateField={handleUpdateScheduleField}
-          onUpdateMultipleFields={handleUpdateScheduleMultipleFields}
-          checkBloqueioCI={checkBloqueioCI}
+          schedules={dailySchedules}
+          official={dailyReady ? dailyScale : null}
+          onSaveSubstitution={persistDailySchedule}
+          onSaveCard={persistDailyCard}
           onSelectGaragem={isAdmin ? setGaragem : undefined}
           onSelectEscalaTipo={setEscalaTipo}
         />
+        </>
       )}
 
       {/* ========================================================= */}

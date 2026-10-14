@@ -1,0 +1,282 @@
+{
+  "VCG": [
+    {
+      "id": "AZUL",
+      "titulo": "AZUL",
+      "modo": "lista",
+      "itens": [
+        {
+          "id": "4182",
+          "prefixo": "4182"
+        },
+        {
+          "id": "4183",
+          "prefixo": "4183"
+        },
+        {
+          "id": "4181",
+          "prefixo": "4181"
+        },
+        {
+          "id": "2319",
+          "prefixo": "2319"
+        },
+        {
+          "id": "4180",
+          "prefixo": "4180"
+        },
+        {
+          "id": "4224",
+          "prefixo": "4224"
+        },
+        {
+          "id": "2613",
+          "prefixo": "2613"
+        },
+        {
+          "id": "4269",
+          "prefixo": "4269"
+        },
+        {
+          "id": "4184-3026",
+          "prefixo": "4184-3026"
+        },
+        {
+          "id": "3014",
+          "prefixo": "3014"
+        },
+        {
+          "id": "3028",
+          "prefixo": "3028"
+        },
+        {
+          "id": "2411",
+          "prefixo": "2411"
+        },
+        {
+          "id": "3008",
+          "prefixo": "3008"
+        },
+        {
+          "id": "3134",
+          "prefixo": "3134"
+        }
+      ]
+    },
+    {
+      "id": "VERMELHO",
+      "titulo": "VERMELHO",
+      "modo": "lista",
+      "itens": [
+        {
+          "id": "4205",
+          "prefixo": "4205"
+        },
+        {
+          "id": "4244",
+          "prefixo": "4244"
+        },
+        {
+          "id": "3216",
+          "prefixo": "3216"
+        },
+        {
+          "id": "4216",
+          "prefixo": "4216"
+        },
+        {
+          "id": "4242-3202",
+          "prefixo": "4242-3202"
+        },
+        {
+          "id": "3099",
+          "prefixo": "3099"
+        },
+        {
+          "id": "4277",
+          "prefixo": "4277"
+        },
+        {
+          "id": "3003",
+          "prefixo": "3003"
+        }
+      ]
+    },
+    {
+      "id": "MICRO",
+      "titulo": "MICRO",
+      "modo": "lista",
+      "itens": [
+        {
+          "id": "4201",
+          "prefixo": "4201"
+        },
+        {
+          "id": "3148",
+          "prefixo": "3148"
+        },
+        {
+          "id": "4208",
+          "prefixo": "4208"
+        },
+        {
+          "id": "4259",
+          "prefixo": "4259"
+        },
+        {
+          "id": "3900",
+          "prefixo": "3900"
+        },
+        {
+          "id": "3902",
+          "prefixo": "3902"
+        },
+        {
+          "id": "3004",
+          "prefixo": "3004"
+        }
+      ]
+    },
+    {
+      "id": "PORTARIA",
+      "titulo": "BLOQUEADOS PORTARIA",
+      "modo": "lista",
+      "itens": []
+    },
+    {
+      "id": "LIMPEZA",
+      "titulo": "PEDIDO LIMPEZA",
+      "modo": "lista",
+      "itens": []
+    },
+    {
+      "id": "BORRACHARIA",
+      "titulo": "PEDIDO BORRACHARIA",
+      "modo": "lista",
+      "itens": []
+    },
+    {
+      "id": "PEDIDOS_GARAGEM",
+      "titulo": "PEDIDOS GARAGEM",
+      "modo": "lista",
+      "itens": []
+    },
+    {
+      "id": "TERMINAL_0",
+      "titulo": "TERMINAL GENERAL OSORIO",
+      "modo": "unico",
+      "itens": [
+        {
+          "id": "carro",
+          "prefixo": "3271",
+          "horario": "04:30"
+        }
+      ]
+    },
+    {
+      "id": "TERMINAL_1",
+      "titulo": "TERMINAL NOVA BAHIA",
+      "modo": "unico",
+      "itens": [
+        {
+          "id": "carro",
+          "prefixo": "4207",
+          "horario": "04:30"
+        }
+      ]
+    },
+    {
+      "id": "TERMINAL_2",
+      "titulo": "TERMINAL BANDEIRANTES",
+      "modo": "unico",
+      "itens": [
+        {
+          "id": "carro",
+          "prefixo": "",
+          "horario": "04:40"
+        }
+      ]
+    },
+    {
+      "id": "RABICHO",
+      "titulo": "RABICHO",
+      "modo": "rabicho",
+      "itens": [
+        {
+          "id": "rab-1",
+          "prefixo": "",
+          "linha": "470",
+          "tabela": "1"
+        },
+        {
+          "id": "rab-2",
+          "prefixo": "",
+          "linha": "470",
+          "tabela": "7"
+        },
+        {
+          "id": "rab-3",
+          "prefixo": "",
+          "linha": "480",
+          "tabela": "7"
+        },
+        {
+          "id": "rab-4",
+          "prefixo": "",
+          "linha": "480",
+          "tabela": "9"
+        }
+      ]
+    }
+  ],
+  "VCM": [
+    {
+      "id": "AZUL",
+      "titulo": "AZUL",
+      "modo": "lista",
+      "itens": []
+    },
+    {
+      "id": "VERMELHO",
+      "titulo": "VERMELHO",
+      "modo": "lista",
+      "itens": []
+    },
+    {
+      "id": "MICRO",
+      "titulo": "MICRO",
+      "modo": "lista",
+      "itens": []
+    },
+    {
+      "id": "PORTARIA",
+      "titulo": "BLOQUEADOS PORTARIA",
+      "modo": "lista",
+      "itens": []
+    },
+    {
+      "id": "LIMPEZA",
+      "titulo": "PEDIDO LIMPEZA",
+      "modo": "lista",
+      "itens": []
+    },
+    {
+      "id": "BORRACHARIA",
+      "titulo": "PEDIDO BORRACHARIA",
+      "modo": "lista",
+      "itens": []
+    },
+    {
+      "id": "PEDIDOS_GARAGEM",
+      "titulo": "PEDIDOS GARAGEM",
+      "modo": "lista",
+      "itens": []
+    },
+    {
+      "id": "RABICHO",
+      "titulo": "RABICHO",
+      "modo": "rabicho",
+      "itens": []
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 import type { Response, NextFunction } from 'express';
 import type { AuthRequest } from './auth';
 import prisma from '../utils/prisma';
-import { canDispatch, canReadOperation, canReadScale, canReadReservations, explicitGarage } from '../services/operationalAccess';
-export function operationalAccess(action: 'read' | 'dispatch' | 'scale' | 'admin' | 'reservations' | 'deleteReservation') {
+import { canDispatch, canReadOperation, canReadScale, canReadReservations, explicitGarage, canWriteDailyScale } from '../services/operationalAccess';
+export function operationalAccess(action: 'read' | 'dispatch' | 'scale' | 'scaleWrite' | 'admin' | 'reservations' | 'deleteReservation') {
   return async (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.userId) return res.status(401).json({ code: 'AUTHENTICATION_REQUIRED', error: 'Sessao obrigatoria.' });
     try {
@@ -10,10 +10,10 @@ export function operationalAccess(action: 'read' | 'dispatch' | 'scale' | 'admin
       if (!user) return res.status(401).json({ code: 'SESSION_INVALID', error: 'Usuario da sessao nao encontrado.' });
       if (user.role !== 'ADMIN' && !explicitGarage(user))
         return res.status(403).json({ code: 'GARAGE_REQUIRED', error: 'Usuario sem garagem cadastrada. Solicite revisao ao administrador.' });
-      const allowed = action === 'reservations' ? canReadReservations(user) : action === 'admin' ? user.role === 'ADMIN' : (action === 'dispatch' || action === 'deleteReservation') ? canDispatch(user) : action === 'scale' ? canReadScale(user) : canReadOperation(user);
+      const allowed = action === 'scaleWrite' ? canWriteDailyScale(user, req.body?.contexto?.garagem) : action === 'reservations' ? canReadReservations(user) : action === 'admin' ? user.role === 'ADMIN' : (action === 'dispatch' || action === 'deleteReservation') ? canDispatch(user) : action === 'scale' ? canReadScale(user) : canReadOperation(user);
       if (!allowed) return res.status(403).json({ code: 'ACTION_FORBIDDEN', error: 'Seu perfil ou grupo nao permite esta operacao.' });
-      const scope = req.method === 'GET' ? req.query.garagem : req.body?.garagem;
-      if (action === 'dispatch' && req.method === 'POST' && !scope)
+      const scope = req.method === 'GET' ? req.query.garagem : action === 'scaleWrite' ? req.body?.contexto?.garagem : req.body?.garagem;
+      if ((action === 'dispatch' || action === 'scaleWrite') && req.method === 'POST' && !scope)
         return res.status(400).json({ code: 'GARAGE_CONTEXT_REQUIRED', error: 'Informe a garagem da operacao explicitamente.' });
       if (scope && user.role !== 'ADMIN' && scope !== user.garagem)
         return res.status(403).json({ code: 'GARAGE_FORBIDDEN', error: 'Operacao de outra garagem nao autorizada.' });

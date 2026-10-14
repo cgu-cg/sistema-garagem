@@ -61,8 +61,9 @@ preparacao e manutencao anterior na madrugada permanecem pendentes.
 ## Escala compartilhada
 
 Modelos proprios `EscalaCarros` e `ItemEscalaCarros`, separados de despachos.
-Contexto recorrente preserva os seletores existentes: garagem, tipo da escala
-e turno; nao foi criado calendario diario nem migracao de dados locais.
+Contexto permanente preserva os seletores existentes: garagem, tipo da escala
+e turno; substituicoes diarias ficam separadas em EscalaDiaria, descrita abaixo.
+Nao ha migracao automatica de dados locais.
 Itens guardam somente programacao validada por Zod, em NVARCHAR(MAX), sem
 depender de funcoes JSON posteriores ao SQL Server 2012.
 Preservam marcadores existentes (4220R/2711R) e repeticao de carro em viagens
@@ -86,7 +87,137 @@ Publicar escala nao e confirmar disponibilidade do carro para soltura.
 EXECUTADO. Cria apenas as duas novas tabelas; recusa destinos existentes.
 Nao modifica CI, manutencao, historicos importados ou tabelas legadas.
 Nao executar `prisma migrate`, `db push` ou provisionamento automaticamente.
-Sem provisionamento, a escala fica indisponivel (503), sem fallback local.
+Sem provisionamento, a consulta oficial retorna 503. Conforme decisao de
+14/10/2026, a interface exibe a programacao fixa somente para consulta, com
+aviso e gravacoes/liberacoes bloqueadas. Nao apresenta a base como confirmacao
+de que nao ha substituicoes oficiais.
+
+## Escala de Carros com base fixa em JSON ? 14/10/2026
+
+Escopo refinado pelo usuario: nesta etapa somente Escala de Carros. Soltura e
+Alterar Folha serao revisadas depois; a substituicao diaria nao e aplicada
+nessas telas nesta entrega. Nao registra despacho nem altera disponibilidade C4.
+
+A programacao vem de apps/web/src/data/escalaFixa.json: linha, tabela, saida,
+chegada e carro original sao somente leitura. A base foi extraida dos oito
+contextos existentes, preservando valores e identificadores. Carro Substituido
+fica em coluna separada com Salvar. Limpar ou informar o carro fixo remove a
+substituicao. Horarios nao sao editaveis nesta tela.
+
+A API possui a mesma base em apps/api/src/data/escalaFixa.json para validar
+viagens/contexts, sem confiar na programacao enviada pelo cliente. As duas
+copias sao necessarias aos contextos Docker independentes atuais; testes
+verificam igualdade integral. Futuras revisoes da base devem atualizar ambas
+explicitamente. O comando compara a linha fixa local com a versao do servidor
+para recusar JSON divergente com 409, sem armazenar a linha original no banco.
+
+GET/POST /api/escala-carros/diaria consultam/escrevem apenas EscalaDiaria,
+independente de EscalaCarros/ItemEscalaCarros e de publicacao permanente.
+Conteudo guarda substituicoes e alocacoes dos cards, junto dos metadados
+de data, contexto, autor e revisao do cabecalho. Nao copia as linhas fixas para o banco.
+A data e um filtro explicito: D+1 nao herda D e selecionar D recupera suas
+substituicoes. Nao exige job diario nem exclusao de registros antigos.
+
+## Cards, frota e bloqueios da Escala - complemento de 14/10/2026
+
+Escala de 14/10 consulta somente a CI 15/10 da mesma garagem. Nao agrega
+bloqueados de todas as folhas. So categoria BLOQUEADO nao liberada participa;
+Oficina/Preventiva/Reforco nao foram convertidos em bloqueio. A lista e
+intersectada com a frota oficial da garagem, sem inferir garagem por prefixo
+ou consorciada. A consulta da frota reutiliza queryVeiculosSelect e exige
+source=real. Garagem nula e omitida com diagnostico de contagem; garagem
+desconhecida/inconsistente, resposta invalida, mock ou CI ausente impedem gravar.
+
+O carro efetivo de cada linha e o substituto salvo, ou o fixo na ausencia
+de substituto. So o efetivo ocupa a linha. Fixo continua visivel e fica
+vermelho/com alerta se bloqueado, fora da frota ou usado em outro lugar.
+Fixo bloqueado exige substituto livre ao confirmar. Fixo substituido pode
+ser usado em card se estiver livre e nao bloqueado. Restaurar o fixo nao pode
+duplicar uma alocacao existente. Todos esses controles sao garantidos na API.
+
+Azul/Vermelho/Micro, Portaria, Terminais, Rabicho e Pedidos sao alocacoes
+oficiais compartilhadas por data. Reserva e derivada, sem botao de inclusao:
+frota menos ocupacoes efetivas e bloqueios CI/Portaria. Padroes ficam em
+apps/api/src/data/escalaCards.json; padroes nao pertencentes a frota, bloqueados,
+duplicados ou em linhas nao sao aplicados, com aviso de contagem na interface.
+Marcadores compostos dos padroes (ex. dois prefixos unidos) nao sao inferidos
+como veiculos. Cache anterior de cards no localStorage nao e importado nem
+apagado. Alocacoes oficiais ja salvas nao sao removidas por nova mudanca de
+bloqueio/frota: ficam sinalizadas para correcao, sem perda de historico.
+
+Payload persistido version=2 contem itens/cards. Arrays anteriores de
+substituicoes continuam legiveis e sao preservados ao salvar no formato novo.
+Confirmacao visual da linha adiciona confirmacoes opcionais (id e prefixo
+efetivo) ao mesmo payload. POST de linha so as registra depois de validar
+frota, bloqueios e ocupacoes; rollback/409 nao registra a nova confirmacao.
+GET projeta confirmadas apenas enquanto o carro confirmado coincide com o
+efetivo e continua valido. Linhas sem substituto tambem podem ser confirmadas.
+Registros anteriores sem esse campo permanecem pendentes ate confirmacao
+explicita, sem escrita/backfill via GET. Interface usa apenas fundo verde,
+sem texto de status e com uma marca de certo no botao; ao digitar remove o destaque.
+Nao altera o status de despacho/liberacao. Sem DDL ou migration adicional.
+GET nao cria/corrige registros. Nenhuma migration/tabela nova e necessaria
+para este complemento: usa a coluna conteudo existente de escala_diaria.
+O usuario informou PROVISIONAMENTO_CONCLUIDO para essa tabela; o agente nao
+executou o script nem acessou o banco. Nao repetir provisionamento.
+
+Gravacoes consultam novamente a frota e validam a CI dentro da transacao.
+Adquirem lockC4Context (ciclo D/folha D+1) antes do lock da escala diaria,
+sem modificar C4, suas revisoes, estados, locks ou transacoes existentes.
+Revisao diaria e compartilhada por alteracoes de linhas/cards; conflitos
+retornam 409 sem repetir POST. Remover alocacao permite corrigir um carro
+que ficou bloqueado depois de salvo. Uma confirmacao valida a programacao;
+nao registra despacho nem libera carro no Controle/CI.
+
+Historico dos cards/substituicoes e por data. A frota usada pela Reserva e a
+frota atual do legado, nao um snapshot historico de garagem fisica. Atualizar
+entre postos continua por abertura/foco/recarga, sem novo evento Socket.IO.
+Formulario aberto e rascunhos suspendem recarga por foco; filtros de busca
+preservam rascunhos de linhas. Trocar contexto ou confirmar descarte em
+recarga manual troca explicitamente o editor.
+
+Autenticacao e leitura por garagem foram preservadas. Conforme autorizacao
+operacional de 14/10/2026, escrita diaria e permitida para ADMIN ou perfil
+Soltura da propria garagem, revalidada dentro da transacao Serializable.
+Publicacao permanente continua exclusiva de ADMIN. Range lock no
+contexto diario protege a primeira gravacao e a revisao evita sobrescrever
+outro posto. Datas/prefixos invalidos, viagens desconhecidas e tentativas de
+alterar linha/tabela/horarios/carro fixo sao recusadas pelo backend.
+HTTP 409 nao repete POST automaticamente. Registros malformados/desconhecidos
+nao sao descartados silenciosamente para apresentar lista vazia.
+
+Sem consulta oficial das substituicoes, o JSON permanece visivel com aviso e
+edicao bloqueada. Respostas substituidas sao descartadas por contexto/sequencia.
+Rascunhos suspendem recarga por foco; recarga manual exige confirmar descarte.
+Atualizacao entre postos ocorre ao abrir, voltar ao foco ou recarregar, sem
+novo evento Socket.IO. A mudanca explicita de data/garagem/turno troca o editor.
+
+scripts/sql/escala-diaria-provisionamento.sql e candidato NAO EXECUTADO pelo
+agente. Agora cria apenas escala_diaria, SEM exigir tabelas permanentes. Mantem
+precheck @Aplicar=0, identificacao explicita de servidor/banco e recusa destino
+existente. Nao apaga/substitui estruturas nem dados. Registros da proposta
+anterior, se alguem os tiver criado, precisam de revisao: nao ha conversao
+silenciosa do formato antigo com original/alteracoes.
+
+Validacao manual pendente, apos provisionamento autorizado em ambiente isolado:
+1. Conferir as linhas fixas mesmo com API indisponivel, sem campos fixos editaveis.
+2. Salvar um substituto em D; atualizar a pagina e conferir original preservado.
+3. Selecionar D+1: nenhuma substituicao de D; retornar a D: recuperacao dos dados.
+4. Limpar substituto e salvar: carro fixo intacto e substituicao removida.
+5. Dois postos gravam sobre a mesma revisao: segundo recebe 409 sem apagar digitacao.
+6. Falha de consulta bloqueia salvar; recuperacao habilita apos consulta oficial.
+7. Conferir isolamento de garagem/turno e que Soltura/Alterar Folha nao foram alteradas.
+8. Com perfil Soltura VCG, verificar que nao ha seletor VCM e que a API recusa
+   contexto adulterado para VCM. Confirmar que a frota do seletor e fisica VCG.
+9. Na Escala 14/10, conferir que bloqueados vem da CI 15/10; um fixo bloqueado
+   permanece vermelho e sua confirmacao exige substituto livre.
+10. Testar inclusao de bloqueado e duplicado em cada card, terminal e Rabicho;
+    servidor deve recusar, mesmo com payload manual.
+11. Substituir um fixo livre, conferir sua entrada na Reserva e aloca-lo em
+    outro card; tentar restaurar o fixo na linha deve ser recusado por duplicidade.
+12. Salvar cards em uma data, conferir compartilhamento em outro posto e
+    ausencia dessas alocacoes na data seguinte. Conferir conflitos linha/card.
+Esses passos de navegador e o DDL nao foram executados pelo agente.
 
 NAO LIBERAR producao sem verificacao controlada. Antes da liberacao:
 

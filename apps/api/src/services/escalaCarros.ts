@@ -11,6 +11,7 @@ export const escalaContextSchema = z.object({
 // Programacao recorrente, igual ao contexto da interface; nao representa soltura.
 export const escalaItemSchema = z.object({
   id: z.string().min(1).max(100), ordem: z.number().int().nonnegative().optional(),
+  ordemTerminal: z.number().int().nonnegative().optional(), variante: z.string().max(100).optional(),
   linha: z.string().trim().min(1).max(100), tabela: z.string().trim().min(1).max(100),
   // Programacao existente inclui marcadores como 4220R; nao e prefixo de soltura.
   carroProgramado: z.string().trim().max(100),
