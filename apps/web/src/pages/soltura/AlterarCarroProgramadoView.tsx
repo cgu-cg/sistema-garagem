@@ -1,7 +1,8 @@
+import { ScaleVehiclePicker } from './ScaleVehiclePicker';
 import { useState, useEffect, useRef, type ReactNode } from 'react';
-import { Search, Plus, AlertTriangle, Check, Loader2, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, Plus, Bus, AlertTriangle, Check, Loader2, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import type { FixedScaleRow } from '@/lib/dailySchedule';
@@ -30,8 +31,8 @@ function allocationError(state: DailyEscala | null, prefixo: string, ownKey: str
   const used = state.ocupacoes.find(o => o.prefixo === prefixo && o.chave !== ownKey);
   return used ? 'Carro ' + prefixo + ' ja utilizado em ' + used.local + '.' : '';
 }
-function optionsFor(state: DailyEscala | null, ownKey: string) {
-  return state?.frota.filter(p => !blocked(state, p) && !state.ocupacoes.some(o => o.prefixo === p && o.chave !== ownKey)) ?? [];
+function pickerOptions(state: DailyEscala | null, ownKey: string) {
+  return state?.frota.map(prefixo => ({ prefixo, blocked: blocked(state, prefixo), unavailable: allocationError(state, prefixo, ownKey) })) ?? [];
 }
 
 export function AlterarCarroProgramadoView({ dateControl, readOnly = true, readOnlyReason, onEditingChange, garagem, escalaTipo,
@@ -92,7 +93,6 @@ export function AlterarCarroProgramadoView({ dateControl, readOnly = true, readO
     </div>
     {readOnly && <p role="status" className="text-sm text-muted-foreground">{readOnlyReason}</p>}
     {official && official.omitidosPadrao > 0 && <p role="status" className="text-xs text-amber-700">{official.omitidosPadrao} alocacoes padrao nao foram aplicadas por conflito com linhas, bloqueios ou frota da garagem.</p>}
-    <datalist id="escala-frota-opcoes">{official?.reserva.map(p => <option key={p} value={p} />)}</datalist>
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-10">
       <div className="lg:col-span-7 rounded-3xl border border-border bg-card overflow-hidden self-start">
         <div className="border-b px-5 py-3 text-right text-xs text-muted-foreground font-mono">{filtered.length} horarios</div>
@@ -118,11 +118,11 @@ export function AlterarCarroProgramadoView({ dateControl, readOnly = true, readO
         </div>
       </div>
     </div>
-    <Dialog open={Boolean(modal)} onOpenChange={open => { if (!open) close(); }}><DialogContent><DialogHeader><DialogTitle>{modal?.card.titulo}</DialogTitle></DialogHeader>
+    <Dialog open={Boolean(modal)} onOpenChange={open => { if (!open) close(); }}><DialogContent className="sm:max-w-md rounded-2xl border-border bg-card p-5 shadow-2xl"><DialogHeader className="space-y-1.5 text-left"><DialogTitle className="flex items-center gap-2 pr-6 text-base font-bold"><Plus className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />{modal?.card.titulo}</DialogTitle><DialogDescription className="text-xs">Selecione o veiculo da garagem ativa para esta data da escala.</DialogDescription></DialogHeader>
       {modal?.card.modo === 'rabicho' && !modal.item && <div className="flex gap-2"><input disabled={saving} aria-label="Linha" placeholder="Linha" value={linha} onChange={e => setLinha(e.target.value)} className="w-1/2 rounded border bg-background p-2" /><input disabled={saving} aria-label="Tabela" placeholder="Tabela" value={tabela} onChange={e => setTabela(e.target.value)} className="w-1/2 rounded border bg-background p-2" /></div>}
-      <label className="text-sm">Carro<input aria-label="Carro do card" list="escala-card-frota" value={prefixo} onChange={e => setPrefixo(e.target.value)} inputMode="numeric" maxLength={10} disabled={saving} className="mt-1 w-full rounded border bg-background p-2" /></label>
-      <datalist id="escala-card-frota">{optionsFor(official, modal?.item ? 'card:' + modal.card.id + ':' + modal.item.id : '').map(p => <option key={p} value={p} />)}</datalist>
-      <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={saving} onClick={close}>Cancelar</Button><Button type="button" disabled={saving || readOnly} onClick={() => void saveModal()}>Salvar</Button></div>
+      <div className="space-y-2"><div className="flex items-center justify-between gap-2"><span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase text-muted-foreground"><Bus className="h-3 w-3" />Prefixo do carro {modal?.card.modo !== 'unico' && <span className="text-rose-500">*</span>}</span><span className="text-[10px] text-muted-foreground">{official?.frota.length ?? 0} veiculos da Garagem {garagem}</span></div><ScaleVehiclePicker placeholder="Carro..." className="h-10 rounded-xl border-border text-left focus:outline-none focus:ring-2 focus:ring-emerald-700/30" label="Carro do card" value={prefixo} onChange={setPrefixo} garage={garagem} disabled={saving}
+        options={pickerOptions(official, modal?.item ? 'card:' + modal.card.id + ':' + modal.item.id : '')} onConfirm={() => void saveModal()} /></div>
+      <div className="flex items-center justify-between gap-2 border-t border-border pt-3"><Button type="button" variant="ghost" className="rounded-xl text-xs" disabled={saving} onClick={close}>Cancelar</Button><Button type="button" className="rounded-xl bg-[#164E3A] text-xs text-white hover:bg-[#113C2D]" disabled={saving || readOnly} onClick={() => void saveModal()}>{saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1.5 h-3.5 w-3.5" />}Salvar</Button></div>
     </DialogContent></Dialog>
   </div>;
 }
@@ -145,8 +145,10 @@ function LineRow({ item, official, readOnly, onSave, onEditingChange, drafts }: 
   };
   return <tr data-confirmada={confirmed ? 'true' : 'false'} className={cn('border-b border-border/60 font-mono', confirmed ? 'bg-emerald-100 hover:bg-emerald-200/70 dark:bg-emerald-900/40 dark:hover:bg-emerald-900/50' : 'hover:bg-muted/30')}><td className="p-3 font-bold">{item.linha}</td><td className="p-3">{item.tabela}</td><td className="p-3">{item.saidaGaragem}</td><td className="p-3">{item.chegadaGaragem || '\u2014'}</td>
     <td className={cn('p-3 font-bold', fixedAlert && 'text-rose-600 bg-rose-50/50 dark:bg-rose-950/20')} title={fixedAlert}><span className="inline-flex items-center gap-1">{item.carroProgramado || '\u2014'}{fixedAlert && <AlertTriangle aria-label={fixedAlert} className="h-3.5 w-3.5" />}</span></td>
-    <td className="p-2"><div className="flex items-center gap-2"><input aria-label={'Carro substituido da Linha ' + item.linha + ' Tabela ' + item.tabela} value={prefixo} list="escala-frota-opcoes" disabled={readOnly || saving} inputMode="numeric" maxLength={10}
-      onChange={e => { dirty.current = true; drafts.set(item.id, e.target.value); onEditingChange?.(item.id, true); setPrefixo(e.target.value); }} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void confirm(); } }} className={cn("h-7 w-20 rounded-full border bg-background text-center text-xs", prefixo.trim() && allocationError(official, prefixo.trim(), ownKey) && "border-rose-500 text-rose-600")} />
+    <td className="p-2"><div className="flex items-center gap-2"><ScaleVehiclePicker label={'Carro substituido da Linha ' + item.linha + ' Tabela ' + item.tabela} value={prefixo} disabled={readOnly || saving}
+      garage={official?.contexto.garagem ?? ''} options={pickerOptions(official, ownKey)}
+      onChange={value => { dirty.current = true; drafts.set(item.id, value); onEditingChange?.(item.id, true); setPrefixo(value); }} onConfirm={() => void confirm()}
+      className={cn('h-7 w-24 py-0 text-center', prefixo.trim() && allocationError(official, prefixo.trim(), ownKey) && 'border-rose-500 text-rose-600')} />
       <button type="button" aria-label={(confirmed ? 'Linha confirmada ' : 'Confirmar linha ') + item.linha + ' tabela ' + item.tabela} title={confirmed ? 'Linha confirmada para esta data' : 'Confirmar linha'} disabled={readOnly || saving || confirmed} onClick={() => void confirm()} className={cn('h-7 w-7 inline-flex items-center justify-center rounded-full', 'bg-[#164E3A] text-white', (readOnly || saving || confirmed) && 'opacity-40 cursor-not-allowed')}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}</button>
     </div></td>
   </tr>;

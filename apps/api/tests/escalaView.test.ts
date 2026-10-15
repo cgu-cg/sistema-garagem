@@ -48,10 +48,12 @@ test('React mostra CI do dia seguinte, Reserva e carro fixo bloqueado em vermelh
   assert.match(html, /Carro fixo/);
   assert.match(html, /Carro substituido/);
 });
-test('React nao mostra seletor de outra garagem sem autorizacao e so sugere reserva livre', () => {
+test('React usa seletor de carros personalizado sem seletor nativo ou troca de garagem', () => {
   const html = render(false);
   assert.doesNotMatch(html, />Garagem VCG<\/span>/); assert.doesNotMatch(html, />VCM<\/button>/);
-  assert.match(html, /<option value="5001"/);
+  assert.match(html, /role="combobox"/);
+  assert.match(html, /aria-autocomplete="list"/);
+  assert.doesNotMatch(html, /<datalist/);
   assert.doesNotMatch(html, /<option value="5002"/);
   assert.doesNotMatch(html, new RegExp('<option value="' + rows[0].carroProgramado + '"'));
 });
