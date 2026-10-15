@@ -3204,10 +3204,6 @@ export function CiManutencaoView({
 
                 </div>
 
-                {/* 6. ASSINATURA NO RODAPÉ */}
-                <div className="pt-1.5 flex items-center justify-start text-[9.5px] font-bold">
-                  <span>Manutenção: _____________________________________</span>
-                </div>
 
               </div>
             </div>

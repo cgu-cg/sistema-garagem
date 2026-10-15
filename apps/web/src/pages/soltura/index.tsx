@@ -371,7 +371,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const scaleWriteContext = useRef<string | null>(null);
   const scaleReadSequence = useRef(0);
   const dailyDirtyFields = useRef(new Set<string>());
-  const scaleContext: EscalaContext = { garagem, escalaTipo, turno: escalaTipo === 'SEG_SEX' ? turnoTipo : 'PADRAO' };
+  const scaleContext: EscalaContext = { garagem, escalaTipo, turno: escalaTipo === 'SEG_SEX' ? (viewMode === 'ALTERAR_CARRO_PROGRAMADO' ? 'MATUTINO' : turnoTipo) : 'PADRAO' };
   const scaleContextKey = JSON.stringify(scaleContext);
   const dailyContext = { ...scaleContext, dataOperacao };
   const dailyContextKey = JSON.stringify(dailyContext);
@@ -2767,21 +2767,30 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       {/* ========================================================= */}
       {viewMode === "ALTERAR_CARRO_PROGRAMADO" && (
         <>
-        <div role="status" className="p-3 border rounded print:hidden text-sm">
-          <p>{dailyError ? 'Nao foi possivel consultar as substituicoes desta data. A programacao fixa continua visivel; gravacao bloqueada.' : dailyReady ? 'Programacao fixa do sistema. Substituicoes da data consultadas.' : 'Programacao fixa do sistema. Consultando substituicoes da data...'}</p>
+        {dailyError && <div role="alert" className="p-3 border rounded print:hidden text-sm">
+          <p>Nao foi possivel consultar as substituicoes desta data. A programacao fixa continua visivel; gravacao bloqueada.</p>
           {dailyError && <p className="text-xs text-muted-foreground">{dailyError}</p>}
           <Button type="button" variant="outline" onClick={() => {
             if (dailyDirtyFields.current.size && !window.confirm('Descartar as substituicoes digitadas e recarregar?')) return;
             dailyDirtyFields.current.clear(); setDailyEditEpoch(value => value + 1); void reloadDailyScale();
           }}>Recarregar substituicoes</Button>
-        </div>
-        <div className="flex flex-wrap items-center gap-3 print:hidden">
-          <label className="text-xs">Data da escala <input type="date" value={dataOperacao} onChange={e => { if (e.target.value) setDataOperacao(e.target.value); }} className="border rounded px-2 py-1 bg-background" /></label>
-          {escalaTipo === 'SEG_SEX' && <select aria-label="Turno da escala" value={turnoTipo} onChange={e => setTurnoTipo(e.target.value as 'MATUTINO' | 'VESPERTINO')} className="border rounded px-2 py-1 bg-background text-xs"><option value="MATUTINO">Matutino</option><option value="VESPERTINO">Vespertino</option></select>}
-          <span className="text-xs text-muted-foreground">Somente o carro substituido e salvo para esta data. A programacao fixa permanece intacta.</span>
-        </div>
+        </div>}
         <AlterarCarroProgramadoView
           key={`${dailyContextKey}:${dailyEditEpoch}`}
+          dateControl={<div className="inline-flex h-9 shrink-0 overflow-hidden rounded-full border border-gray-200 bg-gray-50 shadow-2xs dark:border-slate-700 dark:bg-slate-900 print:hidden" style={{ width: 240, minWidth: 240 }}>
+            <div className="relative flex min-w-0 flex-1 items-center gap-2 pl-3.5 pr-2">
+              <Calendar className="h-3.5 w-3.5 shrink-0 text-gray-500" />
+              <span className="text-xs font-mono font-bold text-gray-900 dark:text-white">{formatarDataBr(dataOperacao)}</span>
+              <input type="date" aria-label="Data da escala" value={dataOperacao}
+                onChange={e => { if (e.target.value) setDataOperacao(e.target.value); }}
+                onClick={e => { try { e.currentTarget.showPicker(); } catch {} }}
+                className="absolute inset-0 h-full w-full cursor-pointer opacity-0 focus-visible:opacity-100 focus-visible:bg-background focus-visible:px-3" />
+            </div>
+            <div className="flex shrink-0 items-center py-2">
+              <button type="button" onClick={() => setDataOperacao(getHojeLocal())} title="Voltar para a data de hoje"
+                className="h-full whitespace-nowrap border-l border-gray-200 px-3 text-[11px] font-semibold text-emerald-700 hover:underline dark:border-slate-700 dark:text-emerald-400">Hoje</button>
+            </div>
+          </div>}
           onEditingChange={(key, dirty) => {
             if (dirty) { dailyDirtyFields.current.add(key); ++dailyReadSequence.current; ++scaleReadSequence.current; }
             else dailyDirtyFields.current.delete(key);

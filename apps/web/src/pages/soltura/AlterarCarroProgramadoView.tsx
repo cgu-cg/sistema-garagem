@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { Search, Plus, AlertTriangle, Check, Loader2, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -8,6 +8,7 @@ import type { FixedScaleRow } from '@/lib/dailySchedule';
 import type { CardMutation, DailyEscala, ScaleCard, ScaleCardItem } from '@/lib/sharedEscala';
 
 interface Props {
+  dateControl?: ReactNode;
   readOnly?: boolean; readOnlyReason?: string;
   onEditingChange?: (key: string, dirty: boolean) => void;
   garagem: 'VCG' | 'VCM'; escalaTipo: 'SEG_SEX' | 'SABADO' | 'DOM_FER'; schedules: FixedScaleRow[];
@@ -33,7 +34,7 @@ function optionsFor(state: DailyEscala | null, ownKey: string) {
   return state?.frota.filter(p => !blocked(state, p) && !state.ocupacoes.some(o => o.prefixo === p && o.chave !== ownKey)) ?? [];
 }
 
-export function AlterarCarroProgramadoView({ readOnly = true, readOnlyReason, onEditingChange, garagem, escalaTipo,
+export function AlterarCarroProgramadoView({ dateControl, readOnly = true, readOnlyReason, onEditingChange, garagem, escalaTipo,
   schedules, official, onSaveSubstitution, onSaveCard, onSelectGaragem, onSelectEscalaTipo }: Props) {
   const [search, setSearch] = useState(''), [extended, setExtended] = useState(false);
   const [modal, setModal] = useState<{ card: ScaleCard; item?: ScaleCardItem } | null>(null);
@@ -83,9 +84,10 @@ export function AlterarCarroProgramadoView({ readOnly = true, readOnlyReason, on
   return <div className="space-y-4 pb-12 text-foreground">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="relative"><Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Pesquisar uma linha..." className="h-10 rounded-2xl border border-border bg-card pl-9 pr-3 text-sm" /></div>
-      <div className="flex gap-2 text-xs">
-        {onSelectGaragem ? <div className="flex gap-1 rounded-full border p-1">{(['VCG', 'VCM'] as const).map(g => <button key={g} type="button" onClick={() => onSelectGaragem(g)} className={cn('rounded-full px-3 py-1', garagem === g && 'bg-[#164E3A] text-white')}>{g}</button>)}</div> : <span className="rounded-full bg-[#164E3A] px-3 py-2 text-white">Garagem {garagem}</span>}
-        <div className="flex gap-1 rounded-full border p-1">{(['SEG_SEX', 'SABADO', 'DOM_FER'] as const).map(t => <button key={t} type="button" onClick={() => onSelectEscalaTipo?.(t)} className={cn('rounded-full px-3 py-1', escalaTipo === t && 'bg-muted font-semibold')}>{t === 'SEG_SEX' ? 'Seg-Sex' : t === 'SABADO' ? 'Sabado' : 'Dom/Fer'}</button>)}</div>
+      <div className="flex max-w-full flex-wrap items-center justify-end gap-3 text-xs">
+        {dateControl}
+        {onSelectGaragem ? <div className="flex gap-1 rounded-full border p-1">{(['VCG', 'VCM'] as const).map(g => <button key={g} type="button" onClick={() => onSelectGaragem(g)} className={cn('rounded-full px-3 py-1', garagem === g && 'bg-[#164E3A] text-white')}>{g}</button>)}</div> : null}
+        <div className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-muted/50 p-1">{(['SEG_SEX', 'SABADO', 'DOM_FER'] as const).map(t => <button key={t} type="button" onClick={() => onSelectEscalaTipo?.(t)} aria-pressed={escalaTipo === t} className={cn('shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-[11px] leading-none transition-colors', escalaTipo === t ? 'bg-card font-semibold text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground')}>{t === 'SEG_SEX' ? 'Seg-Sex' : t === 'SABADO' ? 'Sabado' : 'Dom/Fer'}</button>)}</div>
       </div>
     </div>
     {readOnly && <p role="status" className="text-sm text-muted-foreground">{readOnlyReason}</p>}

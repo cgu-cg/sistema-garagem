@@ -50,7 +50,7 @@ test('React mostra CI do dia seguinte, Reserva e carro fixo bloqueado em vermelh
 });
 test('React nao mostra seletor de outra garagem sem autorizacao e so sugere reserva livre', () => {
   const html = render(false);
-  assert.match(html, /Garagem VCG/); assert.doesNotMatch(html, />VCM<\/button>/);
+  assert.doesNotMatch(html, />Garagem VCG<\/span>/); assert.doesNotMatch(html, />VCM<\/button>/);
   assert.match(html, /<option value="5001"/);
   assert.doesNotMatch(html, /<option value="5002"/);
   assert.doesNotMatch(html, new RegExp('<option value="' + rows[0].carroProgramado + '"'));

@@ -1300,18 +1300,15 @@ export function ManutencaoPage() {
             </div>
           </div>
 
-          {/* Busca Global em Pílula com atalho Ctrl+K */}
+          {/* Busca por prefixo ou defeito */}
           <div className="relative w-full sm:w-80">
             <Search className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
             <Input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Buscar prefixo ou defeito..."
-              className="h-9 pl-9 pr-14 text-xs rounded-full bg-gray-50 dark:bg-slate-900 border-gray-200 dark:border-slate-700 shadow-2xs"
+              className="h-9 pl-9 pr-3 text-xs rounded-full bg-gray-50 dark:bg-slate-900 border-gray-200 dark:border-slate-700 shadow-2xs"
             />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono text-gray-400 bg-gray-200 dark:bg-slate-800 px-1.5 py-0.5 rounded-sm">
-              Ctrl+K
-            </span>
           </div>
 
         </div>
