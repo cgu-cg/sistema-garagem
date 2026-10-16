@@ -20,13 +20,13 @@ function loadView() {
     require.extensions['.tsx'] = (m: any, f: string) => m._compile(ts.transpileModule(readFileSync(f, 'utf8'), {
       fileName: f, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
     }).outputText, f);
-    return require('../../web/src/pages/soltura/AlterarCarroProgramadoView').AlterarCarroProgramadoView;
+    return require('../../web/src/pages/soltura/AlterarCarroProgramadoView');
   } finally {
     (Module as any)._resolveFilename = resolver;
     if (oldTSX) require.extensions['.tsx'] = oldTSX; else delete require.extensions['.tsx'];
   }
 }
-const View = loadView();
+const { AlterarCarroProgramadoView: View, pickerOptions } = loadView();
 const contexto = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'MATUTINO', dataOperacao: '2026-10-14' } as const;
 const rows = fixedScheduleRows(contexto).slice(0, 2);
 const official: DailyEscala = { contexto, revisao: 0, itens: [], cardsOrigem: 'salvo', omitidosPadrao: 0,
@@ -81,4 +81,27 @@ test('React nao mostra confirmacao valida para carro que passou a estar bloquead
   assert.doesNotMatch(html, /bg-emerald-100 hover:bg-emerald-200\/70/);
   assert.doesNotMatch(html, />Pendente</);
   assert.doesNotMatch(html, /lucide-check-check/);
+});
+
+test('React agrupa terminais e mostra mais no Rabicho sem cadastro de posicoes', () => {
+  const html = render(false, { official: { ...official, cards: [
+    ...official.cards,
+    { id: 'TERMINAL_0', titulo: 'TERMINAL GENERAL OSORIO', modo: 'unico', itens: [{ id: 't1', prefixo: '' }] },
+    { id: 'RABICHO', titulo: 'RABICHO', modo: 'rabicho', itens: [{ id: 'r1', linha: '470', tabela: '1', prefixo: '' }] },
+  ] } });
+  assert.match(html, /RESERVA TERMINAL/);
+  assert.match(html, /grid-cols-2/);
+  assert.match(html, /grid-cols-3/);
+  assert.doesNotMatch(html, /aria-label="Adicionar em RABICHO"/);
+  assert.match(html, /aria-label="Definir carro da linha 470 tabela 1"/);
+});
+
+test('seletores ocultam carros efetivos das linhas, inclusive da propria linha, e liberam fixo substituido', () => {
+  const fixed = rows[0].carroProgramado;
+  for (const ownKey of ['linha:' + rows[0].id, 'card:AZUL:1', 'card:RABICHO:1']) {
+    assert.ok(!pickerOptions(official, ownKey).some((o: any) => o.prefixo === fixed));
+    const replaced = { ...official, bloqueados: [], ocupacoes: [{ prefixo: '5001', chave: 'linha:' + rows[0].id, local: 'Linha' }] };
+    assert.ok(pickerOptions(replaced, ownKey).some((o: any) => o.prefixo === fixed && !o.unavailable));
+    assert.ok(!pickerOptions(replaced, ownKey).some((o: any) => o.prefixo === '5001'));
+  }
 });

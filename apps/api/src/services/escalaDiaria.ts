@@ -112,6 +112,7 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
     } else {
       const card = cards.find(card => card.id === c.card);
       if (!card) throw new MvpError(400, 'Card desconhecido.');
+      if (card.modo === 'rabicho' && c.operacao === 'adicionar') throw new MvpError(400, 'As linhas e tabelas do Rabicho sao fixas. Defina apenas o carro.');
       const item = card.itens.find(i => i.id === c.itemId);
       if (c.operacao === 'remover') {
         if (!item) throw new MvpError(409, 'Posicao ja removida. Recarregue.');
@@ -123,7 +124,6 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
           [...source.bloqueados, ...portaria.filter(p => !(card.id === 'PORTARIA' && item?.prefixo === p))], used);
         if (c.operacao === 'definir' && item) item.prefixo = c.prefixo;
         else if (card.modo === 'lista' && c.prefixo) card.itens.push({ id: randomUUID(), prefixo: c.prefixo });
-        else if (card.modo === 'rabicho' && c.linha && c.tabela) card.itens.push({ id: randomUUID(), prefixo: c.prefixo, linha: c.linha, tabela: c.tabela });
         else throw new MvpError(400, 'Informe os dados da posicao.');
       }
     }

@@ -186,7 +186,7 @@ test('bloqueado nao entra em linha nem em qualquer card de veiculos', async () =
   const state = await readEscalaDiaria(f.db, contexto, 1);
   const terminal = state.cards.find(c => c.modo === 'unico')!;
   await assert.rejects(saveEscalaDiaria(f.db, 1, { ...cardCommand(0, '5001', terminal.id), operacao: 'definir', itemId: terminal.itens[0].id }), (e: any) => /bloqueado/.test(e.message));
-  await assert.rejects(saveEscalaDiaria(f.db, 1, { ...cardCommand(0, '5001', 'RABICHO'), linha: '470', tabela: '9' }), (e: any) => /bloqueado/.test(e.message));
+  await assert.rejects(saveEscalaDiaria(f.db, 1, { ...cardCommand(0, '5001', 'RABICHO'), operacao: 'definir', itemId: state.cards.find(c => c.id === 'RABICHO')!.itens[0].id }), (e: any) => /bloqueado/.test(e.message));
   assert.equal(f.records.size, 0);
 });
 test('duplicidade entre linha e cards ou entre cards e recusada no backend', async () => {
@@ -313,4 +313,18 @@ test('falha de gravacao nao registra confirmacao de outro carro nem altera confi
   await assert.rejects(saveEscalaDiaria(f.db, 1, command(1, '5002')));
   const payload = JSON.parse([...f.records.values()][0].conteudo);
   assert.deepEqual(payload.confirmacoes, [{ id: original.id, prefixo: '5001' }]);
+});
+
+test('Rabicho permite definir carro em posicao existente mas nao criar linha ou tabela', async () => {
+  const f = fixture();
+  const state = await readEscalaDiaria(f.db, contexto, 1);
+  const card = state.cards.find(c => c.id === 'RABICHO')!;
+  await assert.rejects(saveEscalaDiaria(f.db, 1, { ...cardCommand(0, '5001', 'RABICHO'), linha: '999', tabela: '99' }), (e: any) => e.status === 400 && /fixas/.test(e.message));
+  assert.equal(f.records.size, 0);
+  const saved = await saveEscalaDiaria(f.db, 1, { ...cardCommand(0, '5001', 'RABICHO'), operacao: 'definir', itemId: card.itens[0].id });
+  const updated = saved.cards.find(c => c.id === 'RABICHO')!;
+  assert.equal(updated.itens.length, card.itens.length);
+  assert.equal(updated.itens[0].linha, card.itens[0].linha);
+  assert.equal(updated.itens[0].tabela, card.itens[0].tabela);
+  assert.equal(updated.itens[0].prefixo, '5001');
 });

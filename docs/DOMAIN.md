@@ -702,3 +702,10 @@ recarga, mas nao e inferida de registros antigos sem confirmacao explicita,
 nem permanece valida se o carro efetivo ficar bloqueado/duplicado/fora da frota.
 Esta confirmacao continua sendo da Escala, sem registrar uma Soltura.
 Limites e verificacoes em [SOLTURA-ESCALA-SEGURANCA.md](SOLTURA-ESCALA-SEGURANCA.md).
+
+### Rabicho da Escala - ajuste autorizado em 15/10/2026
+
+A interface e a API nao permitem criar novas linhas/tabelas no Rabicho.
+As posicoes existentes permanecem, permitindo definir ou retirar apenas o carro.
+O botao de posicao vazia usa mais (+); a retirada continua sem excluir a posicao.
+O agrupamento visual dos terminais preserva os terminais e horarios cadastrados.

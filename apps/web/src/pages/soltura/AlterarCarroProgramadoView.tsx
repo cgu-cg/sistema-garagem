@@ -1,6 +1,6 @@
 import { ScaleVehiclePicker } from './ScaleVehiclePicker';
 import { useState, useEffect, useRef, type ReactNode } from 'react';
-import { Search, Plus, Bus, AlertTriangle, Check, Loader2, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, Plus, MapPin, Bus, AlertTriangle, Check, Loader2, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
@@ -31,20 +31,20 @@ function allocationError(state: DailyEscala | null, prefixo: string, ownKey: str
   const used = state.ocupacoes.find(o => o.prefixo === prefixo && o.chave !== ownKey);
   return used ? 'Carro ' + prefixo + ' ja utilizado em ' + used.local + '.' : '';
 }
-function pickerOptions(state: DailyEscala | null, ownKey: string) {
-  return state?.frota.map(prefixo => ({ prefixo, blocked: blocked(state, prefixo), unavailable: allocationError(state, prefixo, ownKey) })) ?? [];
+export function pickerOptions(state: DailyEscala | null, ownKey: string) {
+  return state?.frota.filter(prefixo => !state.ocupacoes.some(o => o.prefixo === prefixo && o.chave.startsWith('linha:'))).map(prefixo => ({ prefixo, blocked: blocked(state, prefixo), unavailable: allocationError(state, prefixo, ownKey) })) ?? [];
 }
 
 export function AlterarCarroProgramadoView({ dateControl, readOnly = true, readOnlyReason, onEditingChange, garagem, escalaTipo,
   schedules, official, onSaveSubstitution, onSaveCard, onSelectGaragem, onSelectEscalaTipo }: Props) {
   const [search, setSearch] = useState(''), [extended, setExtended] = useState(false);
   const [modal, setModal] = useState<{ card: ScaleCard; item?: ScaleCardItem } | null>(null);
-  const [prefixo, setPrefixo] = useState(''), [linha, setLinha] = useState(''), [tabela, setTabela] = useState('');
+  const [prefixo, setPrefixo] = useState('');
   const [saving, setSaving] = useState(false); const pending = useRef(false);
   const drafts = useRef(new Map<string, string>());
   const open = (card: ScaleCard, item?: ScaleCardItem) => {
     if (readOnly) return;
-    setModal({ card, item }); setPrefixo(item?.prefixo ?? ''); setLinha(''); setTabela(''); onEditingChange?.('modal-card', true);
+    setModal({ card, item }); setPrefixo(item?.prefixo ?? ''); onEditingChange?.('modal-card', true);
   };
   const close = () => { if (pending.current) return; setModal(null); onEditingChange?.('modal-card', false); };
   const mutate = async (mutation: CardMutation) => {
@@ -57,24 +57,24 @@ export function AlterarCarroProgramadoView({ dateControl, readOnly = true, readO
     const p = prefixo.trim(), ownKey = modal.item ? 'card:' + modal.card.id + ':' + modal.item.id : '';
     if (p) { const error = allocationError(official, p, ownKey); if (error) { toast.error(error); return; } }
     if (!p && modal.card.modo === 'lista') { toast.error('Informe o carro.'); return; }
-    if (modal.card.modo === 'rabicho' && !modal.item && (!linha.trim() || !tabela.trim())) { toast.error('Informe linha e tabela.'); return; }
     if (await mutate({ card: modal.card.id, operacao: modal.item ? 'definir' : 'adicionar', prefixo: p,
-      itemId: modal.item?.id, linha: linha.trim() || undefined, tabela: tabela.trim() || undefined })) {
+      itemId: modal.item?.id })) {
       setModal(null); onEditingChange?.('modal-card', false); toast.success('Card salvo para esta data.');
     }
   };
   const filtered = schedules.filter(s => [s.linha, s.tabela, s.carroProgramado, s.carroSubstituido ?? ''].some(v => v.toLowerCase().includes(search.trim().toLowerCase())));
   const garageCards = official?.cards.filter(c => ['AZUL', 'VERMELHO', 'MICRO'].includes(c.id)) ?? [];
-  const otherCards = official?.cards.filter(c => !['AZUL', 'VERMELHO', 'MICRO'].includes(c.id)) ?? [];
+  const otherCards = official?.cards.filter(c => !['AZUL', 'VERMELHO', 'MICRO'].includes(c.id) && !c.id.startsWith('TERMINAL_')) ?? [];
+  const terminalCards = official?.cards.filter(c => c.id.startsWith('TERMINAL_')) ?? [];
   const renderCard = (card: ScaleCard) => (
-    <div key={card.id} className={surface}>
+    <div key={card.id} className={cn(surface, 'min-w-0', ['AZUL', 'VERMELHO', 'MICRO'].includes(card.id) && 'p-2')}>
       <div className="flex items-center justify-between border-b border-border pb-2">
         <span className={cn('font-bold text-[11px] uppercase tracking-wider', card.id === 'AZUL' && 'text-sky-600', card.id === 'VERMELHO' && 'text-rose-600', card.id === 'MICRO' && 'text-amber-600')}>{card.titulo} ({card.itens.filter(i => i.prefixo).length})</span>
-        <button type="button" disabled={readOnly || saving} title={'Adicionar em ' + card.titulo} aria-label={'Adicionar em ' + card.titulo}
-          onClick={() => open(card, card.modo === 'unico' ? card.itens[0] : undefined)} className="h-6 w-6 rounded bg-muted inline-flex items-center justify-center disabled:opacity-40"><Plus className="h-3 w-3" /></button>
+        {card.modo !== 'rabicho' && <button type="button" disabled={readOnly || saving} title={'Adicionar em ' + card.titulo} aria-label={'Adicionar em ' + card.titulo}
+          onClick={() => open(card, card.modo === 'unico' ? card.itens[0] : undefined)} className="h-6 w-6 rounded bg-muted inline-flex items-center justify-center disabled:opacity-40"><Plus className="h-3 w-3" /></button>}
       </div>
       {card.modo === 'rabicho' ? <table className="w-full text-xs font-mono"><thead><tr className="text-muted-foreground"><th className="text-left">Linha</th><th>Tab</th><th>Carro</th></tr></thead>
-        <tbody>{card.itens.map(i => <tr key={i.id}><td className="py-2">{i.linha}</td><td className="text-center">{i.tabela}</td><td className="text-right"><button disabled={readOnly || saving} type="button" onClick={() => open(card, i)} className={cn('border rounded px-3 py-1', official && i.prefixo && allocationError(official, i.prefixo, 'card:' + card.id + ':' + i.id) && 'text-rose-600 border-rose-500')}>{i.prefixo || '\u2014'}</button></td></tr>)}</tbody></table>
+        <tbody>{card.itens.map(i => <tr key={i.id}><td className="py-2">{i.linha}</td><td className="text-center">{i.tabela}</td><td className="text-right"><button disabled={readOnly || saving} type="button" aria-label={'Definir carro da linha ' + i.linha + ' tabela ' + i.tabela} onClick={() => open(card, i)} className={cn('border rounded px-3 py-1', official && i.prefixo && allocationError(official, i.prefixo, 'card:' + card.id + ':' + i.id) && 'text-rose-600 border-rose-500')}>{i.prefixo || <Plus className="h-3 w-3" />}</button></td></tr>)}</tbody></table>
         : <div className="flex flex-wrap gap-1.5 text-xs font-mono">{card.itens.filter(i => i.prefixo).map(i => <span key={i.id} className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 bg-muted/30', official && allocationError(official, i.prefixo, 'card:' + card.id + ':' + i.id) && 'text-rose-600 border-rose-500')}>
           {i.prefixo}{i.horario && <span className="text-muted-foreground"> {i.horario}</span>}
           <button type="button" disabled={readOnly || saving} aria-label={'Retirar ' + i.prefixo + ' de ' + card.titulo} onClick={() => void mutate({ card: card.id, operacao: 'remover', prefixo: '', itemId: i.id })}><X className="h-3 w-3" /></button>
@@ -101,11 +101,19 @@ export function AlterarCarroProgramadoView({ dateControl, readOnly = true, readO
         <div className="p-2"><Button type="button" variant="outline" className="w-full text-xs" onClick={() => setExtended(v => !v)}>{extended ? <ChevronUp className="h-3 w-3 mr-2" /> : <ChevronDown className="h-3 w-3 mr-2" />}{extended ? 'Recolher lista' : 'Estender toda a lista'} ({filtered.length} horarios)</Button></div>
       </div>
       <div className="lg:col-span-3 space-y-4">
-        <div className={surface}><h3 className="text-center text-xs font-bold border-b pb-2">GARAGEM {garagem}</h3>{garageCards.map(renderCard)}</div>
+        <div className={surface}><h3 className="text-center text-xs font-bold border-b pb-2">GARAGEM {garagem}</h3><div className="grid grid-cols-3 gap-2">{garageCards.map(renderCard)}</div></div>
         <div className={cn(surface, 'border-rose-300 bg-rose-50/30 dark:bg-rose-950/10')}><h3 className="text-xs font-bold text-rose-600 flex items-center gap-2"><AlertTriangle className="h-4 w-4" /> BLOQUEADOS CI {official?.ciData ?? ''}</h3>
           <div className="flex flex-wrap gap-1 text-xs font-mono">{official?.bloqueados.map(p => <span key={p} className="rounded-full border border-rose-300 px-2 py-0.5 text-rose-600">{p}</span>)}</div>
           <p className="text-xs text-muted-foreground">{official ? official.bloqueados.length + ' carros bloqueados nesta CI e garagem.' : 'Consulta oficial indisponivel.'}</p>
         </div>
+        {terminalCards.length > 0 && <div className={surface}>
+          <div className="flex items-center justify-between gap-2"><h3 className="flex items-center gap-1.5 text-xs font-bold"><MapPin className="h-3.5 w-3.5 text-emerald-700" />RESERVA TERMINAL</h3><span className="text-[10px] text-muted-foreground">Garagem {garagem}</span></div>
+          <div className="grid grid-cols-2 gap-2">{terminalCards.map(card => <div key={card.id} className="min-w-0 space-y-2 rounded-xl border border-border bg-muted/20 p-2.5">
+            <div className="flex items-start justify-between gap-1"><h4 className="text-[11px] font-semibold">{card.titulo.replace(/^TERMINAL /, 'Term. ')}</h4><button type="button" aria-label={'Definir carro em ' + card.titulo} disabled={readOnly || saving} onClick={() => open(card, card.itens[0])} className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-emerald-300 bg-emerald-50 text-emerald-700 disabled:opacity-40 dark:bg-emerald-950"><Plus className="h-3 w-3" /></button></div>
+            {card.itens.filter(i => i.prefixo).map(i => <div key={i.id} className={cn('flex flex-wrap items-center gap-1 text-[10px] font-mono', official && allocationError(official, i.prefixo, 'card:' + card.id + ':' + i.id) && 'text-rose-600')}><span>{i.prefixo} {i.horario}</span><button type="button" disabled={readOnly || saving} aria-label={'Retirar ' + i.prefixo + ' de ' + card.titulo} onClick={() => void mutate({ card: card.id, operacao: 'remover', prefixo: '', itemId: i.id })}><X className="h-3 w-3" /></button></div>)}
+            {card.itens.every(i => !i.prefixo) && <p className="text-[10px] italic text-muted-foreground">Sem carros</p>}
+          </div>)}</div>
+        </div>}
         {otherCards.map(renderCard)}
         <div className={surface}><h3 className="font-bold text-xs border-b pb-2">RESERVA ({official?.reserva.length ?? 0})</h3>
           <div className="flex flex-wrap gap-1.5 text-xs font-mono">{official?.reserva.map(p => <span key={p} className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-emerald-800 dark:bg-emerald-950/20 dark:text-emerald-300">{p}</span>)}</div>
@@ -119,7 +127,6 @@ export function AlterarCarroProgramadoView({ dateControl, readOnly = true, readO
       </div>
     </div>
     <Dialog open={Boolean(modal)} onOpenChange={open => { if (!open) close(); }}><DialogContent className="sm:max-w-md rounded-2xl border-border bg-card p-5 shadow-2xl"><DialogHeader className="space-y-1.5 text-left"><DialogTitle className="flex items-center gap-2 pr-6 text-base font-bold"><Plus className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />{modal?.card.titulo}</DialogTitle><DialogDescription className="text-xs">Selecione o veiculo da garagem ativa para esta data da escala.</DialogDescription></DialogHeader>
-      {modal?.card.modo === 'rabicho' && !modal.item && <div className="flex gap-2"><input disabled={saving} aria-label="Linha" placeholder="Linha" value={linha} onChange={e => setLinha(e.target.value)} className="w-1/2 rounded border bg-background p-2" /><input disabled={saving} aria-label="Tabela" placeholder="Tabela" value={tabela} onChange={e => setTabela(e.target.value)} className="w-1/2 rounded border bg-background p-2" /></div>}
       <div className="space-y-2"><div className="flex items-center justify-between gap-2"><span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase text-muted-foreground"><Bus className="h-3 w-3" />Prefixo do carro {modal?.card.modo !== 'unico' && <span className="text-rose-500">*</span>}</span><span className="text-[10px] text-muted-foreground">{official?.frota.length ?? 0} veiculos da Garagem {garagem}</span></div><ScaleVehiclePicker placeholder="Carro..." className="h-10 rounded-xl border-border text-left focus:outline-none focus:ring-2 focus:ring-emerald-700/30" label="Carro do card" value={prefixo} onChange={setPrefixo} garage={garagem} disabled={saving}
         options={pickerOptions(official, modal?.item ? 'card:' + modal.card.id + ':' + modal.item.id : '')} onConfirm={() => void saveModal()} /></div>
       <div className="flex items-center justify-between gap-2 border-t border-border pt-3"><Button type="button" variant="ghost" className="rounded-xl text-xs" disabled={saving} onClick={close}>Cancelar</Button><Button type="button" className="rounded-xl bg-[#164E3A] text-xs text-white hover:bg-[#113C2D]" disabled={saving || readOnly} onClick={() => void saveModal()}>{saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1.5 h-3.5 w-3.5" />}Salvar</Button></div>

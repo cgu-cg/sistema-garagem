@@ -1,3 +1,4 @@
+import { startFleetColorJob } from './services/fleetColorJob';
 import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
@@ -75,4 +76,5 @@ attachC4Realtime(httpServer, prisma, jwtSecret);
 httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`Sistema Garagem rodando em http://0.0.0.0:${PORT}`);
   startC4Scheduler(prisma);
+  startFleetColorJob();
 });
