@@ -18,6 +18,8 @@ export interface ScaleCardItem { id: string; prefixo: string; linha?: string; ta
 export interface ScaleCard { id: string; titulo: string; modo: 'lista' | 'unico' | 'rabicho'; itens: ScaleCardItem[] }
 export interface CardMutation { card: string; operacao: 'adicionar' | 'remover' | 'definir'; prefixo: string; itemId?: string; linha?: string; tabela?: string }
 export interface DailyEscala { contexto: EscalaContext & { dataOperacao: string }; revisao: number;
+  reservaPorCor?: { updatedAt: string | null; grupos: { id: string; titulo: string; prefixos: string[] }[] };
+  ciAvisos?: { prefixo: string; categoria: 'PREVENTIVA' | 'OFICINA' | 'REFORCO'; subTipo: string | null; horario: string | null; tipoPosicao: string | null; ordemPosicao: number | null }[];
   confirmadas: string[];
   itens: { id: string; carroSubstituido: string }[]; cards: ScaleCard[]; frota: string[]; bloqueados: string[]; reserva: string[];
   ocupacoes: { prefixo: string; local: string; chave: string }[]; ciData: string; cardsOrigem: 'padrao' | 'salvo'; omitidosPadrao: number }
@@ -26,6 +28,11 @@ const dailyResponseSchema = z.object({
   contexto: z.object({ garagem: z.enum(['VCG', 'VCM']), escalaTipo: z.enum(['SEG_SEX', 'SABADO', 'DOM_FER']),
     turno: z.enum(['MATUTINO', 'VESPERTINO', 'PADRAO']), dataOperacao: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).strict(),
   revisao: z.number().int().nonnegative(),
+  reservaPorCor: z.object({ updatedAt: z.string().datetime().nullable(), grupos: z.array(z.object({
+    id: z.enum(['AZUL', 'VERMELHO', 'MICRO', 'VERMELHO_AZUL', 'PRATA', 'OUTRO']), titulo: z.string(), prefixos: z.array(prefixSchema),
+  }).strict()).length(6) }).strict().optional(),
+  ciAvisos: z.array(z.object({ prefixo: prefixSchema, categoria: z.enum(['PREVENTIVA', 'OFICINA', 'REFORCO']), subTipo: z.string().nullable(),
+    horario: z.string().nullable(), tipoPosicao: z.string().nullable(), ordemPosicao: z.number().int().positive().nullable() }).strict()).optional(),
   confirmadas: z.array(z.string().min(1)).max(2000).default([]),
   itens: z.array(z.object({ id: z.string().min(1), carroSubstituido: z.string().regex(/^\d{1,10}$/) }).strict()).max(2000),
   cards: z.array(z.object({ id: z.string(), titulo: z.string(), modo: z.enum(['lista', 'unico', 'rabicho']), itens: z.array(z.object({ id: z.string(),
@@ -45,6 +52,15 @@ export function validateDailyEscala(value: unknown, contexto: DailyEscala['conte
       || new Set(parsed.confirmadas).size !== parsed.confirmadas.length || parsed.confirmadas.some(id => !ids.has(id))
       || [...parsed.reserva, ...parsed.bloqueados].some(p => !parsed.frota.includes(p)))
     throw new Error('Resposta de substituicoes inconsistente com o contexto solicitado.');
+  if (parsed.ciAvisos?.some(i => !parsed.frota.includes(i.prefixo))) throw new Error('Aviso da CI fora da frota solicitada.');
+  if (parsed.reservaPorCor) {
+    const grouped = parsed.reservaPorCor.grupos.flatMap(g => g.prefixos);
+    if (new Set(parsed.reservaPorCor.grupos.map(g => g.id)).size !== 6 || new Set(grouped).size !== grouped.length
+      || grouped.some(p => !parsed.reserva.includes(p))
+      || (parsed.reservaPorCor.updatedAt !== null && grouped.length !== parsed.reserva.length)
+      || (parsed.reservaPorCor.updatedAt === null && grouped.length > 0))
+      throw new Error('Reserva por cor inconsistente.');
+  }
   return parsed;
 }
 export const loadDailyEscala = async (contexto: DailyEscala['contexto']) => validateDailyEscala(

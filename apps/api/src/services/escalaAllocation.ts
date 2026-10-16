@@ -1,3 +1,4 @@
+import { isColorReserveCard } from './scaleReserveColors';
 import { z } from 'zod';
 import defaults from '../data/escalaCards.json';
 import { MvpError } from './mvpTemporal';
@@ -40,7 +41,7 @@ export function occupations(lines: FixedLine[], substitutions: Substitution[], c
   const replacements = new Map(substitutions.map(s => [s.id, s.carroSubstituido]));
   const result: Occupation[] = lines.map(l => ({ prefixo: replacements.get(l.id) ?? l.carroProgramado,
     local: `Linha ${l.linha} / Tab ${l.tabela}`, chave: `linha:${l.id}` })).filter(o => /^\d{1,10}$/.test(o.prefixo));
-  for (const card of cards) for (const item of card.itens) if (item.prefixo)
+  for (const card of cards.filter(c => !isColorReserveCard(c.id))) for (const item of card.itens) if (item.prefixo)
     result.push({ prefixo: item.prefixo, local: card.titulo, chave: `card:${card.id}:${item.id}` });
   return result;
 }
@@ -55,6 +56,7 @@ export function defaultAllocations(garage: 'VCG' | 'VCM', frota: string[], block
   const occupied = new Set(occupations(lines, substitutions, []).map(o => o.prefixo));
   let omitted = 0;
   for (const c of cards) {
+    if (isColorReserveCard(c.id)) { c.itens = []; continue; }
     for (const item of c.itens) if (item.prefixo) {
       if (!/^\d{1,10}$/.test(item.prefixo) || !frota.includes(item.prefixo) || blocked.includes(item.prefixo) || occupied.has(item.prefixo)) { item.prefixo = ''; omitted++; }
       else occupied.add(item.prefixo);

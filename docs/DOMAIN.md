@@ -709,3 +709,44 @@ A interface e a API nao permitem criar novas linhas/tabelas no Rabicho.
 As posicoes existentes permanecem, permitindo definir ou retirar apenas o carro.
 O botao de posicao vazia usa mais (+); a retirada continua sem excluir a posicao.
 O agrupamento visual dos terminais preserva os terminais e horarios cadastrados.
+
+### Reserva automatica por cor na Escala - confirmado em 16/10/2026
+
+Por confirmacao explicita, o card Reserva e substituido por seis grupos na
+Garagem: AZUL, VERMELHO, MICRO; VERMELHO/AZUL, PRATA, OUTRO (grade 3x2).
+Eles mostram automaticamente todos os carros livres da frota da garagem
+selecionada, sem inclusao/retirada manual. EXECUTIVO corresponde a MICRO.
+Ausencia de correspondencia, NULL e NAO IDENTIFICADO correspondem a OUTRO.
+A fonte de cor e o cache JSON do SIGSIT; existencia e garagem continuam
+vindo de Veiculos. Nao se consulta SIGSIT durante requisicoes da Escala.
+
+Esta regra prevalece sobre os antigos cards de alocacao AZUL/VERMELHO/MICRO:
+eles deixam de reservar carros ou participar da validacao de ocupacao.
+Registros salvos desses cards permanecem intactos no JSON diario, sem
+backfill, exclusao, migration ou alteracao em GET. A API recusa novas
+mutacoes nesses grupos. Linhas, Portaria, terminais, Rabicho e demais
+cards continuam ocupando carros; bloqueados nao entram na reserva.
+O carro fixo fica disponivel somente depois de substituicao persistida,
+se nao tiver outra ocupacao ou bloqueio. A classificacao usa o ultimo
+cache valido, inclusive ao consultar datas antigas; nao representa uma
+fotografia historica de cores. Sem cache valido, grupos vazios e aviso
+de indisponibilidade, mantendo demais consultas/validacoes da Escala.
+
+### Avisos amarelos da CI na Escala - confirmado em 16/10/2026
+
+Veiculos presentes em PREVENTIVA, OFICINA ou REFORCO na folha CI da data
+selecionada + 1 recebem aviso amarelo informativo. A consulta reutiliza a
+mesma FolhaCI usada para os bloqueios, restrita a garagem e frota oficial.
+O aviso lista todas as ocorrencias, com categoria, subtipo/setor e horario
+ou posicao extra quando persistidos, ao passar o mouse, focar ou clicar.
+Nao cria bloqueio, nao impede confirmacao e nao remove carro da reserva.
+Bloqueados (CI ou Portaria) mantem prioridade vermelha e impedimento vigente.
+Sem inferir subtipo/horario ausente, consultar outra folha, modificar dados
+ou reconstruir fotografias finalizadas. Dados exibidos vem da ultima
+consulta oficial da Escala; nao adiciona transporte realtime nesta tarefa.
+
+Complemento aprovado: no aviso de REFORCO FIXO, quando horarioReforco estiver
+ausente, exibir o horario da posicao fixa correspondente, igual ao mostrado
+na tela da CI (ex.: posicoes 1/2 = 07:15 - A). Horario persistido tem prioridade.
+Esta e somente uma regra de exibicao, sem gravar/completar a folha.
+Extras e posicoes desconhecidas nao recebem horario inferido.

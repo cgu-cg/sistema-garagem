@@ -10,8 +10,8 @@ const baseContext = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'MATUTINO' }
 const contexto = { ...baseContext, dataOperacao: '2026-10-14' };
 const original = fixedSchedule(contexto)[0];
 const fleetRows = [...new Set([...fixedSchedule(contexto).map(i => i.carroProgramado).filter(p => /^\d{1,10}$/.test(p)), '5001', '5002', '5001', '5002', '5003'])].map(prefixo => ({ idCarro: Number(prefixo), prefixo, garagem: 2, garagemNome: 'VCG' }));
-const readEscalaDiaria = (db: any, value: unknown, userId: number | undefined) => readReal(db, value, userId, async () => db.__fleet);
-const saveEscalaDiaria = (db: any, userId: number | undefined, value: unknown) => saveReal(db, userId, value, async () => db.__fleet);
+const readEscalaDiaria = (db: any, value: unknown, userId: number | undefined) => readReal(db, value, userId, async () => db.__fleet, async () => db.__colors ?? null);
+const saveEscalaDiaria = (db: any, userId: number | undefined, value: unknown) => saveReal(db, userId, value, async () => db.__fleet, async () => db.__colors ?? null);
 function fixture() {
   const records = new Map<string, any>();
   let role = 'ADMIN', garagem = 'VCG', fail = false;
@@ -181,7 +181,7 @@ test('carro fixo bloqueado exige substituto livre, sem alterar o JSON', async ()
 test('bloqueado nao entra em linha nem em qualquer card de veiculos', async () => {
   const f = fixture(); f.db.__blocks = ['5001'];
   await assert.rejects(saveEscalaDiaria(f.db, 1, command()), (e: any) => /bloqueado/.test(e.message));
-  for (const card of ['AZUL', 'VERMELHO', 'MICRO', 'PORTARIA', 'LIMPEZA', 'BORRACHARIA', 'PEDIDOS_GARAGEM'])
+  for (const card of ['PORTARIA', 'LIMPEZA', 'BORRACHARIA', 'PEDIDOS_GARAGEM'])
     await assert.rejects(saveEscalaDiaria(f.db, 1, cardCommand(0, '5001', card)), (e: any) => /bloqueado/.test(e.message));
   const state = await readEscalaDiaria(f.db, contexto, 1);
   const terminal = state.cards.find(c => c.modo === 'unico')!;
@@ -193,7 +193,7 @@ test('duplicidade entre linha e cards ou entre cards e recusada no backend', asy
   const f = fixture();
   await assert.rejects(saveEscalaDiaria(f.db, 1, cardCommand(0, original.carroProgramado)), (e: any) => /ja utilizado/.test(e.message));
   await saveEscalaDiaria(f.db, 1, cardCommand());
-  await assert.rejects(saveEscalaDiaria(f.db, 1, cardCommand(1, '5001', 'AZUL')), (e: any) => /ja utilizado/.test(e.message));
+  await assert.rejects(saveEscalaDiaria(f.db, 1, cardCommand(1, '5001', 'BORRACHARIA')), (e: any) => /ja utilizado/.test(e.message));
   await assert.rejects(saveEscalaDiaria(f.db, 1, command(1)), (e: any) => /ja utilizado/.test(e.message));
 });
 test('fixo so pode entrar em card apos ser substituido; restauracao nao pode duplicar', async () => {
@@ -327,4 +327,63 @@ test('Rabicho permite definir carro em posicao existente mas nao criar linha ou 
   assert.equal(updated.itens[0].linha, card.itens[0].linha);
   assert.equal(updated.itens[0].tabela, card.itens[0].tabela);
   assert.equal(updated.itens[0].prefixo, '5001');
+});
+
+test('API retorna reserva automatica sem gravacao e recusa mutacoes nos grupos antigos de cor', async () => {
+  const f = fixture();
+  f.db.__colors = { version: 1, updatedAt: '2026-10-16T15:00:00Z', vehicles: [{ idCarro: '5001', cor: 'AZUL' }] };
+  const state = await readEscalaDiaria(f.db, contexto, 1);
+  assert.ok(state.reservaPorCor.grupos[0].prefixos.includes('5001'));
+  assert.equal(f.records.size, 0);
+  await assert.rejects(saveEscalaDiaria(f.db, 1, cardCommand(0, '5001', 'AZUL')), (e: any) => e.status === 400 && /automatica/.test(e.message));
+  assert.equal(f.records.size, 0);
+  const saved = await saveEscalaDiaria(f.db, 1, command());
+  assert.ok(!saved.reservaPorCor.grupos.flatMap(g => g.prefixos).includes('5001'));
+  assert.deepEqual(validateDailyEscala(saved, contexto), saved);
+});
+
+test('cards manuais antigos de cor sao preservados em GET e em gravacao sem ocupar a reserva', async () => {
+  const f = fixture();
+  const oldCard = { id: 'AZUL', titulo: 'AZUL', modo: 'lista', itens: [{ id: 'legacy', prefixo: '5002' }] };
+  const conteudo = JSON.stringify({ version: 2, itens: [], cards: [oldCard], confirmacoes: [] });
+  f.records.set(JSON.stringify(contexto), { id: 1, revisao: 1, conteudo });
+  const read = await readEscalaDiaria(f.db, contexto, 1);
+  assert.ok(read.reserva.includes('5002'));
+  assert.equal([...f.records.values()][0].conteudo, conteudo);
+  await saveEscalaDiaria(f.db, 1, command(1));
+  assert.deepEqual(JSON.parse([...f.records.values()][0].conteudo).cards, [oldCard]);
+});
+
+test('contrato de reserva por cor recusa grupos duplicados, carros ocupados e cache ausente com cores', async () => {
+  const f = fixture();
+  f.db.__colors = { version: 1, updatedAt: '2026-10-16T15:00:00Z', vehicles: [{ idCarro: '5001', cor: 'AZUL' }] };
+  const response = await readEscalaDiaria(f.db, contexto, 1);
+  const grouped = response.reservaPorCor;
+  assert.throws(() => validateDailyEscala({ ...response, reservaPorCor: { ...grouped, grupos: grouped.grupos.map(() => grouped.grupos[0]) } }, contexto));
+  assert.throws(() => validateDailyEscala({ ...response, reservaPorCor: { ...grouped, updatedAt: null } }, contexto));
+  assert.throws(() => validateDailyEscala({ ...response, reservaPorCor: { ...grouped, grupos: grouped.grupos.map((g,i) => i ? g : { ...g, prefixos: [...g.prefixos, original.carroProgramado] }) } }, contexto));
+});
+
+test('avisos informativos vem da CI D+1 e nao bloqueiam confirmacao nem reserva', async () => {
+  const f = fixture();
+  f.db.folhaCI.findUnique = async ({ where }: any) => {
+    assert.equal(where.garagem_dataFolha.dataFolha.toISOString().slice(0,10), '2026-10-15');
+    return { itens: [
+      { prefixo: '5001', categoria: 'OFICINA', subTipo: 'ELEVADOR' },
+      { prefixo: '5001', categoria: 'PREVENTIVA', subTipo: 'LUBRIFICACAO' },
+      { prefixo: '5002', categoria: 'REFORCO', horarioReforco: '07:15 - A', tipoPosicao: 'FIXO', ordemPosicao: 1 },
+      { prefixo: '1333', categoria: 'OFICINA', subTipo: 'MECANICA' },
+    ] };
+  };
+  const read = await readEscalaDiaria(f.db, contexto, 1);
+  assert.equal(read.ciAvisos.length, 3);
+  assert.equal(read.ciAvisos[0].subTipo, 'ELEVADOR');
+  assert.ok(read.reserva.includes('5001'));
+  assert.ok(!read.bloqueados.includes('5001'));
+  assert.equal(f.records.size, 0);
+  const saved = await saveEscalaDiaria(f.db, 1, command());
+  assert.ok(saved.confirmadas.includes(original.id));
+  assert.equal(saved.ciAvisos.length, 3);
+  assert.deepEqual(validateDailyEscala(saved, contexto), saved);
+  assert.throws(() => validateDailyEscala({ ...saved, ciAvisos: [{ ...saved.ciAvisos[0], prefixo: '1333' }] }, contexto));
 });

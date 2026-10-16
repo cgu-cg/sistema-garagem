@@ -31,6 +31,7 @@ const contexto = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'MATUTINO', dat
 const rows = fixedScheduleRows(contexto).slice(0, 2);
 const official: DailyEscala = { contexto, revisao: 0, itens: [], cardsOrigem: 'salvo', omitidosPadrao: 0,
   confirmadas: [],
+  reservaPorCor: { updatedAt: '2026-10-16T15:00:00Z', grupos: ['AZUL', 'VERMELHO', 'MICRO', 'VERMELHO_AZUL', 'PRATA', 'OUTRO'].map(id => ({ id, titulo: id === 'VERMELHO_AZUL' ? 'VERMELHO/AZUL' : id, prefixos: id === 'AZUL' ? ['5001'] : [] })) },
   ciData: '2026-10-15', frota: [rows[0].carroProgramado, '5001', '5002'], bloqueados: [rows[0].carroProgramado], reserva: ['5001'],
   cards: [{ id: 'LIMPEZA', titulo: 'PEDIDO LIMPEZA', modo: 'lista', itens: [{ id: '1', prefixo: '5002' }] }],
   ocupacoes: [{ prefixo: rows[0].carroProgramado, chave: `linha:${rows[0].id}`, local: 'Linha fixa' }, { prefixo: '5002', chave: 'card:LIMPEZA:1', local: 'Limpeza' }],
@@ -42,7 +43,7 @@ const render = (readOnly: boolean, overrides: Record<string, unknown> = {}) => r
 test('React mostra CI do dia seguinte, Reserva e carro fixo bloqueado em vermelho', () => {
   const html = render(false);
   assert.match(html, /BLOQUEADOS CI 2026-10-15/);
-  assert.match(html, /RESERVA \(1\)/);
+  assert.match(html, /AZUL \(1\)/);
   assert.match(html, /text-rose-600 bg-rose-50/);
   assert.match(html, /esta bloqueado/);
   assert.match(html, /Carro fixo/);
@@ -104,4 +105,36 @@ test('seletores ocultam carros efetivos das linhas, inclusive da propria linha, 
     assert.ok(pickerOptions(replaced, ownKey).some((o: any) => o.prefixo === fixed && !o.unavailable));
     assert.ok(!pickerOptions(replaced, ownKey).some((o: any) => o.prefixo === '5001'));
   }
+});
+
+test('reserva por cor e automatica em seis grupos, sem adicionar/remover ou card duplicado', () => {
+  const html = render(false);
+  for (const title of ['AZUL', 'VERMELHO', 'MICRO', 'PRATA', 'OUTRO']) assert.ok(html.includes(title));
+  assert.doesNotMatch(html, /aria-label="Adicionar em (AZUL|VERMELHO|MICRO)"/);
+  assert.match(html, /class="text-rose-600">VERMELHO\/<\/span><span class="text-sky-600">AZUL \(0\)<\/span>/);
+  assert.doesNotMatch(html, /aria-label="Retirar 5001/);
+  assert.doesNotMatch(html, />RESERVA \(/);
+});
+
+test('carro da CI tem aviso amarelo acessivel sem desabilitar confirmacao', () => {
+  const prefixo = rows[1].carroProgramado;
+  const state = { ...official, frota: [...official.frota, prefixo], ciAvisos: [{ prefixo, categoria: 'OFICINA', subTipo: 'ELEVADOR', horario: null, tipoPosicao: null, ordemPosicao: null }] };
+  const html = render(false, { schedules: [rows[1]], official: state });
+  assert.match(html, /text-amber-500/);
+  assert.ok(html.includes('Ver ocorrencias do carro ' + prefixo + ' na CI 2026-10-15'));
+  assert.match(html, /aria-label="Confirmar linha [^"]+"/);
+  assert.doesNotMatch(html, /aria-label="Confirmar linha [^"]+"[^>]*disabled=""/);
+});
+
+test('bloqueado conserva prioridade vermelha sobre ocorrencia informativa na CI', () => {
+  const prefixo = rows[0].carroProgramado;
+  const html = render(false, { official: { ...official, ciAvisos: [{ prefixo, categoria: 'OFICINA', subTipo: 'ELEVADOR', horario: null, tipoPosicao: null, ordemPosicao: null }] } });
+  assert.match(html, /text-rose-600 bg-rose-50/);
+  assert.ok(!html.includes('Ver ocorrencias do carro ' + prefixo));
+});
+
+test('substituto da CI tambem recebe alerta amarelo sem impedir selecao', () => {
+  const html = render(false, { schedules: [{ ...rows[0], carroSubstituido: '5001' }], official: { ...official, ciAvisos: [{ prefixo: '5001', categoria: 'REFORCO', subTipo: null, horario: '07:15 - A', tipoPosicao: 'FIXO', ordemPosicao: 1 }] } });
+  assert.match(html, /border-amber-400 text-amber-500/);
+  assert.match(html, /Ver ocorrencias do carro 5001 na CI 2026-10-15/);
 });

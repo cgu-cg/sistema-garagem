@@ -36,7 +36,18 @@ export function ScaleVehiclePicker({ value, onChange, onConfirm, options, garage
         <div className="flex gap-1">{['TODAS', 'VCG', 'JTU', 'VSF', 'VCM'].map(c => <button key={c} type="button" aria-pressed={filter === c}
           onClick={() => setFilter(c)} className={cn('rounded-full px-2 py-1 font-semibold', filter === c ? 'bg-foreground text-background' : 'text-muted-foreground')}>{c}</button>)}</div>
       </div>
-      <div id={id} role="listbox" aria-label="Veiculos da garagem" className="max-h-64 overflow-y-auto divide-y divide-border"
+      <div id={id} role="listbox" aria-label="Veiculos da garagem" className="max-h-64 overflow-y-scroll overscroll-contain touch-pan-y divide-y divide-border"
+        ref={node => {
+          if (!node) return;
+          // Listener nativo nao passivo: Dialog pode cancelar o wheel do portal.
+          node.onwheel = event => {
+            if (event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY) || node.scrollHeight <= node.clientHeight) return;
+            const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? node.clientHeight : 1;
+            node.scrollTop += event.deltaY * unit;
+            event.preventDefault();
+            event.stopPropagation();
+          };
+        }}
         onKeyDown={e => {
           if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
           e.preventDefault();

@@ -1,3 +1,7 @@
+import { projectScaleCiNotices, type ScaleCiNotice } from './scaleCiNotices';
+import { groupReserveColors, isColorReserveCard } from './scaleReserveColors';
+import { readColorCache, type FleetColorCache } from './fleetColors';
+import path from 'node:path';
 import type { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -44,6 +48,11 @@ function stored(conteudo: string | undefined, contexto: ReturnType<typeof parseD
   return value;
 }
 export type FleetLoader = () => Promise<{ source: string; data: unknown }>;
+export type ColorLoader = () => Promise<FleetColorCache | null>;
+const loadColorCache: ColorLoader = async () => {
+  try { return await readColorCache(process.env.FLEET_COLORS_CACHE_PATH || path.resolve(__dirname, '../../uploads/.fleet-colors/cache.json')); }
+  catch { return null; }
+};
 const officialFleet: FleetLoader = async () => (await import('./mssql')).queryVeiculosSelect();
 async function ciBlocks(tx: Pick<PrismaClient, 'folhaCI'>, contexto: ReturnType<typeof parseDailyContext>, frota: string[]) {
   const ciData = addDays(contexto.dataOperacao, 1);
@@ -51,11 +60,11 @@ async function ciBlocks(tx: Pick<PrismaClient, 'folhaCI'>, contexto: ReturnType<
   if (!folha) throw new MvpError(503, 'CI de ' + ciData + ' ausente. Nao foi possivel confirmar os bloqueios.');
   const blocks = folha.itens.filter(i => i.categoria === 'BLOQUEADO' && i.statusItem !== 'LIBERADO');
   if (blocks.some(i => !/^\d{1,10}$/.test(i.prefixo))) throw new MvpError(503, 'CI com bloqueado invalido. Alocacoes bloqueadas.');
-  return { ciData, bloqueados: [...new Set(blocks.map(i => i.prefixo))].filter(p => frota.includes(p)) };
+  return { ciData, ciAvisos: projectScaleCiNotices(folha.itens, frota), bloqueados: [...new Set(blocks.map(i => i.prefixo))].filter(p => frota.includes(p)) };
 }
 function project(contexto: ReturnType<typeof parseDailyContext>, revisao: number, itens: z.infer<typeof itemsSchema>, cards: AllocationCard[],
-  frota: string[], source: { ciData: string; bloqueados: string[] }, cardsOrigem: 'padrao' | 'salvo', omitidosPadrao: number,
-  confirmacoes: z.infer<typeof confirmationsSchema>) {
+  frota: string[], source: { ciData: string; bloqueados: string[]; ciAvisos: ScaleCiNotice[] }, cardsOrigem: 'padrao' | 'salvo', omitidosPadrao: number,
+  confirmacoes: z.infer<typeof confirmationsSchema>, colorCache: FleetColorCache | null) {
   const allocation = allocationProjection(fixedSchedule(contexto), itens, cards, frota, source.bloqueados);
   const blocked = [...source.bloqueados, ...(cards.find(c => c.id === 'PORTARIA')?.itens.map(i => i.prefixo) ?? [])];
   const replacements = new Map(itens.map(i => [i.id, i.carroSubstituido]));
@@ -64,27 +73,29 @@ function project(contexto: ReturnType<typeof parseDailyContext>, revisao: number
     return fixed && c.prefixo === (replacements.get(c.id) ?? fixed.carroProgramado) && frota.includes(c.prefixo)
       && !blocked.includes(c.prefixo) && !allocation.ocupacoes.some(o => o.prefixo === c.prefixo && o.chave !== 'linha:' + c.id);
   }).map(c => c.id);
-  return { contexto, revisao, itens, cards, ciData: source.ciData, cardsOrigem, omitidosPadrao,
-    confirmadas, ...allocation };
+  return { contexto, revisao, itens, cards, ciData: source.ciData, ciAvisos: source.ciAvisos, cardsOrigem, omitidosPadrao,
+    confirmadas, ...allocation, reservaPorCor: groupReserveColors(allocation.reserva, colorCache) };
 }
-export async function readEscalaDiaria(db: PrismaClient, value: unknown, userId: number | undefined, loadFleet: FleetLoader = officialFleet) {
+export async function readEscalaDiaria(db: PrismaClient, value: unknown, userId: number | undefined, loadFleet: FleetLoader = officialFleet, loadColors: ColorLoader = loadColorCache) {
   const contexto = parseDailyContext(value);
   await assertC4Read(db, userId, contexto.garagem);
   const frota = officialGarageFleet(await loadFleet(), contexto.garagem);
+  const colorCache = await loadColors();
   return db.$transaction(async tx => {
     const source = await ciBlocks(tx, contexto, frota);
     const record = await tx.escalaDiaria.findUnique({ where: selector(contexto) });
     const state = stored(record?.conteudo, contexto);
     const defaults = defaultAllocations(contexto.garagem, frota, source.bloqueados, fixedSchedule(contexto), state.itens);
     return project(contexto, record?.revisao ?? 0, state.itens, state.cards ?? defaults.cards, frota, source,
-      state.cards ? 'salvo' : 'padrao', state.cards ? 0 : defaults.omitted, state.confirmacoes);
+      state.cards ? 'salvo' : 'padrao', state.cards ? 0 : defaults.omitted, state.confirmacoes, colorCache);
   }, { isolationLevel: 'Serializable' });
 }
-export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefined, value: unknown, loadFleet: FleetLoader = officialFleet) {
+export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefined, value: unknown, loadFleet: FleetLoader = officialFleet, loadColors: ColorLoader = loadColorCache) {
   const c = commandSchema.parse(value), contexto = parseDailyContext(c.contexto);
   const userBefore = userId ? await db.user.findUnique({ where: { id: userId }, select: { role: true, garagem: true } }) : null;
   if (!canWriteDailyScale(userBefore, contexto.garagem)) throw new MvpError(403, 'Edicao exige ADMIN ou Soltura da propria garagem.');
   const frota = officialGarageFleet(await loadFleet(), contexto.garagem), fixed = fixedSchedule(contexto);
+  const colorCache = await loadColors();
   return db.$transaction(async tx => {
     const user = userId ? await tx.user.findUnique({ where: { id: userId }, select: { role: true, garagem: true } }) : null;
     if (!canWriteDailyScale(user, contexto.garagem)) throw new MvpError(403, 'Permissao de edicao revogada.');
@@ -112,6 +123,7 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
     } else {
       const card = cards.find(card => card.id === c.card);
       if (!card) throw new MvpError(400, 'Card desconhecido.');
+      if (isColorReserveCard(card.id)) throw new MvpError(400, 'Reserva por cor e automatica; aloque o carro nas linhas ou demais cards.');
       if (card.modo === 'rabicho' && c.operacao === 'adicionar') throw new MvpError(400, 'As linhas e tabelas do Rabicho sao fixas. Defina apenas o carro.');
       const item = card.itens.find(i => i.id === c.itemId);
       if (c.operacao === 'remover') {
@@ -131,6 +143,6 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
     const data = { revisao: c.revisao + 1, conteudo: JSON.stringify(payload), responsavelId: userId! };
     if (old) await tx.escalaDiaria.update({ where: { id: old.id }, data });
     else await tx.escalaDiaria.create({ data: { ...contexto, ...data } });
-    return project(contexto, data.revisao, itens, cards, frota, source, 'salvo', 0, confirmacoes);
+    return project(contexto, data.revisao, itens, cards, frota, source, 'salvo', 0, confirmacoes, colorCache);
   }, { isolationLevel: 'Serializable' });
 }

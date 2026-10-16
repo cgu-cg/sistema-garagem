@@ -2,7 +2,7 @@
 
 Implementacao local para uso futuro. Nenhuma conexao real, carga inicial ou
 ativacao foi executada pelo agente. Nao altera SQL, schema ou a consulta de
-Veiculos no Bilhetagem. Nao adiciona cores nem filtros na interface/API atual.
+Veiculos no Bilhetagem. A reserva da Escala usa o cache para agrupamento automatico por cor.
 
 Veiculos continua sendo a fonte oficial de existencia e garagem. SIGSITBD.dbo.Frota
 fornece somente idCarro e carroceriaFAIXA, por pool independente, sem JOIN entre
@@ -67,8 +67,7 @@ Nao existe fallback mock. Logs nao incluem erros SQL ou dados de conexao.
 
 Execute o job em apenas uma instancia. Chamadas simultaneas na mesma instancia
 sao serializadas; nao ha lock distribuido entre processos/containers. O cache
-nao substitui historicos ou fotografias oficiais e ainda nao esta integrado aos
-consumidores. Sem cache, a consulta de cores nao informa se a fonte esta atual;
+nao substitui historicos ou fotografias oficiais e esta integrado a reserva por cor da Escala. Sem cache, a consulta de cores nao informa se a fonte esta atual;
 consumidores futuros devem consultar tambem updatedAt e tratar indisponibilidade.
 
 ## Diagnostico seguro
@@ -80,3 +79,13 @@ SIGSIT_SEM_PERMISSAO_SELECT, SIGSIT_TABELA_INEXISTENTE ou
 SIGSIT_BANCO_INACESSIVEL. FROTA_VAZIA_INVALIDA_OU_DUPLICADA indica dados
 incompativeis e CACHE_ERRO_DE_ARQUIVO indica falha de gravacao.
 Nao registrar mensagens SQL brutas nem credenciais para investigar essas falhas.
+
+## Consumidor: reserva da Escala
+
+A API diaria le o cache local (sem consultar SIGSIT) e devolve reservaPorCor
+com updatedAt e seis grupos. O calculo usa somente a reserva livre da
+garagem selecionada, excluindo linhas, bloqueios e demais cards.
+EXECUTIVO vai para MICRO; ausentes, NULL e NAO IDENTIFICADO vao para OUTRO.
+Sem cache valido, updatedAt=null e grupos vazios, com aviso na interface.
+Os antigos cards manuais de cor sao preservados no armazenamento, mas
+nao ocupam carros e nao aceitam novas mutacoes. Sem alteracao de schema.
