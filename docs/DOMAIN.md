@@ -1,5 +1,14 @@
 # Domain model e entendimento operacional atual
 
+## Escala de carros - edicao somente no dia atual (19/10/2026)
+
+Substituicoes, confirmacoes e alocacoes nos cards da escala diaria somente
+podem ser alteradas na data civil atual de America/Campo_Grande, inclusive
+por ADMIN. Dias anteriores e posteriores continuam disponiveis para consulta.
+A API verifica a data antes de carregar integracoes e novamente na transacao,
+antes da gravacao. Esta regra nao acrescenta restricao de horario nem altera
+a programacao fixa ou as regras temporais da CI.
+
 ## Controle de Manutencao - regra vigente confirmada em 19/10/2026
 
 Esta decisao substitui a coexistencia BLOQUEADO + EM MANUTENCAO nas NOVAS

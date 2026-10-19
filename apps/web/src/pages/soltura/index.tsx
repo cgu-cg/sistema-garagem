@@ -175,6 +175,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const { user } = useAuth();
   const isAdmin = user?.role === "ADMIN";
   const dateInputRef = useRef<HTMLInputElement>(null);
+  const scaleDateInputRef = useRef<HTMLInputElement>(null);
 
   // Determinar empresa permitida:
   // Se for ADMIN, permite alternar livremente.
@@ -385,7 +386,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   selectedDailyKey.current = dailyContextKey;
   const dailyReady = Boolean(dailyScale && JSON.stringify(dailyScale.contexto) === dailyContextKey && !dailyError);
   const canConsultDailyScale = canReadScale(user);
-  const canEditDailyScale = canWriteDailyScale(user, garagem);
+  const dailyDateEditable = dataOperacao === operationalContext().today;
+  const canEditDailyScale = canWriteDailyScale(user, garagem) && dailyDateEditable;
   const permanentReady = Boolean(sharedScale && JSON.stringify(sharedScale.contexto) === scaleContextKey && !scaleError);
   const releaseUiAllowed = c4ReleaseAllowed && permanentReady;
   const reloadDailyScale = async () => {
@@ -412,6 +414,9 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   }, [dailyContextKey, viewMode, canConsultDailyScale, user?.id]);
   useEffect(() => { if (viewMode !== 'ALTERAR_CARRO_PROGRAMADO') dailyDirtyFields.current.clear(); }, [viewMode]);
   const persistDailySchedule = async (id: string, prefixo: string) => {
+    if (dataOperacao !== operationalContext().today) {
+      toast.error('Somente a escala de hoje pode ser alterada.'); return false;
+    }
     const base = fixedScheduleToken(scaleContext, id);
     if (!canEditDailyScale || !dailyReady || !dailyScale || dailyWritePending.current || !base) {
       toast.error('Consulte as substituicoes oficiais antes de salvar.'); return false;
@@ -429,6 +434,9 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   };
   const selectedScaleKey = useRef(scaleContextKey);
   const persistDailyCard = async (mutation: CardMutation) => {
+    if (dataOperacao !== operationalContext().today) {
+      toast.error('Somente a escala de hoje pode ser alterada.'); return false;
+    }
     if (!canEditDailyScale || !dailyReady || !dailyScale || dailyWritePending.current) {
       toast.error('Consulte a escala oficial e aguarde a gravacao pendente.'); return false;
     }
@@ -2777,14 +2785,21 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         </div>}
         <AlterarCarroProgramadoView
           key={`${dailyContextKey}:${dailyEditEpoch}`}
-          dateControl={<div className="inline-flex h-9 shrink-0 overflow-hidden rounded-full border border-gray-200 bg-gray-50 shadow-2xs dark:border-slate-700 dark:bg-slate-900 print:hidden" style={{ width: 240, minWidth: 240 }}>
-            <div className="relative flex min-w-0 flex-1 items-center gap-2 pl-3.5 pr-2">
-              <Calendar className="h-3.5 w-3.5 shrink-0 text-gray-500" />
-              <span className="text-xs font-mono font-bold text-gray-900 dark:text-white">{formatarDataBr(dataOperacao)}</span>
-              <input type="date" aria-label="Data da escala" value={dataOperacao}
+          dateControl={<div className="group inline-flex h-9 shrink-0 overflow-hidden rounded-full border border-gray-200 bg-gray-50 shadow-2xs hover:bg-gray-100 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/80 transition-colors print:hidden" style={{ width: 240, minWidth: 240 }}>
+            <div className="relative flex min-w-0 flex-1">
+              <button type="button" aria-label="Escolher data da escala" title="Clique para escolher uma data no calendário"
+                onClick={() => {
+                  const input = scaleDateInputRef.current;
+                  if (!input) return;
+                  try { input.showPicker(); } catch { input.focus(); input.click(); }
+                }}
+                className="relative z-10 flex w-full items-center gap-2 pl-3.5 pr-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-600">
+              <Calendar className="h-3.5 w-3.5 shrink-0 text-gray-500 group-hover:text-emerald-600 transition-colors pointer-events-none" />
+              <span className="text-xs font-mono font-bold text-gray-900 dark:text-white pointer-events-none select-none">{formatarDataBr(dataOperacao)}</span>
+              </button>
+              <input ref={scaleDateInputRef} type="date" tabIndex={-1} aria-label="Data da escala" value={dataOperacao}
                 onChange={e => { if (e.target.value) setDataOperacao(e.target.value); }}
-                onClick={e => { try { e.currentTarget.showPicker(); } catch {} }}
-                className="absolute inset-0 h-full w-full cursor-pointer opacity-0 focus-visible:opacity-100 focus-visible:bg-background focus-visible:px-3" />
+                className="pointer-events-none absolute inset-0 h-full w-full opacity-0" />
             </div>
             <div className="flex shrink-0 items-center py-2">
               <button type="button" onClick={() => setDataOperacao(getHojeLocal())} title="Voltar para a data de hoje"
@@ -2796,7 +2811,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
             else dailyDirtyFields.current.delete(key);
           }}
           readOnly={!canEditDailyScale || !dailyReady}
-          readOnlyReason={!canEditDailyScale ? 'Seu perfil possui apenas permissao de consulta da Escala.' : dailyError ? 'Consulta das substituicoes falhou. Confira o aviso acima e recarregue apos resolver a falha.' : 'Aguardando a consulta das substituicoes da data selecionada.'}
+          readOnlyReason={!dailyDateEditable ? 'Somente a escala de hoje pode ser alterada. Esta data permite apenas consulta.' : !canEditDailyScale ? 'Seu perfil possui apenas permissao de consulta da Escala.' : dailyError ? 'Consulta das substituicoes falhou. Confira o aviso acima e recarregue apos resolver a falha.' : 'Aguardando a consulta das substituicoes da data selecionada.'}
           garagem={garagem}
           escalaTipo={escalaTipo}
           schedules={dailySchedules}

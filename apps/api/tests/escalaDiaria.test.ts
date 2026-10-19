@@ -11,7 +11,7 @@ const contexto = { ...baseContext, dataOperacao: '2026-10-14' };
 const original = fixedSchedule(contexto)[0];
 const fleetRows = [...new Set([...fixedSchedule(contexto).map(i => i.carroProgramado).filter(p => /^\d{1,10}$/.test(p)), '5001', '5002', '5001', '5002', '5003'])].map(prefixo => ({ idCarro: Number(prefixo), prefixo, garagem: 2, garagemNome: 'VCG' }));
 const readEscalaDiaria = (db: any, value: unknown, userId: number | undefined) => readReal(db, value, userId, async () => db.__fleet, async () => db.__colors ?? null);
-const saveEscalaDiaria = (db: any, userId: number | undefined, value: unknown) => saveReal(db, userId, value, async () => db.__fleet, async () => db.__colors ?? null);
+const saveEscalaDiaria = (db: any, userId: number | undefined, value: unknown) => saveReal(db, userId, value, async () => db.__fleet, async () => db.__colors ?? null, () => new Date('2026-10-14T16:00:00Z'));
 function fixture() {
   const records = new Map<string, any>();
   let role = 'ADMIN', garagem = 'VCG', fail = false;
@@ -45,6 +45,35 @@ function fixture() {
   return { db, records, locks, role: (value: string) => { role = value; }, garage: (value: string) => { garagem = value; }, fail: () => { fail = true; } };
 }
 const command = (revisao = 0, carroSubstituido = '5001') => ({ contexto, revisao, id: original.id, carroSubstituido, base: JSON.stringify(original) });
+
+test('dias anteriores e posteriores rejeitam linhas e cards antes das integracoes, inclusive ADMIN', async () => {
+  for (const day of ['2026-10-13', '2026-10-15']) {
+    for (const mutation of [command(), { contexto, revisao: 0, card: 'PORTARIA', operacao: 'adicionar', prefixo: '5001' }]) {
+      const f = fixture();
+      const noFleet = async (): Promise<never> => { throw Error('Nao deveria carregar frota'); };
+      await assert.rejects(saveReal(f.db, 1, { ...mutation, contexto: { ...contexto, dataOperacao: day } }, noFleet,
+        async () => null, () => new Date('2026-10-14T16:00:00Z')), (e: any) => e.status === 409 && /hoje/.test(e.message));
+      assert.equal(f.records.size, 0); assert.equal(f.locks.length, 0);
+    }
+  }
+});
+
+test('data usa Campo Grande: aceita antes da meia-noite local e rejeita depois', async () => {
+  const f = fixture();
+  await saveReal(f.db, 1, command(), async () => f.db.__fleet, async () => null,
+    () => new Date('2026-10-15T03:59:59Z'));
+  await assert.rejects(saveReal(f.db, 1, command(1, '5002'), async () => f.db.__fleet, async () => null,
+    () => new Date('2026-10-15T04:00:00Z')), (e: any) => e.status === 409);
+  assert.equal([...f.records.values()][0].revisao, 1);
+});
+
+test('virada do dia durante a transacao cancela gravacao', async () => {
+  const f = fixture(); let calls = 0;
+  await assert.rejects(saveReal(f.db, 1, command(), async () => f.db.__fleet, async () => null,
+    () => new Date(++calls < 3 ? '2026-10-15T03:59:59Z' : '2026-10-15T04:00:00Z')),
+    (e: any) => e.status === 409);
+  assert.equal(f.records.size, 0);
+});
 
 test('escala usa JSON fixo e banco armazena somente a substituicao', async () => {
   const f = fixture();

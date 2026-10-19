@@ -53,7 +53,7 @@ function fixture() {
       if (request === '../services/escalaDiaria') {
         const fleet = async () => ({ source: 'real', data: [{ idCarro: 5001, prefixo: '5001', garagem: 2, garagemNome: 'VCG' }] });
         return { ...dailyService, readEscalaDiaria: (d: any, q: any, id: number) => dailyService.readEscalaDiaria(d, q, id, fleet),
-          saveEscalaDiaria: (d: any, id: number, body: any) => dailyService.saveEscalaDiaria(d, id, body, fleet) };
+          saveEscalaDiaria: (d: any, id: number, body: any) => dailyService.saveEscalaDiaria(d, id, body, fleet, undefined, () => new Date('2026-10-14T16:00:00Z')) };
       }
       return oldLoad.call(this, request, parent, main);
     };

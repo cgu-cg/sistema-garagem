@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { escalaContextSchema } from './escalaCarros';
 import escalaFixa from '../data/escalaFixa.json';
 import { assertC4Read } from './c4Authorization';
-import { MvpError } from './mvpTemporal';
+import { MvpError, operationalContext } from './mvpTemporal';
 import { canWriteDailyScale } from './operationalAccess';
 import { addDays, dateValue } from './c4Temporal';
 import { lockC4Context } from './c4Flow';
@@ -90,8 +90,14 @@ export async function readEscalaDiaria(db: PrismaClient, value: unknown, userId:
       state.cards ? 'salvo' : 'padrao', state.cards ? 0 : defaults.omitted, state.confirmacoes, colorCache);
   }, { isolationLevel: 'Serializable' });
 }
-export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefined, value: unknown, loadFleet: FleetLoader = officialFleet, loadColors: ColorLoader = loadColorCache) {
+export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefined, value: unknown, loadFleet: FleetLoader = officialFleet, loadColors: ColorLoader = loadColorCache, clock = () => new Date()) {
   const c = commandSchema.parse(value), contexto = parseDailyContext(c.contexto);
+  const assertToday = () => {
+    if (contexto.dataOperacao !== operationalContext(clock()).today) {
+      throw new MvpError(409, 'Somente a escala de hoje pode ser alterada. Outras datas permitem apenas consulta.');
+    }
+  };
+  assertToday();
   const userBefore = userId ? await db.user.findUnique({ where: { id: userId }, select: { role: true, garagem: true } }) : null;
   if (!canWriteDailyScale(userBefore, contexto.garagem)) throw new MvpError(403, 'Edicao exige ADMIN ou Soltura da propria garagem.');
   const frota = officialGarageFleet(await loadFleet(), contexto.garagem), fixed = fixedSchedule(contexto);
@@ -101,6 +107,7 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
     if (!canWriteDailyScale(user, contexto.garagem)) throw new MvpError(403, 'Permissao de edicao revogada.');
     // Mesmo protocolo dos escritores C4: ciclo D/folha D+1, depois escala diaria.
     await lockC4Context(tx, contexto.garagem, contexto.dataOperacao);
+    assertToday();
     const { garagem, escalaTipo, turno, dataOperacao } = contexto;
     await tx.$queryRaw`SELECT id FROM dbo.escala_diaria WITH (UPDLOCK,HOLDLOCK) WHERE garagem=${garagem} AND escala_tipo=${escalaTipo} AND turno=${turno} AND data_operacao=${dataOperacao}`;
     const old = await tx.escalaDiaria.findUnique({ where: selector(contexto) });
@@ -141,6 +148,7 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
     }
     const payload = savedSchema.parse({ version: 2, itens, cards, confirmacoes });
     const data = { revisao: c.revisao + 1, conteudo: JSON.stringify(payload), responsavelId: userId! };
+    assertToday();
     if (old) await tx.escalaDiaria.update({ where: { id: old.id }, data });
     else await tx.escalaDiaria.create({ data: { ...contexto, ...data } });
     return project(contexto, data.revisao, itens, cards, frota, source, 'salvo', 0, confirmacoes, colorCache);
