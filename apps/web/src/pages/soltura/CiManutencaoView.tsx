@@ -2614,7 +2614,7 @@ export function CiManutencaoView({
               </Button>
               <span className="text-[11px] text-muted-foreground hidden sm:inline-block">
                 {isDataEditavel ? (
-                  <>VSF, VCG, JTU e VCM • Clique em <strong>Lançar Bloqueio</strong> para registrar</>
+                  <>VSF, VCG, JTU e VCM • Clique em <strong>+</strong> para registrar</>
                 ) : (
                   <span className="text-slate-500 font-semibold">Modo Somente Leitura</span>
                 )}
@@ -2655,13 +2655,13 @@ export function CiManutencaoView({
                         disabled={!isDataEditavel}
                         onClick={() => openQuickAddModal("BLOQUEADO", cons.id, cons.label, BLOQUEIOS_MOTIVOS_RAPIDOS)}
                         className={cn(
-                          "h-7 text-xs gap-1 bg-rose-600 hover:bg-rose-700 text-white font-semibold shadow-xs cursor-pointer",
+                          "h-7 w-7 p-0 bg-rose-600 hover:bg-rose-700 text-white shadow-xs cursor-pointer",
                           !isDataEditavel && "opacity-40 cursor-not-allowed pointer-events-none"
                         )}
                         title={isDataEditavel ? `Lançar bloqueio em ${cons.label}` : "Folha fechada para edição"}
+                        aria-label={`Lançar bloqueio em ${cons.label}`}
                       >
                         <Plus className="w-3.5 h-3.5" />
-                        Lançar Bloqueio
                       </Button>
                     </div>
 
