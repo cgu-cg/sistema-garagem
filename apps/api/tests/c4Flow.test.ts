@@ -160,6 +160,10 @@ test('destino FINALIZADA preexistente recusa inicializacao sem sobrescrever hist
   await assert.rejects(startCycle(f.db, 'VCG', clock()), /Estrutura C4 parcial/);
   assert.deepEqual(f.tables(), before);
 });
+// Fotografias antigas podem conter coexistencia; o setup nao usa novos comandos de transicao.
+async function seedLegacyExecution(f: ReturnType<typeof fixture>, data: Record<string, unknown> = {}) {
+  await f.db.estadoManutencao.update({ where: { id: f.tables().estadoManutencao[0].id }, data: { emExecucao: true, ...data } });
+}
 async function command(f: ReturnType<typeof fixture>, kind: 'ci' | 'manutencao') {
   const ctx = await readContext(f.db, 'VCG', day);
   const items = kind === 'ci' ? ctx.ci.filter(i => i.data === target) : ctx.maintenance;
@@ -368,8 +372,8 @@ test('CI -> Controle altera motivo sem alterar outras datas', async () => {
   const f = await ready(), c = await command(f, 'ci'); const source = f.tables().itemFolhaCI.filter(i => i.folhaId === 10); (c.items as any[]).find(i => i.categoriaPlanilha === 'BLOQUEADO').motivo = 'FREIO';
   await saveC4(f.db, 1, c, 'ci', clock()); assert.equal(f.tables().estadoManutencao[0].observacaoBloqueio, 'FREIO'); assert.deepEqual(f.tables().itemFolhaCI.filter(i => i.folhaId === 10), source);
 });
-test('BLOQUEADO + EM MANUTENCAO valido, remover bloqueio preserva execucao', async () => {
-  const f = await ready(), c = await command(f, 'manutencao'); (c.items[0] as any).emExecucao = true; await saveC4(f.db, 1, c, 'manutencao', clock());
+test('coexistencia antiga: remover bloqueio preserva execucao', async () => {
+  const f = await ready(); await seedLegacyExecution(f);
   const d = await command(f, 'ci'); d.items = (d.items as any[]).filter(i => i.categoriaPlanilha !== 'BLOQUEADO'); d.removeBlocked = ['3083']; await saveC4(f.db, 1, d, 'ci', clock());
   const s = f.tables().estadoManutencao[0]; assert.equal(s.bloqueado, false); assert.equal(s.emExecucao, true);
 });
@@ -382,7 +386,7 @@ test('liberacao nao confirmada/cancelada nao persiste nada', async () => {
 });
 test('liberacao confirmada retira bloqueio e execucao', async () => {
   const f = await ready();
-  const running = await command(f, 'manutencao'); Object.assign(running.items[0], { emExecucao: true }); await saveC4(f.db, 1, running, 'manutencao', clock());
+  await seedLegacyExecution(f);
   const c = await command(f, 'manutencao'); Object.assign(c.items[0], { bloqueado: false, emExecucao: false, liberado: true }); c.removeBlocked = ['3083']; c.confirmRelease = true;
   await saveC4(f.db, 1, c, 'manutencao', clock()); const ctx = await readContext(f.db, 'VCG', day); assert.equal(ctx.maintenance[0].liberado, true); assert.equal(ctx.ci.filter(i => i.data === target && i.categoriaPlanilha === 'BLOQUEADO').length, 0);
 });
@@ -390,9 +394,7 @@ test('liberacao confirmada retira bloqueio e execucao', async () => {
 for (const execution of [false, true]) test(`baixa confirmada pela CI cria Liberado no Controle; execucao=${execution}`, async () => {
   const f = await ready();
   if (execution) {
-    const maintenance = await command(f, 'manutencao');
-    Object.assign(maintenance.items[0], { emExecucao: true, observacaoOficina: 'SERVICO' });
-    await saveC4(f.db, 1, maintenance, 'manutencao', clock());
+    await seedLegacyExecution(f, { observacaoOficina: 'SERVICO' });
   }
   const before = f.tables().itemFolhaCI.filter(i => i.folhaId === 10);
   const c = await command(f, 'ci');
@@ -456,11 +458,11 @@ test('dois usuarios com snapshots JSON: conflito preserva vencedor e recarga per
   const fresh = JSON.parse(JSON.stringify(await command(f, 'manutencao')));
   fresh.base = clientRevision(fresh.items);
   assert.equal(fresh.items[0].observacaoBloqueio, 'USUARIO 1');
-  fresh.items[0].emExecucao = true;
+  fresh.items[0].emExecucao = true; fresh.items[0].bloqueado = false; fresh.removeBlocked = ['3083'];
   await saveC4(f.db, 2, fresh, 'manutencao', clock());
   const result = await readContext(f.db, 'VCG', day);
   assert.equal(result.maintenance[0].emExecucao, true);
-  assert.equal(result.ci.find(i => i.data === target && i.categoriaPlanilha === 'BLOQUEADO')?.motivo, 'USUARIO 1');
+  assert.ok(!result.ci.some(i => i.data === target && i.categoriaPlanilha === 'BLOQUEADO'));
 });
 test('role ADMIN revalidada e locks contem garagem/dia parametrizados', async () => {
   const f = await ready(), c = await command(f, 'ci'); f.role(false); const before = f.tables(); await assert.rejects(saveC4(f.db, 1, c, 'ci', clock()), /ADMIN/); assert.deepEqual(f.tables(), before);
@@ -494,7 +496,7 @@ test('seletor CI VCG usa garagem 2 independentemente de prefixo e consorciada', 
   assert.equal(JSON.stringify(vehicles), before);
 });
 test('remocao de bloqueio nao elimina execucao sem liberacao confirmada', async () => {
-  const f = await ready(), c = await command(f, 'manutencao'); (c.items[0] as any).emExecucao = true; await saveC4(f.db, 1, c, 'manutencao', clock());
+  const f = await ready(); await seedLegacyExecution(f);
   const d = await command(f, 'manutencao'); d.items = []; d.removeBlocked = ['3083']; const before = f.tables(); await assert.rejects(saveC4(f.db, 1, d, 'manutencao', clock()), /preserva execucao/); assert.deepEqual(f.tables(), before);
 });
 test('posicao EXTRA positiva esparsa aceita, FIXO13 rejeitado', async () => {
@@ -509,8 +511,8 @@ test('falha apos gravar CI desfaz CI e Controle juntos', async () => {
   f.db.estadoManutencao.update = async () => { throw new Error('falha simulada'); };
   await assert.rejects(saveC4(f.db, 1, c, 'ci', clock()), /falha simulada/); assert.deepEqual(f.tables(), before);
 });
-test('oficina no Controle nao altera fotografia de outras categorias nem motivo do bloqueio', async () => {
-  const f = await ready(), c = await command(f, 'manutencao'); const before = f.tables().itemFolhaCI;
+test('editar observacao em coexistencia antiga preserva fotografia e motivo do bloqueio', async () => {
+  const f = await ready(); await seedLegacyExecution(f); const c = await command(f, 'manutencao'); const before = f.tables().itemFolhaCI;
   Object.assign(c.items[0], { emExecucao: true, observacaoOficina: 'SERVICO NA OFICINA' }); await saveC4(f.db, 1, c, 'manutencao', clock());
   assert.deepEqual(f.tables().itemFolhaCI, before); assert.equal(f.tables().estadoManutencao[0].observacaoBloqueio, 'MOTOR'); assert.equal(f.tables().estadoManutencao[0].observacaoOficina, 'SERVICO NA OFICINA');
 });
@@ -624,7 +626,7 @@ test('controllers recusam escopo invalido e override legado que atingiria garage
 
 
 test('NULL de oficina nao e preenchido pelo motivo conhecido do bloqueio coexistente', async () => {
-  const f = await ready(), c = await command(f, 'manutencao');
+  const f = await ready(); await seedLegacyExecution(f); const c = await command(f, 'manutencao');
   const state = (c.items as any[])[0];
   state.emExecucao = true; state.observacaoOficina = null;
   assert.equal(state.observacao, 'MOTOR');
@@ -819,7 +821,7 @@ test('realtime: save CI e Controle notificam somente apos commit e com payload m
     const c = await command(f, 'ci'); (c.items as any[])[0].motivo = 'ALTERADO';
     await saveC4(f.db, 1, c, 'ci', clock());
     assert.deepEqual(events, [{ garagem: 'VCG', dataOperacional: day, dataFolha: target }]);
-    const m = await command(f, 'manutencao'); Object.assign(m.items[0], { emExecucao: true });
+    const m = await command(f, 'manutencao'); Object.assign(m.items[0], { emExecucao: true, bloqueado: false }); m.removeBlocked = ['3083'];
     await saveC4(f.db, 1, m, 'manutencao', clock()); assert.equal(events.length, 2);
   } finally { stop(); }
 });
@@ -886,4 +888,53 @@ test('realtime: recuperacao automatica notifica inicio/finalizacao efetivos, sem
   } finally {
     stop(); if (previous === undefined) delete process.env.CI_NOVO_FLUXO_GARAGENS; else process.env.CI_NOVO_FLUXO_GARAGENS = previous;
   }
+});
+
+test('19/10: entrar em manutencao retira bloqueio da CI D+1 e bloquear novamente tira da execucao', async () => {
+  const f = await ready(), before = f.tables();
+  const c = await command(f, 'manutencao');
+  Object.assign(c.items[0], { bloqueado: false, emExecucao: true, liberado: false }); c.removeBlocked = ['3083'];
+  await saveC4(f.db, 1, c, 'manutencao', clock());
+  let ctx = await readContext(f.db, 'VCG', day);
+  assert.equal(ctx.maintenance[0].bloqueado, false); assert.equal(ctx.maintenance[0].emExecucao, true);
+  assert.ok(!ctx.ci.some(i => i.data === target && i.categoriaPlanilha === 'BLOQUEADO' && i.prefixo === '3083'));
+  assert.deepEqual(f.tables().itemFolhaCI.filter(i => i.folhaId === 10), before.itemFolhaCI.filter(i => i.folhaId === 10));
+  const reblock = await command(f, 'manutencao'); Object.assign(reblock.items[0], { bloqueado: true, emExecucao: false, liberado: false, observacaoBloqueio: 'FREIO' });
+  await saveC4(f.db, 1, reblock, 'manutencao', clock());
+  ctx = await readContext(f.db, 'VCG', day);
+  assert.equal(ctx.maintenance[0].bloqueado, true); assert.equal(ctx.maintenance[0].emExecucao, false);
+  assert.equal(ctx.ci.filter(i => i.data === target && i.categoriaPlanilha === 'BLOQUEADO' && i.prefixo === '3083').length, 1);
+});
+
+test('19/10: API recusa nova coexistencia e desfaz falha ao remover bloqueio na CI', async () => {
+  const f = await ready(), c = await command(f, 'manutencao'), before = f.tables();
+  Object.assign(c.items[0], { emExecucao: true });
+  await assert.rejects(saveC4(f.db, 1, c, 'manutencao', clock()), /somente um estado/);
+  assert.deepEqual(f.tables(), before);
+  Object.assign(c.items[0], { bloqueado: false }); c.removeBlocked = ['3083'];
+  f.db.itemFolhaCI.delete = async () => { throw Error('falha ao retirar bloqueio'); };
+  await assert.rejects(saveC4(f.db, 1, c, 'manutencao', clock()), /falha ao retirar/);
+  assert.deepEqual(f.tables(), before);
+});
+
+test('19/10: liberar e depois bloquear sai de liberados e recria bloqueio na CI', async () => {
+  const f = await ready(), c = await command(f, 'manutencao');
+  Object.assign(c.items[0], { bloqueado: false, emExecucao: false, liberado: true }); c.removeBlocked = ['3083']; c.confirmRelease = true;
+  await saveC4(f.db, 1, c, 'manutencao', clock());
+  const block = await command(f, 'manutencao'); Object.assign(block.items[0], { bloqueado: true, emExecucao: false, liberado: false });
+  await saveC4(f.db, 1, block, 'manutencao', clock());
+  const ctx = await readContext(f.db, 'VCG', day);
+  assert.equal(ctx.maintenance[0].liberado, false); assert.equal(ctx.maintenance[0].bloqueado, true);
+  assert.ok(ctx.ci.some(i => i.data === target && i.categoriaPlanilha === 'BLOQUEADO' && i.prefixo === '3083'));
+});
+
+test('19/10: novo bloqueio incluido pela CI encerra execucao no Controle', async () => {
+  const f = await ready(), c = await command(f, 'manutencao');
+  Object.assign(c.items[0], { bloqueado: false, emExecucao: true, liberado: false }); c.removeBlocked = ['3083'];
+  await saveC4(f.db, 1, c, 'manutencao', clock());
+  const ci = await command(f, 'ci');
+  (ci.items as any[]).push({ id: 'novo-bloqueio', prefixo: '3083', consorciada: 'VCM', garagem: 'VCG', data: target, categoriaPlanilha: 'BLOQUEADO', dataBloqueio: day, motivo: 'MOTOR' });
+  await saveC4(f.db, 1, ci, 'ci', clock());
+  const ctx = await readContext(f.db, 'VCG', day);
+  assert.equal(ctx.maintenance[0].bloqueado, true); assert.equal(ctx.maintenance[0].emExecucao, false);
 });

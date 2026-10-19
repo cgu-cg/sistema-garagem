@@ -9,6 +9,14 @@ description: >-
 
 Ao analisar ou alterar fluxos de Soltura, CI e Controle de Manutenção, incluindo frontend e backend:
 
+## Atualizacao operacional de 19/10/2026
+
+A decisao mais recente do usuario no inicio de docs/DOMAIN.md prevalece sobre
+as referencias historicas de coexistencia abaixo: novas transicoes para
+Em Manutencao retiram bloqueios do Controle e da CI em preparacao; Bloquear
+coloca somente em Bloqueados. Nao alterar fotografias finalizadas nem
+normalizar coexistencias antigas em GET. Liberacao segue exigindo confirmacao.
+
 ## 1. Regras de domínio e grau de confiança
 
 - Consulte [docs/DOMAIN.md](../../../docs/DOMAIN.md) antes de tomar decisões sobre CI, bloqueio, liberação, reserva, disponibilidade ou troca de veículo.

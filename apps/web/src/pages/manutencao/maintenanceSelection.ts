@@ -9,7 +9,7 @@ export function garageVehiclePrefixes(fleet: InventoryVehicle[], garage: 'VCG' |
 }
 
 // Prepara uma unica gravacao, sem modificar a fotografia original do editor.
-// A confirmacao de retirada de bloqueios acontece antes de chamar a persistencia.
+// Liberacoes de bloqueados exigem confirmacao; transicoes sao revalidadas no backend.
 export function addMaintenanceSelection(
   baseline: ManutencaoCarroItem[], prefixes: string[], status: 'BLOQUEADO' | 'EM_EXECUCAO' | 'LIBERADO',
   observation: string, day: string, c4: boolean,
@@ -18,26 +18,20 @@ export function addMaintenanceSelection(
   let next = [...baseline];
   const obs = observation.trim().toUpperCase();
   for (const prefixo of new Set(prefixes)) {
-    const same = next.filter(i => i.prefixo === prefixo);
-    if (same.some(i => status === 'BLOQUEADO' ? i.bloqueado && !i.liberado
-      : status === 'EM_EXECUCAO' ? i.emExecucao && !i.liberado : i.liberado)) continue;
-    // No legado, bloqueio e oficina podem ter registros separados.
-    const old = c4 ? same[0] : status === 'BLOQUEADO'
-      ? same.find(i => i.bloqueado && !i.liberado) || same.find(i => i.liberado)
-      : same.find(i => i.emExecucao || i.liberado);
-    const blocked = status !== 'LIBERADO' && Boolean(old?.bloqueado || status === 'BLOQUEADO');
+    const same = next.filter(i => i.prefixo === prefixo && i.data === day);
+    const old = same[0];
+    const already = same.length === 1 && (status === 'BLOQUEADO' ? old.bloqueado && !old.emExecucao && !old.liberado
+      : status === 'EM_EXECUCAO' ? old.emExecucao && !old.bloqueado && !old.liberado : old.liberado && !old.bloqueado && !old.emExecucao);
+    if (already) continue;
+    const reason = obs || (status === 'BLOQUEADO' ? old?.observacaoBloqueio : old?.observacaoOficina) || old?.observacao || (c4 ? null : '');
     const row: ManutencaoCarroItem = {
-      ...old, id: old?.id || `manut-${day}-${status}-${prefixo}`, prefixo,
+      ...old, id: old?.id || 'manut-' + day + '-' + prefixo, prefixo,
       consorciada: old?.consorciada || company(prefixo), data: day,
-      bloqueado: blocked,
-      emExecucao: status === 'EM_EXECUCAO' || (status === 'BLOQUEADO' && Boolean(old?.emExecucao)),
-      liberado: status === 'LIBERADO', observacao: obs || old?.observacao || (c4 ? null : ''),
-      ...(c4 ? status === 'BLOQUEADO'
-        ? { observacaoBloqueio: obs || old?.observacaoBloqueio || null }
-        : { observacaoOficina: obs || old?.observacaoOficina || null } : {}),
+      bloqueado: status === 'BLOQUEADO', emExecucao: status === 'EM_EXECUCAO', liberado: status === 'LIBERADO', observacao: reason,
+      ...(c4 ? { observacaoBloqueio: status === 'BLOQUEADO' ? reason : null,
+        observacaoOficina: status !== 'BLOQUEADO' ? reason : old?.observacaoOficina ?? null } : {}),
     };
-    if (status === 'LIBERADO' && !c4) next = next.filter(i => i.prefixo !== prefixo || i.id === old?.id);
-    next = old ? next.map(i => i.id === old.id ? row : i) : [...next, row];
+    next = [...next.filter(i => !(i.prefixo === prefixo && i.data === day)), row];
   }
   return next;
 }

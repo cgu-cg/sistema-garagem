@@ -1,3 +1,4 @@
+import { assertMaintenanceTransition } from './maintenanceStatus';
 import { randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { z } from 'zod';
@@ -89,6 +90,7 @@ export async function saveMaintenance(db: PrismaClient, userId: number | undefin
     verifyExistingVCG(current);
     verifyUniqueBlocks(current.filter(r => r.bloqueado).map(r => r.prefixo));
     verifyBase(input.base, current);
+    assertMaintenanceTransition(input.items, current);
     verifySnapshotConsortium(current, input.items);
     await verifyIds(tx, 'manutencao', input.items.map(i => i.id), current);
     const cis = await tx.ciBloqueio.findMany({ where: { dataBloqueio: ctx.tomorrow, garagem: 'VCG', categoria: 'BLOQUEADO', OR: [{ status: { not: 'LIBERADO' } }, { status: null }] } });

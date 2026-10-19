@@ -7,7 +7,7 @@ import { saveCI, saveMaintenance } from '../src/services/mvpLegado';
 test('3083 legado preservado nao impede alteracao independente nem recebe UPDATE', async () => {
   const legacy = m('legacy', { prefixo: '3083', consorciada: 'VCM', userId: 7 });
   const f = fixture([], [legacy, m()]);
-  await saveMaintenance(f.db, 1, { data: '2026-10-07', base: revision(f.state().manut), items: [legacy, m('m1', { emExecucao: true })] }, now);
+  await saveMaintenance(f.db, 1, { data: '2026-10-07', base: revision(f.state().manut), items: [legacy, m('m1', { bloqueado: false, emExecucao: true })], removeBlocked: ['4000'] }, now);
   assert.deepEqual(f.state().manut.find(r => r.id === 'legacy'), legacy);
   assert.equal(f.state().manut.find(r => r.id === 'm1')?.emExecucao, true);
   assert.equal(f.calls(), 2); // deleteMany vazio + upsert somente do outro veiculo.

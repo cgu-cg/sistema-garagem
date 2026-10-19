@@ -17,13 +17,13 @@ const blocked = { id: 'old', prefixo: '4200', consorciada: 'VCG' as const, obser
   data: '2026-10-14', bloqueado: true, emExecucao: false, liberado: false, observacaoBloqueio: 'MOTOR' };
 const company = () => 'VCG' as const;
 
-test('selecao multipla preserva bloqueio ao executar, nao duplica e nao muda a origem', () => {
+test('selecao multipla retira bloqueio ao executar, nao duplica e nao muda a origem', () => {
   const baseline = [blocked];
   const result = addMaintenanceSelection(baseline, ['4200', '4201', '4201'], 'EM_EXECUCAO', 'freio', blocked.data, true, company);
   assert.equal(result.length, 2);
-  assert.equal(result[0].bloqueado, true);
+  assert.equal(result[0].bloqueado, false);
   assert.equal(result[0].emExecucao, true);
-  assert.equal(result[0].observacaoBloqueio, 'MOTOR');
+  assert.equal(result[0].observacaoBloqueio, null);
   assert.equal(result[0].observacaoOficina, 'FREIO');
   assert.equal(blocked.emExecucao, false);
 });
@@ -37,10 +37,10 @@ test('liberacao multipla remove bloqueio e execucao apenas dos selecionados', ()
   assert.deepEqual(result.find(i => i.prefixo === '4202'), other);
 });
 
-test('adicionar bloqueio em lote preserva execucao C4', () => {
+test('adicionar bloqueio em lote encerra execucao C4', () => {
   const executing = { ...blocked, bloqueado: false, emExecucao: true };
   const result = addMaintenanceSelection([executing], ['4200', '4201'], 'BLOQUEADO', 'motor', blocked.data, true, company);
-  assert.equal(result[0].emExecucao, true);
+  assert.equal(result[0].emExecucao, false);
   assert.equal(result[0].bloqueado, true);
   assert.equal(result[1].bloqueado, true);
 });

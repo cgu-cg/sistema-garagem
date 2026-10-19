@@ -1,5 +1,26 @@
 # Domain model e entendimento operacional atual
 
+## Controle de Manutencao - regra vigente confirmada em 19/10/2026
+
+Esta decisao substitui a coexistencia BLOQUEADO + EM MANUTENCAO nas NOVAS
+transicoes do Controle. Em Manutencao retira o carro dos Bloqueados do
+Controle e da CI em preparacao correspondente na mesma transacao. O menu
+Bloquear, disponivel em Em Manutencao e Liberados, move para somente
+Bloqueados e sincroniza a CI; nao mantem execucao/liberado simultaneamente.
+Inclusao de novo bloqueio pela CI tambem encerra execucao no Controle.
+A regra vale para inclusao simples, lote e menus. Liberar bloqueado continua
+exigindo confirmacao previa. Cancelamento/erro nao altera os destinos.
+Ao adicionar carros bloqueados em Em Manutencao ou Liberados, o formulario
+avisa sobre o bloqueio e exige confirmacao antes de salvar, inclusive em lote.
+Cancelar preserva o bloqueio e os carros selecionados no formulario.
+Os tres menus nao oferecem mais Remover/Excluir; Liberar Bloqueio continua
+sendo uma acao explicita disponivel no quadro Bloqueados.
+Estados antigos coexistentes e fotografias finalizadas nao sao reescritos
+por GET ou por edicao de observacao. A API rejeita novas coexistencias,
+mas permite consultar e transicionar registros anteriores para estado unico.
+Permissoes, revisoes, locks e janela operacional permanecem obrigatorios.
+
+
 ## Seleção de veículos na CI VCG — confirmação operacional
 
 Novas inclusões nos seletores da CI VCG apresentam somente veículos com

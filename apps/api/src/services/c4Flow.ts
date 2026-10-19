@@ -1,3 +1,4 @@
+import { assertMaintenanceTransition } from './maintenanceStatus';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient, ItemFolhaCI, EstadoManutencao } from '@prisma/client';
 import { z } from 'zod';
@@ -162,13 +163,14 @@ export async function saveC4(db: PrismaClient, userId: number | undefined, body:
       }
       for (const s of b.states) {
         const block = items.find(i => i.categoriaPlanilha === 'BLOQUEADO' && i.prefixo === s.prefixo);
-        if (block && (!s.bloqueado || s.liberado || s.consorciada !== block.consorciada || (s.observacaoBloqueio ?? null) !== (block.motivo ?? null))) await tx.estadoManutencao.update({ where: { id: s.id }, data: { bloqueado: true, liberado: false, consorciada: company.parse(block.consorciada), observacaoBloqueio: block.motivo ?? null, responsavelRegistroId: userId } });
+        if (block && (!s.bloqueado || s.liberado || s.consorciada !== block.consorciada || (s.observacaoBloqueio ?? null) !== (block.motivo ?? null))) await tx.estadoManutencao.update({ where: { id: s.id }, data: { bloqueado: true, emExecucao: s.bloqueado ? s.emExecucao : false, liberado: false, consorciada: company.parse(block.consorciada), observacaoBloqueio: block.motivo ?? null, responsavelRegistroId: userId } });
         else if (!block && s.bloqueado) await tx.estadoManutencao.update({ where: { id: s.id }, data: { bloqueado: false, observacaoBloqueio: null,
           ...(c.confirmRelease ? { emExecucao: false, liberado: true } : {}), responsavelRegistroId: userId } });
       }
       for (const i of items.filter(i => i.categoriaPlanilha === 'BLOQUEADO' && !b.states.some(s => s.prefixo === i.prefixo))) await tx.estadoManutencao.create({ data: { cicloId: cycle.id, prefixo: i.prefixo, consorciada: company.parse(i.consorciada), bloqueado: true, emExecucao: false, liberado: false, observacaoBloqueio: i.motivo ?? null, responsavelRegistroId: userId } });
       if (c.tituloColunaAdicional !== undefined && c.tituloColunaAdicional !== folha.tituloColunaAdicional) await tx.folhaCI.update({ where: { id: folha.id }, data: { tituloColunaAdicional: c.tituloColunaAdicional, responsavelRegistroId: userId } });
     } else {
+      assertMaintenanceTransition(states, b.states);
       explicitRemovals(oldBlocks.map(i => i.prefixo), states.filter(s => s.bloqueado).map(s => s.prefixo), c.removeBlocked);
       if (!c.confirmRelease && states.some(s => s.liberado && oldBlocks.some(i => i.prefixo === s.prefixo))) throw new MvpError(409, 'Confirme a liberacao antes da gravacao.');
       for (const old of b.states.filter(s => s.bloqueado && s.emExecucao)) {
