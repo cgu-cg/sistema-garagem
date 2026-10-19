@@ -64,6 +64,8 @@ export function AlterarCarroProgramadoView({ dateControl, readOnly = true, readO
     }
   };
   const filtered = schedules.filter(s => [s.linha, s.tabela, s.carroProgramado, s.carroSubstituido ?? ''].some(v => v.toLowerCase().includes(search.trim().toLowerCase())));
+  const completed = schedules.filter(item => item.confirmada).length;
+  const remaining = schedules.length - completed;
   const colorIds = ['AZUL', 'VERMELHO', 'MICRO', 'VERMELHO_AZUL', 'PRATA', 'OUTRO'];
   const garageGroups = official?.reservaPorCor?.grupos ?? colorIds.map(id => ({ id, titulo: id === 'VERMELHO_AZUL' ? 'VERMELHO/AZUL' : id, prefixos: [] as string[] }));
   const otherCards = official?.cards.filter(c => !colorIds.includes(c.id) && !c.id.startsWith('TERMINAL_')) ?? [];
@@ -97,7 +99,16 @@ export function AlterarCarroProgramadoView({ dateControl, readOnly = true, readO
     {official && official.omitidosPadrao > 0 && <p role="status" className="text-xs text-amber-700">{official.omitidosPadrao} alocacoes padrao nao foram aplicadas por conflito com linhas, bloqueios ou frota da garagem.</p>}
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-10">
       <div className="lg:col-span-7 rounded-3xl border border-border bg-card overflow-hidden self-start">
-        <div className="border-b px-5 py-3 text-right text-xs text-muted-foreground font-mono">{filtered.length} horarios</div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="h-2.5 w-2.5 rounded-full bg-rose-500" />Bloqueados CI</span>
+            <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="h-2.5 w-2.5 rounded-full bg-amber-500" />Reforço</span>
+          </div>
+          <div role="status" className="ml-auto flex items-center gap-3 whitespace-nowrap font-mono">
+            <span>Feito: <strong className="text-[#164E3A] dark:text-emerald-400">{String(completed).padStart(2, '0')}</strong></span>
+            <span>Falta: <strong className="text-foreground">{String(remaining).padStart(2, '0')}</strong></span>
+          </div>
+        </div>
         <div className={cn('overflow-auto', !extended && 'max-h-[515px]')}><table className="w-full text-xs"><thead className="sticky top-0 bg-card z-10"><tr className="border-b bg-muted/50 text-muted-foreground"><th className="p-3 text-left">Linha</th><th className="p-3 text-left">Tabela</th><th className="p-3 text-left">Hr Saida</th><th className="p-3 text-left">Hr Chegada</th><th className="p-3 text-left">Carro fixo</th><th className="p-3 text-left">Carro substituido</th></tr></thead>
           <tbody>{filtered.map(item => <LineRow key={item.id} item={item} official={official} readOnly={readOnly} onSave={onSaveSubstitution} onEditingChange={onEditingChange} drafts={drafts.current} />)}</tbody></table></div>
         <div className="p-2"><Button type="button" variant="outline" className="w-full text-xs" onClick={() => setExtended(v => !v)}>{extended ? <ChevronUp className="h-3 w-3 mr-2" /> : <ChevronDown className="h-3 w-3 mr-2" />}{extended ? 'Recolher lista' : 'Estender toda a lista'} ({filtered.length} horarios)</Button></div>
