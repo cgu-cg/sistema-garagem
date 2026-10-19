@@ -750,3 +750,13 @@ ausente, exibir o horario da posicao fixa correspondente, igual ao mostrado
 na tela da CI (ex.: posicoes 1/2 = 07:15 - A). Horario persistido tem prioridade.
 Esta e somente uma regra de exibicao, sem gravar/completar a folha.
 Extras e posicoes desconhecidas nao recebem horario inferido.
+
+### Retirada imediata no Reforco da CI - ajuste de 16/10/2026
+
+O botao x do seletor de carro dos horarios fixos e posicoes extras do Reforco
+agora grava a retirada imediatamente, sem exigir clicar depois no certo.
+Retira apenas o registro salvo da posicao, data e garagem, preservando
+outras ocorrencias do carro em horarios/setores e o contrato de bloqueios.
+O seletor somente limpa apos confirmacao da API; falha ou conflito preserva
+a selecao/rascunho. Contexto, permissao e revisao continuam revalidados
+pela persistencia existente. Nao altera folhas finalizadas nem faz backfill.

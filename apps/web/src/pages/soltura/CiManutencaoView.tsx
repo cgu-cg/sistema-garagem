@@ -1,3 +1,4 @@
+import { removeSavedReinforcement } from './ciReinforcementRemoval';
 import { explicitGarage } from '@/lib/operationalAccess';
 import { normalizeIsoDate, selectCIReportItems, ciReportExtraSlots, ciReportSlot, groupCIReportSubtypes, matchesCISubtype, ciBlockDate } from './ciReport';
 import { operationalContext } from '@/lib/mvpTemporal';
@@ -86,6 +87,7 @@ export interface CarOption {
 interface CarSearchSelectProps {
   value: string;
   onChange: (prefixo: string) => void;
+  onClear?: () => Promise<boolean>;
   allowedCars: CarOption[];
   placeholder?: string;
   className?: string;
@@ -101,6 +103,7 @@ interface CarSearchSelectProps {
 export function CarSearchSelect({
   value,
   onChange,
+  onClear,
   allowedCars,
   placeholder = "Carro",
   className,
@@ -110,8 +113,13 @@ export function CarSearchSelect({
   disabled = false,
 }: CarSearchSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const clearPending = useRef(false);
+  const interactionDisabled = disabled || clearing;
   const [search, setSearch] = useState(value || "");
   const inputRef = useRef<HTMLInputElement>(null);
+  const latestValue = useRef(value);
+  latestValue.current = value;
 
   // Sincroniza o texto do input quando o value externo mudar
   useEffect(() => {
@@ -133,13 +141,18 @@ export function CarSearchSelect({
   };
 
   // Limpa a seleção
-  const handleClear = (e: React.MouseEvent) => {
+  const handleClear = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    onChange("");
-    setSearch("");
-    if (inputRef.current) {
-      inputRef.current.focus();
-    }
+    if (interactionDisabled || clearPending.current) return;
+    clearPending.current = true; setClearing(true); setIsOpen(false);
+    try {
+      if (onClear) {
+        if (!(await onClear())) { setSearch(latestValue.current || ''); return; }
+      } else onChange('');
+      setSearch('');
+    } catch {
+      setSearch(latestValue.current || ''); toast.error('Nao foi possivel retirar o carro. A selecao foi mantida.');
+    } finally { clearPending.current = false; setClearing(false); }
   };
 
   // Trata teclas especiais (Enter, Esc)
@@ -169,7 +182,7 @@ export function CarSearchSelect({
             ref={inputRef}
             type="text"
             value={search}
-            disabled={disabled}
+            disabled={interactionDisabled}
             required={required}
             autoFocus={autoFocus}
             placeholder={placeholder}
@@ -193,7 +206,7 @@ export function CarSearchSelect({
 
           <div className="absolute right-1 flex items-center gap-0.5">
             {/* Botão Limpar */}
-            {(search || value) && !disabled && (
+            {(search || value) && !interactionDisabled && (
               <button
                 type="button"
                 onClick={handleClear}
@@ -836,7 +849,6 @@ export function CiManutencaoView({
     } catch {}
     return "INSPEÇÃO";
   });
-  const titleChanged = useRef(false);
 
   useEffect(() => {
     if (ciEdits.has('title')) return;
@@ -859,25 +871,6 @@ export function CiManutencaoView({
       setReforcoServicoTipo("INSPEÇÃO");
     }
   }, [dataOperacao, ciList]);
-
-  const handleReforcoServicoTipoChange = async (novoTipo: string) => {
-    if (checkDataFuturaBloqueio()) return;
-    ciEdits.begin('title', reloadContext, ciList);
-    titleChanged.current = true;
-    const baseline = editCIBaseline('title');
-    setReforcoServicoTipo(novoTipo);
-    const scope = activeGaragemScope === 'VCM' ? 'VCM' : 'VCG';
-    if (c4Enabled(scope)) {
-      const context = reloadContext;
-      try { ciEdits.assertContext('title', context); const records = await saveCISnapshot(baseline, normalizeIsoDate(dataOperacao), baseline, [], 'save', scope, novoTipo); if (!reload.isActive(context)) return; ciEdits.end('title'); titleChanged.current = false; setCiList(records); setReforcoServicoTipo(novoTipo); }
-      catch (error) { if (reload.isActive(context)) toast.error(error instanceof Error ? error.message : 'Titulo nao salvo.', { action: { label: 'Descartar edicao', onClick: () => { if (!reload.isActive(context)) return; ciEdits.end('title'); titleChanged.current = false; setReforcoServicoTipo(c4Folha(normalizeIsoDate(dataOperacao), scope)?.tituloColunaAdicional || ''); } } }); }
-      return;
-    }
-    setReforcoServicoTipo(novoTipo);
-    try {
-      localStorage.setItem(`reforco_servico_tipo_${dataOperacao}`, novoTipo);
-    } catch {}
-  };
 
   // Estado do Diálogo de Conflito de Veículo já Cadastrado na CI
   const [conflictModal, setConflictModal] = useState<{
@@ -1418,6 +1411,28 @@ export function CiManutencaoView({
       } catch (e) {}
       return next;
     });
+  };
+
+  const handleClearReforcoSlot = async (slotId: string, horario?: string): Promise<boolean> => {
+    if (checkDataFuturaBloqueio()) return false;
+    ciEdits.begin(slotId, reloadContext, ciList);
+    const baseline = editCIBaseline(slotId);
+    const fixed = FIXED_REFORCO_SLOTS.find(slot => slot.id === slotId);
+    const slotData = getReforcoSlotData(slotId, horario || fixed?.horario || reforcoServicoTipo);
+    if (!slotData.savedItem) {
+      handleReforcoSlotDraftChange(slotId, { prefixo: '' });
+      return true;
+    }
+    const removed = await removeSavedReinforcement(baseline, slotData.savedItem,
+      next => commitCI(next, [], false, baseline, [slotId]));
+    if (!removed) return false;
+    setReforcoDrafts(previous => {
+      const remaining = { ...previous }; delete remaining[slotId];
+      try { localStorage.setItem('reforco_drafts_' + dataOperacao, JSON.stringify(remaining)); } catch {}
+      return remaining;
+    });
+    toast.success('Carro retirado desta posicao do Reforco.');
+    return true;
   };
 
   const handleSaveReforcoSlot = async (slotId: string, horario: string) => {
@@ -2345,6 +2360,7 @@ export function CiManutencaoView({
                         <CarSearchSelect
                           value={slotData.prefixo}
                           disabled={!isDataEditavel}
+                          onClear={() => handleClearReforcoSlot(slot.id, slot.horario)}
                           onChange={(novoPrefixo) => handleReforcoSlotDraftChange(slot.id, { prefixo: novoPrefixo })}
                           allowedCars={sortedAllowedCars}
                           placeholder="Carro"
@@ -2445,6 +2461,7 @@ export function CiManutencaoView({
                         <CarSearchSelect
                           value={slotData.prefixo}
                           disabled={!isDataEditavel}
+                          onClear={() => handleClearReforcoSlot(slot.id, slot.horario)}
                           onChange={(novoPrefixo) => handleReforcoSlotDraftChange(slot.id, { prefixo: novoPrefixo })}
                           allowedCars={sortedAllowedCars}
                           placeholder="Carro"
@@ -2496,37 +2513,10 @@ export function CiManutencaoView({
               </div>
             </div>
 
-            {/* Tabela Coluna 3: Card Especial de Serviço (Título com Select + SALVAR no topo e 6 linhas com CarSearchSelect) */}
+            {/* Tabela Coluna 3: Card Especial de Serviço (Titulo fixo INSPECAO + SALVAR no topo e 6 linhas com CarSearchSelect) */}
             <div className="lg:col-span-2 border rounded-xl overflow-hidden bg-background">
               <div className="bg-muted/50 px-2.5 py-2 border-b text-[11px] font-bold flex items-center justify-between text-muted-foreground uppercase font-mono">
-                <div className="flex-1 mr-2">
-                  <select
-                    value={reforcoServicoTipo}
-                    onFocus={() => ciEdits.begin('title', reloadContext, ciList)}
-                    onBlur={() => {
-                      if (!titleChanged.current) {
-                        ciEdits.end('title');
-                        if (c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')) setReforcoServicoTipo(c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')?.tituloColunaAdicional || '');
-                      }
-                    }}
-                    disabled={!isDataEditavel}
-                    onChange={(e) => handleReforcoServicoTipoChange(e.target.value)}
-                    className={cn(
-                      "w-full h-7 px-1.5 rounded-md border border-border bg-background text-[11px] font-bold text-foreground uppercase focus:outline-hidden cursor-pointer",
-                      !isDataEditavel && "opacity-50 cursor-not-allowed"
-                    )}
-                    title="Selecione o serviço para esta coluna"
-                  >
-                    {reforcoServicoTipo === '' && <option value="" disabled>TÍTULO NÃO DEFINIDO</option>}
-                    <option value="INSPEÇÃO">INSPEÇÃO</option>
-                    <option value="LUBRIFICAÇÃO">LUBRIFICAÇÃO</option>
-                    <option value="EM MANUTENÇÃO">EM MANUTENÇÃO</option>
-                    <option value="TROCA DE ÓLEO">TROCA DE ÓLEO</option>
-                    <option value="REVISÃO">REVISÃO</option>
-                    <option value="PREVENTIVA">PREVENTIVA</option>
-                  </select>
-                </div>
-                {c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && <button type="button" disabled={!isDataEditavel} className="text-[10px] font-bold mr-2" onClick={() => setExtraDraftOrders(previous => [...previous, Math.max(...extraSlots.map(s => Number(s.id.split('-').slice(-1)[0]))) + 1])}>+ POSIÇÃO</button>}
+                <span className="flex-1 mr-2 text-foreground">INSPEÇÃO</span>
                 <button
                   type="button"
                   disabled={!isDataEditavel}
@@ -2550,6 +2540,7 @@ export function CiManutencaoView({
                         <CarSearchSelect
                           value={extraData.prefixo}
                           disabled={!isDataEditavel}
+                          onClear={() => handleClearReforcoSlot(slot.id)}
                           onChange={(novoCarro) => handleReforcoSlotDraftChange(slot.id, { prefixo: novoCarro })}
                           allowedCars={sortedAllowedCars}
                           placeholder="Carro"
