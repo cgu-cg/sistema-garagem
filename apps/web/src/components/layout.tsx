@@ -468,7 +468,7 @@ export function Layout() {
       {/* Desktop Persistent Sidebar */}
       <aside
         className={cn(
-          "hidden md:flex flex-col border-r border-slate-200/80 dark:border-slate-800/70 bg-[#FAFAFB] dark:bg-[#0B0F19] h-screen sticky top-0 transition-all duration-300 z-30 shadow-xs",
+          "hidden md:flex print:hidden flex-col border-r border-slate-200/80 dark:border-slate-800/70 bg-[#FAFAFB] dark:bg-[#0B0F19] h-screen fixed left-0 top-0 transition-[width] duration-300 z-30 shadow-xs",
           sidebarCollapsed ? "w-14" : "w-64"
         )}
       >
@@ -521,7 +521,7 @@ export function Layout() {
               (!!item.children && item.children.some(c => location.pathname === c.to || location.pathname.startsWith(c.to + "/")))
             );
             const active = location.pathname === item.to || isParentActive;
-            const hasChildren = !sidebarCollapsed && !!item.children && item.children.length > 0;
+            const hasChildren = !!item.children && item.children.length > 0;
             const isOpen = openSubMenus[item.to] ?? isParentActive;
 
             const handleToggle = (e: React.MouseEvent) => {
@@ -532,17 +532,27 @@ export function Layout() {
             };
 
             if (sidebarCollapsed) {
-              const targetRoute = item.children && item.children.length > 0 ? item.children[0].to : item.to;
+              const iconClassName = cn(
+                "w-10 h-10 flex items-center justify-center rounded-xl transition-all group shrink-0",
+                active
+                  ? "bg-[#164E3A] text-white dark:bg-emerald-600 shadow-xs font-semibold"
+                  : "text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white"
+              );
+              if (hasChildren) {
+                return <button key={item.to} type="button" className={iconClassName}
+                  title={item.label} aria-label={item.label} aria-expanded={false}
+                  onClick={() => {
+                    setOpenSubMenus(prev => ({ ...prev, [item.to]: true }));
+                    setSidebarCollapsed(false);
+                  }}>
+                  <Icon className="h-5 w-5 shrink-0" />
+                </button>;
+              }
               return (
                 <Link
                   key={item.to}
-                  to={targetRoute}
-                  className={cn(
-                    "w-10 h-10 flex items-center justify-center rounded-xl transition-all group shrink-0",
-                    active
-                      ? "bg-[#164E3A] text-white dark:bg-emerald-600 shadow-xs font-semibold"
-                      : "text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white"
-                  )}
+                  to={item.to}
+                  className={iconClassName}
                   title={item.label}
                 >
                   <Icon className="h-5 w-5 shrink-0" />
@@ -556,6 +566,7 @@ export function Layout() {
                   <button
                     type="button"
                     onClick={handleToggle}
+                    aria-expanded={isOpen}
                     className={cn(
                       "flex items-center justify-between w-full px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all group",
                       active
@@ -684,7 +695,7 @@ export function Layout() {
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden print:h-auto print:overflow-visible">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden md:ml-14 print:ml-0 print:h-auto print:overflow-visible">
         {/* Desktop Top Header Bar */}
         <header className="hidden md:flex print:hidden h-16 shrink-0 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/90 dark:bg-[#0B0F19]/90 backdrop-blur-md px-6 items-center justify-between sticky top-0 z-20 shadow-2xs">
           <div className="flex items-center gap-4 min-w-0">
