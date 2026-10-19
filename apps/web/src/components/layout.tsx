@@ -141,6 +141,17 @@ export function Layout() {
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  useEffect(() => {
+    if (sidebarCollapsed) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!window.matchMedia('(min-width: 768px)').matches) return;
+      if (event.target instanceof Element && !event.target.closest('[data-desktop-sidebar]')) {
+        setSidebarCollapsed(true);
+      }
+    };
+    document.addEventListener('pointerdown', closeOutside, true);
+    return () => document.removeEventListener('pointerdown', closeOutside, true);
+  }, [sidebarCollapsed]);
   const [openSubMenus, setOpenSubMenus] = useState<Record<string, boolean>>({
     "/soltura": true,
     "/manutencao": true,
@@ -467,6 +478,7 @@ export function Layout() {
 
       {/* Desktop Persistent Sidebar */}
       <aside
+        data-desktop-sidebar
         className={cn(
           "hidden md:flex print:hidden flex-col border-r border-slate-200/80 dark:border-slate-800/70 bg-[#FAFAFB] dark:bg-[#0B0F19] h-screen fixed left-0 top-0 transition-[width] duration-300 z-30 shadow-xs",
           sidebarCollapsed ? "w-14" : "w-64"
