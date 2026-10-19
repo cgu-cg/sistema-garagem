@@ -1,5 +1,4 @@
-import { useRef, useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { DailyEscala } from '@/lib/sharedEscala';
 
@@ -12,30 +11,33 @@ export function ciNoticesFor(state: DailyEscala | null, prefixo: string) {
   return state?.ciAvisos?.filter(i => i.prefixo === prefixo) ?? [];
 }
 
-export function CiVehicleNotice({ state, prefixo, iconOnly = false }: { state: DailyEscala | null; prefixo: string; iconOnly?: boolean }) {
+export function CiVehicleNotice({ state, prefixo, warning, children }: { state: DailyEscala | null; prefixo: string; warning?: string; children?: ReactNode }) {
   const [open, setOpen] = useState(false);
   const pinned = useRef(false);
   const notices = ciNoticesFor(state, prefixo);
   const blocked = state?.bloqueados.includes(prefixo) || state?.cards.find(c => c.id === 'PORTARIA')?.itens.some(i => i.prefixo === prefixo);
-  if (!notices.length || blocked) return iconOnly ? null : <>{prefixo}</>;
+  const red = Boolean(blocked || warning);
+  if (!notices.length && !red) return <>{children ?? prefixo}</>;
   return <Popover open={open} onOpenChange={value => { pinned.current = false; setOpen(value); }}>
-    <PopoverTrigger asChild><button type="button" aria-label={'Ver ocorrencias do carro ' + prefixo + ' na CI ' + state?.ciData}
-      className="inline-flex items-center gap-1 text-amber-500 dark:text-amber-400"
+    <PopoverTrigger asChild><span tabIndex={0} role={children ? undefined : 'button'} aria-label={'Ver ocorrencias do carro ' + prefixo + ' na CI ' + state?.ciData}
+      className={'inline-flex items-center font-bold ' + (red ? 'text-rose-600' : 'text-amber-500 dark:text-amber-400')}
       onMouseEnter={() => setOpen(true)} onMouseLeave={() => { if (!pinned.current) setOpen(false); }}
       onFocus={() => setOpen(true)} onBlur={() => { if (!pinned.current) setOpen(false); }}
-      onClick={event => { event.preventDefault(); pinned.current = !pinned.current; setOpen(pinned.current); }}>
-      {!iconOnly && prefixo}<AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-    </button></PopoverTrigger>
-    <PopoverContent align="start" className="w-80 max-w-[calc(100vw-2rem)] border-amber-300 bg-card text-card-foreground"
+      onKeyDown={event => { if (!children && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); pinned.current = !pinned.current; setOpen(pinned.current); } }}
+      onClick={event => { if (children) return; event.preventDefault(); pinned.current = !pinned.current; setOpen(pinned.current); }}>
+      {children ?? prefixo}
+    </span></PopoverTrigger>
+    <PopoverContent align="start" className={'w-80 max-w-[calc(100vw-2rem)] bg-card text-card-foreground ' + (red ? 'border-rose-300' : 'border-amber-300')}
       onOpenAutoFocus={event => event.preventDefault()} onCloseAutoFocus={event => event.preventDefault()}>
-      <p className="text-xs font-bold text-amber-600">Carro {prefixo} • CI {state?.ciData}</p>
+      <p className={'text-xs font-bold ' + (red ? 'text-rose-600' : 'text-amber-600')}>Carro {prefixo} • CI {state?.ciData}</p>
+      {red && <p className="mt-2 text-xs font-semibold">{warning || (state?.bloqueados.includes(prefixo) ? 'Bloqueado na CI.' : 'Bloqueado na Portaria.')}</p>}
       <ul className="mt-2 space-y-2 text-xs">{notices.map((item, index) => <li key={index}>
         <p className="font-semibold">{sections[item.categoria]}</p>
         {item.subTipo && <p>{subtypes[item.subTipo] ?? item.subTipo}</p>}
         {item.horario && <p>Horário: {item.horario}</p>}
         {item.tipoPosicao === 'EXTRA' && <p>Posição extra{item.ordemPosicao ? ' ' + item.ordemPosicao : ''}</p>}
       </li>)}</ul>
-      <p className="mt-2 border-t pt-2 text-[10px] text-muted-foreground">Informativo: esta ocorrência não bloqueia o uso do carro.</p>
+      <p className="mt-2 border-t pt-2 text-[10px] text-muted-foreground">{red ? 'Este carro não pode ser utilizado. Informe um substituto livre.' : 'Informativo: esta ocorrência não bloqueia o uso do carro.'}</p>
     </PopoverContent>
   </Popover>;
 }

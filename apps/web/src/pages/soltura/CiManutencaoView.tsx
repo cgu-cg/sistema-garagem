@@ -443,7 +443,7 @@ export function CiManutencaoView({
 
   // Seletor de Garagem: Se o usuário tiver garagem fixa (VCG ou VCM), trava nela. Se for ADMIN geral, permite alternar ou respeita o filtro vindo da Soltura.
   const [adminGaragemFiltro, setAdminGaragemFiltro] = useState<"TODAS" | "VCG" | "VCM">(() => {
-    return userGaragemFixa || (garagemFiltro && garagemFiltro !== "TODAS" ? garagemFiltro : "TODAS");
+    return userGaragemFixa || (garagemFiltro && garagemFiltro !== "TODAS" ? garagemFiltro : "VCG");
   });
 
   useEffect(() => {
@@ -1892,8 +1892,7 @@ export function CiManutencaoView({
           {/* Seletor de Garagem Exclusivo para Administrador Geral (sem garagem física vinculada) */}
           {isAdmin && !userGaragemFixa && (
             <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-full border text-xs mr-1">
-              <span className="text-[10px] font-bold text-muted-foreground px-2 uppercase font-mono">Filtro:</span>
-              {(["TODAS", "VCG", "VCM"] as const).map(g => (
+              {(["VCG", "VCM"] as const).map(g => (
                 <button
                   key={g}
                   type="button"
@@ -1901,11 +1900,11 @@ export function CiManutencaoView({
                   className={cn(
                     "px-2.5 py-1 rounded-full font-mono text-[11px] font-bold transition-all cursor-pointer",
                     adminGaragemFiltro === g
-                      ? "bg-background text-foreground shadow-xs border"
+                      ? "bg-[#164E3A] text-white shadow-xs"
                       : "text-muted-foreground hover:text-foreground"
                   )}
                 >
-                  {g === "TODAS" ? "Todas" : g === "VCM" ? "Garagem 1 (VCM)" : "Garagem 2 (VCG)"}
+                  {g}
                 </button>
               ))}
             </div>

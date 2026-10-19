@@ -1723,7 +1723,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                     className={cn(
                       "px-3 py-1 rounded-full text-xs transition-all cursor-pointer",
                       escalaTipo === "SEG_SEX"
-                        ? "bg-card text-foreground shadow-2xs font-bold border"
+                        ? "bg-[#164E3A] text-white shadow-xs font-bold"
                         : "text-muted-foreground hover:text-foreground font-medium"
                     )}
                   >
@@ -1736,7 +1736,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                     className={cn(
                       "px-3 py-1 rounded-full text-xs transition-all cursor-pointer",
                       escalaTipo === "SABADO"
-                        ? "bg-card text-foreground shadow-2xs font-bold border"
+                        ? "bg-[#164E3A] text-white shadow-xs font-bold"
                         : "text-muted-foreground hover:text-foreground font-medium"
                     )}
                   >
@@ -1749,7 +1749,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                     className={cn(
                       "px-3 py-1 rounded-full text-xs transition-all cursor-pointer",
                       escalaTipo === "DOM_FER"
-                        ? "bg-card text-foreground shadow-2xs font-bold border"
+                        ? "bg-[#164E3A] text-white shadow-xs font-bold"
                         : "text-muted-foreground hover:text-foreground font-medium"
                     )}
                   >

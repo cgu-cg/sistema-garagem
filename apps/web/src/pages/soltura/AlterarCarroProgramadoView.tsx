@@ -90,7 +90,7 @@ export function AlterarCarroProgramadoView({ dateControl, readOnly = true, readO
       <div className="flex max-w-full flex-wrap items-center justify-end gap-3 text-xs">
         {dateControl}
         {onSelectGaragem ? <div className="flex gap-1 rounded-full border p-1">{(['VCG', 'VCM'] as const).map(g => <button key={g} type="button" onClick={() => onSelectGaragem(g)} className={cn('rounded-full px-3 py-1', garagem === g && 'bg-[#164E3A] text-white')}>{g}</button>)}</div> : null}
-        <div className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-muted/50 p-1">{(['SEG_SEX', 'SABADO', 'DOM_FER'] as const).map(t => <button key={t} type="button" onClick={() => onSelectEscalaTipo?.(t)} aria-pressed={escalaTipo === t} className={cn('shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-[11px] leading-none transition-colors', escalaTipo === t ? 'bg-card font-semibold text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground')}>{t === 'SEG_SEX' ? 'Seg-Sex' : t === 'SABADO' ? 'Sabado' : 'Dom/Fer'}</button>)}</div>
+        <div className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-muted/50 p-1">{(['SEG_SEX', 'SABADO', 'DOM_FER'] as const).map(t => <button key={t} type="button" onClick={() => onSelectEscalaTipo?.(t)} aria-pressed={escalaTipo === t} className={cn('shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-[11px] leading-none transition-colors', escalaTipo === t ? 'bg-[#164E3A] font-semibold text-white shadow-xs' : 'text-muted-foreground hover:text-foreground')}>{t === 'SEG_SEX' ? 'Seg-Sex' : t === 'SABADO' ? 'Sabado' : 'Dom/Fer'}</button>)}</div>
       </div>
     </div>
     {readOnly && <p role="status" className="text-sm text-muted-foreground">{readOnlyReason}</p>}
@@ -112,7 +112,7 @@ export function AlterarCarroProgramadoView({ dateControl, readOnly = true, readO
           </div>)}</div>
         </div>
         <div className={cn(surface, 'border-rose-300 bg-rose-50/30 dark:bg-rose-950/10')}><h3 className="text-xs font-bold text-rose-600 flex items-center gap-2"><AlertTriangle className="h-4 w-4" /> BLOQUEADOS CI {official?.ciData ?? ''}</h3>
-          <div className="flex flex-wrap gap-1 text-xs font-mono">{official?.bloqueados.map(p => <span key={p} className="rounded-full border border-rose-300 px-2 py-0.5 text-rose-600">{p}</span>)}</div>
+          <div className="flex flex-wrap gap-1 text-xs font-mono">{official?.bloqueados.map(p => <span key={p} className="rounded-full border border-rose-300 px-2 py-0.5 text-rose-600"><CiVehicleNotice state={official} prefixo={p} /></span>)}</div>
         </div>
         {otherCards.filter(card => card.id === 'PORTARIA').map(renderCard)}
         {terminalCards.length > 0 && <div className={surface}>
@@ -152,12 +152,11 @@ function LineRow({ item, official, readOnly, onSave, onEditingChange, drafts }: 
     finally { pending.current = false; setSaving(false); }
   };
   return <tr data-confirmada={confirmed ? 'true' : 'false'} className={cn('border-b border-border/60 font-mono', confirmed ? 'bg-emerald-100 hover:bg-emerald-200/70 dark:bg-emerald-900/40 dark:hover:bg-emerald-900/50' : 'hover:bg-muted/30')}><td className="p-3 font-bold">{item.linha}</td><td className="p-3">{item.tabela}</td><td className="p-3">{item.saidaGaragem}</td><td className="p-3">{item.chegadaGaragem || '\u2014'}</td>
-    <td className={cn('p-3 font-bold', fixedAlert && 'text-rose-600 bg-rose-50/50 dark:bg-rose-950/20')} title={fixedAlert}><span className="inline-flex items-center gap-1">{fixedAlert ? item.carroProgramado || '\u2014' : <CiVehicleNotice state={official} prefixo={item.carroProgramado || '\u2014'} />}{fixedAlert && <AlertTriangle aria-label={fixedAlert} className="h-3.5 w-3.5" />}</span></td>
-    <td className="p-2"><div className="flex items-center gap-2"><ScaleVehiclePicker label={'Carro substituido da Linha ' + item.linha + ' Tabela ' + item.tabela} value={prefixo} disabled={readOnly || saving}
+    <td className={cn('p-3 font-bold', fixedAlert && 'text-rose-600')}><CiVehicleNotice state={official} prefixo={item.carroProgramado || '\u2014'} warning={fixedAlert || undefined} /></td>
+    <td className="p-2"><div className="flex items-center gap-2"><CiVehicleNotice state={official} prefixo={prefixo.trim()}><ScaleVehiclePicker label={'Carro substituido da Linha ' + item.linha + ' Tabela ' + item.tabela} value={prefixo} disabled={readOnly || saving}
       garage={official?.contexto.garagem ?? ''} options={pickerOptions(official, ownKey)}
       onChange={value => { dirty.current = true; drafts.set(item.id, value); onEditingChange?.(item.id, true); setPrefixo(value); }} onConfirm={() => void confirm()}
-      className={cn('h-7 w-24 py-0 text-center', prefixo.trim() && allocationError(official, prefixo.trim(), ownKey) && 'border-rose-500 text-rose-600', substituteNotice && 'border-amber-400 text-amber-500')} />
-      {substituteNotice && <CiVehicleNotice state={official} prefixo={prefixo.trim()} iconOnly />}
+      className={cn('h-7 w-24 py-0 text-center', prefixo.trim() && allocationError(official, prefixo.trim(), ownKey) && 'border-rose-500 text-rose-600 font-bold', substituteNotice && 'border-amber-400 text-amber-500 font-bold')} /></CiVehicleNotice>
       <button type="button" aria-label={(confirmed ? 'Linha confirmada ' : 'Confirmar linha ') + item.linha + ' tabela ' + item.tabela} title={confirmed ? 'Linha confirmada para esta data' : 'Confirmar linha'} disabled={readOnly || saving || confirmed} onClick={() => void confirm()} className={cn('h-7 w-7 inline-flex items-center justify-center rounded-full', 'bg-[#164E3A] text-white', (readOnly || saving || confirmed) && 'opacity-40 cursor-not-allowed')}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}</button>
     </div></td>
   </tr>;
