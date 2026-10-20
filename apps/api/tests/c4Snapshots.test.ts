@@ -46,6 +46,7 @@ test('snapshots C4 nos managers, sem rede ou banco', async t => {
     post: async (url: string, body: any) => {
       posts.push({ url, body: wire(body) });
       if (body.baseC4 !== `token-${version}`) throw Object.assign(new Error('Snapshot C4 desatualizado'), { status: 409 });
+      if (url === '/c4/ci/estado') { version++; return { operacao: body.operacao }; }
       assert.equal(body.base, revision(url === '/ci-bloqueios/sync' ? serverCI : serverMaintenance));
       if (url === '/ci-bloqueios/sync') serverCI = wire(body.items);
       else serverMaintenance = wire(body.items);
@@ -190,6 +191,30 @@ test('snapshots C4 nos managers, sem rede ou banco', async t => {
       });
     }
 
+    await t.test('estado manual usa revisao da data futura selecionada e recarrega essa mesma data', async () => {
+      const date = '2026-10-10';
+      await ci.fetchCIBloqueiosFromApi({ garagem: 'VCG', data: date });
+      const token = c4.c4Context('VCG', '2026-10-09').baseC4;
+      await ci.changeCIState('VCG', date, 'finalizar');
+      assert.deepEqual(posts.at(-1), { url: '/c4/ci/estado', body: { garagem: 'VCG', data: date, operacao: 'finalizar', baseC4: token } });
+      assert.equal(c4.c4Context('VCG', '2026-10-09').baseC4, `token-${version}`);
+      assert.equal(temporal.getMutationState().pending, false);
+    });
+    await t.test('estado manual com revisao vencida exige atualizar sem reenviar automaticamente', async () => {
+      await ci.fetchCIBloqueiosFromApi({ garagem: 'VCG', data: target }); version++;
+      const count = posts.length;
+      await assert.rejects(ci.changeCIState('VCG', target, 'reabrir'), /desatualizado/);
+      assert.equal(posts.length, count + 1); assert.equal(temporal.getMutationState().refreshRequired, true);
+      await ci.fetchCIBloqueiosFromApi({ garagem: 'VCG', data: target }); temporal.confirmRefresh();
+    });
+    await t.test('estado manual salvo com recarga falha nao permite duplo envio', async () => {
+      await ci.fetchCIBloqueiosFromApi({ garagem: 'VCG', data: target });
+      failReload = true; const count = posts.length;
+      await assert.rejects(ci.changeCIState('VCG', target, 'finalizar'), temporal.SavedRefreshRequired);
+      await assert.rejects(ci.changeCIState('VCG', target, 'finalizar'), /precisa ser atualizada/);
+      assert.equal(posts.length, count + 1);
+      failReload = false; await ci.fetchCIBloqueiosFromApi({ garagem: 'VCG', data: target }); temporal.confirmRefresh();
+    });
     await t.test('POST salvo e recarga falha exige atualizar sem repetir gravacao', async () => {
       const baseline = await ci.fetchCIBloqueiosFromApi({ garagem: 'VCG' });
       const count = posts.length; failReload = true;

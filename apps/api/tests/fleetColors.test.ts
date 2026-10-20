@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { buildColorCache, colorForCode, createColorUpdater, readColorCache, scheduledColorMonth, vehicleColor, writeColorCache } from '../src/services/fleetColors';
+import { buildColorCache, colorForCode, createColorUpdater, readColorCache, vehicleColor, writeColorCache } from '../src/services/fleetColors';
 
 const rows = [{ idCarro: 4200, carroceriaFAIXA: 1 }, { idCarro: 2319, carroceriaFAIXA: null }];
 const now = () => new Date('2026-10-16T19:00:00Z');
@@ -25,16 +25,6 @@ test('cores respeitam mapeamento aprovado, nulos e carros sem correspondencia', 
 test('cache rejeita duplicados, fonte vazia, payload invalido e codigos malformados', () => {
   for (const input of [[], null, [...rows, rows[0]], [{ idCarro: 1999, carroceriaFAIXA: 1 }], [{ idCarro: 6001, carroceriaFAIXA: 1 }], [{ idCarro: 4200 }], [{ idCarro: 4200, carroceriaFAIXA: 'AZUL' }]])
     assert.throws(() => buildColorCache(input));
-});
-
-test('agenda primeiro domingo as 15h de Campo Grande, incluindo recuperacao no mesmo mes', () => {
-  assert.equal(scheduledColorMonth(new Date('2026-11-01T18:59:59Z')), null);
-  assert.equal(scheduledColorMonth(new Date('2026-11-01T19:00:00Z')), '2026-11');
-  assert.equal(scheduledColorMonth(new Date('2026-11-20T10:00:00Z')), '2026-11');
-  assert.equal(scheduledColorMonth(new Date('2026-10-04T18:59:59Z')), null);
-  assert.equal(scheduledColorMonth(new Date('2026-10-04T19:00:00Z')), '2026-10');
-  assert.equal(scheduledColorMonth(new Date('2026-12-05T23:00:00Z')), null);
-  assert.equal(scheduledColorMonth(new Date('2026-12-06T19:00:00Z')), '2026-12');
 });
 
 test('atualizacao grava JSON validado atomicamente e limpa temporarios', async () => temporary(async (file, dir) => {

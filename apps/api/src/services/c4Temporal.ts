@@ -2,7 +2,14 @@ import { MvpError, operationalContext as legacyContext, assertContext } from './
 
 export const C4_CLOSE_HOUR = 20;
 export const operationalContext = (now = new Date()) => legacyContext(now, C4_CLOSE_HOUR * 3600);
-export const assertC4Context = (date: unknown, kind: 'ci' | 'manutencao', now = new Date()) => assertContext(date, kind, now, C4_CLOSE_HOUR * 3600);
+export function assertC4Context(date: unknown, kind: 'ci' | 'manutencao', now = new Date()) {
+  if (kind === 'manutencao') return assertContext(date, kind, now, C4_CLOSE_HOUR * 3600);
+  const ctx = operationalContext(now), selected = civil(date);
+  if (kind === 'ci' ? selected <= ctx.today : selected !== ctx.today) {
+    throw new MvpError(409, kind === 'ci' ? 'CI de hoje ou anterior permite apenas consulta.' : 'Manutencao permite alteracoes somente hoje.');
+  }
+  return ctx;
+}
 
 export type Garage = 'VCG' | 'VCM';
 export const TIME_ZONE = 'America/Campo_Grande';

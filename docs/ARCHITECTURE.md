@@ -1,5 +1,9 @@
 # Arquitetura do sistema
 
+> Atualizacao de 20/10/2026: os agendadores automaticos C4 e de cores foram
+> removidos. CI usa comandos manuais em ciLifecycle; cores usam somente
+> fleetColorRefresh --refresh. Referencias a scheduler abaixo sao historicas.
+
 ## Notificações C4 — backend Socket.IO
 
 Uma instância de Socket.IO compartilha o servidor HTTP do Express e a porta

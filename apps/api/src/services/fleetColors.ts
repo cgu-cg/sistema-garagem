@@ -46,15 +46,6 @@ export async function writeColorCache(file: string, cache: FleetColorCache) {
   } finally { await unlink(temporary).catch(() => undefined); }
 }
 
-export function scheduledColorMonth(now: Date): string | null {
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Campo_Grande', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' }).formatToParts(now);
-  const get = (type: string) => Number(parts.find(p => p.type === type)!.value);
-  const year = get('year'), month = get('month'), day = get('day');
-  const firstSunday = 1 + (7 - new Date(Date.UTC(year, month - 1, 1)).getUTCDay()) % 7;
-  if (day < firstSunday || (day === firstSunday && get('hour') < 15)) return null;
-  return `${year}-${String(month).padStart(2, '0')}`;
-}
-
 export function createColorUpdater(file: string, load: () => Promise<unknown>, now = () => new Date()) {
   let pending: Promise<FleetColorCache> | undefined;
   return (scheduledMonth?: string): Promise<FleetColorCache> => {

@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { startCycle, finalizeCycle, readContext, saveC4 } from '../src/services/c4Flow';
+import { changeCILifecycle } from '../src/services/ciLifecycle';
+import { addDays } from '../src/services/c4Temporal';
 import { subscribeC4Updates, type C4Updated } from '../src/services/c4Events';
 import { operationalContext, dateValue, eventInstant, enabledGarages, nextEvent, civil, mutationMode } from '../src/services/c4Temporal';
 import { revision } from '../src/services/mvpTemporal';
 import { revision as clientRevision } from '../../web/src/lib/mvpTemporal';
-import { recoverCurrentDay, startC4Scheduler } from '../src/services/c4Scheduler';
 import { ciEntryGarage, vehiclesForGarage } from '../../web/src/lib/c4Vehicles';
 import { c4KnownFields, c4EditedText } from '../../web/src/lib/c4ItemFields';
 import Module from 'node:module';
@@ -93,20 +94,15 @@ test('origem importada de 08/10 cria preparacao de 09/10 com 77 itens e 28 estad
   assert.equal(after.estadoManutencao.length, 28);
   assert.ok(after.estadoManutencao.every(row => row.bloqueado && !row.emExecucao && !row.liberado));
 });
-test('flag ausente ou vazia impede bootstrap e scheduler de acessar persistencia', async () => {
+test('flag ausente ou vazia preserva selecao do fluxo legado', async () => {
   const previous = process.env.CI_NOVO_FLUXO_GARAGENS;
   try {
     for (const value of [undefined, '', '   ']) {
       if (value === undefined) delete process.env.CI_NOVO_FLUXO_GARAGENS;
       else process.env.CI_NOVO_FLUXO_GARAGENS = value;
-      const db = new Proxy({}, { get() { throw new Error('Persistencia acessada com C4 desativado'); } }) as any;
       assert.deepEqual(enabledGarages(), []);
       assert.equal(mutationMode(undefined), 'LEGADO');
       assert.equal(mutationMode('VCG'), 'LEGADO');
-      const logs: object[] = [];
-      await recoverCurrentDay(db, clock(), value => logs.push(value));
-      assert.deepEqual(logs, []);
-      startC4Scheduler(db)();
     }
   } finally {
     if (previous === undefined) delete process.env.CI_NOVO_FLUXO_GARAGENS;
@@ -134,7 +130,7 @@ test('ativacao com lacuna apos 20:00 cria e finaliza apenas preparacao atual vaz
   const previous = process.env.CI_NOVO_FLUXO_GARAGENS;
   try {
     process.env.CI_NOVO_FLUXO_GARAGENS = 'VCG';
-    await recoverCurrentDay(f.db, clock('2026-10-11T00:30:00Z'), () => undefined);
+    await startCycle(f.db, 'VCG', clock('2026-10-11T00:30:00Z')); await finalizeCycle(f.db, 'VCG', clock('2026-10-11T00:30:00Z'));
     const after = f.tables();
     assert.equal(after.cicloOperacional.length, 1);
     assert.equal(after.cicloOperacional[0].origem, 'RECUPERACAO');
@@ -146,7 +142,7 @@ test('ativacao com lacuna apos 20:00 cria e finaliza apenas preparacao atual vaz
     assert.equal(preparation.folhaOrigemId, null);
     assert.deepEqual(after.itemFolhaCI, before.itemFolhaCI);
     assert.equal(after.estadoManutencao.length, 0);
-    await recoverCurrentDay(f.db, clock('2026-10-11T00:31:00Z'), () => undefined);
+    await startCycle(f.db, 'VCG', clock('2026-10-11T00:31:00Z')); await finalizeCycle(f.db, 'VCG', clock('2026-10-11T00:31:00Z'));
     assert.deepEqual(f.tables(), after);
   } finally {
     if (previous === undefined) delete process.env.CI_NOVO_FLUXO_GARAGENS;
@@ -347,12 +343,12 @@ test('20:00 finaliza e repete sem alterar timestamp efetivo', async () => {
   const f = await ready(); assert.equal((await finalizeCycle(f.db, 'VCG', clock('2026-10-08T00:00:00Z'))).result, 'FINALIZADA');
   const before = f.tables(); assert.equal((await finalizeCycle(f.db, 'VCG', clock('2026-10-08T00:10:00Z'))).result, 'ALREADY_DONE'); assert.deepEqual(f.tables(), before);
 });
-test('jobs nao antecipam eventos', async () => {
+test('comandos legados respeitam horarios anteriores', async () => {
   const f = fixture(); assert.equal((await startCycle(f.db, 'VCG', clock('2026-10-07T06:59:00Z'))).result, 'NOT_DUE'); assert.equal((await finalizeCycle(f.db, 'VCG', clock())).result, 'NOT_DUE'); assert.equal(f.writes(), 0);
 });
 test('recovery same-day 20:10 conclui somente evento atual', async () => {
   const f = await ready(), prior = process.env.CI_NOVO_FLUXO_GARAGENS; process.env.CI_NOVO_FLUXO_GARAGENS = 'VCG';
-  try { const logs: object[] = []; await recoverCurrentDay(f.db, clock('2026-10-08T00:10:00Z'), v => logs.push(v)); assert.equal(f.tables().folhaCI[1].status, 'FINALIZADA'); assert.ok(logs.length >= 3); }
+  try { await startCycle(f.db, 'VCG', clock('2026-10-08T00:10:00Z')); await finalizeCycle(f.db, 'VCG', clock('2026-10-08T00:10:00Z')); assert.equal(f.tables().folhaCI[1].status, 'FINALIZADA'); }
   finally { if (prior === undefined) delete process.env.CI_NOVO_FLUXO_GARAGENS; else process.env.CI_NOVO_FLUXO_GARAGENS = prior; }
 });
 test('multi-day cria RECUPERACAO atual vazia sem fabricar historico', async () => {
@@ -431,13 +427,13 @@ test('segundo BLOQUEADO rejeitado sem deduplicacao', async () => { const f = awa
 test('CI finalizada imutavel mesmo se relogio voltar para janela', async () => {
   const f = await ready(); await finalizeCycle(f.db, 'VCG', clock('2026-10-08T00:00:00Z')); const c = await command(f, 'ci'); const before = f.tables(); await assert.rejects(saveC4(f.db, 1, c, 'ci', clock()), /indisponivel/); assert.deepEqual(f.tables(), before);
 });
-test('mutacao fora janela e historica recusadas', async () => {
-  const f = await ready(), c = await command(f, 'ci'); await assert.rejects(saveC4(f.db, 1, c, 'ci', clock('2026-10-08T00:00:00Z')), /Janela/);
-  c.data = day; await assert.rejects(saveC4(f.db, 1, { ...c, items: [] }, 'ci', clock()), /Data fora/);
+test('CI permite apos 20h mas recusa hoje e historico', async () => {
+  const f = await ready(), c = await command(f, 'ci'); await saveC4(f.db, 1, c, 'ci', clock('2026-10-08T00:00:00Z'));
+  c.data = day; await assert.rejects(saveC4(f.db, 1, { ...c, items: [] }, 'ci', clock()), /consulta/);
 });
-test('20:00 durante transacao provoca rollback integral', async () => {
+test('virada da data civil durante transacao provoca rollback integral', async () => {
   const f = await ready(), c = await command(f, 'ci'); (c.items as any[])[0].motivo = 'NOVO'; const before = f.tables(); let calls = 0;
-  await assert.rejects(saveC4(f.db, 1, c, 'ci', () => new Date(++calls === 1 ? '2026-10-07T23:59:59Z' : '2026-10-08T00:00:00Z')), /Janela/); assert.deepEqual(f.tables(), before);
+  await assert.rejects(saveC4(f.db, 1, c, 'ci', () => new Date(++calls < 5 ? '2026-10-08T03:59:59Z' : '2026-10-08T04:00:00Z')), /consulta/); assert.deepEqual(f.tables(), before);
 });
 test('snapshot stale/duplo clique: somente um comando persiste', async () => {
   const f = await ready(), c = await command(f, 'ci'); (c.items as any[])[0].motivo = 'FREIO'; const results = await Promise.allSettled([saveC4(f.db, 1, c, 'ci', clock()), saveC4(f.db, 1, c, 'ci', clock())]);
@@ -475,7 +471,7 @@ test('data de bloqueio normal ausente/invalida/futura rejeitada', async () => {
   const f = await ready(); for (const value of ['', '2026-02-30', '2026-10-08', '2026-10-09']) { const c = await command(f, 'ci'); (c.items as any[])[0].dataBloqueio = value; await assert.rejects(saveC4(f.db, 1, c, 'ci', clock()), /Data|Data civil/); }
 });
 test('sem runtime DDL nem reconciliacao em controllers GET', () => {
-  for (const path of ['apps/api/src/services/c4Flow.ts', 'apps/api/src/services/c4Scheduler.ts', 'apps/api/src/controllers/c4.ts', 'apps/api/src/controllers/ciBloqueios.ts', 'apps/api/src/controllers/manutencao.ts']) assert.doesNotMatch(readFileSync(path, 'utf8'), /CREATE\s+TABLE|ALTER\s+TABLE|ensureTable/i);
+  for (const path of ['apps/api/src/services/c4Flow.ts', 'apps/api/src/services/ciLifecycle.ts', 'apps/api/src/controllers/c4.ts', 'apps/api/src/controllers/ciBloqueios.ts', 'apps/api/src/controllers/manutencao.ts']) assert.doesNotMatch(readFileSync(path, 'utf8'), /CREATE\s+TABLE|ALTER\s+TABLE|ensureTable/i);
   const source = readFileSync('apps/api/src/services/mssql.ts', 'utf8'); assert.match(source, /SELECT idCarro, garagem/); assert.match(source, /WHERE ativo=1/);
   const ui = readFileSync('apps/web/src/pages/soltura/CiManutencaoView.tsx', 'utf8'); assert.match(ui, /vehiclesForGarage\(fleetCars, 'VCG'\)/); assert.match(ui, /c4Enabled\('VCG'\) \|\| cons.id !== "VCM"/);
 });
@@ -654,9 +650,9 @@ for (const kind of ['ci', 'manutencao'] as const) test('oficina VCG pode gravar 
   f.identity(identity); const before=f.tables(); await assert.rejects(saveC4(f.db,1,c,kind,clock()), /ADMIN/); assert.deepEqual(f.tables(),before);
  }
  f.identity({role:'manutencao',garagem:'VCG'});
- await assert.rejects(saveC4(f.db,1,c,kind,clock('2026-10-08T00:00:00Z')), /Janela/);
+ await assert.rejects(saveC4(f.db,1,c,kind,clock('2026-10-08T04:00:00Z')), /consulta|somente hoje|Janela/);
  await finalizeCycle(f.db,'VCG',clock('2026-10-08T00:00:00Z'));
- await assert.rejects(saveC4(f.db,1,c,kind,clock()), /preparacao/);
+ await assert.rejects(saveC4(f.db,1,c,kind,clock()), /preparacao|desatualizado/);
 });
 test('autorizacao C4 frontend/backend equivalente e leitura isolada', async () => {
  const server=require('../src/services/c4Authorization'); const client=require('../../web/src/lib/c4Authorization');
@@ -685,13 +681,13 @@ test('C4 18h30 e 19h59 permitem gravacao; scheduler aguarda 20h; legado permanec
  assert.equal(operationalContext(new Date('2026-10-07T22:30:00Z')).open,true);
 });
 
-test('data inicial C4 muda somente as 03h Campo Grande, inclusive calendario e recarga', () => {
+test('data inicial C4 e sempre amanha no calendario Campo Grande', () => {
  const {initialCIDate}=require('../../web/src/lib/ciInitialDate');
  for(const [instant,date] of [
- ['2026-10-09T06:59:00Z','2026-10-09'],['2026-10-09T07:00:00Z','2026-10-10'],
+ ['2026-10-09T06:59:00Z','2026-10-10'],['2026-10-09T07:00:00Z','2026-10-10'],
  ['2026-10-09T23:59:00Z','2026-10-10'],['2026-10-10T00:00:00Z','2026-10-10'],
- ['2026-10-10T03:59:00Z','2026-10-10'],['2026-10-10T04:00:00Z','2026-10-10'],
- ['2026-10-10T06:59:00Z','2026-10-10'],['2026-10-10T07:00:00Z','2026-10-11'],
+ ['2026-10-10T03:59:00Z','2026-10-10'],['2026-10-10T04:00:00Z','2026-10-11'],
+ ['2026-10-10T06:59:00Z','2026-10-11'],['2026-10-10T07:00:00Z','2026-10-11'],
  ['2026-10-31T07:00:00Z','2026-11-01'],['2026-12-31T07:00:00Z','2027-01-01'],
  ['2026-12-25T07:00:00Z','2026-12-26'],['2026-10-11T07:00:00Z','2026-10-12']]) {
  assert.equal(initialCIDate(new Date(instant)),date);
@@ -720,13 +716,13 @@ test('finalizada pela versao anterior as 18h30 nao reabre as 19h', async () => {
  assert.deepEqual(f.tables(),before);
 });
 
-test('frontend C4 autoriza CI e Controle ate 20h em todos os caminhos; legado nao muda', () => {
+test('frontend CI C4 usa data civil; janelas da manutencao e legado nao mudam', () => {
  const RealDate=Date; const {canMutate}=require('../../web/src/lib/mvpTemporal');
  try {
-  for(const [instant,open] of [['2026-10-09T06:59:00Z',false],['2026-10-09T07:00:00Z',true],['2026-10-09T22:30:00Z',true],['2026-10-09T23:59:59Z',true],['2026-10-10T00:00:00Z',false]]) {
+  for(const [instant,open] of [['2026-10-09T06:59:00Z',true],['2026-10-09T07:00:00Z',true],['2026-10-09T22:30:00Z',true],['2026-10-09T23:59:59Z',true],['2026-10-10T00:00:00Z',true]]) {
    globalThis.Date=class extends RealDate { constructor(value?:any){super(value===undefined?instant:value);} } as DateConstructor;
    assert.equal(canMutate('2026-10-10','ci',true),open);
-   assert.equal(canMutate('2026-10-09','manutencao',true),open);
+   assert.equal(canMutate('2026-10-09','manutencao',true), !['2026-10-09T06:59:00Z','2026-10-10T00:00:00Z'].includes(instant));
    if(instant==='2026-10-09T22:30:00Z') assert.equal(canMutate('2026-10-10','ci'),false);
   }
  } finally {globalThis.Date=RealDate;}
@@ -750,7 +746,7 @@ test('navegacao CI preserva escolha manual, isola outras datas e recalcula na en
  assert.equal(dispatchDate,'2026-10-08');
  // Saida da CI e recarga descartam somente a preferencia dessa tela.
  selected=null;
- assert.equal(ciSelectionDate(selected,true,at('2026-10-10T06:59:00Z')),'2026-10-10');
+ assert.equal(ciSelectionDate(selected,true,at('2026-10-10T06:59:00Z')),'2026-10-11');
  assert.equal(ciSelectionDate(selected,true,at('2026-10-10T07:00:00Z')),'2026-10-11');
  assert.equal(ciSelectionDate(null,false,at('2026-10-10T03:59:00Z')),'2026-10-09');
 });
@@ -876,14 +872,14 @@ test('realtime: emissor indisponivel nao transforma commit em erro', async t => 
   assert.equal((await readContext(f.db, 'VCG', day)).ci.find(i => i.id === (c.items as any[])[0].id)!.motivo, 'SALVO');
 });
 
-test('realtime: recuperacao automatica notifica inicio/finalizacao efetivos, sem duplicar retry', async () => {
+test('realtime: comandos legados idempotentes notificam somente alteracoes efetivas', async () => {
   const f = fixture(), events: C4Updated[] = [], previous = process.env.CI_NOVO_FLUXO_GARAGENS;
   process.env.CI_NOVO_FLUXO_GARAGENS = 'VCG';
   const stop = subscribeC4Updates(event => { events.push(event); });
   try {
-    await recoverCurrentDay(f.db, clock('2026-10-08T00:30:00Z'), () => undefined);
+    await startCycle(f.db, 'VCG', clock('2026-10-08T00:30:00Z')); await finalizeCycle(f.db, 'VCG', clock('2026-10-08T00:30:00Z'));
     assert.equal(events.length, 2); assert.equal(f.tables().folhaCI[1].status, 'FINALIZADA');
-    await recoverCurrentDay(f.db, clock('2026-10-08T00:31:00Z'), () => undefined);
+    await startCycle(f.db, 'VCG', clock('2026-10-08T00:31:00Z')); await finalizeCycle(f.db, 'VCG', clock('2026-10-08T00:31:00Z'));
     assert.equal(events.length, 2);
   } finally {
     stop(); if (previous === undefined) delete process.env.CI_NOVO_FLUXO_GARAGENS; else process.env.CI_NOVO_FLUXO_GARAGENS = previous;
@@ -937,4 +933,100 @@ test('19/10: novo bloqueio incluido pela CI encerra execucao no Controle', async
   await saveC4(f.db, 1, ci, 'ci', clock());
   const ctx = await readContext(f.db, 'VCG', day);
   assert.equal(ctx.maintenance[0].bloqueado, true); assert.equal(ctx.maintenance[0].emExecucao, false);
+});
+
+const manualContext = (f: ReturnType<typeof fixture>, date = target, now = clock()) => readContext(f.db, 'VCG', addDays(date, -1), now);
+async function manual(f: ReturnType<typeof fixture>, date: string, operacao: 'iniciar' | 'finalizar' | 'reabrir', now = clock()) {
+ const c = await manualContext(f, date, now);
+ return changeCILifecycle(f.db, 1, { garagem: 'VCG', data: date, operacao, baseC4: c.baseC4 }, now, ['VCG']);
+}
+async function manualSave(f: ReturnType<typeof fixture>, kind: 'ci' | 'manutencao', date: string, edit: (items: any[]) => void, now = clock()) {
+ const c = await manualContext(f, kind === 'ci' ? date : addDays(date, 1), now);
+ const original = kind === 'ci' ? c.ci.filter(i => i.data === date) : c.maintenance;
+ const items = structuredClone(original); edit(items);
+ return saveC4(f.db, 1, { garagem: 'VCG', data: date, baseC4: c.baseC4, base: revision(original), items }, kind, now);
+}
+test('manual: inicia copiando toda CI anterior, sem materializar manutencao em GET', async () => {
+ const f = fixture(), before = f.tables();
+ await manual(f, target, 'iniciar');
+ const copied = f.tables().itemFolhaCI.filter(i => i.folhaId !== 10);
+ assert.equal(copied.length, before.itemFolhaCI.length);
+ for (const old of before.itemFolhaCI) assert.ok(copied.some(i => i.chaveItem === old.chaveItem && i.categoria === old.categoria && i.prefixo === old.prefixo));
+ assert.equal(f.tables().estadoManutencao.length, 0);
+ const writes = f.writes(), c = await manualContext(f);
+ assert.equal(c.maintenance.length, 1); assert.equal(c.mutable, true); assert.equal(c.ciMutable, true);
+ assert.equal(f.writes(), writes);
+});
+test('manual: proxima exige anterior finalizada e nao altera manutencao de hoje', async () => {
+ const f = fixture(); await manual(f, target, 'iniciar');
+ const before = f.tables(); await assert.rejects(manual(f, '2026-10-09', 'iniciar'), /Finalize/); assert.deepEqual(f.tables(), before);
+ await manual(f, target, 'finalizar'); await manual(f, '2026-10-09', 'iniciar');
+ const today = await manualContext(f);
+ await manualSave(f, 'ci', '2026-10-09', items => { items.find(i => i.categoriaPlanilha === 'BLOQUEADO').motivo = 'FUTURO'; });
+ assert.deepEqual((await manualContext(f)).maintenance, today.maintenance);
+ assert.equal(f.tables().estadoManutencao.length, 0);
+});
+test('manual: reabre e finaliza novamente antes da proxima; depois recusa reabertura', async () => {
+ const f = fixture(); await manual(f, target, 'iniciar'); await manual(f, target, 'finalizar');
+ await manual(f, target, 'reabrir'); await manualSave(f, 'ci', target, items => { items.find(i => i.categoriaPlanilha === 'PREVENTIVA').os = 'REVISTO'; });
+ await manual(f, target, 'finalizar'); await manual(f, '2026-10-09', 'iniciar');
+ const before = f.tables(); await assert.rejects(manual(f, target, 'reabrir'), /proxima/); assert.deepEqual(f.tables(), before);
+});
+test('manual: hoje e historico nao podem iniciar, reabrir, finalizar ou salvar', async () => {
+ const f = fixture();
+ for (const date of [day, '2026-10-06']) for (const operacao of ['iniciar', 'reabrir', 'finalizar'] as const) await assert.rejects(manual(f, date, operacao), /consulta/);
+ assert.equal(f.writes(), 0);
+});
+test('manual: primeiro comando materializa bloqueados na manutencao e mantem dados novos', async () => {
+ const f = fixture(); await manual(f, target, 'iniciar');
+ await manualSave(f, 'manutencao', day, items => { items.push({ id: 'new', prefixo: '4200', consorciada: 'VCG', data: day, bloqueado: false, emExecucao: true, liberado: false, observacaoOficina: 'FREIO' }); });
+ const c = await manualContext(f); assert.equal(c.maintenance.length, 2); assert.ok(c.maintenance.every(i => !i.id.includes('--')));
+ assert.ok(c.maintenance.find(i => i.prefixo === '3083')?.bloqueado);
+ assert.equal(c.maintenance.find(i => i.prefixo === '4200')?.observacaoOficina, 'FREIO');
+});
+test('manual: CI de amanha sincroniza; CI finalizada impede apenas alteracoes de bloqueios', async () => {
+ const f = fixture(); await manual(f, target, 'iniciar');
+ await manualSave(f, 'ci', target, items => { items.find(i => i.categoriaPlanilha === 'BLOQUEADO').motivo = 'MOTOR NOVO'; });
+ assert.equal((await manualContext(f)).maintenance[0].observacaoBloqueio, 'MOTOR NOVO');
+ await manual(f, target, 'finalizar');
+ const before = f.tables(); await assert.rejects(manualSave(f, 'manutencao', day, items => { items[0].observacaoBloqueio = 'ALTERADO'; }), /Reabra/); assert.deepEqual(f.tables(), before);
+ await manualSave(f, 'manutencao', day, items => { items.push({ id: 'office', prefixo: '4201', consorciada: 'VCG', data: day, bloqueado: false, emExecucao: true, liberado: false, observacaoOficina: 'FREIO' }); });
+ assert.equal((await manualContext(f)).maintenance.length, 2);
+});
+test('manual: dupla finalizacao com mesma revisao tem apenas um vencedor', async () => {
+ const f = fixture(); await manual(f, target, 'iniciar'); const c = await manualContext(f);
+ const cmd = { garagem: 'VCG', data: target, operacao: 'finalizar', baseC4: c.baseC4 };
+ const results = await Promise.allSettled([changeCILifecycle(f.db, 1, cmd, clock(), ['VCG']), changeCILifecycle(f.db, 1, cmd, clock(), ['VCG'])]);
+ assert.equal(results.filter(i => i.status === 'fulfilled').length, 1);
+});
+test('manual: iniciar proxima e reabrir origem nao podem vencer simultaneamente', async () => {
+ const f = fixture(); await manual(f, target, 'iniciar'); await manual(f, target, 'finalizar');
+ const results = await Promise.allSettled([manual(f, '2026-10-09', 'iniciar'), manual(f, target, 'reabrir')]);
+ assert.equal(results.filter(i => i.status === 'fulfilled').length, 1);
+});
+test('manual: permissoes e garagem habilitada sao verificadas no backend', async () => {
+ const f = fixture(); const c = await manualContext(f); const cmd = { garagem: 'VCG', data: target, operacao: 'iniciar', baseC4: c.baseC4 };
+ f.role(false); await assert.rejects(changeCILifecycle(f.db, 1, cmd, clock(), ['VCG']), (e: any) => e.status === 403);
+ f.role(true); await assert.rejects(changeCILifecycle(f.db, 1, cmd, clock(), []), (e: any) => e.status === 409);
+ assert.equal(f.writes(), 0);
+});
+
+test('manual: erro na primeira alteracao reverte inicializacao da manutencao', async () => {
+ const f = fixture(); await manual(f, target, 'iniciar'); const before = f.tables();
+ await assert.rejects(manualSave(f, 'ci', target, items => { items.splice(items.findIndex(i => i.categoriaPlanilha === 'BLOQUEADO'), 1); }), /intencao explicita/);
+ assert.deepEqual(f.tables(), before);
+});
+test('manual: iniciar sem origem finalizada nao cria ciclo nem folha vazia', async () => {
+ const f = fixture(false), before = f.tables();
+ await assert.rejects(manual(f, target, 'iniciar'), /Finalize/); assert.deepEqual(f.tables(), before);
+});
+test('manual: ao virar o dia, somente o primeiro comando materializa manutencao futura', async () => {
+ const f = fixture(); await manual(f, target, 'iniciar'); await manual(f, target, 'finalizar'); await manual(f, '2026-10-09', 'iniciar');
+ await manualSave(f, 'ci', '2026-10-09', items => { items.find(i => i.categoriaPlanilha === 'BLOQUEADO').motivo = 'PLANEJADO'; });
+ const now = clock('2026-10-08T12:00:00Z'), writes = f.writes();
+ const c = await manualContext(f, '2026-10-09', now); assert.equal(c.maintenance[0].observacaoBloqueio, 'PLANEJADO'); assert.equal(f.writes(), writes);
+ await manualSave(f, 'manutencao', '2026-10-08', () => {}, now);
+ const after = await manualContext(f, '2026-10-09', now); assert.ok(after.maintenance[0].id.startsWith('c4-m-')); assert.ok(!after.maintenance[0].id.includes('--'));
+ const todayCycle = f.tables().cicloOperacional.find(i => i.dataOperacional.toISOString().slice(0,10) === day);
+ assert.equal(f.tables().estadoManutencao.filter(i => i.cicloId === todayCycle.id).length, 0);
 });

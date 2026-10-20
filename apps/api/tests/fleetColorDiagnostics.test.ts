@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { safeSigsitFailure } from '../src/services/sigsitFleetColors';
-import { safeColorJobReason } from '../src/services/fleetColorJob';
+import { safeColorRefreshReason } from '../src/services/fleetColorRefresh';
 
 test('diagnosticos SIGSIT distinguem falhas sem retornar mensagens ou credenciais', () => {
   const cases: [unknown, string][] = [
@@ -15,8 +15,8 @@ test('diagnosticos SIGSIT distinguem falhas sem retornar mensagens ou credenciai
 });
 
 test('job permite apenas diagnosticos conhecidos e nunca imprime erro bruto', () => {
-  assert.equal(safeColorJobReason(new Error('SIGSIT_LOGIN')), 'SIGSIT_LOGIN');
-  assert.equal(safeColorJobReason(new Error('senha=secreta')), 'ATUALIZACAO_FALHOU');
-  assert.equal(safeColorJobReason(Object.assign(new Error('segredo'), { code: 'EACCES' })), 'CACHE_ERRO_DE_ARQUIVO');
-  assert.equal(safeColorJobReason(Object.assign(new Error('segredo'), { name: 'ZodError' })), 'FROTA_VAZIA_INVALIDA_OU_DUPLICADA');
+  assert.equal(safeColorRefreshReason(new Error('SIGSIT_LOGIN')), 'SIGSIT_LOGIN');
+  assert.equal(safeColorRefreshReason(new Error('senha=secreta')), 'ATUALIZACAO_FALHOU');
+  assert.equal(safeColorRefreshReason(Object.assign(new Error('segredo'), { code: 'EACCES' })), 'CACHE_ERRO_DE_ARQUIVO');
+  assert.equal(safeColorRefreshReason(Object.assign(new Error('segredo'), { name: 'ZodError' })), 'FROTA_VAZIA_INVALIDA_OU_DUPLICADA');
 });

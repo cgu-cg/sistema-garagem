@@ -1,5 +1,39 @@
 # Domain model e entendimento operacional atual
 
+## CI manual - regra vigente confirmada em 20/10/2026
+
+Esta decisao substitui as janelas de 03h/20h, finalizacao automatica e limite
+de planejamento somente para amanha descritos nas secoes historicas abaixo.
+No C4, CI com data de hoje ou anterior e somente consulta; qualquer data futura
+pode ser preparada, sem limite de horario, mas somente depois de finalizar
+a CI do dia imediatamente anterior. Iniciar e um comando explicito e copia
+integralmente os itens e o titulo da anterior, com novas identidades fisicas.
+Nao cria folhas intermediarias nem recuperacao vazia quando a origem falta.
+
+Finalizar CI e manual. Uma CI finalizada futura pode ser reaberta e novamente
+finalizada somente enquanto a CI seguinte nao existir. Iniciar a seguinte e
+reabrir a origem compartilham locks ordenados, impedindo sucesso simultaneo.
+Comandos exigem revisao oficial, permissao existente e garagem habilitada;
+essas permissoes nao mudam. Falha ou cancelamento preservam os registros.
+
+Somente CI de amanha sincroniza bloqueados com a manutencao de hoje. CIs mais
+futuras nao alteram estados de manutencao. Ao chegar o dia correspondente,
+GET pode projetar os bloqueados da CI vinculada sem gravar: o primeiro comando
+materializa esses estados e a alteracao solicitada atomicamente. Estados
+Em Manutencao/Liberado de dias anteriores nao sao herdados. A manutencao C4
+continua limitada a hoje e preserva sua janela 03h-20h. Se a CI de amanha estiver
+finalizada, alteracoes dos bloqueios (inclusive motivo/data) exigem reabertura;
+alteracoes independentes de oficina/liberados continuam disponiveis.
+
+Os agendadores C4 e de cores foram removidos em todos os ambientes.
+A atualizacao de cores e somente manual pelo comando fleetColorRefresh.
+C4_SCHEDULER_ENABLED e FLEET_COLORS_JOB_ENABLED nao sao mais utilizadas;
+CI_NOVO_FLUXO_GARAGENS, SIGSIT_SQL_* e FLEET_COLORS_CACHE_PATH permanecem.
+Nenhum GET cria/finaliza CI.
+Nao houve alteracao de schema. finalizacaoPrevistaEm permanece preenchido
+por compatibilidade com o CHECK legado, sem determinar prazo de finalizacao.
+A escala de carros continua editavel somente hoje, conforme regra de 19/10.
+
 ## Escala de carros - edicao somente no dia atual (19/10/2026)
 
 Substituicoes, confirmacoes e alocacoes nos cards da escala diaria somente

@@ -2,12 +2,12 @@ import { removeSavedReinforcement } from './ciReinforcementRemoval';
 import { explicitGarage } from '@/lib/operationalAccess';
 import { normalizeIsoDate, selectCIReportItems, ciReportExtraSlots, ciReportSlot, groupCIReportSubtypes, matchesCISubtype, ciBlockDate } from './ciReport';
 import { operationalContext } from '@/lib/mvpTemporal';
-import { c4OperationalContext, initialCIDate } from '@/lib/c4';
+import { initialCIDate } from '@/lib/c4';
 import { canWriteC4 } from '@/lib/c4Authorization';
 import { canMutate, getMutationState, subscribeMutationState, confirmRefresh, requireRefresh, SavedRefreshRequired, readTicket } from '@/lib/mvpTemporal';
 import { useReadCoordinator } from '@/lib/readCoordination';
 import { fetchManutencaoDataFromApi } from '../manutencao/manutencaoManager';
-import { saveCISnapshot } from './ciManager';
+import { saveCISnapshot, changeCIState } from './ciManager';
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { BloqueioCarro } from "@/data/solturaData";
 import { INVENTORY_CARS } from "@/data/inventoryCars";
@@ -34,7 +34,7 @@ import {
   PopoverAnchor, 
   PopoverContent 
 } from "@/components/ui/popover";
-import { c4Enabled, c4Folha, c4Mutable, c4Configured } from '@/lib/c4';
+import { c4Enabled, c4Folha, c4Mutable, c4Configured, ciNextDay, ciContextDay, c4Context } from '@/lib/c4';
 import { ciEntryGarage, vehiclesForGarage } from '@/lib/c4Vehicles';
 import { useC4RealtimeReload } from '@/lib/useC4Realtime';
 import { createEditBaselines } from '@/lib/editBaselines';
@@ -403,8 +403,6 @@ export function CiManutencaoView({
   const { user } = useAuth();
   const isAdmin = user?.role === "ADMIN";
   const canEditC4 = canWriteC4(user, 'VCG');
-  // Mantem as rotinas de recarga, sem apresentar acoes manuais no cabecalho.
-  const showManualActions = false;
 
   // Identificação e Gestão da Data de Operação (Padrão Controle de Frota)
   const getTodayString = () => operationalContext().today;
@@ -474,7 +472,7 @@ export function CiManutencaoView({
   const editCIBaseline = (key: string) => ciEdits.read(key, ciList);
   useC4RealtimeReload(activeGaragemScope, normalizeIsoDate(dataOperacao), 'ci', reload,
     () => Promise.all([
-      fetchCIBloqueiosFromApi({ garagem: activeGaragemScope === 'TODAS' ? undefined : activeGaragemScope }),
+      fetchCIBloqueiosFromApi({ garagem: activeGaragemScope === 'TODAS' ? undefined : activeGaragemScope, data: dataOperacao }),
       fetchManutencaoDataFromApi(operationalContext().today, activeGaragemScope === 'VCM' ? 'VCM' : 'VCG'),
     ]), ([records]) => { setCiList(records); setReady(true); confirmRefresh(); },
     () => toast.warning('Nao foi possivel atualizar a CI em segundo plano. Dados e rascunhos foram mantidos.'));
@@ -512,15 +510,20 @@ export function CiManutencaoView({
     return Boolean(target && target > tomorrow);
   }, [dataOperacao]);
 
-  // A folha é editável EXCLUSIVAMENTE para a data de amanhã (planejamento da CI)
+  const selectedCIDate = normalizeIsoDate(dataOperacao);
+  const lifecycleContext = c4Context(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG', ciContextDay(selectedCIDate));
+  const previousCIFinalized = lifecycleContext?.folhas?.some(f => f.dataFolha === ciContextDay(selectedCIDate) && f.status === 'FINALIZADA');
+  const nextCIStarted = lifecycleContext?.folhas?.some(f => f.dataFolha === ciNextDay(selectedCIDate));
+
+  // No fluxo manual, qualquer folha futura iniciada e em preparacao pode ser editada.
   const isDataEditavel = useMemo(() => {
     const target = normalizeIsoDate(dataOperacao);
     const tomorrow = getTomorrowString();
     const scope = activeGaragemScope === 'VCM' ? 'VCM' : 'VCG';
-    return Boolean(ready && !writeState.pending && !writeState.refreshRequired && target && target === tomorrow && (c4Enabled(scope) ? canWriteC4(user, scope) : isAdmin) && canMutate(target, 'ci', c4Enabled(scope)) && (c4Enabled(scope) ? activeGaragemScope !== 'TODAS' && c4Mutable(target, scope) : activeGaragemScope !== 'VCM'));
+    return Boolean(ready && !writeState.pending && !writeState.refreshRequired && target && (c4Enabled(scope) ? target > getTodayString() : target === tomorrow) && (c4Enabled(scope) ? canWriteC4(user, scope) : isAdmin) && canMutate(target, 'ci', c4Enabled(scope)) && (c4Enabled(scope) ? activeGaragemScope !== 'TODAS' && c4Mutable(target, scope) : activeGaragemScope !== 'VCM'));
   }, [dataOperacao, clock, user, isAdmin, activeGaragemScope, ready, writeState]);
 
-  // Bloqueio de edição: impede qualquer alteração se a data for <= hoje (fechada) ou > amanhã (futura demais)
+  // Datas de hoje/anteriores e folhas finalizadas nao recebem alteracoes.
   const checkDataFuturaBloqueio = useCallback((): boolean => {
     const target = normalizeIsoDate(dataOperacao);
     const scope = activeGaragemScope === 'VCM' ? 'VCM' : 'VCG';
@@ -536,7 +539,7 @@ export function CiManutencaoView({
       return true;
     }
 
-    if (target && target > tomorrow) {
+    if (!c4Enabled(scope) && target && target > tomorrow) {
       toast.error("Data Bloqueada para Edição Antecipada!", {
         description: `O planejamento da CI é permitido exclusivamente para a folha de amanhã (${formatarDataBr(tomorrow)}). A folha de ${formatarDataBr(dataOperacao)} ainda não está liberada.`,
         duration: 5000,
@@ -577,18 +580,16 @@ export function CiManutencaoView({
     }
   };
 
-  const handlePrepareTomorrow = async () => {
+  const handleCIState = async (operation: 'iniciar' | 'finalizar' | 'reabrir') => {
+    if (ciEdits.keys().length) { toast.warning('Salve ou descarte os rascunhos antes de alterar o estado da CI.'); return; }
+    if (!window.confirm(operation === 'finalizar' ? 'Finalizar esta CI e liberar a preparacao da proxima?' : operation === 'reabrir' ? 'Reabrir esta CI para edicao?' : 'Iniciar esta CI copiando os dados da CI anterior finalizada?')) return;
     const context = reloadContext;
-    const scope = activeGaragemScope === 'VCM' ? 'VCM' : 'VCG';
-    const ctx = c4OperationalContext(scope);
-    if (!ready || getMutationState().pending || getMutationState().refreshRequired || !(c4Enabled(scope) ? canWriteC4(user, scope) : isAdmin) || !ctx.open || (activeGaragemScope === 'VCM' && !c4Enabled(scope)) || (c4Enabled(scope) && activeGaragemScope === 'TODAS')) return;
     try {
-      // Apenas valida a preparacao existente; nunca copia D, inclusive destino vazio.
-      const saved = await saveCISnapshot(ciList, ctx.tomorrow, ciList, [], 'prepare', scope);
+      const records = await changeCIState(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG', normalizeIsoDate(dataOperacao), operation);
       if (!reload.isActive(context)) return;
-      setCiList(saved); setDataOperacao(ctx.tomorrow);
-      toast.success('Preparacao existente consultada. Nenhum item copiado ou reconciliado.');
-    } catch (error) { if (!reload.isActive(context)) return; if (error instanceof SavedRefreshRequired) toast.warning(error.message); else toast.error(error instanceof Error ? error.message : 'Preparacao indisponivel.'); }
+      setCiList(records); confirmRefresh();
+      toast.success(operation === 'finalizar' ? 'CI finalizada.' : operation === 'reabrir' ? 'CI reaberta.' : 'CI iniciada com os dados da anterior.');
+    } catch (error) { if (reload.isActive(context)) toast.error(error instanceof Error ? error.message : 'Nao foi possivel alterar a CI.'); }
   };
 
   // Modal de Relatório Oficial da CI Manutenção (CGU.REG.MT0005)
@@ -970,7 +971,7 @@ export function CiManutencaoView({
   const handleRefreshData = async () => {
     if (getMutationState().pending) return;
     setReady(false);
-    await reload.run(() => Promise.all([fetchCIBloqueiosFromApi({ garagem: activeGaragemScope === 'TODAS' ? undefined : activeGaragemScope }), fetchManutencaoDataFromApi(operationalContext().today, activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')]), ([records]) => {
+    await reload.run(() => Promise.all([fetchCIBloqueiosFromApi({ garagem: activeGaragemScope === 'TODAS' ? undefined : activeGaragemScope, data: dataOperacao }), fetchManutencaoDataFromApi(operationalContext().today, activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')]), ([records]) => {
       setCiList(records); setReady(true); confirmRefresh();
       toast.success('Dados oficiais atualizados.');
     }, error => { setReady(false); requireRefresh(); toast.error(error instanceof Error ? error.message : 'Consulta indisponivel.'); });
@@ -979,7 +980,7 @@ export function CiManutencaoView({
   useEffect(() => {
     let active = true;
     setReady(false);
-    void reload.run(() => Promise.all([fetchCIBloqueiosFromApi({ garagem: activeGaragemScope === 'TODAS' ? undefined : activeGaragemScope }), fetchManutencaoDataFromApi(operationalContext().today, activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')]),
+    void reload.run(() => Promise.all([fetchCIBloqueiosFromApi({ garagem: activeGaragemScope === 'TODAS' ? undefined : activeGaragemScope, data: dataOperacao }), fetchManutencaoDataFromApi(operationalContext().today, activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')]),
       ([records]) => { if (active) { if (activeGaragemScope === 'TODAS' && c4Enabled('VCG')) setAdminGaragemFiltro('VCG'); setCiList(records); setReady(true); confirmRefresh(); } },
       error => { if (active && !getMutationState().pending) { requireRefresh(); toast.error(error instanceof Error ? error.message : 'Consulta indisponivel.'); } });
     return () => { active = false; };
@@ -1966,8 +1967,12 @@ export function CiManutencaoView({
             Visualizar Relatório
           </Button>
 
-          {showManualActions && <>
-          <Button onClick={handlePrepareTomorrow} disabled={!ready || writeState.pending || writeState.refreshRequired || !(c4Enabled('VCG') ? canEditC4 : isAdmin) || !c4OperationalContext(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG').open || activeGaragemScope === 'VCM'} variant="outline" size="sm">Verificar preparação de amanhã</Button>
+          {activeGaragemScope !== 'TODAS' && c4Enabled(activeGaragemScope) && normalizeIsoDate(dataOperacao) > operationalContext().today && canWriteC4(user, activeGaragemScope) && <>
+            {!c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope) && <Button type="button" className="bg-[#164E3A] hover:bg-[#113C2D] text-white rounded-full" size="sm" title={previousCIFinalized ? 'Copiar a CI anterior finalizada' : 'Finalize a CI do dia anterior para liberar esta CI'} disabled={!ready || writeState.pending || writeState.refreshRequired || !previousCIFinalized} onClick={() => void handleCIState('iniciar')}>Iniciar CI</Button>}
+            {c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope)?.status === 'EM_PREPARACAO' && <Button type="button" className="bg-[#164E3A] hover:bg-[#113C2D] text-white rounded-full" size="sm" disabled={!ready || writeState.pending || writeState.refreshRequired} onClick={() => void handleCIState('finalizar')}>Finalizar CI</Button>}
+            {c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope)?.status === 'FINALIZADA' && !nextCIStarted && <Button type="button" variant="outline" size="sm" disabled={!ready || writeState.pending || writeState.refreshRequired} onClick={() => void handleCIState('reabrir')}>Reabrir CI</Button>}
+            {c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope)?.status === 'FINALIZADA' && <Button type="button" variant="outline" size="sm" disabled={!ready || writeState.pending} onClick={() => setDataOperacao(ciNextDay(selectedCIDate))}>Próxima CI</Button>}
+          </>}
           <Button
             onClick={handleRefreshData}
             variant="ghost"
@@ -1977,7 +1982,6 @@ export function CiManutencaoView({
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </Button>
-          </>}
         </div>
       </div>
 
@@ -2004,7 +2008,7 @@ export function CiManutencaoView({
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                  A CI desta data já foi encerrada. Conforme regra operacional, alterações de veículos só são permitidas na folha de amanhã (<strong>{formatarDataBr(getTomorrowString())}</strong>).
+                  CIs de hoje e de datas anteriores permitem apenas consulta. Selecione uma data futura para preparar uma CI.
                 </p>
               </div>
             </div>
@@ -2021,7 +2025,7 @@ export function CiManutencaoView({
         )}
 
         {/* BANNER INFORMATIVO PARA DATAS BLOQUEADAS (A PARTIR DE DEPOIS DE AMANHÃ) */}
-        {isDataFutura && (
+        {isDataFutura && !c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && (
           <div className="bg-amber-500/10 border-2 border-amber-500/30 text-amber-800 dark:text-amber-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 shadow-xs">
             <div className="flex items-start gap-3.5">
               <AlertTriangle className="w-5 h-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />

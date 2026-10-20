@@ -7,6 +7,15 @@ description: >-
 ---
 # Procedimentos Operacionais do Módulo Soltura
 
+## Atualizacao operacional de 20/10/2026
+
+O contrato CI manual no inicio de docs/DOMAIN.md prevalece sobre referencias
+historicas a jobs, janela 03h/20h e limite somente amanha. CI futura inicia
+por comando apos finalizar a anterior; reabre somente sem proxima iniciada.
+Somente amanha sincroniza bloqueios com manutencao de hoje. Inicializacao
+da manutencao ocorre no primeiro comando, nunca em GET. Bloqueios exigem
+reabrir a CI finalizada; demais estados independentes podem mudar hoje.
+
 Ao analisar ou alterar fluxos de Soltura, CI e Controle de Manutenção, incluindo frontend e backend:
 
 ## Atualizacao operacional de 19/10/2026

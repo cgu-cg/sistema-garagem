@@ -15,6 +15,7 @@ export function operationalContext(now = new Date(), closingSeconds = 66600) {
 
 export function canMutate(date: string, kind: 'ci' | 'manutencao', c4 = false) {
   const ctx = operationalContext(new Date(), c4 ? 72000 : 66600);
+  if (c4 && kind === 'ci') return date > ctx.today;
   return ctx.open && date === (kind === 'ci' ? ctx.tomorrow : ctx.today);
 }
 

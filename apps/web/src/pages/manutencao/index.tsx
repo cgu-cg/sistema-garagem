@@ -894,7 +894,8 @@ export function ManutencaoPage() {
     <div className="space-y-6 max-w-7xl mx-auto pb-16">
       {writeState.pending && <p role="status">Salvando. Aguarde antes de outra operacao.</p>}
       {writeState.refreshRequired && <p role="alert">Atualize os dados oficiais antes de continuar.</p>}
-      {!mutationAllowed && <p role="status" className="p-3 text-sm">Somente leitura. Alterações VCG requerem permissao de manutencao, data atual e janela 03:00 ate {c4Enabled(c4Scope) ? '20:00' : '18:30'} (America/Campo_Grande).</p>}
+      {!mutationAllowed && <p role="status" className="p-3 text-sm">{c4Enabled(c4Scope) ? 'Somente leitura. Alteracoes exigem data atual, permissao, CI de amanha iniciada e janela 03:00 ate 20:00 (America/Campo_Grande).' : 'Somente leitura. Alteracoes exigem permissao e janela 03:00 ate 18:30 (America/Campo_Grande).'}</p>}
+      {c4Enabled(c4Scope) && c4Context(c4Scope, dataOperacao)?.folha?.status === 'FINALIZADA' && <p role="status" className="p-3 text-sm text-amber-700">A CI de amanha esta finalizada. Para alterar os bloqueios, reabra essa CI. Se a proxima ja foi iniciada, a reabertura nao sera permitida.</p>}
 
       {/* ==========================================================
           1. HEADER PRINCIPAL (ESTILO DONEZO / BENTO GRID)

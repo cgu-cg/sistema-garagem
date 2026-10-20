@@ -6,7 +6,7 @@ import { ReadInterrupted } from './readCoordination';
 
 export type C4Garage = 'VCG' | 'VCM';
 export interface C4Context {
-  mode: 'C4' | 'LEGADO'; garagem: C4Garage; garages?: C4Garage[]; day?: string; baseC4?: string; mutable?: boolean;
+  mode: 'C4' | 'LEGADO'; garagem: C4Garage; garages?: C4Garage[]; day?: string; baseC4?: string; mutable?: boolean; ciMutable?: boolean;
   folha?: { id: number; status: string; tituloColunaAdicional: string | null } | null;
   folhas?: { id: number; dataFolha: string; status: string; origem: string; tituloColunaAdicional: string | null }[];
   ci?: BloqueioCarro[]; maintenance?: ManutencaoCarroItem[];
@@ -63,9 +63,13 @@ export function c4SnapshotRevision(baseline: readonly { id?: string; updatedAt?:
   }
   return { base: snapshot.base, baseC4: snapshot.baseC4 };
 }
-export function c4Folha(day: string, garagem: C4Garage = 'VCG') { return c4Context(garagem)?.folhas?.find(f => f.dataFolha === day); }
+export function ciContextDay(date: string) {
+  const day = new Date(date + 'T12:00:00Z'); day.setUTCDate(day.getUTCDate() - 1); return day.toISOString().slice(0, 10);
+}
+export function ciNextDay(date: string) { return new Date(Date.parse(date + 'T12:00:00Z') + 86400000).toISOString().slice(0, 10); }
+export function c4Folha(day: string, garagem: C4Garage = 'VCG') { return (c4Context(garagem, ciContextDay(day)) ?? c4Context(garagem))?.folhas?.find(f => f.dataFolha === day); }
 export function c4Mutable(day: string, garagem: C4Garage = 'VCG') {
-  return c4Context(garagem)?.mutable && day === operationalContext().tomorrow && c4Folha(day, garagem)?.status === 'EM_PREPARACAO';
+  return day > operationalContext().today && c4Context(garagem, ciContextDay(day))?.ciMutable && c4Folha(day, garagem)?.status === 'EM_PREPARACAO';
 }
 // Representacao existente da UI e traduzida para a identidade persistida tipo+ordem.
 export function c4Items(items: BloqueioCarro[]) {

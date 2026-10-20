@@ -101,6 +101,7 @@ router.put("/controle-operacional/:id", authenticate, authorize("ADMIN", "operac
 // CI Manutenção & Bloqueios de Veículos (Soltura & Manutenção)
 router.get("/ci-bloqueios", authenticate, operationalAccess('read'), ciBloqueiosController.list);
 router.get('/c4/contexto', authenticate, operationalAccess('read'), c4Controller.context);
+router.post('/c4/ci/estado', authenticate, operationalAccess('read'), c4Controller.lifecycle);
 router.post("/ci-bloqueios", authenticate, operationalAccess('read'), ciBloqueiosController.createOrUpdate);
 router.post("/ci-bloqueios/release", authenticate, operationalAccess('read'), ciBloqueiosController.release);
 router.post("/ci-bloqueios/sync", authenticate, operationalAccess('read'), ciBloqueiosController.sync);

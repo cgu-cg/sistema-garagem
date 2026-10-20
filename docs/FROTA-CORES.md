@@ -19,7 +19,6 @@ Configure no ambiente da API, sem registrar senhas no repositorio:
 SIGSIT_SQL_HOST=192.168.0.114
 SIGSIT_SQL_PORT=1433
 SIGSIT_SQL_DATABASE=SIGSITBD
-FLEET_COLORS_JOB_ENABLED=false
 ```
 
 SIGSIT_SQL_PORT e opcional: reutiliza SQL_SERVER_PORT quando omitida, ou 1433
@@ -31,24 +30,22 @@ O usuario precisa somente SELECT na tabela de origem.
 SIGSIT_SQL_ENCRYPT e SIGSIT_SQL_TRUST_SERVER_CERTIFICATE sao opcoes independentes,
 habilitadas apenas pelo valor true; configure conforme o certificado do servidor.
 
-O job somente inicia com FLEET_COLORS_JOB_ENABLED=true. A API verifica a agenda
-a cada minuto: primeiro domingo do mes, 15:00 America/Campo_Grande (UTC-4).
-O mes concluido e persistido no JSON. Se a API estiver desligada no horario,
-recupera somente o mes atual ao iniciar depois da data prevista. Nao reproduz
-meses passados. Falhas permitem nova tentativa apos 15 minutos.
+Os agendadores foram removidos. A API somente le o cache existente; a
+atualizacao depende do comando manual abaixo. C4_SCHEDULER_ENABLED e
+FLEET_COLORS_JOB_ENABLED podem ser removidas do ambiente, pois nao sao usadas.
+Mantenha CI_NOVO_FLUXO_GARAGENS, SIGSIT_SQL_* e FLEET_COLORS_CACHE_PATH.
 
 ## Carga inicial ou atualizacao manual
 
 Somente no ambiente autorizado, apos configurar a conexao e compilar a API:
 
 ```sh
-node dist/services/fleetColorJob.js --refresh
+node dist/services/fleetColorRefresh.js --refresh
 ```
 
 Execute a partir da pasta da API (no container, /app). O comando consulta
 o SIGSITBD e grava arquivo; nao executa INSERT/UPDATE/DDL. O agente nao o executou.
-A carga manual independe da ativacao do job e nao marca o mes como executado
-pelo agendamento; o job ainda pode atualizar esse mes.
+A carga ocorre somente quando o comando e executado explicitamente.
 
 ## Persistencia e falhas
 
@@ -65,14 +62,14 @@ Erro na origem, resultado vazio/invalido ou idCarro duplicado preserva o cache.
 Cache corrompido gera falha; a atualizacao manual explicita pode recupera-lo.
 Nao existe fallback mock. Logs nao incluem erros SQL ou dados de conexao.
 
-Execute o job em apenas uma instancia. Chamadas simultaneas na mesma instancia
+Execute a atualizacao manual em apenas uma instancia. Chamadas simultaneas na mesma instancia
 sao serializadas; nao ha lock distribuido entre processos/containers. O cache
 nao substitui historicos ou fotografias oficiais e esta integrado a reserva por cor da Escala. Sem cache, a consulta de cores nao informa se a fonte esta atual;
 consumidores futuros devem consultar tambem updatedAt e tratar indisponibilidade.
 
 ## Diagnostico seguro
 
-Ao iniciar, a API informa se o job esta ativo. Falhas incluem apenas reason:
+O comando manual informa o resultado. Falhas incluem apenas reason:
 SIGSIT_CONFIG_INVALIDA (host/credenciais/porta), SIGSIT_LOGIN (autenticacao),
 SIGSIT_REDE_PORTA (conexao), SIGSIT_TIMEOUT, SIGSIT_CERTIFICADO,
 SIGSIT_SEM_PERMISSAO_SELECT, SIGSIT_TABELA_INEXISTENTE ou

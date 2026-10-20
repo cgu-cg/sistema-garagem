@@ -39,10 +39,23 @@ export async function lockC4Context(tx: Tx, scope: Garage, day: string) {
   await tx.$queryRaw`SELECT id FROM dbo.ciclo_operacional WITH (UPDLOCK, HOLDLOCK) WHERE garagem = ${scope} AND data_operacional = ${dateValue(day)}`;
   await tx.$queryRaw`SELECT id FROM dbo.folha_ci WITH (UPDLOCK, HOLDLOCK) WHERE garagem = ${scope} AND data_folha = ${dateValue(addDays(day, 1))}`;
 }
-async function bundle(tx: Tx, scope: Garage, day: string) {
+export const MANUAL_MAINTENANCE_PENDING = 'CI_MANUAL_MANUTENCAO_PENDENTE';
+export async function lockManualCI(tx: Tx, scope: Garage, target: string) {
+  for (const day of [addDays(target, -2), addDays(target, -1), target]) await lockC4Context(tx, scope, day);
+}
+export async function bundle(tx: Tx, scope: Garage, day: string, now = new Date()) {
   const cycle = await tx.cicloOperacional.findUnique({ where: { garagem_dataOperacional: { garagem: scope, dataOperacional: dateValue(day) } } });
   const folha = await tx.folhaCI.findUnique({ where: { garagem_dataFolha: { garagem: scope, dataFolha: dateValue(addDays(day, 1)) } }, include: { itens: { orderBy: { id: 'asc' } } } });
-  const states = cycle ? await tx.estadoManutencao.findMany({ where: { cicloId: cycle.id }, orderBy: { id: 'asc' } }) : [];
+  let states = cycle ? await tx.estadoManutencao.findMany({ where: { cicloId: cycle.id }, orderBy: { id: 'asc' } }) : [];
+  // Projecao da inicializacao pendente. GET nao grava; o primeiro comando materializa.
+  if (cycle?.referenciaOrigem === MANUAL_MAINTENANCE_PENDING && day === operationalContext(now).today) {
+    if (states.length) throw new MvpError(409, 'Inicializacao de manutencao parcial; revisar explicitamente.');
+    states = (folha?.itens.filter(i => i.categoria === 'BLOQUEADO') ?? []).map((i, index) => ({
+      id: -index - 1, cicloId: cycle.id, prefixo: i.prefixo, consorciada: company.parse(i.consorciada),
+      bloqueado: true, emExecucao: false, liberado: false, observacaoBloqueio: i.motivo,
+      observacaoOficina: null, responsavelRegistroId: null, createdAt: cycle.createdAt, updatedAt: cycle.updatedAt,
+    }));
+  }
   const baseC4 = createHash('sha256').update(JSON.stringify([cycle, folha, states])).digest('hex');
   return { cycle, folha, states, baseC4 };
 }
@@ -60,18 +73,20 @@ export function projectItem(i: ItemFolhaCI, scope: string, day: string) {
 export function projectState(s: EstadoManutencao, day: string) {
   return { ...s, id: `c4-m-${s.id}`, data: day, observacao: s.bloqueado ? s.observacaoBloqueio : s.observacaoOficina };
 }
-export async function readContext(db: PrismaClient, scope: Garage, day: string) {
+export async function readContext(db: PrismaClient, scope: Garage, day: string, now = () => new Date()) {
   civil(day);
   // Leitura coerente: nao cria estrutura nem chama recuperacao, mesmo se ausente.
   return db.$transaction(async tx => {
-    const b = await bundle(tx, scope, day);
+    const b = await bundle(tx, scope, day, now());
     const folhas = await tx.folhaCI.findMany({ where: { garagem: scope }, include: { itens: { orderBy: { id: 'asc' } } }, orderBy: { dataFolha: 'asc' } });
     return { mode: 'C4', garagem: scope, day, baseC4: b.baseC4,
       cycle: b.cycle, folha: b.folha ? { ...b.folha, itens: undefined } : null,
       folhas: folhas.map(f => ({ ...f, itens: undefined, dataFolha: dateString(f.dataFolha) })),
       ci: folhas.flatMap(f => f.itens.map(i => projectItem(i, scope, dateString(f.dataFolha)))),
       maintenance: b.states.map(s => projectState(s, day)),
-      mutable: operationalContext().open && day === operationalContext().today && b.folha?.status === 'EM_PREPARACAO' && b.folha.cicloPreparacaoId === b.cycle?.id };
+      mutable: operationalContext(now()).open && day === operationalContext(now()).today && Boolean(b.cycle && b.folha && b.folha.cicloPreparacaoId === b.cycle.id),
+      ciMutable: addDays(day, 1) > operationalContext(now()).today && b.folha?.status === 'EM_PREPARACAO',
+    };
   }, { isolationLevel: 'Serializable' });
 }
 
@@ -128,10 +143,10 @@ export async function saveC4(db: PrismaClient, userId: number | undefined, body:
   }
   let changed = false;
   const committed = await db.$transaction(async tx => {
-    await lockC4Context(tx, c.garagem, day);
+    await lockManualCI(tx, c.garagem, target);
     await authorized(tx, userId, c.data, kind, now, c.garagem);
-    const b = await bundle(tx, c.garagem, day);
-    if (!b.cycle || !b.folha || b.folha.status !== 'EM_PREPARACAO' || b.folha.cicloPreparacaoId !== b.cycle.id) throw new MvpError(409, 'Ciclo/folha em preparacao indisponivel; consulta nunca inicializa.');
+    const b = await bundle(tx, c.garagem, day, now());
+    if (!b.cycle || !b.folha || (kind === 'ci' && b.folha.status !== 'EM_PREPARACAO') || b.folha.cicloPreparacaoId !== b.cycle.id) throw new MvpError(409, 'Ciclo/folha em preparacao indisponivel; inicie a CI explicitamente.');
     if (c.baseC4 !== b.baseC4) throw new MvpError(409, 'Snapshot C4 desatualizado. Recarregue CI e Controle.');
     const folha = b.folha, cycle = b.cycle;
     const current = kind === 'ci' ? folha.itens.map(i => projectItem(i, c.garagem, target)) : b.states.map(s => projectState(s, day));
@@ -142,7 +157,26 @@ export async function saveC4(db: PrismaClient, userId: number | undefined, body:
     }
     // Divergencia preexistente nao pode ser corrigida implicitamente por uma gravacao.
     const oldBlocks = folha.itens.filter(i => i.categoria === 'BLOQUEADO');
-    if (oldBlocks.length !== b.states.filter(s => s.bloqueado).length || oldBlocks.some(i => !b.states.some(s => s.bloqueado && s.prefixo === i.prefixo && s.consorciada === i.consorciada && (s.observacaoBloqueio ?? null) === (i.motivo ?? null)))) throw new MvpError(409, 'CI e Controle divergentes; revisao explicita necessaria.');
+    const syncMaintenance = day === operationalContext(now()).today;
+    if (syncMaintenance && (oldBlocks.length !== b.states.filter(s => s.bloqueado).length || oldBlocks.some(i => !b.states.some(s => s.bloqueado && s.prefixo === i.prefixo && s.consorciada === i.consorciada && (s.observacaoBloqueio ?? null) === (i.motivo ?? null))))) throw new MvpError(409, 'CI e Controle divergentes; revisao explicita necessaria.');
+    if (kind === 'manutencao' && folha.status === 'FINALIZADA') {
+      const before = b.states.filter(s => s.bloqueado).map(s => [s.prefixo, s.consorciada, s.observacaoBloqueio]).sort();
+      const after = states.filter(s => s.bloqueado).map(s => [s.prefixo, s.consorciada, s.observacaoBloqueio !== undefined ? s.observacaoBloqueio : s.observacao ?? null]).sort();
+      if (JSON.stringify(before) !== JSON.stringify(after) || states.some(s => s.dataBloqueio && oldBlocks.some(i => i.prefixo === s.prefixo && i.dataBloqueio && dateString(i.dataBloqueio) !== s.dataBloqueio))) {
+        throw new MvpError(409, 'Reabra a CI de amanha antes de alterar os bloqueios.');
+      }
+    }
+    if (syncMaintenance && cycle.referenciaOrigem === MANUAL_MAINTENANCE_PENDING) {
+      for (let index = 0; index < b.states.length; index++) {
+        const seed = b.states[index];
+        const { id, createdAt: _created, updatedAt: _updated, ...data } = seed;
+        const persisted = await tx.estadoManutencao.create({ data });
+        const submitted = states.find(s => s.id === `c4-m-${id}`);
+        if (submitted) submitted.id = `c4-m-${persisted.id}`;
+        b.states[index] = persisted;
+      }
+      await tx.cicloOperacional.update({ where: { id: cycle.id }, data: { referenciaOrigem: null } });
+    }
     if (kind === 'ci') {
       explicitRemovals(oldBlocks.map(i => i.prefixo), items.filter(i => i.categoriaPlanilha === 'BLOQUEADO').map(i => i.prefixo), c.removeBlocked);
       for (const i of items) {
@@ -161,13 +195,13 @@ export async function saveC4(db: PrismaClient, userId: number | undefined, body:
         }
         else await tx.itemFolhaCI.create({ data: { ...data, folhaId: folha.id, chaveItem: randomUUID() } });
       }
-      for (const s of b.states) {
+      for (const s of syncMaintenance ? b.states : []) {
         const block = items.find(i => i.categoriaPlanilha === 'BLOQUEADO' && i.prefixo === s.prefixo);
         if (block && (!s.bloqueado || s.liberado || s.consorciada !== block.consorciada || (s.observacaoBloqueio ?? null) !== (block.motivo ?? null))) await tx.estadoManutencao.update({ where: { id: s.id }, data: { bloqueado: true, emExecucao: s.bloqueado ? s.emExecucao : false, liberado: false, consorciada: company.parse(block.consorciada), observacaoBloqueio: block.motivo ?? null, responsavelRegistroId: userId } });
         else if (!block && s.bloqueado) await tx.estadoManutencao.update({ where: { id: s.id }, data: { bloqueado: false, observacaoBloqueio: null,
           ...(c.confirmRelease ? { emExecucao: false, liberado: true } : {}), responsavelRegistroId: userId } });
       }
-      for (const i of items.filter(i => i.categoriaPlanilha === 'BLOQUEADO' && !b.states.some(s => s.prefixo === i.prefixo))) await tx.estadoManutencao.create({ data: { cicloId: cycle.id, prefixo: i.prefixo, consorciada: company.parse(i.consorciada), bloqueado: true, emExecucao: false, liberado: false, observacaoBloqueio: i.motivo ?? null, responsavelRegistroId: userId } });
+      for (const i of items.filter(i => syncMaintenance && i.categoriaPlanilha === 'BLOQUEADO' && !b.states.some(s => s.prefixo === i.prefixo))) await tx.estadoManutencao.create({ data: { cicloId: cycle.id, prefixo: i.prefixo, consorciada: company.parse(i.consorciada), bloqueado: true, emExecucao: false, liberado: false, observacaoBloqueio: i.motivo ?? null, responsavelRegistroId: userId } });
       if (c.tituloColunaAdicional !== undefined && c.tituloColunaAdicional !== folha.tituloColunaAdicional) await tx.folhaCI.update({ where: { id: folha.id }, data: { tituloColunaAdicional: c.tituloColunaAdicional, responsavelRegistroId: userId } });
     } else {
       assertMaintenanceTransition(states, b.states);
@@ -206,8 +240,8 @@ export async function saveC4(db: PrismaClient, userId: number | undefined, body:
         if (block) await tx.itemFolhaCI.delete({ where: { id: block.id } });
       }
     }
-    // Esperas/escritas tambem podem atravessar 20:00: rollback integral nesse caso.
-    const result = await bundle(tx, c.garagem, day);
+    // Esperas/escritas podem atravessar a meia-noite: revalidar antes do commit.
+    const result = await bundle(tx, c.garagem, day, now());
     assertC4Context(c.data, kind, now());
     changed = result.baseC4 !== b.baseC4;
     return { records: result.states.map(s => projectState(s, day)), baseC4: result.baseC4 };
