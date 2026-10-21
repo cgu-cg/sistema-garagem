@@ -1,5 +1,5 @@
 import { api } from './api';
-import type { BloqueioCarro } from '@/data/solturaData';
+import type { BloqueioCarro } from '@/data/solturaTypes';
 import type { ManutencaoCarroItem } from '@/pages/manutencao/manutencaoManager';
 import { operationalContext, revision, readTicket, assertReadTicket } from './mvpTemporal';
 import { ReadInterrupted } from './readCoordination';

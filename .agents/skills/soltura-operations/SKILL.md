@@ -7,6 +7,14 @@ description: >-
 ---
 # Procedimentos Operacionais do Módulo Soltura
 
+## Moldes VCG - 21/10/2026
+
+Consultar docs/MOLDES-ESCALA-SOLTURA.md. Moldes VCG usam JSONs separados de
+escala-carros/vcg e soltura/vcg, convertidos dos Excel. Publicacao recorrente
+antiga nao sobrepoe o molde da Soltura VCG. Operacao continua persistida por
+data no banco. Novos moldes valem para todas as datas; preservar registros
+retirados via catalogo de compatibilidade, sem atribui-los a outras viagens.
+
 ## Atualizacao operacional de 20/10/2026
 
 O contrato CI manual no inicio de docs/DOMAIN.md prevalece sobre referencias

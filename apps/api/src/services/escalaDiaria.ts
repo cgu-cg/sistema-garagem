@@ -6,7 +6,7 @@ import type { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { escalaContextSchema } from './escalaCarros';
-import escalaFixa from '../data/escalaFixa.json';
+import { currentScaleTemplate, retiredScaleRows } from '../data/scheduleTemplates';
 import { assertC4Read } from './c4Authorization';
 import { MvpError, operationalContext } from './mvpTemporal';
 import { canWriteDailyScale } from './operationalAccess';
@@ -37,13 +37,13 @@ const confirmationsSchema = z.array(z.object({ id: z.string().min(1).max(100), p
   .refine(values => new Set(values.map(v => v.id)).size === values.length, 'Confirmacoes duplicadas.');
 const savedSchema = z.object({ version: z.literal(2), itens: itemsSchema, cards: allocationCardsSchema, confirmacoes: confirmationsSchema.default([]) }).strict();
 export function fixedSchedule(contexto: ReturnType<typeof parseDailyContext>) {
-  return escalaFixa[(contexto.garagem + '_' + contexto.escalaTipo + '_' + contexto.turno) as keyof typeof escalaFixa];
+  return currentScaleTemplate(contexto);
 }
 function selector(contexto: ReturnType<typeof parseDailyContext>) { return { garagem_escalaTipo_turno_dataOperacao: contexto }; }
 function stored(conteudo: string | undefined, contexto: ReturnType<typeof parseDailyContext>) {
   const parsed: unknown = conteudo === undefined ? [] : JSON.parse(conteudo);
   const value = Array.isArray(parsed) ? { itens: itemsSchema.parse(parsed), cards: null, confirmacoes: [] } : savedSchema.parse(parsed);
-  const ids = new Set(fixedSchedule(contexto).map(i => i.id));
+  const ids = new Set([...fixedSchedule(contexto), ...retiredScaleRows(contexto)].map(i => i.id));
   if (value.itens.some(i => !ids.has(i.id)) || value.confirmacoes.some(i => !ids.has(i.id))) throw new MvpError(409, 'Substituicoes fora da programacao fixa. Revisar sem descartar historico.');
   return value;
 }
@@ -68,13 +68,17 @@ function project(contexto: ReturnType<typeof parseDailyContext>, revisao: number
   const allocation = allocationProjection(fixedSchedule(contexto), itens, cards, frota, source.bloqueados);
   const blocked = [...source.bloqueados, ...(cards.find(c => c.id === 'PORTARIA')?.itens.map(i => i.prefixo) ?? [])];
   const replacements = new Map(itens.map(i => [i.id, i.carroSubstituido]));
+  const foraMolde = itens.flatMap(item => {
+    const old = retiredScaleRows(contexto).find(row => row.id === item.id);
+    return old ? [{ ...old, carroSubstituido: item.carroSubstituido }] : [];
+  });
   const confirmadas = confirmacoes.filter(c => {
     const fixed = fixedSchedule(contexto).find(i => i.id === c.id);
     return fixed && c.prefixo === (replacements.get(c.id) ?? fixed.carroProgramado) && frota.includes(c.prefixo)
       && !blocked.includes(c.prefixo) && !allocation.ocupacoes.some(o => o.prefixo === c.prefixo && o.chave !== 'linha:' + c.id);
   }).map(c => c.id);
   return { contexto, revisao, itens, cards, ciData: source.ciData, ciAvisos: source.ciAvisos, cardsOrigem, omitidosPadrao,
-    confirmadas, ...allocation, reservaPorCor: groupReserveColors(allocation.reserva, colorCache) };
+    confirmadas, foraMolde, ...allocation, reservaPorCor: groupReserveColors(allocation.reserva, colorCache) };
 }
 export async function readEscalaDiaria(db: PrismaClient, value: unknown, userId: number | undefined, loadFleet: FleetLoader = officialFleet, loadColors: ColorLoader = loadColorCache) {
   const contexto = parseDailyContext(value);

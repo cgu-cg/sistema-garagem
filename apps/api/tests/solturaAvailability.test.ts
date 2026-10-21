@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveReleaseContext, writeSafeRelease } from '../src/services/solturaAvailability';
 import { eventInstant } from '../src/services/c4Temporal';
+import { currentReleaseTemplate } from '../src/data/scheduleTemplates';
 const day = '2026-10-08', target = '2026-10-09';
 const item = { scheduleId: 'a', carroRealizado: '4000', linha: '10', tabela: '1', driverCode: '123' };
 const body = { ...item, garagem: 'VCG', dataOperacao: target, turno: 'MATUTINO', escalaTipo: 'SEG_SEX' };
@@ -103,4 +104,12 @@ test('soltura recusa usuario de outra garagem antes de gravar', async () => {
   f.db.user.findUnique = async () => ({ role: 'soltura', garagem: 'VCM' });
   await assert.rejects(writeSafeRelease(f.db, 1, body, false, () => eventInstant(day, 22), () => ['VCG']), (e: any) => e.status === 403);
   assert.equal(f.rows().length, 0);
+});
+
+for (const batch of [false, true]) test('fretamento sem tabela preserva o registro no banco simulado, lote=' + batch, async () => {
+ const f = fixture(); const special = currentReleaseTemplate({ garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'MATUTINO' }).find(i => i.tipo === 'FRETAMENTO')!;
+ const entry = { ...item, scheduleId: special.id, linha: special.linha, tabela: '' };
+ const command = batch ? { ...body, items: [entry] } : { ...body, ...entry };
+ await writeSafeRelease(f.db, 1, command, batch, () => eventInstant(day, 12), () => ['VCG']);
+ assert.equal(f.rows().length, 1); assert.equal(f.rows()[0].tabela, ''); assert.equal(f.rows()[0].linha, special.linha);
 });

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { SolturaItem, BloqueioCarro } from "@/data/solturaData";
+import { SolturaItem, BloqueioCarro } from "@/data/solturaTypes";
 import { drivers } from "@/data/drivers";
 import { checkCarroBloqueado } from "./ciManager";
 import { Button } from "@/components/ui/button";

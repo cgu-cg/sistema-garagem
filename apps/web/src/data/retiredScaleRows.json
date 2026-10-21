@@ -1,0 +1,709 @@
+{
+  "VCG_SEG_SEX_MATUTINO": [
+    {
+      "id": "vcg-mat-007",
+      "linha": "210",
+      "tabela": "2",
+      "saidaGaragem": "04:00"
+    },
+    {
+      "id": "vcg-mat-008",
+      "linha": "323",
+      "tabela": "1",
+      "saidaGaragem": "04:00"
+    },
+    {
+      "id": "vcg-mat-014",
+      "linha": "302/079",
+      "tabela": "88/8",
+      "saidaGaragem": "04:10"
+    },
+    {
+      "id": "vcg-mat-037",
+      "linha": "210",
+      "tabela": "1",
+      "saidaGaragem": "04:20"
+    },
+    {
+      "id": "vcg-mat-043",
+      "linha": "217",
+      "tabela": "2",
+      "saidaGaragem": "04:23"
+    },
+    {
+      "id": "vcg-mat-068",
+      "linha": "302/321",
+      "tabela": "3/10",
+      "saidaGaragem": "04:30"
+    },
+    {
+      "id": "vcg-mat-104",
+      "linha": "210/234/210",
+      "tabela": "3/88/3",
+      "saidaGaragem": "04:50"
+    },
+    {
+      "id": "vcg-mat-106",
+      "linha": "412/414/412",
+      "tabela": "2/88/2",
+      "saidaGaragem": "04:50"
+    },
+    {
+      "id": "vcg-mat-110",
+      "linha": "230",
+      "tabela": "1",
+      "saidaGaragem": "04:55"
+    },
+    {
+      "id": "vcg-mat-111",
+      "linha": "81",
+      "tabela": "11",
+      "saidaGaragem": "04:55"
+    },
+    {
+      "id": "vcg-mat-112",
+      "linha": "54",
+      "tabela": "1",
+      "saidaGaragem": "04:55"
+    },
+    {
+      "id": "vcg-mat-113",
+      "linha": "211",
+      "tabela": "3",
+      "saidaGaragem": "04:55"
+    },
+    {
+      "id": "vcg-mat-116",
+      "linha": "PLT/215",
+      "tabela": "4",
+      "saidaGaragem": "05:00"
+    },
+    {
+      "id": "vcg-mat-117",
+      "linha": "409",
+      "tabela": "3",
+      "saidaGaragem": "05:00"
+    },
+    {
+      "id": "vcg-mat-119",
+      "linha": "601",
+      "tabela": "001A",
+      "saidaGaragem": "05:00"
+    },
+    {
+      "id": "vcg-mat-125",
+      "linha": "309/079",
+      "tabela": "3/5",
+      "saidaGaragem": "05:00"
+    },
+    {
+      "id": "vcg-mat-127",
+      "linha": "414/80/222/201",
+      "tabela": "4/88/4/1",
+      "saidaGaragem": "05:00"
+    },
+    {
+      "id": "vcg-mat-131",
+      "linha": "86",
+      "tabela": "1",
+      "saidaGaragem": "05:05"
+    },
+    {
+      "id": "vcg-mat-133",
+      "linha": "422",
+      "tabela": "1",
+      "saidaGaragem": "05:05"
+    },
+    {
+      "id": "vcg-mat-139",
+      "linha": "234",
+      "tabela": "1",
+      "saidaGaragem": "05:05"
+    },
+    {
+      "id": "vcg-mat-143",
+      "linha": "421",
+      "tabela": "4",
+      "saidaGaragem": "05:10"
+    },
+    {
+      "id": "vcg-mat-144",
+      "linha": "81",
+      "tabela": "2",
+      "saidaGaragem": "05:10"
+    },
+    {
+      "id": "vcg-mat-165",
+      "linha": "421 / 430",
+      "tabela": "88/01",
+      "saidaGaragem": "05:20"
+    },
+    {
+      "id": "vcg-mat-173",
+      "linha": "431 / 412",
+      "tabela": "1/7",
+      "saidaGaragem": "05:25"
+    },
+    {
+      "id": "vcg-mat-174",
+      "linha": "411/085/418",
+      "tabela": "88/7/",
+      "saidaGaragem": "05:25"
+    },
+    {
+      "id": "vcg-mat-175",
+      "linha": "238/215",
+      "tabela": "01/07",
+      "saidaGaragem": "05:45"
+    },
+    {
+      "id": "vcg-mat-186",
+      "linha": "414 / 242",
+      "tabela": "7/2",
+      "saidaGaragem": "05:36"
+    },
+    {
+      "id": "vcg-mat-187",
+      "linha": "SISEP",
+      "tabela": "1",
+      "saidaGaragem": "05:40"
+    },
+    {
+      "id": "vcg-mat-196",
+      "linha": "309",
+      "tabela": "2",
+      "saidaGaragem": "04:40"
+    },
+    {
+      "id": "vcg-mat-198",
+      "linha": "312",
+      "tabela": "2",
+      "saidaGaragem": "04:15"
+    },
+    {
+      "id": "vcg-mat-199",
+      "linha": "082",
+      "tabela": "3",
+      "saidaGaragem": "04:37"
+    },
+    {
+      "id": "vcg-mat-200",
+      "linha": "313/070",
+      "tabela": "88/10",
+      "saidaGaragem": "05:20"
+    }
+  ],
+  "VCG_SEG_SEX_VESPERTINO": [
+    {
+      "id": "vcg-vesp-001",
+      "linha": "326",
+      "tabela": "1",
+      "saidaGaragem": "10:30"
+    },
+    {
+      "id": "vcg-vesp-002",
+      "linha": "401",
+      "tabela": "3",
+      "saidaGaragem": "13:40"
+    },
+    {
+      "id": "vcg-vesp-003",
+      "linha": "354",
+      "tabela": "3",
+      "saidaGaragem": "14:15"
+    },
+    {
+      "id": "vcg-vesp-004",
+      "linha": "412",
+      "tabela": "2",
+      "saidaGaragem": "14:38"
+    },
+    {
+      "id": "vcg-vesp-005",
+      "linha": "317",
+      "tabela": "1",
+      "saidaGaragem": "14:40"
+    },
+    {
+      "id": "vcg-vesp-006",
+      "linha": "303",
+      "tabela": "2",
+      "saidaGaragem": "14:55"
+    },
+    {
+      "id": "vcg-vesp-007",
+      "linha": "225",
+      "tabela": "2",
+      "saidaGaragem": "15:00"
+    },
+    {
+      "id": "vcg-vesp-008",
+      "linha": "227",
+      "tabela": "1",
+      "saidaGaragem": "15:00"
+    },
+    {
+      "id": "vcg-vesp-009",
+      "linha": "076",
+      "tabela": "2",
+      "saidaGaragem": "15:05"
+    },
+    {
+      "id": "vcg-vesp-010",
+      "linha": "321",
+      "tabela": "3",
+      "saidaGaragem": "15:06"
+    },
+    {
+      "id": "vcg-vesp-011",
+      "linha": "412",
+      "tabela": "3",
+      "saidaGaragem": "15:07"
+    },
+    {
+      "id": "vcg-vesp-012",
+      "linha": "317",
+      "tabela": "2",
+      "saidaGaragem": "15:10"
+    },
+    {
+      "id": "vcg-vesp-013",
+      "linha": "414",
+      "tabela": "3",
+      "saidaGaragem": "15:10"
+    },
+    {
+      "id": "vcg-vesp-014",
+      "linha": "051",
+      "tabela": "3",
+      "saidaGaragem": "15:15"
+    },
+    {
+      "id": "vcg-vesp-015",
+      "linha": "321",
+      "tabela": "6",
+      "saidaGaragem": "15:15"
+    },
+    {
+      "id": "vcg-vesp-016",
+      "linha": "212",
+      "tabela": "1",
+      "saidaGaragem": "15:30"
+    },
+    {
+      "id": "vcg-vesp-017",
+      "linha": "408",
+      "tabela": "2",
+      "saidaGaragem": "15:31"
+    },
+    {
+      "id": "vcg-vesp-018",
+      "linha": "412",
+      "tabela": "4",
+      "saidaGaragem": "15:31"
+    },
+    {
+      "id": "vcg-vesp-019",
+      "linha": "215",
+      "tabela": "2",
+      "saidaGaragem": "15:50"
+    },
+    {
+      "id": "vcg-vesp-020",
+      "linha": "215",
+      "tabela": "3",
+      "saidaGaragem": "15:50"
+    },
+    {
+      "id": "vcg-vesp-021",
+      "linha": "073",
+      "tabela": "03",
+      "saidaGaragem": "15:50"
+    },
+    {
+      "id": "vcg-vesp-022",
+      "linha": "081",
+      "tabela": "5",
+      "saidaGaragem": "15:55"
+    },
+    {
+      "id": "vcg-vesp-023",
+      "linha": "414",
+      "tabela": "4",
+      "saidaGaragem": "15:55"
+    },
+    {
+      "id": "vcg-vesp-024",
+      "linha": "403",
+      "tabela": "1",
+      "saidaGaragem": "15:55"
+    },
+    {
+      "id": "vcg-vesp-025",
+      "linha": "212",
+      "tabela": "2",
+      "saidaGaragem": "16:00"
+    },
+    {
+      "id": "vcg-vesp-026",
+      "linha": "216",
+      "tabela": "1",
+      "saidaGaragem": "16:00"
+    },
+    {
+      "id": "vcg-vesp-027",
+      "linha": "423/071",
+      "tabela": "88/5",
+      "saidaGaragem": "16:00"
+    },
+    {
+      "id": "vcg-vesp-028",
+      "linha": "414",
+      "tabela": "5",
+      "saidaGaragem": "16:00"
+    },
+    {
+      "id": "vcg-vesp-029",
+      "linha": "325",
+      "tabela": "1",
+      "saidaGaragem": "16:15"
+    },
+    {
+      "id": "vcg-vesp-030",
+      "linha": "307",
+      "tabela": "2",
+      "saidaGaragem": "16:20"
+    },
+    {
+      "id": "vcg-vesp-031",
+      "linha": "321",
+      "tabela": "8",
+      "saidaGaragem": "16:26"
+    },
+    {
+      "id": "vcg-vesp-032",
+      "linha": "086",
+      "tabela": "5",
+      "saidaGaragem": "16:29"
+    },
+    {
+      "id": "vcg-vesp-033",
+      "linha": "431",
+      "tabela": "1",
+      "saidaGaragem": "16:30"
+    },
+    {
+      "id": "vcg-vesp-034",
+      "linha": "410/074/427",
+      "tabela": "1/88",
+      "saidaGaragem": "16:30"
+    },
+    {
+      "id": "vcg-vesp-035",
+      "linha": "418",
+      "tabela": "1",
+      "saidaGaragem": "16:30"
+    },
+    {
+      "id": "vcg-vesp-036",
+      "linha": "322",
+      "tabela": "1",
+      "saidaGaragem": "16:30"
+    },
+    {
+      "id": "vcg-vesp-037",
+      "linha": "419/421",
+      "tabela": "1/4",
+      "saidaGaragem": "16:30"
+    },
+    {
+      "id": "vcg-vesp-038",
+      "linha": "422/085",
+      "tabela": "1/88",
+      "saidaGaragem": "16:30"
+    },
+    {
+      "id": "vcg-vesp-039",
+      "linha": "220",
+      "tabela": "1",
+      "saidaGaragem": "16:35"
+    },
+    {
+      "id": "vcg-vesp-040",
+      "linha": "326",
+      "tabela": "1",
+      "saidaGaragem": "16:35"
+    },
+    {
+      "id": "vcg-vesp-041",
+      "linha": "215",
+      "tabela": "4",
+      "saidaGaragem": "16:38"
+    },
+    {
+      "id": "vcg-vesp-042",
+      "linha": "403",
+      "tabela": "2",
+      "saidaGaragem": "16:40"
+    },
+    {
+      "id": "vcg-vesp-043",
+      "linha": "423/406",
+      "tabela": "88/88",
+      "saidaGaragem": "17:00"
+    },
+    {
+      "id": "vcg-vesp-044",
+      "linha": "060/61",
+      "tabela": "1/1",
+      "saidaGaragem": "17:00"
+    },
+    {
+      "id": "vcg-vesp-045",
+      "linha": "407",
+      "tabela": "2",
+      "saidaGaragem": "17:05"
+    },
+    {
+      "id": "vcg-vesp-046",
+      "linha": "421",
+      "tabela": "03",
+      "saidaGaragem": "17:10"
+    },
+    {
+      "id": "vcg-vesp-047",
+      "linha": "212",
+      "tabela": "5",
+      "saidaGaragem": "17:22"
+    },
+    {
+      "id": "vcg-vesp-048",
+      "linha": "212",
+      "tabela": "4",
+      "saidaGaragem": ""
+    },
+    {
+      "id": "vcg-vesp-049",
+      "linha": "205",
+      "tabela": "3",
+      "saidaGaragem": "14:10"
+    },
+    {
+      "id": "vcg-vesp-050",
+      "linha": "206",
+      "tabela": "2",
+      "saidaGaragem": "15:00"
+    },
+    {
+      "id": "vcg-vesp-051",
+      "linha": "223",
+      "tabela": "1",
+      "saidaGaragem": "15:00"
+    },
+    {
+      "id": "vcg-vesp-052",
+      "linha": "210",
+      "tabela": "4",
+      "saidaGaragem": "15:10"
+    },
+    {
+      "id": "vcg-vesp-053",
+      "linha": "526",
+      "tabela": "1",
+      "saidaGaragem": "15:23"
+    },
+    {
+      "id": "vcg-vesp-054",
+      "linha": "215",
+      "tabela": "1",
+      "saidaGaragem": "15:30"
+    },
+    {
+      "id": "vcg-vesp-055",
+      "linha": "201",
+      "tabela": "1",
+      "saidaGaragem": "15:50"
+    },
+    {
+      "id": "vcg-vesp-056",
+      "linha": "81",
+      "tabela": "4",
+      "saidaGaragem": "16:03"
+    },
+    {
+      "id": "vcg-vesp-057",
+      "linha": "234/234",
+      "tabela": "1/88",
+      "saidaGaragem": "16:16"
+    },
+    {
+      "id": "vcg-vesp-058",
+      "linha": "237",
+      "tabela": "2",
+      "saidaGaragem": "16:30"
+    },
+    {
+      "id": "vcg-vesp-059",
+      "linha": "215",
+      "tabela": "5",
+      "saidaGaragem": "16:45"
+    },
+    {
+      "id": "vcg-vesp-060",
+      "linha": "213",
+      "tabela": "2",
+      "saidaGaragem": "17:03"
+    },
+    {
+      "id": "vcg-vesp-061",
+      "linha": "230",
+      "tabela": "1",
+      "saidaGaragem": "17:40"
+    },
+    {
+      "id": "vcg-vesp-062",
+      "linha": "601",
+      "tabela": "2",
+      "saidaGaragem": "15:25"
+    },
+    {
+      "id": "vcg-vesp-063",
+      "linha": "214",
+      "tabela": "2",
+      "saidaGaragem": "15:35"
+    },
+    {
+      "id": "vcg-vesp-064",
+      "linha": "473",
+      "tabela": "2",
+      "saidaGaragem": "15:45"
+    },
+    {
+      "id": "vcg-vesp-065",
+      "linha": "229",
+      "tabela": "2",
+      "saidaGaragem": "15:50"
+    },
+    {
+      "id": "vcg-vesp-066",
+      "linha": "246",
+      "tabela": "2",
+      "saidaGaragem": "16:00"
+    },
+    {
+      "id": "vcg-vesp-067",
+      "linha": "203",
+      "tabela": "2",
+      "saidaGaragem": "16:23"
+    },
+    {
+      "id": "vcg-vesp-068",
+      "linha": "212",
+      "tabela": "3",
+      "saidaGaragem": "16:30"
+    },
+    {
+      "id": "vcg-vesp-069",
+      "linha": "424",
+      "tabela": "1",
+      "saidaGaragem": "16:30"
+    },
+    {
+      "id": "vcg-vesp-070",
+      "linha": "217",
+      "tabela": "2",
+      "saidaGaragem": "16:55"
+    },
+    {
+      "id": "vcg-vesp-071",
+      "linha": "413",
+      "tabela": "4",
+      "saidaGaragem": "16:00"
+    },
+    {
+      "id": "vcg-vesp-072",
+      "linha": "412",
+      "tabela": "5",
+      "saidaGaragem": "16:00"
+    },
+    {
+      "id": "vcg-vesp-073",
+      "linha": "86",
+      "tabela": "3",
+      "saidaGaragem": "16:03"
+    },
+    {
+      "id": "vcg-vesp-074",
+      "linha": "473",
+      "tabela": "6",
+      "saidaGaragem": "16:17"
+    },
+    {
+      "id": "vcg-vesp-075",
+      "linha": "423/086",
+      "tabela": "88/6",
+      "saidaGaragem": "16:20"
+    },
+    {
+      "id": "vcg-vesp-076",
+      "linha": "471",
+      "tabela": "2",
+      "saidaGaragem": "16:24"
+    },
+    {
+      "id": "vcg-vesp-077",
+      "linha": "430",
+      "tabela": "1",
+      "saidaGaragem": "17:07"
+    },
+    {
+      "id": "vcg-vesp-078",
+      "linha": "317",
+      "tabela": "3",
+      "saidaGaragem": "15:37"
+    },
+    {
+      "id": "vcg-vesp-079",
+      "linha": "304",
+      "tabela": "2",
+      "saidaGaragem": "16:27"
+    },
+    {
+      "id": "vcg-vesp-080",
+      "linha": "309",
+      "tabela": "1",
+      "saidaGaragem": "16:40"
+    },
+    {
+      "id": "vcg-vesp-081",
+      "linha": "309",
+      "tabela": "2",
+      "saidaGaragem": "17:35"
+    }
+  ],
+  "VCG_SABADO_PADRAO": [],
+  "VCG_DOM_FER_PADRAO": [
+    {
+      "id": "vcg-dom-02",
+      "linha": "302",
+      "tabela": "2",
+      "saidaGaragem": "04:00"
+    },
+    {
+      "id": "vcg-dom-07",
+      "linha": "211",
+      "tabela": "1",
+      "saidaGaragem": "04:15"
+    },
+    {
+      "id": "vcg-dom-32",
+      "linha": "072",
+      "tabela": "1",
+      "saidaGaragem": "04:45"
+    }
+  ],
+  "VCM_SEG_SEX_MATUTINO": [],
+  "VCM_SEG_SEX_VESPERTINO": [],
+  "VCM_SABADO_PADRAO": [],
+  "VCM_DOM_FER_PADRAO": []
+}

@@ -1,5 +1,18 @@
 # Domain model e entendimento operacional atual
 
+## Moldes de Escala e Soltura VCG - decisao confirmada em 21/10/2026
+
+Os JSONs separados por dia/turno passam a ser os moldes oficiais das telas,
+conforme os sete Excel em exemplos/escala-carros/vcg e exemplos/solturas/vcg.
+Na Soltura VCG, a programacao recorrente publicada anteriormente no banco
+nao define mais o molde. Despachos, trocas e substituicoes continuam salvos
+por data nas estruturas existentes; nenhum dado ou schema foi migrado.
+Os novos moldes valem tambem para datas anteriores, por decisao do usuario.
+SISEP e ESP.VCM sao incluidos com tabela vazia; horarios padronizados HH:mm;
+a coluna garagem mantem seu mapeamento. VCM nao muda de programacao.
+Viagens retiradas nao recebem IDs de outras viagens nem perdem seus registros.
+Detalhes e fontes em [MOLDES-ESCALA-SOLTURA.md](MOLDES-ESCALA-SOLTURA.md).
+
 ## CI manual - regra vigente confirmada em 20/10/2026
 
 Esta decisao substitui as janelas de 03h/20h, finalizacao automatica e limite

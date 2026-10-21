@@ -1,4 +1,4 @@
-import { BloqueioCarro } from "@/data/solturaData";
+import { BloqueioCarro } from "@/data/solturaTypes";
 import { api } from "@/lib/api";
 import { c4Context, c4Enabled, c4Items, c4SnapshotRevision, fetchC4Context, storeC4Context, C4Garage, ciContextDay } from '@/lib/c4';
 import { operationalContext, canMutate, revision, beginMutation, endMutation, requireRefresh, SavedRefreshRequired, getMutationState, readTicket, assertReadTicket } from "@/lib/mvpTemporal";

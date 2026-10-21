@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { SolturaItem } from "@/data/solturaData";
+import { SolturaItem } from "@/data/solturaTypes";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";

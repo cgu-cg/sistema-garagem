@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { readEscalaDiaria as readReal, saveEscalaDiaria as saveReal, parseDailyContext, fixedSchedule } from '../src/services/escalaDiaria';
 import { applyDailySchedule, fixedScheduleRows, fixedScheduleToken } from '../../web/src/lib/dailySchedule';
 import { validateDailyEscala } from '../../web/src/lib/sharedEscala';
+import { currentScaleTemplate } from '../../web/src/data/scheduleTemplates';
 import { officialGarageFleet, occupations, defaultAllocations } from '../src/services/escalaAllocation';
 
 const baseContext = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'MATUTINO' } as const;
 const contexto = { ...baseContext, dataOperacao: '2026-10-14' };
-const original = fixedSchedule(contexto)[0];
+const original = fixedSchedule(contexto).find(row => /^\d+$/.test(row.carroProgramado) && fixedSchedule(contexto).filter(other => other.carroProgramado === row.carroProgramado).length === 1)!;
 const fleetRows = [...new Set([...fixedSchedule(contexto).map(i => i.carroProgramado).filter(p => /^\d{1,10}$/.test(p)), '5001', '5002', '5001', '5002', '5003'])].map(prefixo => ({ idCarro: Number(prefixo), prefixo, garagem: 2, garagemNome: 'VCG' }));
 const readEscalaDiaria = (db: any, value: unknown, userId: number | undefined) => readReal(db, value, userId, async () => db.__fleet, async () => db.__colors ?? null);
 const saveEscalaDiaria = (db: any, userId: number | undefined, value: unknown) => saveReal(db, userId, value, async () => db.__fleet, async () => db.__colors ?? null, () => new Date('2026-10-14T16:00:00Z'));
@@ -81,19 +81,19 @@ test('escala usa JSON fixo e banco armazena somente a substituicao', async () =>
   const daily = await saveEscalaDiaria(f.db, 1, command());
   const rows = applyDailySchedule(fixedScheduleRows(baseContext), daily);
   assert.equal(JSON.stringify(fixedSchedule(contexto)), before);
-  assert.equal(rows[0].carroProgramado, original.carroProgramado);
-  assert.equal(rows[0].carroSubstituido, '5001');
-  assert.equal(rows[0].status, 'PENDENTE');
-  assert.equal(rows[0].carroRealizado, undefined);
+  assert.equal(rows.find(i => i.id === original.id)!.carroProgramado, original.carroProgramado);
+  assert.equal(rows.find(i => i.id === original.id)!.carroSubstituido, '5001');
+  assert.equal(rows.find(i => i.id === original.id)!.status, 'PENDENTE');
+  assert.equal(rows.find(i => i.id === original.id)!.carroRealizado, undefined);
   assert.deepEqual(JSON.parse([...f.records.values()][0].conteudo).itens, [{ id: original.id, carroSubstituido: '5001' }]);
   assert.equal(f.locks.length, 3);
   assert.match(f.locks[2], /escala_diaria WITH \(UPDLOCK,HOLDLOCK\)/);
 });
 test('todos os campos fixos permanecem iguais apos substituir', async () => {
   const daily = await saveEscalaDiaria(fixture().db, 1, command());
-  const base = fixedScheduleRows(baseContext), row = applyDailySchedule(base, daily)[0];
+  const base = fixedScheduleRows(baseContext), row = applyDailySchedule(base, daily).find(i => i.id === original.id)!;
   for (const key of ['linha', 'tabela', 'saidaGaragem', 'chegadaGaragem', 'carroProgramado'] as const)
-    assert.equal(row[key], base[0][key]);
+    assert.equal(row[key], base.find(i => i.id === original.id)![key]);
 });
 test('dia seguinte, garagem e turno nao herdam substituicoes', async () => {
   const f = fixture(); await saveEscalaDiaria(f.db, 1, command());
@@ -117,7 +117,7 @@ test('limpar substituicao ou informar carro original restaura valores fixos', as
     const f = fixture(); await saveEscalaDiaria(f.db, 1, command());
     const daily = await saveEscalaDiaria(f.db, 1, command(1, value));
     assert.deepEqual(daily.itens, []);
-    assert.equal(applyDailySchedule(fixedScheduleRows(baseContext), daily)[0].carroProgramado, original.carroProgramado);
+    assert.equal(applyDailySchedule(fixedScheduleRows(baseContext), daily).find(i => i.id === original.id)!.carroProgramado, original.carroProgramado);
   }
 });
 test('revisao diaria obsoleta retorna 409 e preserva vencedor', async () => {
@@ -157,7 +157,7 @@ test('falha real de consulta preserva JSON visivel; recuperacao carrega substitu
   const load = f.db.escalaDiaria.findUnique;
   f.db.escalaDiaria.findUnique = async () => { throw new Error('Consulta indisponivel'); };
   await assert.rejects(readEscalaDiaria(f.db, contexto, 1));
-  assert.equal(applyDailySchedule(fixedScheduleRows(baseContext), null)[0].carroProgramado, original.carroProgramado);
+  assert.equal(applyDailySchedule(fixedScheduleRows(baseContext), null).find(i => i.id === original.id)!.carroProgramado, original.carroProgramado);
   f.db.escalaDiaria.findUnique = load;
   assert.equal((await readEscalaDiaria(f.db, contexto, 1)).itens[0].carroSubstituido, '5001');
 });
@@ -168,12 +168,14 @@ test('conteudo diario malformado ou com viagem desconhecida nao e descartado sil
   await assert.rejects(readEscalaDiaria(f.db, contexto, 1), (e: any) => e.status === 409);
 });
 test('JSON frontend e backend sao identicos em todos os oito contextos', () => {
-  const a = JSON.parse(readFileSync('apps/api/src/data/escalaFixa.json', 'utf8'));
-  const b = JSON.parse(readFileSync('apps/web/src/data/escalaFixa.json', 'utf8'));
-  assert.deepEqual(a, b); assert.equal(Object.keys(a).length, 8);
-  for (const rows of Object.values(a) as any[][]) assert.equal(new Set(rows.map(r => r.id)).size, rows.length);
+  for (const garagem of ['VCG', 'VCM'] as const) for (const [escalaTipo, turno] of [['SEG_SEX','MATUTINO'],['SEG_SEX','VESPERTINO'],['SABADO','PADRAO'],['DOM_FER','PADRAO']] as const) {
+    const context = { garagem, escalaTipo, turno };
+    assert.deepEqual(fixedSchedule({ ...context, dataOperacao: contexto.dataOperacao }), currentScaleTemplate(context));
+    const rows = currentScaleTemplate(context); assert.equal(new Set(rows.map(r => r.id)).size, rows.length);
+  }
   assert.equal(fixedScheduleToken(baseContext, original.id), JSON.stringify(original));
 });
+
 test('frontend recusa resposta malformada, duplicada ou de outra data', async () => {
   const response = await saveEscalaDiaria(fixture().db, 1, command());
   assert.deepEqual(validateDailyEscala(response, contexto), response);
@@ -204,7 +206,7 @@ test('carro fixo bloqueado exige substituto livre, sem alterar o JSON', async ()
   assert.equal(f.records.size, 0);
   const saved = await saveEscalaDiaria(f.db, 1, command());
   assert.equal(saved.itens[0].carroSubstituido, '5001');
-  assert.equal(fixedSchedule(contexto)[0].carroProgramado, original.carroProgramado);
+  assert.equal(fixedSchedule(contexto).find(i => i.id === original.id)!.carroProgramado, original.carroProgramado);
   assert.ok(!saved.reserva.includes(original.carroProgramado));
 });
 test('bloqueado nao entra em linha nem em qualquer card de veiculos', async () => {
@@ -315,14 +317,14 @@ test('confirmacao da linha persiste por data e e recuperada apos recarga', async
   assert.deepEqual(saved.confirmadas, [original.id]);
   const loaded = await readEscalaDiaria(f.db, contexto, 1);
   assert.deepEqual(loaded.confirmadas, [original.id]);
-  assert.equal(applyDailySchedule(fixedScheduleRows(baseContext), loaded)[0].confirmada, true);
+  assert.equal(applyDailySchedule(fixedScheduleRows(baseContext), loaded).find(i => i.id === original.id)!.confirmada, true);
   const tomorrow = await readEscalaDiaria(f.db, { ...contexto, dataOperacao: '2026-10-15' }, 1);
   assert.deepEqual(tomorrow.confirmadas, []);
 });
 test('carro fixo livre pode ser confirmado sem substituicao e nao se torna LIBERADO', async () => {
   const saved = await saveEscalaDiaria(fixture().db, 1, command(0, ''));
   assert.deepEqual(saved.itens, []); assert.deepEqual(saved.confirmadas, [original.id]);
-  assert.equal(applyDailySchedule(fixedScheduleRows(baseContext), saved)[0].status, 'PENDENTE');
+  assert.equal(applyDailySchedule(fixedScheduleRows(baseContext), saved).find(i => i.id === original.id)!.status, 'PENDENTE');
 });
 test('confirmacoes nao sao inferidas de registros antigos e novos bloqueios invalidam indicador', async () => {
   const f = fixture();
@@ -415,4 +417,18 @@ test('avisos informativos vem da CI D+1 e nao bloqueiam confirmacao nem reserva'
   assert.equal(saved.ciAvisos.length, 3);
   assert.deepEqual(validateDailyEscala(saved, contexto), saved);
   assert.throws(() => validateDailyEscala({ ...saved, ciAvisos: [{ ...saved.ciAvisos[0], prefixo: '1333' }] }, contexto));
+});
+
+test('troca do molde preserva substituicoes antigas sem aplicar em outra viagem', async () => {
+ const f = fixture();
+ const old = { id: 'vcg-mat-008', carroSubstituido: '5001' };
+ f.records.set(JSON.stringify(contexto), { id: 1, revisao: 1, conteudo: JSON.stringify([old]) });
+ const read = await readEscalaDiaria(f.db, contexto, 1);
+ assert.deepEqual(read.itens, [old]); assert.equal(read.foraMolde.length, 1);
+ assert.equal(read.foraMolde[0].linha, '323');
+ assert.ok(!applyDailySchedule(fixedScheduleRows(baseContext), read).some(i => i.carroSubstituido === '5001'));
+ assert.deepEqual(validateDailyEscala(read, contexto).itens, [old]);
+ const initial = await saveEscalaDiaria(f.db, 1, command(1, '5002'));
+ assert.ok(initial.itens.some(i => i.id === old.id && i.carroSubstituido === old.carroSubstituido));
+ assert.ok(JSON.parse([...f.records.values()][0].conteudo).itens.some((i: any) => i.id === old.id && i.carroSubstituido === old.carroSubstituido));
 });

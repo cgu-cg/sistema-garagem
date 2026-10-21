@@ -4,7 +4,7 @@ import { lockC4Context } from './c4Flow';
 import { assertC4Read } from './c4Authorization';
 import { addDays, civil, dateValue, enabledGarages, eventInstant } from './c4Temporal';
 import { MvpError, operationalContext } from './mvpTemporal';
-import { createSolturaSchema, batchSyncSolturaSchema } from '../utils/schemas';
+import { createSolturaSchema, createSolturaFields, batchSyncSolturaSchema } from '../utils/schemas';
 
 export class AvailabilityError extends MvpError {
   constructor(public code: string) { super(409, `Soltura impedida: ${code}. Nenhum registro foi gravado.`); }
@@ -20,7 +20,7 @@ export function resolveReleaseContext(garagem: unknown, dataOperacao: unknown, n
   return { ciDate, maintenanceDate: ctx.today };
 }
 const identifier = z.string().trim().min(1).max(100);
-const releaseItem = createSolturaSchema.extend({
+const releaseItem = createSolturaFields.extend({
   scheduleId: identifier,
   carroRealizado: z.string().regex(/^\d{1,10}$/),
   driverCode: identifier,

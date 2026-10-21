@@ -9,7 +9,7 @@ import { useReadCoordinator } from '@/lib/readCoordination';
 import { fetchManutencaoDataFromApi } from '../manutencao/manutencaoManager';
 import { saveCISnapshot, changeCIState } from './ciManager';
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { BloqueioCarro } from "@/data/solturaData";
+import { BloqueioCarro } from "@/data/solturaTypes";
 import { INVENTORY_CARS } from "@/data/inventoryCars";
 import { 
   getConsorciadaByCarro,

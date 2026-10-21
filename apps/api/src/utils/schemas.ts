@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { hasValidReleaseTable } from '../services/solturaTemplateTable';
 
 export const loginSchema = z.object({
   email: z.string().email("Email inválido"),
@@ -36,14 +37,14 @@ export const createAbastecimentoSchema = z.object({
   fotoT3: z.string().min(1, "Foto do tanque 3 é obrigatória").nullable().optional(),
 });
 
-export const createSolturaSchema = z.object({
+export const createSolturaFields = z.object({
   busId: z.number().int().positive().optional().nullable(),
   programmedBusId: z.number().int().positive().optional().nullable(),
   scheduleId: z.string().optional().nullable(),
   carroProgramado: z.string().optional().nullable(),
   carroRealizado: z.string().min(1, "Carro realizado é obrigatório"),
   linha: z.string().min(1, "Linha é obrigatória"),
-  tabela: z.string().min(1, "Tabela é obrigatória"),
+  tabela: z.string(),
   driverCode: z.string().optional().nullable(),
   driverName: z.string().optional().nullable(),
   saidaGaragem: z.string().optional().nullable(),
@@ -58,6 +59,9 @@ export const createSolturaSchema = z.object({
   status: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
 });
+export const createSolturaSchema = createSolturaFields.superRefine((item, ctx) => {
+  if (!hasValidReleaseTable(item)) ctx.addIssue({ code: 'custom', path: ['tabela'], message: 'Tabela obrigatoria, exceto fretamentos identificados no molde.' });
+});
 
 export const batchSyncSolturaSchema = z.object({
   dataOperacao: z.string().min(1, "Data de operação é obrigatória"),
@@ -70,7 +74,7 @@ export const batchSyncSolturaSchema = z.object({
       carroProgramado: z.string().optional().nullable(),
       carroRealizado: z.string().min(1),
       linha: z.string().min(1),
-      tabela: z.string().min(1),
+      tabela: z.string(),
       driverCode: z.string().optional().nullable(),
       driverName: z.string().optional().nullable(),
       saidaGaragem: z.string().optional().nullable(),
@@ -82,6 +86,10 @@ export const batchSyncSolturaSchema = z.object({
       notes: z.string().optional().nullable(),
     })
   ),
+}).superRefine((payload, ctx) => {
+  payload.items.forEach((item, index) => {
+    if (!hasValidReleaseTable({ ...payload, ...item })) ctx.addIssue({ code: 'custom', path: ['items', index, 'tabela'], message: 'Tabela obrigatoria, exceto fretamentos identificados no molde.' });
+  });
 });
 
 export const consisteCatracaQuerySchema = z.object({

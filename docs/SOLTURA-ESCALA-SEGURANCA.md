@@ -1,5 +1,9 @@
 # Contencao emergencial de solturas e escala compartilhada
 
+> Atualizacao de 21/10/2026: o molde VCG agora vem dos JSONs convertidos dos
+> Excel, inclusive na Soltura e nas datas anteriores. Consulte
+> [MOLDES-ESCALA-SOLTURA.md](MOLDES-ESCALA-SOLTURA.md) para o contrato atual.
+
 ## Integração da consolidação
 
 Consolidado sobre fb6eb69 em 09/10/2026. C4 preserva abertura às 03h,
@@ -98,13 +102,13 @@ Escopo refinado pelo usuario: nesta etapa somente Escala de Carros. Soltura e
 Alterar Folha serao revisadas depois; a substituicao diaria nao e aplicada
 nessas telas nesta entrega. Nao registra despacho nem altera disponibilidade C4.
 
-A programacao vem de apps/web/src/data/escalaFixa.json: linha, tabela, saida,
+A programacao vem de apps/web/src/data/escala-carros/ (selecionada por scheduleTemplates.ts): linha, tabela, saida,
 chegada e carro original sao somente leitura. A base foi extraida dos oito
 contextos existentes, preservando valores e identificadores. Carro Substituido
 fica em coluna separada com Salvar. Limpar ou informar o carro fixo remove a
 substituicao. Horarios nao sao editaveis nesta tela.
 
-A API possui a mesma base em apps/api/src/data/escalaFixa.json para validar
+A API possui a mesma base em apps/api/src/data/escala-carros/ (copias dos mesmos JSONs) para validar
 viagens/contexts, sem confiar na programacao enviada pelo cliente. As duas
 copias sao necessarias aos contextos Docker independentes atuais; testes
 verificam igualdade integral. Futuras revisoes da base devem atualizar ambas

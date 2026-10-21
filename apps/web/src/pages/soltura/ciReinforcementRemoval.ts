@@ -1,4 +1,4 @@
-import type { BloqueioCarro } from '@/data/solturaData';
+import type { BloqueioCarro } from '@/data/solturaTypes';
 
 // Retira somente o registro salvo dessa posicao/data, preservando coexistencias.
 export async function removeSavedReinforcement(

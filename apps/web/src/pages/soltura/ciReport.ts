@@ -1,4 +1,4 @@
-import type { BloqueioCarro } from '@/data/solturaData';
+import type { BloqueioCarro } from '@/data/solturaTypes';
 
 export function normalizeIsoDate(d?: string): string {
   if (!d) return '';

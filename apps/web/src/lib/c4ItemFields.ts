@@ -1,4 +1,4 @@
-import type { BloqueioCarro } from '../data/solturaData';
+import type { BloqueioCarro } from '../data/solturaTypes';
 
 // Somente o proprio item fornece informacao conhecida; nunca consultar prefixo/frota.
 export function c4KnownFields(item?: BloqueioCarro) {

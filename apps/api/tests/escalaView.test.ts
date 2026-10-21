@@ -44,8 +44,8 @@ test('React mostra CI do dia seguinte, Reserva e carro fixo bloqueado em vermelh
   const html = render(false);
   assert.match(html, /BLOQUEADOS CI 2026-10-15/);
   assert.match(html, /AZUL \(1\)/);
-  assert.match(html, /text-rose-600 bg-rose-50/);
-  assert.match(html, /esta bloqueado/);
+  assert.match(html, /font-bold[^"]*text-rose-600/);
+  assert.match(html, /aria-label="Ver ocorrencias do carro/);
   assert.match(html, /Carro fixo/);
   assert.match(html, /Carro substituido/);
 });
@@ -74,7 +74,7 @@ test('React diferencia linha confirmada apenas com fundo verde e preserva o bota
   assert.doesNotMatch(html, />(Confirmada|Pendente|Alterada: confirmar novamente|Revisar e confirmar)</);
   assert.match(html, /aria-label="Linha confirmada [^"]+"[^>]*disabled=""/);
   // A referencia fixa bloqueada continua sinalizada, mesmo com substituto valido.
-  assert.match(html, /text-rose-600 bg-rose-50/);
+  assert.match(html, /font-bold[^"]*text-rose-600/);
 });
 test('React nao mostra confirmacao valida para carro que passou a estar bloqueado', () => {
   const html = render(false, { schedules: [{ ...rows[0], confirmada: true }] });
@@ -129,8 +129,9 @@ test('carro da CI tem aviso amarelo acessivel sem desabilitar confirmacao', () =
 test('bloqueado conserva prioridade vermelha sobre ocorrencia informativa na CI', () => {
   const prefixo = rows[0].carroProgramado;
   const html = render(false, { official: { ...official, ciAvisos: [{ prefixo, categoria: 'OFICINA', subTipo: 'ELEVADOR', horario: null, tipoPosicao: null, ordemPosicao: null }] } });
-  assert.match(html, /text-rose-600 bg-rose-50/);
-  assert.ok(!html.includes('Ver ocorrencias do carro ' + prefixo));
+  assert.match(html, /font-bold[^"]*text-rose-600/);
+  assert.ok(html.includes('Ver ocorrencias do carro ' + prefixo));
+  assert.doesNotMatch(html, /text-amber-500/);
 });
 
 test('substituto da CI tambem recebe alerta amarelo sem impedir selecao', () => {

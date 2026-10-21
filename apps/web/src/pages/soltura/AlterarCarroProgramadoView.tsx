@@ -96,6 +96,11 @@ export function AlterarCarroProgramadoView({ dateControl, readOnly = true, readO
       </div>
     </div>
     {readOnly && <p role="status" className="text-sm text-muted-foreground">{readOnlyReason}</p>}
+    {Boolean(official?.foraMolde?.length) && <details className="rounded-2xl border border-amber-300 bg-amber-50/40 p-3 text-xs dark:bg-amber-950/20">
+      <summary className="cursor-pointer font-semibold">Substituicoes anteriores em linhas que nao fazem parte do molde atual ({official?.foraMolde?.length})</summary>
+      <p className="mt-2">Estes registros foram preservados e nao sao aplicados a outras linhas.</p>
+      <ul className="mt-2 space-y-1">{official?.foraMolde?.map(item => <li key={item.id}>Linha {item.linha} · Tabela {item.tabela || '—'} · Saida {item.saidaGaragem || '—'} · Carro {item.carroSubstituido}</li>)}</ul>
+    </details>}
     {official && official.omitidosPadrao > 0 && <p role="status" className="text-xs text-amber-700">{official.omitidosPadrao} alocacoes padrao nao foram aplicadas por conflito com linhas, bloqueios ou frota da garagem.</p>}
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-10">
       <div className="lg:col-span-7 rounded-3xl border border-border bg-card overflow-hidden self-start">

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { BloqueioCarro } from '../../web/src/data/solturaData';
+import type { BloqueioCarro } from '../../web/src/data/solturaTypes';
 import { removeSavedReinforcement } from '../../web/src/pages/soltura/ciReinforcementRemoval';
 
 const item = (changes = {}) => ({ id: 'c4-ci-1', prefixo: '3022', garagem: 'VCG', categoriaPlanilha: 'REFORCO',

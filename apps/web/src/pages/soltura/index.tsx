@@ -37,20 +37,12 @@ import {
 import * as XLSX from "xlsx";
 import {
   SolturaItem,
-  vcgSegundaSextaMatutino,
-  vcgSegundaSextaVespertino,
-  vcgSabado,
-  vcgDomingoFeriado,
-  vcmSegundaSexta,
-  vcmSabado,
-  vcmDomingoFeriado,
-  terminaisReservaVCG,
-  terminaisReservaVCM,
   BloqueioCarro,
   TerminalReserva,
-  parseTimeToMinutes,
-  reservasGaragemVCG
-} from "@/data/solturaData";
+  parseTimeToMinutes
+} from "@/data/solturaTypes";
+import { terminaisReservaVCG, terminaisReservaVCM, reservasGaragemVCG } from '@/data/reservasData';
+import { releaseScheduleBase, applyReleaseRecords, type ReleaseRecord } from '@/lib/releaseSchedule';
 import { drivers } from "@/data/drivers";
 import { cn } from "@/lib/utils";
 import { CiManutencaoView } from "./CiManutencaoView";
@@ -97,7 +89,7 @@ export const TIPOS_RESERVA: Array<{
 
 import { CarroTrocaPopover, TrocaCarroItem } from "./CarroTrocaPopover";
 
-export interface DispatchedRecord {
+export interface DispatchedRecord extends ReleaseRecord {
   scheduleId: string;
   carroRealizado: string;
   motoristaCodigo: string;
@@ -389,7 +381,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const dailyDateEditable = dataOperacao === operationalContext().today;
   const canEditDailyScale = canWriteDailyScale(user, garagem) && dailyDateEditable;
   const permanentReady = Boolean(sharedScale && JSON.stringify(sharedScale.contexto) === scaleContextKey && !scaleError);
-  const releaseUiAllowed = c4ReleaseAllowed && permanentReady;
+  const releaseUiAllowed = c4ReleaseAllowed && (garagem === 'VCG' || permanentReady);
   const reloadDailyScale = async () => {
     if (viewMode !== 'ALTERAR_CARRO_PROGRAMADO') return;
     if ((dailyWritePending.current && dailyWriteContext.current === dailyContextKey) || dailyDirtyFields.current.size) return;
@@ -453,6 +445,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   selectedScaleKey.current = scaleContextKey;
   const reloadSharedScale = async () => {
     if (viewMode === 'ALTERAR_CARRO_PROGRAMADO') return;
+    if (garagem === 'VCG') return;
     if (dailyDirtyFields.current.size) return;
     if (scaleWritePending.current && scaleWriteContext.current === scaleContextKey) return;
     const request = ++scaleReadSequence.current;
@@ -496,23 +489,12 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     } finally { scaleWritePending.current = false; scaleWriteContext.current = null; }
   };
 
-  const defaultSchedules = useMemo<SolturaItem[]>(() => {
-    if (garagem === "VCG") {
-      if (escalaTipo === "SEG_SEX") {
-        return turnoTipo === "MATUTINO" ? vcgSegundaSextaMatutino : vcgSegundaSextaVespertino;
-      }
-      if (escalaTipo === "SABADO") return vcgSabado;
-      return vcgDomingoFeriado;
-    } else {
-      if (escalaTipo === "SEG_SEX") return vcmSegundaSexta;
-      if (escalaTipo === "SABADO") return vcmSabado;
-      return vcmDomingoFeriado;
-    }
-  }, [garagem, escalaTipo, turnoTipo]);
+  const defaultSchedules = useMemo<SolturaItem[]>(() => releaseScheduleBase({ garagem, escalaTipo,
+    turno: escalaTipo === 'SEG_SEX' ? turnoTipo : 'PADRAO' }), [garagem, escalaTipo, turnoTipo]);
 
   const scheduleKey = `${garagem}_${escalaTipo}_${escalaTipo === "SEG_SEX" ? turnoTipo : "PADRAO"}`;
   const permanentSchedules = permanentReady && sharedScale?.publicada ? customSchedules[scheduleKey] ?? defaultSchedules : defaultSchedules;
-  const rawBaseSchedules = permanentSchedules;
+  const rawBaseSchedules = garagem === 'VCG' ? defaultSchedules : permanentSchedules;
   const fixedRows = useMemo(() => fixedScheduleRows(scaleContext), [scaleContextKey]);
   const dailySchedules = useMemo(() => applyDailySchedule(fixedRows, dailyReady ? dailyScale : null), [fixedRows, dailyScale, dailyReady]);
   const baseSchedules = useMemo(() => {
@@ -554,6 +536,10 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
               dbDispatches[sid] = {
                 scheduleId: sid,
                 carroRealizado: rec.carroRealizado,
+                carroProgramado: rec.carroProgramado ?? undefined,
+                scheduleSnapshot: { id: sid, linha: rec.linha, tabela: rec.tabela ?? '',
+                  saidaGaragem: rec.saidaGaragem ?? '', inicioLinha: rec.inicioLinha ?? '',
+                  inicioBairro: rec.inicioLinha ?? '', carroProgramado: rec.carroProgramado ?? '', status: 'PENDENTE' },
                 motoristaCodigo: rec.driverCode || "",
                 motoristaNome: rec.driverName || "",
                 horaLiberacao: rec.horaLiberacao || "",
@@ -944,23 +930,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   }, [ciList, garagem]);
 
   // Mapear itens mesclando programação base + despachos realizados
-  const activeSchedules = useMemo(() => {
-    return baseSchedules.map(item => {
-      const dispatch = dispatches[item.id];
-      if (dispatch) {
-        return {
-          ...item,
-          carroRealizado: dispatch.carroRealizado,
-          motoristaCodigo: dispatch.motoristaCodigo,
-          motoristaNome: dispatch.motoristaNome,
-          horaLiberacao: dispatch.horaLiberacao,
-          observacoes: dispatch.observacoes,
-          status: (dispatch.substituido ? "SUBSTITUIDO" : "LIBERADO") as "LIBERADO" | "SUBSTITUIDO"
-        };
-      }
-      return item;
-    });
-  }, [baseSchedules, dispatches]);
+  const activeSchedules = useMemo(() => applyReleaseRecords(baseSchedules, dispatches, viewMode === 'HISTORICO'),
+    [baseSchedules, dispatches, viewMode]);
 
   // Estatísticas operacionais
   const stats = useMemo(() => {
@@ -1630,18 +1601,18 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
   return (
     <div className="space-y-5 animate-in fade-in duration-300 pb-16">
-      {!isCIView && viewMode !== 'ALTERAR_CARRO_PROGRAMADO' && <div role="alert" className="p-3 border rounded print:hidden">
+      {!isCIView && viewMode !== 'ALTERAR_CARRO_PROGRAMADO' && (garagem !== 'VCG' || ciReadError) && <div role="alert" className="p-3 border rounded print:hidden">
         {ciReadError && <p>{ciReadError}</p>}
-        {canReadScale(user) && (scaleError || (!sharedScale ? 'Carregando escala oficial...' : sharedScale.publicada ? 'Escala oficial carregada.' : 'Escala ainda nao publicada. Nenhum dado local foi importado.'))}
-        {!permanentReady && <p>Programacao base exibida para consulta. Alteracoes oficiais nao confirmadas; gravacoes e liberacoes bloqueadas.</p>}
-        {canReadScale(user) && <Button type="button" variant="outline" onClick={() => {
+        {garagem !== 'VCG' && canReadScale(user) && (scaleError || (!sharedScale ? 'Carregando escala oficial...' : sharedScale.publicada ? 'Escala oficial carregada.' : 'Escala ainda nao publicada. Nenhum dado local foi importado.'))}
+        {garagem !== 'VCG' && !permanentReady && <p>Programacao base exibida para consulta. Alteracoes oficiais nao confirmadas; gravacoes e liberacoes bloqueadas.</p>}
+        {garagem !== 'VCG' && canReadScale(user) && <Button type="button" variant="outline" onClick={() => {
           if (dailyDirtyFields.current.size && !window.confirm('Descartar as alteracoes digitadas da escala para consultar os dados oficiais?')) return;
           dailyDirtyFields.current.clear(); setDailyScale(null);
           setDailyEditEpoch(value => value + 1);
           void reloadSharedScale(); void reloadDailyScale();
         }}>Recarregar escala</Button>}
-        {isAdmin && sharedScale && !sharedScale.publicada && <details><summary>Revisar programacao padrao antes de publicar</summary><ul>{defaultSchedules.map(i => <li key={i.id}>{i.linha} / {i.tabela} / {i.carroProgramado} / {i.saidaGaragem}</li>)}</ul></details>}
-        {isAdmin && sharedScale && !sharedScale.publicada && <Button type="button" onClick={async () => {
+        {garagem !== 'VCG' && isAdmin && sharedScale && !sharedScale.publicada && <details><summary>Revisar programacao padrao antes de publicar</summary><ul>{defaultSchedules.map(i => <li key={i.id}>{i.linha} / {i.tabela} / {i.carroProgramado} / {i.saidaGaragem}</li>)}</ul></details>}
+        {garagem !== 'VCG' && isAdmin && sharedScale && !sharedScale.publicada && <Button type="button" onClick={async () => {
           if (!window.confirm('Publicar a programacao padrao exibida na revisao da equipe? Nenhum dado de localStorage sera usado.')) return;
           const saved = await persistCustomSchedules(() => ({ [scheduleKey]: defaultSchedules }));
           if (saved) toast.success('Escala publicada no servidor.');
@@ -2754,7 +2725,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       {/* ========================================================= */}
       {/* VISUALIZAÇÃO: ALTERAR FOLHA DE SOLTURA */}
       {/* ========================================================= */}
-      {viewMode === "ALTERAR_FOLHA" && (
+      {viewMode === "ALTERAR_FOLHA" && (garagem === 'VCG' ? <p role="status" className="rounded-2xl border bg-card p-4 text-sm">O molde da VCG vem dos arquivos JSON. As alteracoes diarias de carros, motoristas e liberacoes sao registradas na tela de Soltura e salvas por data no banco.</p> :
         <AlterarFolhaView
           garagem={garagem}
           escalaTipo={escalaTipo}

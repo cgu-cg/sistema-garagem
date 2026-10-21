@@ -1,4 +1,4 @@
-import { BloqueioCarro } from "@/data/solturaData";
+import { BloqueioCarro } from "@/data/solturaTypes";
 import { getInitialCIBloqueios, fetchCIBloqueiosFromApi, getCurrentCIGarage } from "@/pages/soltura/ciManager";
 import { api } from "@/lib/api";
 import { c4Context, c4Enabled, c4SnapshotRevision, fetchC4Context, storeC4Context, C4Garage } from '@/lib/c4';

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { SolturaItem } from "@/data/solturaData";
+import { SolturaItem } from "@/data/solturaTypes";
 import { normalizeLinhaETabela } from "./folhaStorage";
 import { Button } from "@/components/ui/button";
 import { PlusCircle, Search, Trash2, FileText } from "lucide-react";

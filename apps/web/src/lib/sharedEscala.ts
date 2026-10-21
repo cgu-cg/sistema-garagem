@@ -1,7 +1,7 @@
-import { SolturaItem } from '@/data/solturaData';
+import { SolturaItem } from '@/data/solturaTypes';
 import { api } from './api';
 import { z } from 'zod';
-import fixedScale from '../data/escalaFixa.json';
+import { currentScaleTemplate, retiredScaleRows } from '../data/scheduleTemplates';
 export interface EscalaContext { garagem: 'VCG' | 'VCM'; escalaTipo: 'SEG_SEX' | 'SABADO' | 'DOM_FER'; turno: 'MATUTINO' | 'VESPERTINO' | 'PADRAO' }
 export interface SharedEscala { contexto: EscalaContext; revisao: number; publicada: boolean; itens: SolturaItem[] }
 export function scaleItems(items: SolturaItem[]) {
@@ -18,6 +18,7 @@ export interface ScaleCardItem { id: string; prefixo: string; linha?: string; ta
 export interface ScaleCard { id: string; titulo: string; modo: 'lista' | 'unico' | 'rabicho'; itens: ScaleCardItem[] }
 export interface CardMutation { card: string; operacao: 'adicionar' | 'remover' | 'definir'; prefixo: string; itemId?: string; linha?: string; tabela?: string }
 export interface DailyEscala { contexto: EscalaContext & { dataOperacao: string }; revisao: number;
+  foraMolde?: { id: string; linha: string; tabela: string; saidaGaragem: string; carroSubstituido: string }[];
   reservaPorCor?: { updatedAt: string | null; grupos: { id: string; titulo: string; prefixos: string[] }[] };
   ciAvisos?: { prefixo: string; categoria: 'PREVENTIVA' | 'OFICINA' | 'REFORCO'; subTipo: string | null; horario: string | null; tipoPosicao: string | null; ordemPosicao: number | null }[];
   confirmadas: string[];
@@ -28,6 +29,7 @@ const dailyResponseSchema = z.object({
   contexto: z.object({ garagem: z.enum(['VCG', 'VCM']), escalaTipo: z.enum(['SEG_SEX', 'SABADO', 'DOM_FER']),
     turno: z.enum(['MATUTINO', 'VESPERTINO', 'PADRAO']), dataOperacao: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).strict(),
   revisao: z.number().int().nonnegative(),
+  foraMolde: z.array(z.object({ id: z.string(), linha: z.string(), tabela: z.string(), saidaGaragem: z.string(), carroSubstituido: prefixSchema }).strict()).optional(),
   reservaPorCor: z.object({ updatedAt: z.string().datetime().nullable(), grupos: z.array(z.object({
     id: z.enum(['AZUL', 'VERMELHO', 'MICRO', 'VERMELHO_AZUL', 'PRATA', 'OUTRO']), titulo: z.string(), prefixos: z.array(prefixSchema),
   }).strict()).length(6) }).strict().optional(),
@@ -43,8 +45,12 @@ const dailyResponseSchema = z.object({
 }).strict();
 export function validateDailyEscala(value: unknown, contexto: DailyEscala['contexto']): DailyEscala {
   const parsed = dailyResponseSchema.parse(value);
-  const key = `${contexto.garagem}_${contexto.escalaTipo}_${contexto.turno}` as keyof typeof fixedScale;
-  const ids = new Set(fixedScale[key]?.map(i => i.id));
+  const ids = new Set([...currentScaleTemplate(contexto), ...retiredScaleRows(contexto)].map(i => i.id));
+  if (parsed.foraMolde?.some(item => {
+    const old = retiredScaleRows(contexto).find(row => row.id === item.id);
+    return !old || old.linha !== item.linha || old.tabela !== item.tabela || old.saidaGaragem !== item.saidaGaragem
+      || !parsed.itens.some(row => row.id === item.id && row.carroSubstituido === item.carroSubstituido);
+  })) throw new Error('Registros anteriores inconsistentes com o contexto solicitado.');
   const nextDate = new Date(`${contexto.dataOperacao}T12:00:00Z`); nextDate.setUTCDate(nextDate.getUTCDate() + 1);
   if (Object.entries(contexto).some(([key, v]) => parsed.contexto[key as keyof typeof contexto] !== v)
       || parsed.ciData !== nextDate.toISOString().slice(0, 10)
