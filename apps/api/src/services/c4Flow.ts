@@ -209,7 +209,8 @@ export async function saveC4(db: PrismaClient, userId: number | undefined, body:
       if (!c.confirmRelease && states.some(s => s.liberado && oldBlocks.some(i => i.prefixo === s.prefixo))) throw new MvpError(409, 'Confirme a liberacao antes da gravacao.');
       for (const old of b.states.filter(s => s.bloqueado && s.emExecucao)) {
         const after = states.find(s => s.prefixo === old.prefixo);
-        if ((!after || !after.bloqueado) && !after?.emExecucao && !(after?.liberado && c.confirmRelease)) throw new MvpError(409, 'Retirada de bloqueio preserva execucao; confirme liberacao para retirar ambas.');
+        // Exclusao integral explicita remove o estado; retirada parcial preserva execucao legada.
+        if (after && !after.bloqueado && !after.emExecucao && !(after?.liberado && c.confirmRelease)) throw new MvpError(409, 'Retirada de bloqueio preserva execucao; confirme liberacao para retirar ambas.');
       }
       for (const s of states) {
         const old = b.states.find(r => `c4-m-${r.id}` === s.id);

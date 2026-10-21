@@ -1,6 +1,14 @@
 import type { InventoryVehicle } from '@/lib/api';
 import type { ManutencaoCarroItem } from './manutencaoManager';
 
+export function removeMaintenanceSelection(baseline: ManutencaoCarroItem[], ids: string[]) {
+  const selected = new Set(ids);
+  return {
+    items: baseline.filter(item => !selected.has(item.id)),
+    removeBlocked: [...new Set(baseline.filter(item => selected.has(item.id) && item.bloqueado).map(item => item.prefixo))],
+  };
+}
+
 export function garageVehiclePrefixes(fleet: InventoryVehicle[], garage: 'VCG' | 'VCM' | undefined): string[] {
   if (!garage) return [];
   const registered = garage === 'VCG' ? '2' : '1';

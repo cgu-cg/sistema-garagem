@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { garageVehiclePrefixes, addMaintenanceSelection } from '../../web/src/pages/manutencao/maintenanceSelection';
+import { garageVehiclePrefixes, addMaintenanceSelection, removeMaintenanceSelection } from '../../web/src/pages/manutencao/maintenanceSelection';
 
 test('seletor usa garagem cadastrada, sem inferir pelo prefixo ou garagemNome', () => {
   const fleet = [
@@ -16,6 +16,18 @@ test('seletor usa garagem cadastrada, sem inferir pelo prefixo ou garagemNome', 
 const blocked = { id: 'old', prefixo: '4200', consorciada: 'VCG' as const, observacao: 'MOTOR',
   data: '2026-10-14', bloqueado: true, emExecucao: false, liberado: false, observacaoBloqueio: 'MOTOR' };
 const company = () => 'VCG' as const;
+
+test('exclusao multipla remove somente selecionados, sem liberar, com baixas nominais da CI', () => {
+  const executing = { ...blocked, id: 'execution', prefixo: '4201', bloqueado: false, emExecucao: true };
+  const released = { ...blocked, id: 'released', prefixo: '4202', bloqueado: false, liberado: true };
+  const other = { ...blocked, id: 'other', prefixo: '4203' };
+  const baseline = [blocked, executing, released, other];
+  const result = removeMaintenanceSelection(baseline, ['old', 'execution', 'released', 'old']);
+  assert.deepEqual(result.items, [other]);
+  assert.deepEqual(result.removeBlocked, ['4200']);
+  assert.equal(baseline.length, 4);
+  assert.equal(blocked.liberado, false);
+});
 
 test('selecao multipla retira bloqueio ao executar, nao duplica e nao muda a origem', () => {
   const baseline = [blocked];

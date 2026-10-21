@@ -25,7 +25,7 @@ import {
   fetchCIBloqueiosFromApi,
 } from "@/pages/soltura/ciManager";
 import { useAuth } from "@/stores/auth";
-import { garageVehiclePrefixes, addMaintenanceSelection } from './maintenanceSelection';
+import { garageVehiclePrefixes, addMaintenanceSelection, removeMaintenanceSelection } from './maintenanceSelection';
 import { api, type InventoryVehicle } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -58,7 +58,8 @@ import {
   X,
   Check,
   ArrowRightLeft,
-  AlertTriangle
+  AlertTriangle,
+  Trash2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -98,6 +99,8 @@ export function ManutencaoPage() {
   // Data selecionada (inicia sempre na data atual do dia)
   const [writeState, setWriteState] = useState(getMutationState);
   const [ready, setReady] = useState(false);
+  const [removalIds, setRemovalIds] = useState<string[]>([]);
+
   useEffect(() => subscribeMutationState(() => setWriteState(getMutationState())), []);
   const [clock, setClock] = useState(Date.now());
   useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
@@ -478,6 +481,19 @@ export function ManutencaoPage() {
     }
     catch (error) { if (!reload.isActive(context)) return false; if (error instanceof SavedRefreshRequired) toast.warning(error.message); else toast.error(error instanceof Error ? error.message : 'Operacao nao confirmada. Recarregue.'); return false; }
   };
+  useEffect(() => { setRemovalIds([]); }, [dataOperacao, activeGaragem]);
+  const handleDeleteMaintenance = async (ids: string[]) => {
+    if (!mutationAllowed) return;
+    const selected = items.filter(item => ids.includes(item.id));
+    if (!selected.length) return;
+    const prefixes = [...new Set(selected.map(item => item.prefixo))];
+    if (!window.confirm(`Excluir ${prefixes.join(', ')} do Controle de Manutenção? Não serão movidos para Liberado. Bloqueios correspondentes também serão retirados da CI de amanhã.`)) return;
+    const removal = removeMaintenanceSelection(items, ids);
+    if (!(await commitMaintenance(removal.items, false, removal.removeBlocked))) return;
+    setRemovalIds([]);
+    toast.success('Carros excluídos do Controle de Manutenção.');
+  };
+
   const handleConfirmLiberarBloqueio = async () => {
     const items = maintenanceBaseline();
     if (!liberarBloqueioModal.item) return;
@@ -1072,6 +1088,11 @@ export function ManutencaoPage() {
             OS 3 QUADROS PARALELOS: BLOQUEADOS | EM MANUTENÇÃO | LIBERADO
             Todos os carros no mesmo card por status, em ordem numérica de carro
             ========================================================== */}
+        {removalIds.length > 0 && <div className="flex items-center gap-3 mb-3 print:hidden">
+          <span className="text-xs text-muted-foreground">{removalIds.length} selecionado(s)</span>
+          <Button variant="outline" size="sm" disabled={!mutationAllowed} onClick={() => void handleDeleteMaintenance(removalIds)} className="text-rose-600 gap-2"><Trash2 className="h-4 w-4" />Excluir selecionados</Button>
+          <Button variant="ghost" size="sm" onClick={() => setRemovalIds([])}>Limpar seleção</Button>
+        </div>}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
           
           {/* QUADRO 1: BLOQUEADOS (ROSE / VERMELHO) */}
@@ -1117,9 +1138,12 @@ export function ManutencaoPage() {
                     sortedBloqueados.map((item) => (
                       <tr key={item.id} className="hover:bg-rose-50/50 dark:hover:bg-rose-950/20 transition-colors">
                         <td className="py-2 px-3 text-center">
+                          <div className="inline-flex items-center gap-2 whitespace-nowrap">
+<input type="checkbox" aria-label={`Selecionar carro ${item.prefixo} para excluir`} disabled={!mutationAllowed} checked={removalIds.includes(item.id)} onChange={event => setRemovalIds(previous => event.target.checked ? [...new Set([...previous, item.id])] : previous.filter(id => id !== item.id))} className="shrink-0 cursor-pointer disabled:cursor-not-allowed accent-emerald-700 print:hidden" />
                           <span className="inline-block font-mono font-bold text-xs px-2.5 py-0.5 rounded-md bg-rose-100/80 dark:bg-rose-950/60 text-rose-900 dark:text-rose-200 border border-rose-200/80 dark:border-rose-900/50">
                             {item.prefixo}
                           </span>
+                          </div>
                         </td>
                         <td 
                           onClick={() => { beginMaintenanceEdit(); setEditItem(item); setEditObs(item.observacao ?? ""); }}
@@ -1151,6 +1175,8 @@ export function ManutencaoPage() {
                                 <Edit2 className="w-3.5 h-3.5 text-gray-500 mr-2" />
                                 Editar Defeito
                               </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem disabled={!mutationAllowed} className="text-rose-600" onClick={() => void handleDeleteMaintenance([item.id])}><Trash2 className="w-3.5 h-3.5 mr-2" />Excluir</DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </td>
@@ -1205,9 +1231,12 @@ export function ManutencaoPage() {
                     sortedEmExecucao.map((item) => (
                       <tr key={item.id} className="hover:bg-amber-50/50 dark:hover:bg-amber-950/20 transition-colors">
                         <td className="py-2 px-3 text-center">
+                          <div className="inline-flex items-center gap-2 whitespace-nowrap">
+<input type="checkbox" aria-label={`Selecionar carro ${item.prefixo} para excluir`} disabled={!mutationAllowed} checked={removalIds.includes(item.id)} onChange={event => setRemovalIds(previous => event.target.checked ? [...new Set([...previous, item.id])] : previous.filter(id => id !== item.id))} className="shrink-0 cursor-pointer disabled:cursor-not-allowed accent-emerald-700 print:hidden" />
                           <span className="inline-block font-mono font-bold text-xs px-2.5 py-0.5 rounded-md bg-amber-100/80 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border border-amber-200/80 dark:border-amber-900/50">
                             {item.prefixo}
                           </span>
+                          </div>
                         </td>
                         <td 
                           onClick={() => { beginMaintenanceEdit(); setEditItem(item); setEditObs(item.observacao ?? ""); }}
@@ -1236,6 +1265,8 @@ export function ManutencaoPage() {
                                 <Edit2 className="w-3.5 h-3.5 text-gray-500 mr-2" />
                                 Editar Defeito
                               </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem disabled={!mutationAllowed} className="text-rose-600" onClick={() => void handleDeleteMaintenance([item.id])}><Trash2 className="w-3.5 h-3.5 mr-2" />Excluir</DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </td>
@@ -1290,9 +1321,12 @@ export function ManutencaoPage() {
                     sortedLiberados.map((item) => (
                       <tr key={item.id} className="hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 transition-colors">
                         <td className="py-2 px-3 text-center">
+                          <div className="inline-flex items-center gap-2 whitespace-nowrap">
+<input type="checkbox" aria-label={`Selecionar carro ${item.prefixo} para excluir`} disabled={!mutationAllowed} checked={removalIds.includes(item.id)} onChange={event => setRemovalIds(previous => event.target.checked ? [...new Set([...previous, item.id])] : previous.filter(id => id !== item.id))} className="shrink-0 cursor-pointer disabled:cursor-not-allowed accent-emerald-700 print:hidden" />
                           <span className="inline-block font-mono font-bold text-xs px-2.5 py-0.5 rounded-md bg-emerald-100/80 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-200 border border-emerald-200/80 dark:border-emerald-900/50">
                             {item.prefixo}
                           </span>
+                          </div>
                         </td>
                         <td 
                           onClick={() => { beginMaintenanceEdit(); setEditItem(item); setEditObs(item.observacao ?? ""); }}
@@ -1321,6 +1355,8 @@ export function ManutencaoPage() {
                                 <Edit2 className="w-3.5 h-3.5 text-gray-500 mr-2" />
                                 Editar Defeito
                               </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem disabled={!mutationAllowed} className="text-rose-600" onClick={() => void handleDeleteMaintenance([item.id])}><Trash2 className="w-3.5 h-3.5 mr-2" />Excluir</DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </td>

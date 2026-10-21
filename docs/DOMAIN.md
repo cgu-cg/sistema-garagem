@@ -1,5 +1,17 @@
 # Domain model e entendimento operacional atual
 
+## Exclusao no Controle de Manutencao - decisao confirmada em 21/10/2026
+
+Bloqueados, Em Manutencao e Liberados permitem excluir um ou varios carros
+da folha atual, com confirmacao. Exclusao integral remove o estado sem criar
+Liberado; nao cria restricao adicional para uso na Escala ou Soltura.
+Ao excluir Bloqueados, retira tambem o BLOQUEADO correspondente da CI de
+amanha, preservando os demais itens e historicos. Exige reabertura se essa
+CI estiver finalizada. Permissoes, janela de manutencao e revisao permanecem.
+Isso substitui a retirada anterior dos botoes de excluir e permite excluir
+integralmente coexistencias antigas; uma retirada parcial de bloqueio continua
+preservando execucao, salvo liberacao confirmada.
+
 ## Inclusao multipla de carros na CI - 21/10/2026
 
 Os modais de inclusao de Preventivas, Setores da Oficina e Bloqueados por

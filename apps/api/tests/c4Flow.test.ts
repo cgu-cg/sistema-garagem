@@ -491,10 +491,26 @@ test('seletor CI VCG usa garagem 2 independentemente de prefixo e consorciada', 
   assert.deepEqual(vehiclesForGarage(vehicles, 'VCG').map(i => i.prefixo), ['1001', '2001', '3001', '4001']);
   assert.equal(JSON.stringify(vehicles), before);
 });
-test('remocao de bloqueio nao elimina execucao sem liberacao confirmada', async () => {
+test('exclusao integral retira coexistencia antiga sem criar liberado e preserva outras datas', async () => {
   const f = await ready(); await seedLegacyExecution(f);
-  const d = await command(f, 'manutencao'); d.items = []; d.removeBlocked = ['3083']; const before = f.tables(); await assert.rejects(saveC4(f.db, 1, d, 'manutencao', clock()), /preserva execucao/); assert.deepEqual(f.tables(), before);
+  const before = f.tables();
+  const d = await command(f, 'manutencao'); d.items = []; d.removeBlocked = ['3083'];
+  await saveC4(f.db, 1, d, 'manutencao', clock());
+  assert.equal(f.tables().estadoManutencao.length, 0);
+  const targetId = before.folhaCI.find(i => i.dataFolha.getTime() === dateValue(target).getTime())!.id;
+  assert.deepEqual(f.tables().itemFolhaCI.filter(i => i.folhaId !== targetId), before.itemFolhaCI.filter(i => i.folhaId !== targetId));
+  assert.equal(f.tables().itemFolhaCI.filter(i => i.folhaId === targetId && i.categoria === 'BLOQUEADO').length, 0);
 });
+
+test('retirada parcial de bloqueio continua preservando execucao sem liberacao confirmada', async () => {
+  const f = await ready(); await seedLegacyExecution(f);
+  const d = await command(f, 'manutencao');
+  (d.items as any[]).forEach(i => { i.bloqueado = false; i.emExecucao = false; i.liberado = false; });
+  d.removeBlocked = ['3083']; const before = f.tables();
+  await assert.rejects(saveC4(f.db, 1, d, 'manutencao', clock()), /preserva execucao/);
+  assert.deepEqual(f.tables(), before);
+});
+
 test('posicao EXTRA positiva esparsa aceita, FIXO13 rejeitado', async () => {
   const f = await ready(), c = await command(f, 'ci'); const extra = (c.items as any[]).find(i => i.tipoPosicao === 'EXTRA'); extra.ordemPosicao = 1000; await saveC4(f.db, 1, c, 'ci', clock());
   const d = await command(f, 'ci'); (d.items as any[]).find(i => i.tipoPosicao === 'FIXO').ordemPosicao = 13; await assert.rejects(saveC4(f.db, 1, d, 'ci', clock()), /Posicao/);
