@@ -1,5 +1,15 @@
 # Domain model e entendimento operacional atual
 
+## Inclusao multipla de carros na CI - 21/10/2026
+
+Os modais de inclusao de Preventivas, Setores da Oficina e Bloqueados por
+Consorciada permitem selecionar varios carros, com badges removiveis antes
+de salvar. O motivo/defeito e a data original do bloqueio informados no modal
+valem para todos os selecionados. A inclusao envia uma unica alteracao da CI,
+preservando validacoes de garagem, revisao, permissoes e duplicidade.
+Carros presentes em outros locais continuam exigindo confirmacao de coexistencia.
+Edicao de registros existentes e Reforco com Horario permanecem individuais.
+
 ## Moldes de Escala e Soltura VCG - decisao confirmada em 21/10/2026
 
 Os JSONs separados por dia/turno passam a ser os moldes oficiais das telas,

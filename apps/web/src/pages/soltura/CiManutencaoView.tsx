@@ -814,6 +814,12 @@ export function CiManutencaoView({
   });
 
   const [quickAddCarro, setQuickAddCarro] = useState<string>("");
+  const [quickAddCars, setQuickAddCars] = useState<string[]>([]);
+  const selectQuickAddCar = (prefixo: string) => {
+    setQuickAddCars(previous => previous.includes(prefixo) ? previous : [...previous, prefixo]);
+    setQuickAddCarro('');
+    setQuickAddSelectorOpen(false);
+  };
   const [quickAddMotivo, setQuickAddMotivo] = useState<string>("");
   const [quickAddDataBloqueio, setQuickAddDataBloqueio] = useState(operationalContext().today);
   const [isOutroMotivo, setIsOutroMotivo] = useState<boolean>(false);
@@ -955,6 +961,7 @@ export function CiManutencaoView({
     : sortedAllowedCars, [quickAddGarage, activeGaragemScope, fleetCars, sortedAllowedCars]);
   const quickAddFilteredCars = useMemo(() => {
     return quickAddAllowedCars.filter(car => {
+      if (!quickAddModal.isEditing && quickAddCars.includes(car.prefixo)) return false;
       if (quickAddFilterCompany !== "TODAS") {
         const cons = getConsorciadaByCarro(car.prefixo);
         if (quickAddFilterCompany !== cons) return false;
@@ -965,7 +972,7 @@ export function CiManutencaoView({
       }
       return true;
     });
-  }, [quickAddAllowedCars, quickAddFilterCompany, quickAddCarro]);
+  }, [quickAddAllowedCars, quickAddFilterCompany, quickAddCarro, quickAddCars, quickAddModal.isEditing]);
 
   // Sincronizar dados atualizados do banco oficial SQL Server
   const handleRefreshData = async () => {
@@ -1005,6 +1012,7 @@ export function CiManutencaoView({
       existingId: undefined
     });
     setQuickAddCarro("");
+    setQuickAddCars([]);
     setQuickAddFilterCompany(!c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && category === "BLOQUEADO" && ["VSF", "VCG", "JTU", "VCM"].includes(subType) ? subType : "TODAS");
     setQuickAddDataBloqueio(operationalContext().today);
     setQuickAddSelectorOpen(false);
@@ -1028,14 +1036,15 @@ export function CiManutencaoView({
     const ciListNaData = ciList.filter(item => normalizeIsoDate(item.data) === normalizeIsoDate(dataOperacao));
     e.preventDefault();
     if (checkDataFuturaBloqueio()) return;
-    if (!quickAddCarro) {
+    const prefixes = quickAddModal.isEditing ? [quickAddCarro.trim()] : [...new Set([...quickAddCars, ...(quickAddCarro.trim() ? [quickAddCarro.trim()] : [])])];
+    if (!prefixes.length || prefixes.some(prefixo => !prefixo)) {
       toast.error("Por favor, selecione um carro.");
       return;
     }
 
     const { category, subType, isEditing, existingId } = quickAddModal;
-    const cleanCar = quickAddCarro.trim();
-    if (!isEditing && !quickAddAllowedCars.some(car => car.prefixo === cleanCar)) {
+    const cleanCar = prefixes[0];
+    if (!isEditing && prefixes.some(prefixo => !quickAddAllowedCars.some(car => car.prefixo === prefixo))) {
       toast.error('Selecione um veículo cadastrado na garagem indicada.'); return;
     }
     const cleanData = normalizeIsoDate(dataOperacao) || getTodayString();
@@ -1061,7 +1070,6 @@ export function CiManutencaoView({
       : isSetorSemDefeito
         ? ""
         : (quickAddMotivo.trim() || `Setor ${subType}`);
-    const carroGaragemFisica = c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? (activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') : fleetCars.find(c => c.prefixo === cleanCar)?.garagem || getGaragemFisicaByCarro(cleanCar);
     const autoConsorciada = isC4 ? null : getConsorciadaByCarro(cleanCar);
 
     let mappedTipo: BloqueioCarro["tipo"] = "EM_MANUTENCAO";
@@ -1075,7 +1083,7 @@ export function CiManutencaoView({
 
     // Função para executar a gravação física do registro na CI
     const executeSaveQuickCarro = async () => {
-      if (category === 'BLOQUEADO' && !isEditing && ciListNaData.some(c => c.categoriaPlanilha === 'BLOQUEADO' && c.prefixo === cleanCar)) {
+      if (category === 'BLOQUEADO' && !isEditing && ciListNaData.some(c => c.categoriaPlanilha === 'BLOQUEADO' && prefixes.includes(c.prefixo))) {
         toast.error('Este prefixo ja possui BLOQUEADO nesta CI. Edite o item existente.'); return;
       }
       try {
@@ -1116,26 +1124,32 @@ export function CiManutencaoView({
       }
 
       // Novo registro na CI da folha desta data
-      const recordId = `ci-${cleanData}-${Date.now()}-${cleanCar}-${Math.floor(Math.random() * 1000)}`;
-      const newCI: BloqueioCarro = {
-        id: recordId,
-        prefixo: cleanCar,
-        garagem: carroGaragemFisica,
-        consorciada: category === "BLOQUEADO" ? (subType as any) : autoConsorciada,
-        categoriaPlanilha: category,
-        setorOficina: category === "OFICINA" ? (subType as any) : undefined,
-        tipoPreventiva: category === "PREVENTIVA" ? (subType as any) : undefined,
-        tipo: mappedTipo,
-        motivo: isC4 ? c4EditedText(quickAddMotivo) : motivoFinal,
-        data: cleanData,
-        dataBloqueio: category === 'BLOQUEADO' ? quickAddDataBloqueio : undefined,
-        hora: new Date().toLocaleTimeString("pt-BR", { timeZone: 'America/Campo_Grande', hour: "2-digit", minute: "2-digit" }),
-        gravidade: "ALTA",
-        responsavel: category === "OFICINA" ? `Oficina ${subType}` : (category === "PREVENTIVA" ? "Oficina Preventiva" : "Oficina Central"),
-        os: undefined,
-        status: "BLOQUEADO",
-        ...(isC4 ? { ...c4KnownFields(), consorciada: category === 'BLOQUEADO' ? subType as BloqueioCarro['consorciada'] : null } : {})
-      };
+      const newItems = prefixes.map(cleanCar => {
+        const carroGaragemFisica = isC4 ? (activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') : fleetCars.find(c => c.prefixo === cleanCar)?.garagem || getGaragemFisicaByCarro(cleanCar);
+        const autoConsorciada = isC4 ? null : getConsorciadaByCarro(cleanCar);
+        const recordId = `ci-${cleanData}-${Date.now()}-${cleanCar}-${Math.floor(Math.random() * 1000)}`;
+        const newCI: BloqueioCarro = {
+          id: recordId,
+          prefixo: cleanCar,
+          garagem: carroGaragemFisica,
+          consorciada: category === "BLOQUEADO" ? (subType as any) : autoConsorciada,
+          categoriaPlanilha: category,
+          setorOficina: category === "OFICINA" ? (subType as any) : undefined,
+          tipoPreventiva: category === "PREVENTIVA" ? (subType as any) : undefined,
+          tipo: mappedTipo,
+          motivo: isC4 ? c4EditedText(quickAddMotivo) : motivoFinal,
+          data: cleanData,
+          dataBloqueio: category === 'BLOQUEADO' ? quickAddDataBloqueio : undefined,
+          hora: new Date().toLocaleTimeString("pt-BR", { timeZone: 'America/Campo_Grande', hour: "2-digit", minute: "2-digit" }),
+          gravidade: "ALTA",
+          responsavel: category === "OFICINA" ? `Oficina ${subType}` : (category === "PREVENTIVA" ? "Oficina Preventiva" : "Oficina Central"),
+          os: undefined,
+          status: "BLOQUEADO",
+          ...(isC4 ? { ...c4KnownFields(), consorciada: category === 'BLOQUEADO' ? subType as BloqueioCarro['consorciada'] : null } : {})
+        };
+
+        return newCI;
+      });
 
       // Garante que os demais carros herdados sejam congelados na folha desta data se for nova
       // Mantém o carro em outros setores da CI (coexistência confirmada pelo usuário no popup)
@@ -1152,7 +1166,7 @@ export function CiManutencaoView({
             : category === "PREVENTIVA"
               ? isSetorMatch(c.tipoPreventiva, subType)
               : c.consorciada === subType;
-          if (c.prefixo === cleanCar && mesmaCategoria && mesmoSubTipo) {
+          if (prefixes.includes(c.prefixo) && mesmaCategoria && mesmoSubTipo) {
             return false;
           }
           // Mantém se for em setor ou card diferente (ex: Elevador e Mecânica ao mesmo tempo)
@@ -1165,21 +1179,21 @@ export function CiManutencaoView({
         }));
 
       const outrosDias = ciList.filter(c => normalizeIsoDate(c.data) !== cleanData);
-      const updatedList = [newCI, ...outrosCarrosDestaData, ...outrosDias];
+      const updatedList = [...newItems, ...outrosCarrosDestaData, ...outrosDias];
 
       if (!(await commitCI(updatedList))) return;
 
-      toast.success(`Carro ${cleanCar} inserido com sucesso em ${quickAddModal.title}!`);
+      toast.success(`${prefixes.length} carro(s) adicionado(s) em ${quickAddModal.title}!`);
       setQuickAddModal(prev => ({ ...prev, isOpen: false }));
     };
 
     // Se estiver adicionando (não editando o mesmo registro), verifica se já consta em outro local da CI na data
     if (!isEditing) {
-      const existingLocations = findExistingCarLocations(cleanCar);
+      const existingLocations = prefixes.flatMap(prefixo => findExistingCarLocations(prefixo).map(location => `${prefixo}: ${location}`));
       if (existingLocations.length > 0) {
         setConflictModal({
           isOpen: true,
-          carro: cleanCar,
+          carro: prefixes.join(', '),
           existingLocations,
           targetLocation: quickAddModal.title || `Setor ${subType}`,
           onConfirm: async () => {
@@ -3287,7 +3301,7 @@ export function CiManutencaoView({
                     const selected = quickAddFilteredCars.find(car => car.prefixo === quickAddCarro.trim())
                       || (quickAddFilteredCars.length === 1 ? quickAddFilteredCars[0] : undefined);
                     if (selected) {
-                      setQuickAddCarro(selected.prefixo);
+                      selectQuickAddCar(selected.prefixo);
                       setQuickAddSelectorOpen(false);
                     }
                   }}
@@ -3301,13 +3315,13 @@ export function CiManutencaoView({
                       setQuickAddSelectorOpen(prev => !prev);
                     }
                   }}
-                  placeholder="Carro..."
+                  placeholder={quickAddModal.isEditing ? "Carro..." : "Digite ou clique para selecionar..."}
                   className={cn(
                     "font-mono font-bold text-sm rounded-xl pl-9 pr-20 h-11 border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-emerald-500/20",
                     (quickAddModal.isEditing || !isDataEditavel) ? "opacity-90 bg-muted/50 cursor-not-allowed" : "cursor-pointer"
                   )}
                   maxLength={5}
-                  required
+                  required={quickAddModal.isEditing || !quickAddCars.length}
                 />
                 <Bus className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
 
@@ -3386,7 +3400,7 @@ export function CiManutencaoView({
                             key={car.prefixo}
                             type="button"
                             onClick={() => {
-                              setQuickAddCarro(car.prefixo);
+                              selectQuickAddCar(car.prefixo);
                               setQuickAddSelectorOpen(false);
                             }}
                             className={cn(
@@ -3447,6 +3461,17 @@ export function CiManutencaoView({
                 </div>
               )}
             </div>
+
+            {!quickAddModal.isEditing && quickAddCars.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {quickAddCars.map(prefixo => (
+                  <span key={prefixo} className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-mono text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+                    {prefixo}
+                    <button type="button" disabled={!isDataEditavel} aria-label={`Remover carro ${prefixo} da seleção`} className="rounded-full hover:bg-emerald-100 dark:hover:bg-emerald-900" onClick={() => setQuickAddCars(previous => previous.filter(car => car !== prefixo))}><X className="h-3 w-3" /></button>
+                  </span>
+                ))}
+              </div>
+            )}
 
             {/* Chips Rápidos e Campo de Motivo / Defeito (Completamente ocultados para Preventivas e para Elevador, Borracharia, Tacógrafo e Limpeza) */}
             {(() => {
