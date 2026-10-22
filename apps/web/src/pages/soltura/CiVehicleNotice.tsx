@@ -13,14 +13,14 @@ export function ciNoticesFor(state: DailyEscala | null, prefixo: string) {
   return state?.ciAvisos?.filter(i => i.prefixo === prefixo) ?? [];
 }
 
-export function CiVehicleNotice({ state, prefixo, warning, children }: { state: DailyEscala | null; prefixo: string; warning?: string; children?: ReactNode }) {
+export function CiVehicleNotice({ state, prefixo, warning, children, hideIcon = false }: { state: DailyEscala | null; prefixo: string; warning?: string; children?: ReactNode; hideIcon?: boolean }) {
   const [open, setOpen] = useState(false);
   const pinned = useRef(false);
   const notices = ciNoticesFor(state, prefixo);
   const blocked = state?.bloqueados.includes(prefixo) || state?.cards.find(c => c.id === 'PORTARIA')?.itens.some(i => i.prefixo === prefixo);
   const red = Boolean(blocked || warning);
   const text = children ?? <ScaleVehiclePrefix state={state} prefixo={prefixo} />;
-  if (!notices.length && !red) return <>{text}</>;
+  if (!/^\d{1,10}$/.test(prefixo) || (!notices.length && !red)) return <>{text}</>;
   return <Popover open={open} onOpenChange={value => { pinned.current = false; setOpen(value); }}>
     <PopoverTrigger asChild><span tabIndex={0} role={children ? undefined : 'button'} aria-label={'Ver ocorrencias do carro ' + prefixo + ' na CI ' + state?.ciData}
       className="relative inline-flex items-center font-bold"
@@ -29,7 +29,7 @@ export function CiVehicleNotice({ state, prefixo, warning, children }: { state: 
       onKeyDown={event => { if (!children && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); pinned.current = !pinned.current; setOpen(pinned.current); } }}
       onClick={event => { if (children) return; event.preventDefault(); pinned.current = !pinned.current; setOpen(pinned.current); }}>
       {text}
-      <AlertTriangle aria-hidden="true" data-ci-alert={red ? 'bloqueado' : 'pedido'} className={'pointer-events-none absolute -right-2 -top-2 h-3 w-3 ' + (red ? 'text-rose-600 dark:text-rose-400' : 'text-amber-500 dark:text-amber-400')} />
+      {!hideIcon && <AlertTriangle aria-hidden="true" data-ci-alert={red ? 'bloqueado' : 'pedido'} className={'pointer-events-none absolute -right-2 -top-2 h-3 w-3 ' + (red ? 'text-rose-600 dark:text-rose-400' : 'text-amber-500 dark:text-amber-400')} />}
     </span></PopoverTrigger>
     <PopoverContent align="start" className={'w-80 max-w-[calc(100vw-2rem)] bg-card text-card-foreground ' + (red ? 'border-rose-300' : 'border-amber-300')}
       onOpenAutoFocus={event => event.preventDefault()} onCloseAutoFocus={event => event.preventDefault()}>

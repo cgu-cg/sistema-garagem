@@ -1880,7 +1880,7 @@
     "chegadaGaragem": "05:50",
     "inicioLinha": "05:50",
     "inicioBairro": "05:50",
-    "carroProgramado": "4217",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -1892,7 +1892,7 @@
     "chegadaGaragem": "05:55",
     "inicioLinha": "05:55",
     "inicioBairro": "05:55",
-    "carroProgramado": "3219",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -1904,7 +1904,7 @@
     "chegadaGaragem": "05:45",
     "inicioLinha": "05:45",
     "inicioBairro": "05:45",
-    "carroProgramado": "4181",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -1916,7 +1916,7 @@
     "chegadaGaragem": "05:55",
     "inicioLinha": "05:55",
     "inicioBairro": "05:55",
-    "carroProgramado": "3220",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -1952,7 +1952,7 @@
     "chegadaGaragem": "05:37",
     "inicioLinha": "05:37",
     "inicioBairro": "05:37",
-    "carroProgramado": "3210",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -1964,7 +1964,7 @@
     "chegadaGaragem": "05:43",
     "inicioLinha": "05:43",
     "inicioBairro": "05:43",
-    "carroProgramado": "4233",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -1976,7 +1976,7 @@
     "chegadaGaragem": "05:45",
     "inicioLinha": "05:45",
     "inicioBairro": "05:45",
-    "carroProgramado": "2326",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -2000,7 +2000,7 @@
     "chegadaGaragem": "05:45",
     "inicioLinha": "05:45",
     "inicioBairro": "05:45",
-    "carroProgramado": "2409",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -2012,7 +2012,7 @@
     "chegadaGaragem": "05:48",
     "inicioLinha": "05:48",
     "inicioBairro": "05:48",
-    "carroProgramado": "4252",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -2036,7 +2036,7 @@
     "chegadaGaragem": "05:45",
     "inicioLinha": "05:45",
     "inicioBairro": "05:45",
-    "carroProgramado": "3253",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -2060,7 +2060,7 @@
     "chegadaGaragem": "06:23",
     "inicioLinha": "06:23",
     "inicioBairro": "06:23",
-    "carroProgramado": "3028",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -2072,7 +2072,7 @@
     "chegadaGaragem": "05:40",
     "inicioLinha": "05:40",
     "inicioBairro": "05:40",
-    "carroProgramado": "2711",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -2084,7 +2084,7 @@
     "chegadaGaragem": "05:47",
     "inicioLinha": "05:47",
     "inicioBairro": "05:47",
-    "carroProgramado": "4206",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -2096,7 +2096,7 @@
     "chegadaGaragem": "06:00",
     "inicioLinha": "06:00",
     "inicioBairro": "06:00",
-    "carroProgramado": "4202",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -2120,7 +2120,7 @@
     "chegadaGaragem": "06:21",
     "inicioLinha": "06:21",
     "inicioBairro": "06:21",
-    "carroProgramado": "4191",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -2132,7 +2132,7 @@
     "chegadaGaragem": "06:15",
     "inicioLinha": "06:15",
     "inicioBairro": "06:15",
-    "carroProgramado": "3202",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -2144,7 +2144,7 @@
     "chegadaGaragem": "05:52",
     "inicioLinha": "05:52",
     "inicioBairro": "05:52",
-    "carroProgramado": "3107",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -2168,7 +2168,7 @@
     "chegadaGaragem": "06:07",
     "inicioLinha": "06:07",
     "inicioBairro": "06:07",
-    "carroProgramado": "4253",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -2192,7 +2192,7 @@
     "chegadaGaragem": "06:00",
     "inicioLinha": "06:00",
     "inicioBairro": "06:00",
-    "carroProgramado": "3252",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -2216,7 +2216,7 @@
     "chegadaGaragem": "06:05",
     "inicioLinha": "06:05",
     "inicioBairro": "06:05",
-    "carroProgramado": "4208",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -2276,7 +2276,7 @@
     "chegadaGaragem": "06:15",
     "inicioLinha": "06:15",
     "inicioBairro": "06:15",
-    "carroProgramado": "4185",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -2360,7 +2360,7 @@
     "chegadaGaragem": "",
     "inicioLinha": "",
     "inicioBairro": "",
-    "carroProgramado": "4180",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -2372,7 +2372,7 @@
     "chegadaGaragem": "",
     "inicioLinha": "",
     "inicioBairro": "",
-    "carroProgramado": "4224",
+    "carroProgramado": "",
     "status": "PENDENTE"
   },
   {
@@ -2398,7 +2398,7 @@
     "chegadaGaragem": "",
     "inicioLinha": "",
     "inicioBairro": "",
-    "carroProgramado": "3026",
+    "carroProgramado": "",
     "status": "PENDENTE",
     "tipo": "VCM",
     "observacoes": "MOTORISTAS VCM QUE SAEM DA VCG"
@@ -2426,7 +2426,7 @@
     "chegadaGaragem": "",
     "inicioLinha": "",
     "inicioBairro": "",
-    "carroProgramado": "3026",
+    "carroProgramado": "",
     "status": "PENDENTE",
     "tipo": "FRETAMENTO",
     "observacoes": "ESPECIAL FRETAMENTO"

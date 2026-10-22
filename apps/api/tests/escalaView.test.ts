@@ -40,6 +40,22 @@ const render = (readOnly: boolean, overrides: Record<string, unknown> = {}) => r
   garagem: 'VCG', escalaTipo: 'SEG_SEX', schedules: rows, official, readOnly,
   readOnlyReason: 'Consulta indisponivel', onSaveSubstitution: async () => true, onSaveCard: async () => true, ...overrides,
 }));
+
+test('linha sem carro fixo mostra traco sem alerta e continua sem confirmacao valida', () => {
+  const html = render(false, { schedules: [{ ...rows[0], carroProgramado: '', confirmada: false }] });
+  assert.doesNotMatch(html, /data-ci-alert=/);
+  assert.match(html, /data-confirmada="false"/);
+  assert.doesNotMatch(html, /Ver ocorrencias do carro —/);
+});
+
+test('reserva tem lista unica com contadores por cor e bloqueados nao repetem icones', () => {
+  const html = render(false, { schedules: [] });
+  assert.match(html, /aria-label="Quantidade por cor"/);
+  assert.match(html, /aria-label="Carros da reserva"/);
+  assert.match(html, /AZUL \(1\)/);
+  assert.doesNotMatch(html, /data-ci-alert=/);
+  assert.match(html, /Ver ocorrencias do carro/);
+});
 test('React mostra CI do dia seguinte, Reserva e carro fixo bloqueado em vermelho', () => {
   const html = render(false);
   assert.match(html, /BLOQUEADOS CI 2026-10-15/);
@@ -92,7 +108,7 @@ test('React agrupa terminais e mostra mais no Rabicho sem cadastro de posicoes',
   ] } });
   assert.match(html, /RESERVA TERMINAL/);
   assert.match(html, /grid-cols-2/);
-  assert.match(html, /grid-cols-3/);
+  assert.match(html, /aria-label="Carros da reserva"/);
   assert.doesNotMatch(html, /aria-label="Adicionar em RABICHO"/);
   assert.match(html, /aria-label="Definir carro da linha 470 tabela 1"/);
 });
@@ -131,7 +147,7 @@ test('bloqueado conserva prioridade vermelha sobre ocorrencia informativa na CI'
   const html = render(false, { official: { ...official, ciAvisos: [{ prefixo, categoria: 'OFICINA', subTipo: 'ELEVADOR', horario: null, tipoPosicao: null, ordemPosicao: null }] } });
   assert.match(html, /data-ci-alert="bloqueado"/);
   assert.ok(html.includes('Ver ocorrencias do carro ' + prefixo));
-  assert.doesNotMatch(html, /text-amber-500/);
+  assert.doesNotMatch(html, /data-ci-alert="pedido"/);
 });
 
 test('substituto da CI tambem recebe alerta amarelo sem impedir selecao', () => {

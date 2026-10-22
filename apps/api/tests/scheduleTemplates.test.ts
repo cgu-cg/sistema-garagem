@@ -21,15 +21,29 @@ test('sete moldes reproduzem os Excel, sao deterministas e tem copias identicas 
     const raw: string[][] = XLSX.utils.sheet_to_json(book.Sheets[book.SheetNames[0]], { header: 1, raw: false, defval: '' });
     const rows = raw.slice(1).filter(row => row[0] && (row[1] || ['SISEP', 'ESP.VCM'].includes(row[0])));
     assert.equal(rows.length, saved.length);
+    const seenCars = new Set<string>();
     rows.forEach((row, i) => {
       assert.equal(saved[i].linha, String(row[0]).trim()); assert.equal(saved[i].tabela, String(row[1]).trim());
-      assert.equal(saved[i].carroProgramado, String(row[4]).trim());
+      const car = String(row[4]).trim();
+      assert.equal(saved[i].carroProgramado, entry.kind === 'escala-carros' && seenCars.has(car) ? '' : car);
+      if (car) seenCars.add(car);
       assert.equal(saved[i].saidaGaragem, row[2] ? String(row[2]).replace(';', ':').padStart(5, '0') : '');
       assert.equal(saved[i].ordem, i + 1); assert.equal(saved[i].status, 'PENDENTE');
       assert.ok(!('carroRealizado' in saved[i])); assert.ok(!('carroSubstituido' in saved[i]));
     });
   }
   assert.equal(specs.length, 7);
+});
+
+test('carros fixos da escala nao repetem e primeiras ocorrencias preservam suas identidades', () => {
+  for (const tipo of ['SEG_SEX', 'SABADO', 'DOM_FER'] as const) {
+    const rows = currentScaleTemplate({ ...context, escalaTipo: tipo });
+    const cars = rows.map(row => row.carroProgramado).filter(Boolean);
+    assert.equal(new Set(cars).size, cars.length);
+  }
+  const rows = currentScaleTemplate(context);
+  assert.equal(rows.find(row => row.linha === '302/051')?.carroProgramado, '3253');
+  assert.equal(rows.find(row => row.linha === '322/414' && row.tabela === '1/4')?.carroProgramado, '');
 });
 test('molde da escala e da soltura ficam separados e os campos de garagem sao preservados', () => {
   const scale = currentScaleTemplate(context), release = currentReleaseTemplate(context);

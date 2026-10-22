@@ -63,7 +63,16 @@ function generate(write = false) {
     const dest = path.join(root, spec.json);
     const existing = fs.existsSync(dest) && fs.readFileSync(dest, 'utf8').trim();
     if (!existing) throw Error(`Restaure ${spec.json} antes de importar, para preservar as identidades das viagens.`);
-    return { ...spec, items: readRows(path.join(root, spec.excel), spec.prefix, JSON.parse(existing)) };
+    const items = readRows(path.join(root, spec.excel), spec.prefix, JSON.parse(existing));
+    if (spec.kind === 'escala-carros') {
+      const seen = new Set();
+      for (const item of items) {
+        if (!item.carroProgramado) continue;
+        if (seen.has(item.carroProgramado)) item.carroProgramado = '';
+        else seen.add(item.carroProgramado);
+      }
+    }
+    return { ...spec, items };
   });
   // Validar os sete documentos antes de substituir qualquer arquivo.
   if (write) {

@@ -1,5 +1,14 @@
 # Moldes VCG em JSON - 21/10/2026
 
+## Carros fixos sem repeticao - decisao de 22/10/2026
+
+Na Escala VCG, cada carro fixo aparece uma unica vez por molde. O importador
+mantem a primeira ocorrencia na ordem da planilha e deixa carroProgramado
+vazio nas seguintes. Essa e uma excecao autorizada a copia dos valores Excel;
+nao atribui substitutos nem altera IDs, linhas, tabelas, horarios ou registros
+no banco. No seg-sex foram esvaziadas 25 ocorrencias extras de 24 carros.
+Sabado e domingo-feriado ja eram unicos; moldes de Soltura nao mudam.
+
 Decisao confirmada: os novos moldes se aplicam inclusive a datas anteriores.
 Os sete arquivos Excel em `exemplos/` sao a referencia da conversao. O sistema
 nao abre Excel em runtime. VCM mantem os dados anteriores, agora em JSONs

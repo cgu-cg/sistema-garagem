@@ -2,6 +2,11 @@
 
 ## Cores dos prefixos na Escala - confirmado em 22/10/2026
 
+Reserva Garagem exibe uma lista unica de carros, ordenada por prefixo, com
+contadores por cor abaixo do titulo. O card de Bloqueados CI omite triangulos
+individuais, preservando detalhes das ocorrencias. A legenda usa triangulos.
+Linha sem carro fixo exibe traco sem alerta; confirmacao ainda exige carro valido.
+
 Prefixos usam a cor do cache da frota, independentemente das ocorrencias CI.
 Vermelho/Azul divide o prefixo apos os dois primeiros digitos. Prata usa cinza,
 Micro/Executivo usa laranja e cores ausentes/Outro usam a cor padrao do texto.

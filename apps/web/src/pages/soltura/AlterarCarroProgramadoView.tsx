@@ -107,8 +107,8 @@ export function AlterarCarroProgramadoView({ dateControl, readOnly = true, readO
       <div className="lg:col-span-7 rounded-3xl border border-border bg-card overflow-hidden self-start">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3 text-xs text-muted-foreground">
           <div className="flex flex-wrap items-center gap-3">
-            <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="h-2.5 w-2.5 rounded-full bg-rose-500" />Bloqueados CI</span>
-            <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="h-2.5 w-2.5 rounded-full bg-amber-500" />Reforço</span>
+            <span className="inline-flex items-center gap-1.5"><AlertTriangle aria-hidden="true" className="h-3 w-3 text-rose-600" />Bloqueados CI</span>
+            <span className="inline-flex items-center gap-1.5"><AlertTriangle aria-hidden="true" className="h-3 w-3 text-amber-500" />Reforço</span>
           </div>
           <div role="status" className="ml-auto flex items-center gap-3 whitespace-nowrap font-mono">
             <span>Feito: <strong className="text-[#164E3A] dark:text-emerald-400">{String(completed).padStart(2, '0')}</strong></span>
@@ -122,14 +122,12 @@ export function AlterarCarroProgramadoView({ dateControl, readOnly = true, readO
       <div className="lg:col-span-3 space-y-4">
         <div className={surface}><h3 className="text-center text-xs font-bold border-b pb-2">RESERVA GARAGEM {garagem}</h3>
           {official && !official.reservaPorCor?.updatedAt && <p role="status" className="text-xs text-amber-700">Cache de cores indisponivel. A classificacao da reserva aguarda uma atualizacao valida.</p>}
-          <div className="grid grid-cols-3 gap-2">{garageGroups.map(group => <div key={group.id} className="min-w-0 rounded-xl border border-border bg-muted/10 p-2 space-y-2">
-            <h4 className={cn('border-b border-border pb-2 text-[10px] font-bold break-words', group.id === 'AZUL' && 'text-sky-600', group.id === 'VERMELHO' && 'text-rose-600', group.id === 'MICRO' && 'text-amber-600', group.id === 'PRATA' && 'text-slate-500')}>{group.id === 'VERMELHO_AZUL' ? <><span className="text-rose-600">VERMELHO/</span><span className="text-sky-600">AZUL ({group.prefixos.length})</span></> : <>{group.titulo} ({group.prefixos.length})</>}</h4>
-            <div className="flex flex-wrap gap-1">{group.prefixos.map(prefixo => <span key={prefixo} className="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-mono"><CiVehicleNotice state={official} prefixo={prefixo} /></span>)}</div>
-            {!group.prefixos.length && <p className="text-[10px] italic text-muted-foreground">Sem carros</p>}
-          </div>)}</div>
+          <div className="flex flex-wrap gap-1.5" aria-label="Quantidade por cor">{garageGroups.map(group => <span key={group.id} className={cn('rounded-full border border-border px-2 py-1 text-[10px] font-bold whitespace-nowrap', group.id === 'AZUL' && 'text-sky-600', group.id === 'VERMELHO' && 'text-rose-600', group.id === 'MICRO' && 'text-amber-600', group.id === 'PRATA' && 'text-slate-500')}>{group.id === 'VERMELHO_AZUL' ? <><span className="text-rose-600">VERMELHO/</span><span className="text-sky-600">AZUL ({group.prefixos.length})</span></> : <>{group.titulo} ({group.prefixos.length})</>}</span>)}</div>
+          <div className="flex flex-wrap gap-x-2 gap-y-3 pt-1" aria-label="Carros da reserva">{[...(official?.reserva ?? [])].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).map(prefixo => <span key={prefixo} className="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-mono"><CiVehicleNotice state={official} prefixo={prefixo} /></span>)}</div>
+          {!official?.reserva.length && <p className="text-[10px] italic text-muted-foreground">Sem carros</p>}
         </div>
         <div className={cn(surface, 'border-rose-300 bg-rose-50/30 dark:bg-rose-950/10')}><h3 className="text-xs font-bold text-rose-600 flex items-center gap-2"><AlertTriangle className="h-4 w-4" /> BLOQUEADOS CI {official?.ciData ?? ''}</h3>
-          <div className="flex flex-wrap gap-1 text-xs font-mono">{official?.bloqueados.map(p => <span key={p} className="rounded-full border border-rose-300 px-2 py-0.5 text-rose-600"><CiVehicleNotice state={official} prefixo={p} /></span>)}</div>
+          <div className="flex flex-wrap gap-1 text-xs font-mono">{official?.bloqueados.map(p => <span key={p} className="rounded-full border border-rose-300 px-2 py-0.5 text-rose-600"><CiVehicleNotice state={official} prefixo={p} hideIcon /></span>)}</div>
         </div>
         {otherCards.filter(card => card.id === 'PORTARIA').map(renderCard)}
         {terminalCards.length > 0 && <div className={surface}>
@@ -156,7 +154,7 @@ function LineRow({ item, official, readOnly, onSave, onEditingChange, drafts }: 
   const dirty = useRef(drafts.has(item.id)), pending = useRef(false);
   useEffect(() => { if (!dirty.current) setPrefixo(item.carroSubstituido ?? ''); }, [item.carroSubstituido]);
   const ownKey = 'linha:' + item.id;
-  const fixedAlert = official ? allocationError(official, item.carroProgramado, ownKey) : '';
+  const fixedAlert = official && item.carroProgramado ? allocationError(official, item.carroProgramado, ownKey) : '';
   const confirmed = Boolean(item.confirmada && !dirty.current && prefixo.trim() === (item.carroSubstituido ?? '')
     && !allocationError(official, prefixo.trim() || item.carroProgramado, ownKey));
   const confirm = async () => {
