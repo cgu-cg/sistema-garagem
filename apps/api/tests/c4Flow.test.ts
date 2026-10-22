@@ -988,9 +988,9 @@ test('manual: reabre e finaliza novamente antes da proxima; depois recusa reaber
  await manual(f, target, 'finalizar'); await manual(f, '2026-10-09', 'iniciar');
  const before = f.tables(); await assert.rejects(manual(f, target, 'reabrir'), /proxima/); assert.deepEqual(f.tables(), before);
 });
-test('manual: hoje e historico nao podem iniciar, reabrir, finalizar ou salvar', async () => {
+test('manual: hoje e historico nao podem iniciar ou reabrir', async () => {
  const f = fixture();
- for (const date of [day, '2026-10-06']) for (const operacao of ['iniciar', 'reabrir', 'finalizar'] as const) await assert.rejects(manual(f, date, operacao), /consulta/);
+ for (const date of [day, '2026-10-06']) for (const operacao of ['iniciar', 'reabrir'] as const) await assert.rejects(manual(f, date, operacao), /consulta/);
  assert.equal(f.writes(), 0);
 });
 test('manual: primeiro comando materializa bloqueados na manutencao e mantem dados novos', async () => {
@@ -1046,3 +1046,25 @@ test('manual: ao virar o dia, somente o primeiro comando materializa manutencao 
  const todayCycle = f.tables().cicloOperacional.find(i => i.dataOperacional.toISOString().slice(0,10) === day);
  assert.equal(f.tables().estadoManutencao.filter(i => i.cicloId === todayCycle.id).length, 0);
 });
+
+for (const later of ['2026-10-08T12:00:00Z', '2026-10-09T12:00:00Z']) {
+ test(`manual: finaliza pendente hoje ou historica em ${later} sem editar itens e libera a proxima`, async () => {
+  const f = fixture(); await manual(f, target, 'iniciar');
+  const before = f.tables(); const laterClock = () => new Date(later);
+  await manual(f, target, 'finalizar', laterClock);
+  assert.deepEqual(f.tables().itemFolhaCI, before.itemFolhaCI);
+  assert.deepEqual(f.tables().estadoManutencao, before.estadoManutencao);
+  const folha = f.tables().folhaCI.find(i => i.status === 'FINALIZADA' && i.id !== 10);
+  assert.ok(folha); assert.equal(folha.finalizadaEm.toISOString(), new Date(later).toISOString());
+  const finalized = f.tables();
+  await assert.rejects(manual(f, target, 'reabrir', laterClock), /consulta/);
+  await assert.rejects(manual(f, target, 'finalizar', laterClock), /preparacao/);
+  assert.deepEqual(f.tables(), finalized);
+  if (later.startsWith('2026-10-08')) {
+    await manual(f, addDays(target, 1), 'iniciar', laterClock);
+    assert.ok(f.tables().folhaCI.some(i => i.folhaOrigemId === folha.id));
+  } else {
+    await assert.rejects(manual(f, '2026-10-10', 'iniciar', laterClock), /anterior/);
+  }
+ });
+}

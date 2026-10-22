@@ -7,6 +7,12 @@ description: >-
 ---
 # Procedimentos Operacionais do Módulo Soltura
 
+## Finalizacao pendente - 22/10/2026
+
+Conforme docs/DOMAIN.md, finalizar uma CI existente em EM_PREPARACAO pode
+ocorrer hoje ou em data anterior, sem editar itens ou manutencao. Iniciar,
+reabrir e editar continuam restritos ao futuro; preservar permissoes e revisao.
+
 ## Moldes VCG - 21/10/2026
 
 Consultar docs/MOLDES-ESCALA-SOLTURA.md. Moldes VCG usam JSONs separados de

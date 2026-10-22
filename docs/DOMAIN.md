@@ -1,5 +1,15 @@
 # Domain model e entendimento operacional atual
 
+## Finalizacao de CI pendente apos a virada - confirmado em 22/10/2026
+
+Uma CI existente em EM_PREPARACAO pode ser finalizada manualmente mesmo que
+sua data seja hoje ou anterior. Isso altera somente o estado da folha e os
+metadados da finalizacao; itens, titulo e manutencao nao sao modificados.
+Permissoes por garagem, revisao e locks continuam obrigatorios. Iniciar,
+reabrir e editar conteudo continuam restritos a datas futuras. Assim, uma
+pendencia pode ser encerrada para liberar a preparacao da CI seguinte, sem
+reabrir edicao do historico e sem criar folhas intermediarias automaticamente.
+
 ## Exclusao no Controle de Manutencao - decisao confirmada em 21/10/2026
 
 Bloqueados, Em Manutencao e Liberados permitem excluir um ou varios carros

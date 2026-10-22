@@ -1981,10 +1981,10 @@ export function CiManutencaoView({
             Visualizar Relatório
           </Button>
 
-          {activeGaragemScope !== 'TODAS' && c4Enabled(activeGaragemScope) && normalizeIsoDate(dataOperacao) > operationalContext().today && canWriteC4(user, activeGaragemScope) && <>
-            {!c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope) && <Button type="button" className="bg-[#164E3A] hover:bg-[#113C2D] text-white rounded-full" size="sm" title={previousCIFinalized ? 'Copiar a CI anterior finalizada' : 'Finalize a CI do dia anterior para liberar esta CI'} disabled={!ready || writeState.pending || writeState.refreshRequired || !previousCIFinalized} onClick={() => void handleCIState('iniciar')}>Iniciar CI</Button>}
+          {activeGaragemScope !== 'TODAS' && c4Enabled(activeGaragemScope) && canWriteC4(user, activeGaragemScope) && <>
+            {normalizeIsoDate(dataOperacao) > operationalContext().today && !c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope) && <Button type="button" className="bg-[#164E3A] hover:bg-[#113C2D] text-white rounded-full" size="sm" title={previousCIFinalized ? 'Copiar a CI anterior finalizada' : 'Finalize a CI do dia anterior para liberar esta CI'} disabled={!ready || writeState.pending || writeState.refreshRequired || !previousCIFinalized} onClick={() => void handleCIState('iniciar')}>Iniciar CI</Button>}
             {c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope)?.status === 'EM_PREPARACAO' && <Button type="button" className="bg-[#164E3A] hover:bg-[#113C2D] text-white rounded-full" size="sm" disabled={!ready || writeState.pending || writeState.refreshRequired} onClick={() => void handleCIState('finalizar')}>Finalizar CI</Button>}
-            {c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope)?.status === 'FINALIZADA' && !nextCIStarted && <Button type="button" variant="outline" size="sm" disabled={!ready || writeState.pending || writeState.refreshRequired} onClick={() => void handleCIState('reabrir')}>Reabrir CI</Button>}
+            {c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope)?.status === 'FINALIZADA' && normalizeIsoDate(dataOperacao) > operationalContext().today && !nextCIStarted && <Button type="button" variant="outline" size="sm" disabled={!ready || writeState.pending || writeState.refreshRequired} onClick={() => void handleCIState('reabrir')}>Reabrir CI</Button>}
             {c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope)?.status === 'FINALIZADA' && <Button type="button" variant="outline" size="sm" disabled={!ready || writeState.pending} onClick={() => setDataOperacao(ciNextDay(selectedCIDate))}>Próxima CI</Button>}
           </>}
           <Button
@@ -2022,7 +2022,7 @@ export function CiManutencaoView({
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                  CIs de hoje e de datas anteriores permitem apenas consulta. Selecione uma data futura para preparar uma CI.
+                  Os dados de CIs de hoje e de datas anteriores permitem apenas consulta. Uma CI pendente pode ser finalizada pelo botão Finalizar CI.
                 </p>
               </div>
             </div>

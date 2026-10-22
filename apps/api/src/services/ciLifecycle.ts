@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { canWriteC4 } from './c4Authorization';
-import { addDays, assertC4Context, dateValue, enabledGarages } from './c4Temporal';
+import { addDays, assertC4Context, civil, dateValue, enabledGarages } from './c4Temporal';
 import { bundle, lockManualCI, MANUAL_MAINTENANCE_PENDING } from './c4Flow';
 import { MvpError } from './mvpTemporal';
 import { notifyC4Updated } from './c4Events';
@@ -14,12 +14,17 @@ export async function changeCILifecycle(db: PrismaClient, userId: number | undef
   now = () => new Date(), garages = enabledGarages()) {
   const c = command.parse(value), day = addDays(c.data, -1);
   if (!garages.includes(c.garagem)) throw new MvpError(409, 'Fluxo manual nao habilitado nesta garagem.');
-  assertC4Context(c.data, 'ci', now());
+  const assertLifecycleContext = () => {
+    // Finalizar uma folha pendente nao autoriza editar seu conteudo ou reabri-la.
+    if (c.operacao === 'finalizar') civil(c.data);
+    else assertC4Context(c.data, 'ci', now());
+  };
+  assertLifecycleContext();
   await db.$transaction(async tx => {
     await lockManualCI(tx, c.garagem, c.data);
     const user = userId ? await tx.user.findUnique({ where: { id: userId }, select: { role: true, garagem: true } }) : null;
     if (!canWriteC4(user, c.garagem)) throw new MvpError(403, 'Sem permissao para alterar a CI desta garagem.');
-    assertC4Context(c.data, 'ci', now());
+    assertLifecycleContext();
     const b = await bundle(tx, c.garagem, day, now());
     if (b.baseC4 !== c.baseC4) throw new MvpError(409, 'CI alterada em outro posto. Atualize antes de continuar.');
     const where = (date: string) => ({ garagem_dataFolha: { garagem: c.garagem, dataFolha: dateValue(date) } });
@@ -54,7 +59,7 @@ export async function changeCILifecycle(db: PrismaClient, userId: number | undef
         finalizadaEm: c.operacao === 'finalizar' ? now() : null, responsavelRegistroId: userId,
       } });
     }
-    assertC4Context(c.data, 'ci', now());
+    assertLifecycleContext();
   }, { isolationLevel: 'Serializable' });
   await notifyC4Updated(c.garagem, day);
   return { operacao: c.operacao, garagem: c.garagem, data: c.data };
