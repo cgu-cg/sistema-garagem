@@ -1,4 +1,5 @@
-import { CiVehicleNotice, ciNoticesFor } from './CiVehicleNotice';
+import { ScaleVehiclePrefix } from './ScaleVehiclePrefix';
+import { CiVehicleNotice } from './CiVehicleNotice';
 import { ScaleVehiclePicker } from './ScaleVehiclePicker';
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { Search, Plus, Bus, AlertTriangle, Check, Loader2, X, ChevronDown, ChevronUp } from 'lucide-react';
@@ -78,9 +79,9 @@ export function AlterarCarroProgramadoView({ dateControl, readOnly = true, readO
           onClick={() => open(card, card.modo === 'unico' ? card.itens[0] : undefined)} className="h-6 w-6 rounded bg-muted inline-flex items-center justify-center disabled:opacity-40"><Plus className="h-3 w-3" /></button>}
       </div>
       {card.modo === 'rabicho' ? <table className="w-full text-xs font-mono"><thead><tr className="text-muted-foreground"><th className="text-left">Linha</th><th>Tab</th><th>Carro</th></tr></thead>
-        <tbody>{card.itens.map(i => <tr key={i.id}><td className="py-2">{i.linha}</td><td className="text-center">{i.tabela}</td><td className="text-right"><button disabled={readOnly || saving} type="button" aria-label={'Definir carro da linha ' + i.linha + ' tabela ' + i.tabela} onClick={() => open(card, i)} className={cn('border rounded px-3 py-1', official && i.prefixo && allocationError(official, i.prefixo, 'card:' + card.id + ':' + i.id) && 'text-rose-600 border-rose-500')}>{i.prefixo || <Plus className="h-3 w-3" />}</button></td></tr>)}</tbody></table>
+        <tbody>{card.itens.map(i => <tr key={i.id}><td className="py-2">{i.linha}</td><td className="text-center">{i.tabela}</td><td className="text-right"><button disabled={readOnly || saving} type="button" aria-label={'Definir carro da linha ' + i.linha + ' tabela ' + i.tabela} onClick={() => open(card, i)} className={cn('border rounded px-3 py-1', official && i.prefixo && allocationError(official, i.prefixo, 'card:' + card.id + ':' + i.id) && 'text-rose-600 border-rose-500')}>{i.prefixo ? <CiVehicleNotice state={official} prefixo={i.prefixo} /> : <Plus className="h-3 w-3" />}</button></td></tr>)}</tbody></table>
         : <div className="flex flex-wrap gap-1.5 text-xs font-mono">{card.itens.filter(i => i.prefixo).map(i => <span key={i.id} className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 bg-muted/30', official && allocationError(official, i.prefixo, 'card:' + card.id + ':' + i.id) && 'text-rose-600 border-rose-500')}>
-          {i.prefixo}{i.horario && <span className="text-muted-foreground"> {i.horario}</span>}
+          <CiVehicleNotice state={official} prefixo={i.prefixo} />{i.horario && <span className="text-muted-foreground"> {i.horario}</span>}
           <button type="button" disabled={readOnly || saving} aria-label={'Retirar ' + i.prefixo + ' de ' + card.titulo} onClick={() => void mutate({ card: card.id, operacao: 'remover', prefixo: '', itemId: i.id })}><X className="h-3 w-3" /></button>
         </span>)}</div>}
       {card.itens.every(i => !i.prefixo) && card.modo !== 'rabicho' && <p className="text-xs italic text-muted-foreground">Nenhum veiculo alocado.</p>}
@@ -144,7 +145,7 @@ export function AlterarCarroProgramadoView({ dateControl, readOnly = true, readO
     </div>
     <Dialog open={Boolean(modal)} onOpenChange={open => { if (!open) close(); }}><DialogContent className="sm:max-w-md rounded-2xl border-border bg-card p-5 shadow-2xl"><DialogHeader className="space-y-1.5 text-left"><DialogTitle className="flex items-center gap-2 pr-6 text-base font-bold"><Plus className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />{modal?.card.titulo}</DialogTitle><DialogDescription className="text-xs">Selecione o veiculo da garagem ativa para esta data da escala.</DialogDescription></DialogHeader>
       <div className="space-y-2"><div className="flex items-center justify-between gap-2"><span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase text-muted-foreground"><Bus className="h-3 w-3" />Prefixo do carro {modal?.card.modo !== 'unico' && <span className="text-rose-500">*</span>}</span><span className="text-[10px] text-muted-foreground">{official?.frota.length ?? 0} veiculos da Garagem {garagem}</span></div><ScaleVehiclePicker placeholder="Carro..." className="h-10 rounded-xl border-border text-left focus:outline-none focus:ring-2 focus:ring-emerald-700/30" label="Carro do card" value={prefixo} onChange={setPrefixo} garage={garagem} disabled={saving}
-        options={pickerOptions(official, modal?.item ? 'card:' + modal.card.id + ':' + modal.item.id : '')} onConfirm={() => void saveModal()} /></div>
+        renderPrefix={p => <ScaleVehiclePrefix state={official} prefixo={p} />} options={pickerOptions(official, modal?.item ? 'card:' + modal.card.id + ':' + modal.item.id : '')} onConfirm={() => void saveModal()} /></div>
       <div className="flex items-center justify-between gap-2 border-t border-border pt-3"><Button type="button" variant="ghost" className="rounded-xl text-xs" disabled={saving} onClick={close}>Cancelar</Button><Button type="button" className="rounded-xl bg-[#164E3A] text-xs text-white hover:bg-[#113C2D]" disabled={saving || readOnly} onClick={() => void saveModal()}>{saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1.5 h-3.5 w-3.5" />}Salvar</Button></div>
     </DialogContent></Dialog>
   </div>;
@@ -156,7 +157,6 @@ function LineRow({ item, official, readOnly, onSave, onEditingChange, drafts }: 
   useEffect(() => { if (!dirty.current) setPrefixo(item.carroSubstituido ?? ''); }, [item.carroSubstituido]);
   const ownKey = 'linha:' + item.id;
   const fixedAlert = official ? allocationError(official, item.carroProgramado, ownKey) : '';
-  const substituteNotice = prefixo.trim() && !allocationError(official, prefixo.trim(), ownKey) && ciNoticesFor(official, prefixo.trim()).length > 0;
   const confirmed = Boolean(item.confirmada && !dirty.current && prefixo.trim() === (item.carroSubstituido ?? '')
     && !allocationError(official, prefixo.trim() || item.carroProgramado, ownKey));
   const confirm = async () => {
@@ -168,11 +168,11 @@ function LineRow({ item, official, readOnly, onSave, onEditingChange, drafts }: 
     finally { pending.current = false; setSaving(false); }
   };
   return <tr data-confirmada={confirmed ? 'true' : 'false'} className={cn('border-b border-border/60 font-mono', confirmed ? 'bg-emerald-100 hover:bg-emerald-200/70 dark:bg-emerald-900/40 dark:hover:bg-emerald-900/50' : 'hover:bg-muted/30')}><td className="p-3 font-bold">{item.linha}</td><td className="p-3">{item.tabela}</td><td className="p-3">{item.saidaGaragem}</td><td className="p-3">{item.chegadaGaragem || '\u2014'}</td>
-    <td className={cn('p-3 font-bold', fixedAlert && 'text-rose-600')}><CiVehicleNotice state={official} prefixo={item.carroProgramado || '\u2014'} warning={fixedAlert || undefined} /></td>
-    <td className="p-2"><div className="flex items-center gap-2"><CiVehicleNotice state={official} prefixo={prefixo.trim()}><ScaleVehiclePicker label={'Carro substituido da Linha ' + item.linha + ' Tabela ' + item.tabela} value={prefixo} disabled={readOnly || saving}
+    <td className="p-3 font-bold"><CiVehicleNotice state={official} prefixo={item.carroProgramado || '\u2014'} warning={fixedAlert || undefined} /></td>
+    <td className="p-2"><div className="flex items-center gap-2"><CiVehicleNotice state={official} prefixo={prefixo.trim()} warning={prefixo.trim() ? allocationError(official, prefixo.trim(), ownKey) || undefined : undefined}><ScaleVehiclePicker label={'Carro substituido da Linha ' + item.linha + ' Tabela ' + item.tabela} value={prefixo} disabled={readOnly || saving}
       garage={official?.contexto.garagem ?? ''} options={pickerOptions(official, ownKey)}
       onChange={value => { dirty.current = true; drafts.set(item.id, value); onEditingChange?.(item.id, true); setPrefixo(value); }} onConfirm={() => void confirm()}
-      className={cn('h-7 w-24 py-0 text-center', prefixo.trim() && allocationError(official, prefixo.trim(), ownKey) && 'border-rose-500 text-rose-600 font-bold', substituteNotice && 'border-amber-400 text-amber-500 font-bold')} /></CiVehicleNotice>
+      renderPrefix={p => <ScaleVehiclePrefix state={official} prefixo={p} />} className="h-7 w-24 py-0 text-center" /></CiVehicleNotice>
       <button type="button" aria-label={(confirmed ? 'Linha confirmada ' : 'Confirmar linha ') + item.linha + ' tabela ' + item.tabela} title={confirmed ? 'Linha confirmada para esta data' : 'Confirmar linha'} disabled={readOnly || saving || confirmed} onClick={() => void confirm()} className={cn('h-7 w-7 inline-flex items-center justify-center rounded-full', 'bg-[#164E3A] text-white', (readOnly || saving || confirmed) && 'opacity-40 cursor-not-allowed')}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}</button>
     </div></td>
   </tr>;

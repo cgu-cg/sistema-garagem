@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useId, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
@@ -6,9 +6,10 @@ import { cn } from '@/lib/utils';
 export type VehicleOption = { prefixo: string; unavailable: string; blocked: boolean };
 const company = (prefixo: string) => ({ '1': 'VCM', '2': 'VSF', '3': 'JTU', '4': 'VCG' }[prefixo[0]] || '');
 
-export function ScaleVehiclePicker({ value, onChange, onConfirm, options, garage, label, disabled, className, placeholder }: {
+export function ScaleVehiclePicker({ value, onChange, onConfirm, options, garage, label, disabled, className, placeholder, renderPrefix }: {
   value: string; onChange: (value: string) => void; onConfirm?: () => void;
   options: VehicleOption[]; garage: string; label: string; disabled?: boolean; className?: string; placeholder?: string;
+  renderPrefix?: (prefixo: string) => ReactNode;
 }) {
   const [open, setOpen] = useState(false), [filter, setFilter] = useState('TODAS');
   const [search, setSearch] = useState('');
@@ -19,6 +20,7 @@ export function ScaleVehiclePicker({ value, onChange, onConfirm, options, garage
     <PopoverAnchor asChild><div className="relative">
       <input ref={input} role="combobox" aria-label={label} aria-expanded={open && !disabled} aria-controls={id} aria-autocomplete="list"
         value={value} placeholder={placeholder} disabled={disabled} inputMode="numeric" maxLength={10}
+        style={renderPrefix && value ? { color: 'transparent', caretColor: 'hsl(var(--foreground))' } : undefined}
         onClick={() => { setSearch(''); setOpen(true); }}
         onChange={e => { const p = e.target.value.replace(/\D/g, ''); onChange(p); setSearch(p); setOpen(true); }}
         onKeyDown={e => {
@@ -26,6 +28,7 @@ export function ScaleVehiclePicker({ value, onChange, onConfirm, options, garage
           if (e.key === 'Enter') { e.preventDefault(); setOpen(false); onConfirm?.(); }
           if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); requestAnimationFrame(() => document.getElementById(id)?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()); }
         }} className={cn('w-full rounded-full border bg-background py-2 pl-3 pr-7 text-xs font-mono disabled:opacity-50', className)} />
+      {renderPrefix && value && <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-3 right-7 flex items-center justify-center text-xs font-mono">{renderPrefix(value)}</span>}
       <button type="button" aria-label={'Abrir lista: ' + label} disabled={disabled}
         onClick={() => { setSearch(''); setOpen(v => !v); }} className="absolute inset-y-0 right-1 flex items-center px-1 text-muted-foreground"><ChevronDown className="h-3 w-3" /></button>
     </div></PopoverAnchor>
@@ -58,7 +61,7 @@ export function ScaleVehiclePicker({ value, onChange, onConfirm, options, garage
         {filtered.map(o => <button key={o.prefixo} role="option" aria-selected={value === o.prefixo} type="button" disabled={Boolean(o.unavailable)} title={o.unavailable}
           onClick={() => { onChange(o.prefixo); setOpen(false); }}
           className="flex w-full items-center gap-2 px-3 py-3 text-left text-xs hover:bg-muted focus:bg-muted disabled:cursor-not-allowed disabled:opacity-60">
-          <span className="font-mono font-bold">{o.prefixo}</span>
+          <span className="font-mono font-bold">{renderPrefix ? renderPrefix(o.prefixo) : o.prefixo}</span>
           <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">{company(o.prefixo)}</span>
           <span className="font-sans text-[10px] text-muted-foreground">Garagem {garage}</span>
           {o.unavailable && <span className="ml-auto rounded border border-rose-200 bg-rose-50 px-1 py-0.5 text-[9px] text-rose-600 dark:bg-rose-950">{o.blocked ? 'Ja Bloqueado' : 'Em uso'}</span>}

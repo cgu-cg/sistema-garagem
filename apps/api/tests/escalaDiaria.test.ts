@@ -395,6 +395,18 @@ test('contrato de reserva por cor recusa grupos duplicados, carros ocupados e ca
   assert.throws(() => validateDailyEscala({ ...response, reservaPorCor: { ...grouped, grupos: grouped.grupos.map((g,i) => i ? g : { ...g, prefixos: [...g.prefixos, original.carroProgramado] }) } }, contexto));
 });
 
+test('cores incluem fixos ocupados, independem da reserva e permanecem no contrato', async () => {
+  const f = fixture();
+  f.db.__colors = { version: 1, updatedAt: '2026-10-16T15:00:00Z', vehicles: [
+    { idCarro: original.carroProgramado, cor: 'VERMELHO/AZUL' }, { idCarro: '5001', cor: 'AZUL' },
+  ] };
+  const response = await readEscalaDiaria(f.db, contexto, 1);
+  assert.equal(response.coresFrota[original.carroProgramado], 'VERMELHO/AZUL');
+  assert.equal(response.coresFrota['5001'], 'AZUL');
+  assert.ok(!response.reserva.includes(original.carroProgramado));
+  assert.deepEqual(validateDailyEscala(response, contexto).coresFrota, response.coresFrota);
+});
+
 test('avisos informativos vem da CI D+1 e nao bloqueiam confirmacao nem reserva', async () => {
   const f = fixture();
   f.db.folhaCI.findUnique = async ({ where }: any) => {

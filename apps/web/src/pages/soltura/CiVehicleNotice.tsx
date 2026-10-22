@@ -1,6 +1,8 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { DailyEscala } from '@/lib/sharedEscala';
+import { AlertTriangle } from 'lucide-react';
+import { ScaleVehiclePrefix } from './ScaleVehiclePrefix';
 
 const sections = { PREVENTIVA: '1. Preventivas', OFICINA: '2. Setores da Oficina', REFORCO: '3. Reforço com Horário' };
 const subtypes: Record<string, string> = { PREVENTIVA: 'PREVENTIVAS', LUBRIFICACAO: 'LUBRIFICAÇÃO', TROCA_OLEO: 'TROCA DE ÓLEO',
@@ -17,15 +19,17 @@ export function CiVehicleNotice({ state, prefixo, warning, children }: { state: 
   const notices = ciNoticesFor(state, prefixo);
   const blocked = state?.bloqueados.includes(prefixo) || state?.cards.find(c => c.id === 'PORTARIA')?.itens.some(i => i.prefixo === prefixo);
   const red = Boolean(blocked || warning);
-  if (!notices.length && !red) return <>{children ?? prefixo}</>;
+  const text = children ?? <ScaleVehiclePrefix state={state} prefixo={prefixo} />;
+  if (!notices.length && !red) return <>{text}</>;
   return <Popover open={open} onOpenChange={value => { pinned.current = false; setOpen(value); }}>
     <PopoverTrigger asChild><span tabIndex={0} role={children ? undefined : 'button'} aria-label={'Ver ocorrencias do carro ' + prefixo + ' na CI ' + state?.ciData}
-      className={'inline-flex items-center font-bold ' + (red ? 'text-rose-600' : 'text-amber-500 dark:text-amber-400')}
+      className="relative inline-flex items-center font-bold"
       onMouseEnter={() => setOpen(true)} onMouseLeave={() => { if (!pinned.current) setOpen(false); }}
       onFocus={() => setOpen(true)} onBlur={() => { if (!pinned.current) setOpen(false); }}
       onKeyDown={event => { if (!children && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); pinned.current = !pinned.current; setOpen(pinned.current); } }}
       onClick={event => { if (children) return; event.preventDefault(); pinned.current = !pinned.current; setOpen(pinned.current); }}>
-      {children ?? prefixo}
+      {text}
+      <AlertTriangle aria-hidden="true" data-ci-alert={red ? 'bloqueado' : 'pedido'} className={'pointer-events-none absolute -right-2 -top-2 h-3 w-3 ' + (red ? 'text-rose-600 dark:text-rose-400' : 'text-amber-500 dark:text-amber-400')} />
     </span></PopoverTrigger>
     <PopoverContent align="start" className={'w-80 max-w-[calc(100vw-2rem)] bg-card text-card-foreground ' + (red ? 'border-rose-300' : 'border-amber-300')}
       onOpenAutoFocus={event => event.preventDefault()} onCloseAutoFocus={event => event.preventDefault()}>

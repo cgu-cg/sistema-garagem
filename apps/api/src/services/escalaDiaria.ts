@@ -1,6 +1,6 @@
 import { projectScaleCiNotices, type ScaleCiNotice } from './scaleCiNotices';
 import { groupReserveColors, isColorReserveCard } from './scaleReserveColors';
-import { readColorCache, type FleetColorCache } from './fleetColors';
+import { readColorCache, vehicleColor, type FleetColorCache } from './fleetColors';
 import path from 'node:path';
 import type { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
@@ -78,7 +78,8 @@ function project(contexto: ReturnType<typeof parseDailyContext>, revisao: number
       && !blocked.includes(c.prefixo) && !allocation.ocupacoes.some(o => o.prefixo === c.prefixo && o.chave !== 'linha:' + c.id);
   }).map(c => c.id);
   return { contexto, revisao, itens, cards, ciData: source.ciData, ciAvisos: source.ciAvisos, cardsOrigem, omitidosPadrao,
-    confirmadas, foraMolde, ...allocation, reservaPorCor: groupReserveColors(allocation.reserva, colorCache) };
+    confirmadas, foraMolde, ...allocation, coresFrota: Object.fromEntries(frota.map(prefixo => [prefixo, vehicleColor(colorCache, prefixo)])),
+    reservaPorCor: groupReserveColors(allocation.reserva, colorCache) };
 }
 export async function readEscalaDiaria(db: PrismaClient, value: unknown, userId: number | undefined, loadFleet: FleetLoader = officialFleet, loadColors: ColorLoader = loadColorCache) {
   const contexto = parseDailyContext(value);

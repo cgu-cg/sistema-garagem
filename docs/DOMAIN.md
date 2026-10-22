@@ -1,5 +1,15 @@
 # Domain model e entendimento operacional atual
 
+## Cores dos prefixos na Escala - confirmado em 22/10/2026
+
+Prefixos usam a cor do cache da frota, independentemente das ocorrencias CI.
+Vermelho/Azul divide o prefixo apos os dois primeiros digitos. Prata usa cinza,
+Micro/Executivo usa laranja e cores ausentes/Outro usam a cor padrao do texto.
+Bloqueios e pedidos usam triangulo no canto superior direito, respectivamente
+vermelho e amarelo, mantendo detalhes ao passar o mouse ou clicar e as mesmas
+restricoes de uso. A API envia cores da frota completa da garagem, incluindo
+carros ocupados, sem depender dos grupos de reserva. Nao altera banco/cache.
+
 ## Finalizacao de CI pendente apos a virada - confirmado em 22/10/2026
 
 Uma CI existente em EM_PREPARACAO pode ser finalizada manualmente mesmo que

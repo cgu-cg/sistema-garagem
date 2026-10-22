@@ -44,7 +44,7 @@ test('React mostra CI do dia seguinte, Reserva e carro fixo bloqueado em vermelh
   const html = render(false);
   assert.match(html, /BLOQUEADOS CI 2026-10-15/);
   assert.match(html, /AZUL \(1\)/);
-  assert.match(html, /font-bold[^"]*text-rose-600/);
+  assert.match(html, /data-ci-alert="bloqueado"/);
   assert.match(html, /aria-label="Ver ocorrencias do carro/);
   assert.match(html, /Carro fixo/);
   assert.match(html, /Carro substituido/);
@@ -74,7 +74,7 @@ test('React diferencia linha confirmada apenas com fundo verde e preserva o bota
   assert.doesNotMatch(html, />(Confirmada|Pendente|Alterada: confirmar novamente|Revisar e confirmar)</);
   assert.match(html, /aria-label="Linha confirmada [^"]+"[^>]*disabled=""/);
   // A referencia fixa bloqueada continua sinalizada, mesmo com substituto valido.
-  assert.match(html, /font-bold[^"]*text-rose-600/);
+  assert.match(html, /data-ci-alert="bloqueado"/);
 });
 test('React nao mostra confirmacao valida para carro que passou a estar bloqueado', () => {
   const html = render(false, { schedules: [{ ...rows[0], confirmada: true }] });
@@ -129,13 +129,32 @@ test('carro da CI tem aviso amarelo acessivel sem desabilitar confirmacao', () =
 test('bloqueado conserva prioridade vermelha sobre ocorrencia informativa na CI', () => {
   const prefixo = rows[0].carroProgramado;
   const html = render(false, { official: { ...official, ciAvisos: [{ prefixo, categoria: 'OFICINA', subTipo: 'ELEVADOR', horario: null, tipoPosicao: null, ordemPosicao: null }] } });
-  assert.match(html, /font-bold[^"]*text-rose-600/);
+  assert.match(html, /data-ci-alert="bloqueado"/);
   assert.ok(html.includes('Ver ocorrencias do carro ' + prefixo));
   assert.doesNotMatch(html, /text-amber-500/);
 });
 
 test('substituto da CI tambem recebe alerta amarelo sem impedir selecao', () => {
   const html = render(false, { schedules: [{ ...rows[0], carroSubstituido: '5001' }], official: { ...official, ciAvisos: [{ prefixo: '5001', categoria: 'REFORCO', subTipo: null, horario: '07:15 - A', tipoPosicao: 'FIXO', ordemPosicao: 1 }] } });
-  assert.match(html, /border-amber-400 text-amber-500/);
+  assert.match(html, /data-ci-alert="pedido"/);
   assert.match(html, /Ver ocorrencias do carro 5001 na CI 2026-10-15/);
+});
+
+test('prefixo vermelho/azul preserva duas cores mesmo bloqueado e alerta flutua separado', () => {
+  const prefixo = '4120';
+  const html = render(false, { schedules: [{ ...rows[0], carroProgramado: prefixo }], official: {
+    ...official, frota: [...official.frota, prefixo], bloqueados: [prefixo], coresFrota: { [prefixo]: 'VERMELHO/AZUL' },
+  } });
+  assert.match(html, /text-rose-600 dark:text-rose-400">41<\/span><span class="text-sky-600 dark:text-sky-400">20<\/span>/);
+  assert.match(html, /class="[^"]*absolute -right-2 -top-2[^>]*data-ci-alert="bloqueado"/);
+});
+
+test('pedido da CI nao substitui cor azul do carro pelo amarelo', () => {
+  const prefixo = rows[1].carroProgramado;
+  const html = render(false, { schedules: [rows[1]], official: { ...official,
+    frota: [...official.frota, prefixo], coresFrota: { [prefixo]: 'AZUL' }, bloqueados: [],
+    ciAvisos: [{ prefixo, categoria: 'OFICINA', subTipo: 'ELEVADOR', horario: null, tipoPosicao: null, ordemPosicao: null }],
+  } });
+  assert.match(html, /class="font-bold text-sky-600 dark:text-sky-400"/);
+  assert.match(html, /data-ci-alert="pedido"/);
 });

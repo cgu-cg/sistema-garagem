@@ -18,6 +18,7 @@ export interface ScaleCardItem { id: string; prefixo: string; linha?: string; ta
 export interface ScaleCard { id: string; titulo: string; modo: 'lista' | 'unico' | 'rabicho'; itens: ScaleCardItem[] }
 export interface CardMutation { card: string; operacao: 'adicionar' | 'remover' | 'definir'; prefixo: string; itemId?: string; linha?: string; tabela?: string }
 export interface DailyEscala { contexto: EscalaContext & { dataOperacao: string }; revisao: number;
+  coresFrota?: Record<string, string>;
   foraMolde?: { id: string; linha: string; tabela: string; saidaGaragem: string; carroSubstituido: string }[];
   reservaPorCor?: { updatedAt: string | null; grupos: { id: string; titulo: string; prefixos: string[] }[] };
   ciAvisos?: { prefixo: string; categoria: 'PREVENTIVA' | 'OFICINA' | 'REFORCO'; subTipo: string | null; horario: string | null; tipoPosicao: string | null; ordemPosicao: number | null }[];
@@ -26,6 +27,7 @@ export interface DailyEscala { contexto: EscalaContext & { dataOperacao: string 
   ocupacoes: { prefixo: string; local: string; chave: string }[]; ciData: string; cardsOrigem: 'padrao' | 'salvo'; omitidosPadrao: number }
 const prefixSchema = z.string().regex(/^\d{1,10}$/);
 const dailyResponseSchema = z.object({
+  coresFrota: z.record(prefixSchema, z.enum(['OUTRO', 'AZUL', 'PRATA', 'VERMELHO', 'VERMELHO/AZUL', 'EXECUTIVO', 'NAO IDENTIFICADO'])).optional(),
   contexto: z.object({ garagem: z.enum(['VCG', 'VCM']), escalaTipo: z.enum(['SEG_SEX', 'SABADO', 'DOM_FER']),
     turno: z.enum(['MATUTINO', 'VESPERTINO', 'PADRAO']), dataOperacao: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).strict(),
   revisao: z.number().int().nonnegative(),
