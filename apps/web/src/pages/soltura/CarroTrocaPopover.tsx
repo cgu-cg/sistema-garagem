@@ -1,3 +1,6 @@
+import { FleetVehicleInput } from './FleetVehicleInput';
+import type { DailyEscala } from '@/lib/sharedEscala';
+import { ScaleVehiclePrefix } from './ScaleVehiclePrefix';
 import { useState } from "react";
 import { SolturaItem } from "@/data/solturaTypes";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -14,6 +17,7 @@ export interface TrocaCarroItem {
 }
 
 interface CarroTrocaPopoverProps {
+  scaleState?: DailyEscala | null;
   item: SolturaItem;
   carroAtual: string;
   historicoTrocas?: TrocaCarroItem[];
@@ -30,6 +34,7 @@ const MOTIVOS_DISPONIVEIS = [
 ] as const;
 
 export function CarroTrocaPopover({
+  scaleState = null,
   item,
   carroAtual,
   historicoTrocas = [],
@@ -97,7 +102,7 @@ export function CarroTrocaPopover({
         "font-mono font-bold text-xs",
         isAlterado ? "text-blue-600 dark:text-blue-400" : "text-neutral-900 dark:text-white"
       )}>
-        {carroAtual || "—"}
+        <ScaleVehiclePrefix state={scaleState} prefixo={carroAtual || "—"} />
       </span>
     );
   }
@@ -122,7 +127,7 @@ export function CarroTrocaPopover({
                 : "Carro realizado. Clique para alterar ou ver histórico."
             }
           >
-            <span>{carroAtual || "—"}</span>
+            <span><ScaleVehiclePrefix state={scaleState} prefixo={carroAtual || "—"} /></span>
             <Pencil className={cn(
               "w-2.5 h-2.5 opacity-70 group-hover:opacity-100 transition-opacity",
               isAlterado ? "text-blue-500 dark:text-blue-400" : "text-muted-foreground group-hover:text-foreground dark:group-hover:text-white"
@@ -189,9 +194,9 @@ export function CarroTrocaPopover({
             {/* Input do Novo Carro */}
             <div className="space-y-1">
               <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block">
-                Carro Atual: <span className="font-mono font-bold text-foreground">{carroAtual}</span>
+                Carro Atual: <span className="font-mono font-bold text-foreground"><ScaleVehiclePrefix state={scaleState} prefixo={carroAtual} /></span>
               </label>
-              <input
+              <FleetVehicleInput fleetState={scaleState}
                 type="text"
                 autoFocus
                 placeholder="novo carro"

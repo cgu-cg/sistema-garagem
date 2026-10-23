@@ -79,11 +79,6 @@ const navItems: NavItem[] = [
         roles: ["ADMIN", "soltura", "COLABORADOR"]
       },
       {
-        to: "/soltura/historico",
-        label: "Histórico de Soltura",
-        roles: ["ADMIN", "soltura", "COLABORADOR"]
-      },
-      {
         to: "/soltura/alterar-folha",
         label: "Alterar Folha de Soltura",
         roles: ["ADMIN", "soltura", "COLABORADOR"]

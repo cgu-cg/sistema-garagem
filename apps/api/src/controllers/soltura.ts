@@ -4,6 +4,16 @@ import { AuthRequest } from "../middleware/auth";
 import { writeSafeRelease, AvailabilityError } from "../services/solturaAvailability";
 import { MvpError } from "../services/mvpTemporal";
 import { ZodError } from "zod";
+import { readReleaseProgramming } from '../services/releaseProgramming';
+
+export async function programming(req: AuthRequest, res: Response) {
+  try { return res.json(await readReleaseProgramming(prisma, req.query, req.userId)); }
+  catch (error) {
+    if (error instanceof MvpError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof ZodError) return res.status(400).json({ error: 'Contexto de programacao invalido.' });
+    return res.status(503).json({ error: 'Programacao da Soltura indisponivel. Recarregue antes de despachar.' });
+  }
+}
 
 export async function list(req: AuthRequest, res: Response) {
   try {

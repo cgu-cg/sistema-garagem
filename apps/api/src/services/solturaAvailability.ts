@@ -1,8 +1,11 @@
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient, Soltura } from '@prisma/client';
 import { z } from 'zod';
-import { lockC4Context } from './c4Flow';
+import { lockManualCI, bundle } from './c4Flow';
+import { finalizedReleaseRows, releaseScaleContext } from './releaseProgramming';
+import { parseDailyContext } from './escalaDiaria';
+import { canDispatch } from './operationalAccess';
 import { assertC4Read } from './c4Authorization';
-import { addDays, civil, dateValue, enabledGarages, eventInstant } from './c4Temporal';
+import { civil, dateValue, enabledGarages } from './c4Temporal';
 import { MvpError, operationalContext } from './mvpTemporal';
 import { createSolturaSchema, createSolturaFields, batchSyncSolturaSchema } from '../utils/schemas';
 
@@ -13,10 +16,9 @@ export function resolveReleaseContext(garagem: unknown, dataOperacao: unknown, n
   if (garagem !== 'VCG') throw new AvailabilityError('FONTE_VCM_NAO_COMPROVADA');
   if (!dataOperacao) throw new AvailabilityError('DATA_OPERACIONAL_OBRIGATORIA');
   const ciDate = civil(dataOperacao), ctx = operationalContext(now);
-  if (ciDate !== ctx.today && ciDate !== ctx.tomorrow) throw new AvailabilityError('DATA_FORA_DO_CONTEXTO');
+  if (ciDate !== ctx.today) throw new AvailabilityError('DATA_FORA_DO_CONTEXTO');
   // A data pedida determina a CI, nao a data do servidor sozinha.
   // Nao transportar estados de ontem para autorizar a madrugada atual.
-  if (now < eventInstant(ctx.today, 3)) throw new AvailabilityError('MANUTENCAO_ATUAL_NA_MADRUGADA_NAO_COMPROVADA');
   return { ciDate, maintenanceDate: ctx.today };
 }
 const identifier = z.string().trim().min(1).max(100);
@@ -33,13 +35,19 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
   if (parsed.garagem !== 'VCG') throw new AvailabilityError('FONTE_VCM_NAO_COMPROVADA');
   if (!configured().includes('VCG')) throw new AvailabilityError('LEGADO_SEM_FOLHA_FINALIZADA_CERTIFICAVEL');
   const context = resolveReleaseContext(parsed.garagem, parsed.dataOperacao, clock());
+  const releaseContext = parseDailyContext({ garagem: parsed.garagem, escalaTipo: parsed.escalaTipo,
+    turno: parsed.escalaTipo === 'SEG_SEX' ? parsed.turno : 'PADRAO', dataOperacao: context.ciDate });
   const raw = batch ? (parsed as z.infer<typeof batchSyncSolturaSchema>).items : [parsed];
   const items = z.array(releaseItem).min(1).max(1000).parse(raw);
   if (!userId || !Number.isInteger(userId) || userId <= 0) throw new MvpError(403, 'Usuario autenticado obrigatorio.');
   if (new Set(items.map(i => i.scheduleId)).size !== items.length) throw new AvailabilityError('POSICAO_DUPLICADA_NO_LOTE');
   return db.$transaction(async tx => {
     // Mesma funcao e mesma ordem dos escritores CI, manutencao e scheduler.
-    await lockC4Context(tx, 'VCG', context.maintenanceDate);
+    await lockManualCI(tx, 'VCG', context.ciDate);
+    const scaleContext = releaseScaleContext(releaseContext);
+    await tx.$queryRaw`SELECT id FROM dbo.escala_diaria WITH (UPDLOCK,HOLDLOCK) WHERE garagem=${scaleContext.garagem} AND data_operacao=${scaleContext.dataOperacao}`;
+    const user = await tx.user.findUnique({ where: { id: userId }, include: { groups: true } });
+    if (!canDispatch(user)) throw new MvpError(403, 'Sem permissao para despachar.');
     await assertC4Read(tx, userId, 'VCG');
     const checkTime = () => {
       const current = resolveReleaseContext(parsed.garagem, parsed.dataOperacao, clock());
@@ -48,7 +56,7 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
     };
     checkTime();
     const cycle = await tx.cicloOperacional.findUnique({ where: { garagem_dataOperacional: { garagem: 'VCG', dataOperacional: dateValue(context.maintenanceDate) } } });
-    if (!cycle || cycle.origem !== 'NORMAL') throw new AvailabilityError('MANUTENCAO_ATUAL_NAO_COMPROVADA');
+    if (cycle && cycle.origem !== 'NORMAL') throw new AvailabilityError('MANUTENCAO_ATUAL_NAO_COMPROVADA');
     const folha = await tx.folhaCI.findUnique({ where: { garagem_dataFolha: { garagem: 'VCG', dataFolha: dateValue(context.ciDate) } }, include: { itens: true } });
     if (!folha) throw new AvailabilityError('CI_OPERACIONAL_AUSENTE');
     if (folha.status !== 'FINALIZADA') throw new AvailabilityError('CI_EM_PREPARACAO_NAO_AUTORIZA_SOLTURA');
@@ -65,22 +73,20 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
         throw new AvailabilityError('ORIGEM_CI_NAO_CERTIFICADA');
       ancestor = parent;
     }
-    const preparationDate = addDays(context.maintenanceDate, 1);
-    const preparation = context.ciDate === preparationDate ? folha
-      : await tx.folhaCI.findUnique({ where: { garagem_dataFolha: { garagem: 'VCG', dataFolha: dateValue(preparationDate) } }, include: { itens: true } });
-    if (!preparation || preparation.cicloPreparacaoId !== cycle.id || preparation.origem !== 'NORMAL'
-      || !['EM_PREPARACAO', 'FINALIZADA'].includes(preparation.status))
-      throw new AvailabilityError('VINCULO_CI_MANUTENCAO_NAO_COMPROVADO');
-    const states = await tx.estadoManutencao.findMany({ where: { cicloId: cycle.id } });
+    const states = cycle ? (await bundle(tx, 'VCG', context.maintenanceDate, clock())).states : [];
     if (states.some(s => s.liberado && (s.bloqueado || s.emExecucao)) || new Set(states.map(s => s.prefixo)).size !== states.length)
       throw new AvailabilityError('MANUTENCAO_INCONSISTENTE');
-    const blocks = preparation.itens.filter(i => i.categoria === 'BLOQUEADO');
-    const currentBlocks = states.filter(s => s.bloqueado);
-    if (new Set(blocks.map(i => i.prefixo)).size !== blocks.length || blocks.length !== currentBlocks.length
-      || blocks.some(i => !currentBlocks.some(s => s.prefixo === i.prefixo && s.consorciada === i.consorciada)))
-      throw new AvailabilityError('CI_MANUTENCAO_DIVERGENTES');
+    const programming = await finalizedReleaseRows(tx, releaseContext);
+    if (!programming) throw new AvailabilityError('ESCALA_NAO_FINALIZADA');
+    const snapshots = new Map<string, { existing: Soltura | undefined; programmed: string | null; row: typeof programming[number] }>();
     for (const i of items) {
-      if (folha.itens.some(row => row.prefixo === i.carroRealizado && row.categoria === 'BLOQUEADO'))
+      const row = programming.find(row => row.id === i.scheduleId);
+      if (!row || row.linha !== i.linha || row.tabela !== i.tabela) throw new AvailabilityError('VIAGEM_FORA_DO_MOLDE');
+      const existing = await tx.soltura.findMany({ where: { scheduleId: i.scheduleId, dataOperacao: context.ciDate, garagem: 'VCG', turno: releaseContext.turno, escalaTipo: releaseContext.escalaTipo } });
+      if (existing.length > 1) throw new AvailabilityError('SOLTURA_DUPLICADA_EXISTENTE');
+      const programmed = existing[0] ? existing[0].carroProgramado : row.carroProgramado || null;
+      snapshots.set(i.scheduleId, { existing: existing[0], programmed, row });
+      if (folha.itens.some(row => row.prefixo === i.carroRealizado && row.categoria === 'BLOQUEADO' && row.statusItem !== 'LIBERADO'))
         throw new AvailabilityError('VEICULO_BLOQUEADO_NA_CI');
       if (states.some(s => s.prefixo === i.carroRealizado && (s.bloqueado || s.emExecucao)))
         throw new AvailabilityError('VEICULO_BLOQUEADO_OU_EM_EXECUCAO');
@@ -91,18 +97,21 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
       }
       if (i.programmedBusId) {
         const bus = await tx.bus.findUnique({ where: { id: i.programmedBusId } });
-        if (!bus || bus.prefix !== i.carroProgramado) throw new AvailabilityError('IDENTIDADE_PROGRAMADA_DIVERGENTE');
+        if (!bus || bus.prefix !== programmed) throw new AvailabilityError('IDENTIDADE_PROGRAMADA_DIVERGENTE');
       }
     }
     const records = [];
     for (const i of items) {
-      const where = { scheduleId: i.scheduleId, dataOperacao: context.ciDate, garagem: 'VCG', turno: parsed.turno ?? null, escalaTipo: parsed.escalaTipo ?? null };
-      const existing = await tx.soltura.findMany({ where });
-      if (existing.length > 1) throw new AvailabilityError('SOLTURA_DUPLICADA_EXISTENTE');
+      const where = { scheduleId: i.scheduleId, dataOperacao: context.ciDate, garagem: 'VCG', turno: releaseContext.turno, escalaTipo: releaseContext.escalaTipo };
+      const { existing, programmed, row } = snapshots.get(i.scheduleId)!;
       const { garagem: _g, dataOperacao: _d, turno: _t, escalaTipo: _e, ...fields } = i;
-      const data = { ...fields, ...where, userId, status: 'LIBERADO',
+      const data = { ...fields, ...where, userId, status: 'LIBERADO', carroProgramado: programmed,
+        substituido: i.carroRealizado !== (programmed ?? ''),
+        linha: existing?.linha ?? row.linha, tabela: existing?.tabela ?? row.tabela,
+        saidaGaragem: existing ? existing.saidaGaragem : row.saidaGaragem,
+        inicioLinha: existing ? existing.inicioLinha : row.inicioLinha ?? row.inicioBairro ?? null,
         historicoTrocas: typeof i.historicoTrocas === 'string' ? i.historicoTrocas : i.historicoTrocas ? JSON.stringify(i.historicoTrocas) : null };
-      records.push(existing[0] ? await tx.soltura.update({ where: { id: existing[0].id }, data }) : await tx.soltura.create({ data }));
+      records.push(existing ? await tx.soltura.update({ where: { id: existing.id }, data }) : await tx.soltura.create({ data }));
     }
     checkTime();
     return batch ? { count: records.length, items: records } : records[0];

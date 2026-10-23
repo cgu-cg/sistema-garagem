@@ -9,7 +9,7 @@ const specs = [
   ['escala-carros', 'sabado', 'sabado', 'VCG_SABADO_PADRAO', 'vcg-sab'],
   ['escala-carros', 'domingo-feriado', 'domingo-feriado', 'VCG_DOM_FER_PADRAO', 'vcg-dom'],
   ['soltura', 'soltura-seg-sex', 'seg-sex-matutino', 'VCG_SEG_SEX_MATUTINO', 'vcg-mat'],
-  ['soltura', 'soltura-vespertina', 'seg-sex-vespertino', 'VCG_SEG_SEX_VESPERTINO', 'vcg-vesp'],
+  ['soltura', 'soltura-seg-sex-vespertina', 'seg-sex-vespertino', 'VCG_SEG_SEX_VESPERTINO', 'vcg-vesp'],
   ['soltura', 'soltura-sabado', 'sabado', 'VCG_SABADO_PADRAO', 'vcg-sab'],
   ['soltura', 'soltura-domingo-feriado', 'domingo-feriado', 'VCG_DOM_FER_PADRAO', 'vcg-dom'],
 ].map(([kind, excel, json, context, prefix]) => ({ kind, context, prefix,

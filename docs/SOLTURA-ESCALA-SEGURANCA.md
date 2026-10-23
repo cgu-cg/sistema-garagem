@@ -1,5 +1,11 @@
 # Contencao emergencial de solturas e escala compartilhada
 
+> Soltura atualizada em 23/10/2026: CI e Escala finalizadas da mesma data,
+> despacho apenas na data atual e sem horario minimo de 03h. Programacao
+> por linha/tabela e historico integrado conforme
+> [SOLTURA-POR-DATA.md](SOLTURA-POR-DATA.md), que prevalece sobre o fluxo
+> historico de Soltura abaixo. CI/Escala mantem seus contratos manuais.
+
 > Atualizacao de 23/10/2026: novas Escalas tem ciclo manual e usam CI finalizada
 > da mesma data, com preparacao somente futura. Registros anteriores ficam em
 > consulta. [ESCALA-MANUAL.md](ESCALA-MANUAL.md) prevalece sobre regras antigas.

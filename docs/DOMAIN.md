@@ -1,5 +1,15 @@
 # Domain model e entendimento operacional atual
 
+## Soltura por data - confirmado em 23/10/2026
+
+A Soltura de D exige CI e Escala de D finalizadas. Despacho somente em D,
+sem horario minimo de 03h. Carro programado vem do substituto ou fixo da
+Escala por linha e tabela; sem correspondencia unica fica vazio. Vespertino
+seg-sex usa a Escala matutina de D. Pendentes acompanham a programacao;
+despachos preservam o registro original. Historico fica na propria tela.
+Contrato e limites em [SOLTURA-POR-DATA.md](SOLTURA-POR-DATA.md), prevalecendo
+sobre referencias historicas a CI D+1/03h na Soltura. CI/Escala nao mudam.
+
 ## Escala de Carros manual - confirmado em 23/10/2026
 
 Complemento: enquanto a CI da data nao existir, consultar os bloqueados da

@@ -1,3 +1,4 @@
+import { ScaleFleetSidebar } from './ScaleFleetSidebar';
 import { ScaleVehiclePrefix } from './ScaleVehiclePrefix';
 import { CiVehicleNotice } from './CiVehicleNotice';
 import { ScaleVehiclePicker } from './ScaleVehiclePicker';
@@ -69,7 +70,6 @@ export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, read
   const completed = schedules.filter(item => item.confirmada).length;
   const remaining = schedules.length - completed;
   const colorIds = ['AZUL', 'VERMELHO', 'MICRO', 'VERMELHO_AZUL', 'PRATA', 'OUTRO'];
-  const garageGroups = official?.reservaPorCor?.grupos ?? colorIds.map(id => ({ id, titulo: id === 'VERMELHO_AZUL' ? 'VERMELHO/AZUL' : id, prefixos: [] as string[] }));
   const otherCards = official?.cards.filter(c => !colorIds.includes(c.id) && !c.id.startsWith('TERMINAL_')) ?? [];
   const terminalCards = official?.cards.filter(c => c.id.startsWith('TERMINAL_')) ?? [];
   const renderCard = (card: ScaleCard) => (
@@ -122,16 +122,7 @@ export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, read
         <div className="p-2"><Button type="button" variant="outline" className="w-full text-xs" onClick={() => setExtended(v => !v)}>{extended ? <ChevronUp className="h-3 w-3 mr-2" /> : <ChevronDown className="h-3 w-3 mr-2" />}{extended ? 'Recolher lista' : 'Estender toda a lista'} ({filtered.length} horarios)</Button></div>
       </div>
       <div className="lg:col-span-3 space-y-4">
-        <div className={surface}><h3 className="text-center text-xs font-bold border-b pb-2">RESERVA GARAGEM {garagem}</h3>
-          {official && !official.reservaPorCor?.updatedAt && <p role="status" className="text-xs text-amber-700">Cache de cores indisponivel. A classificacao da reserva aguarda uma atualizacao valida.</p>}
-          <div className="flex flex-wrap gap-1.5" aria-label="Quantidade por cor">{garageGroups.map(group => <span key={group.id} className={cn('rounded-full border border-border px-2 py-1 text-[10px] font-bold whitespace-nowrap', group.id === 'AZUL' && 'text-sky-600', group.id === 'VERMELHO' && 'text-rose-600', group.id === 'MICRO' && 'text-amber-600', group.id === 'PRATA' && 'text-slate-500')}>{group.id === 'VERMELHO_AZUL' ? <><span className="text-rose-600">VERMELHO/</span><span className="text-sky-600">AZUL ({group.prefixos.length})</span></> : <>{group.titulo} ({group.prefixos.length})</>}</span>)}</div>
-          <div className="flex flex-wrap gap-x-2 gap-y-3 pt-1" aria-label="Carros da reserva">{[...(official?.reserva ?? [])].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).map(prefixo => <span key={prefixo} className="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-mono"><CiVehicleNotice state={official} prefixo={prefixo} /></span>)}</div>
-          {!official?.reserva.length && <p className="text-[10px] italic text-muted-foreground">Sem carros</p>}
-        </div>
-        <div className={cn(surface, 'border-rose-300 bg-rose-50/30 dark:bg-rose-950/10')}><h3 className="text-xs font-bold text-rose-600 flex items-center gap-2"><AlertTriangle className="h-4 w-4" /> BLOQUEADOS CI {official?.ciData ?? ''}</h3>
-          {official?.ciProvisoria && <p className="text-[10px] text-muted-foreground">Referência provisória até iniciar a CI da data da escala.</p>}
-          <div className="flex flex-wrap gap-1 text-xs font-mono">{official?.bloqueados.map(p => <span key={p} className="rounded-full border border-rose-300 px-2 py-0.5 text-rose-600"><CiVehicleNotice state={official} prefixo={p} hideIcon /></span>)}</div>
-        </div>
+        <ScaleFleetSidebar state={official} garage={garagem} />
         {otherCards.filter(card => card.id === 'PORTARIA').map(renderCard)}
         {terminalCards.length > 0 && <div className={surface}>
           <h3 className="text-xs font-bold">RESERVA TERMINAL</h3>

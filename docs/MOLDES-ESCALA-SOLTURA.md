@@ -20,7 +20,7 @@ separados, pois nao foram fornecidas novas planilhas dessa garagem.
 | exemplos/escala-carros/vcg/sabado.xlsx | escala-carros/vcg/sabado.json | 108 |
 | exemplos/escala-carros/vcg/domingo-feriado.xlsx | escala-carros/vcg/domingo-feriado.json | 52 |
 | exemplos/solturas/vcg/soltura-seg-sex.xlsx | soltura/vcg/seg-sex-matutino.json | 202 |
-| exemplos/solturas/vcg/soltura-vespertina.xlsx | soltura/vcg/seg-sex-vespertino.json | 84 |
+| exemplos/solturas/vcg/soltura-seg-sex-vespertina.xlsx | soltura/vcg/seg-sex-vespertino.json | 84 |
 | exemplos/solturas/vcg/soltura-sabado.xlsx | soltura/vcg/sabado.json | 108 |
 | exemplos/solturas/vcg/soltura-domingo-feriado.xlsx | soltura/vcg/domingo-feriado.json | 52 |
 

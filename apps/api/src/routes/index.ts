@@ -73,6 +73,7 @@ router.get("/abastecimento-carro/sessions/:id", authenticate, authorize("ADMIN",
 
 // Soltura
 router.get("/solturas", authenticate, operationalAccess('dispatch'), solturaController.list);
+router.get("/solturas/programacao", authenticate, operationalAccess('dispatch'), solturaController.programming);
 router.post("/solturas", authenticate, operationalAccess('dispatch'), validate(createSolturaSchema), solturaController.create);
 router.post("/solturas/batch-sync", authenticate, operationalAccess('dispatch'), validate(batchSyncSolturaSchema), solturaController.syncBatch);
 router.get("/solturas/reservas-terminais", authenticate, operationalAccess('reservations'), reservasTerminaisController.list);

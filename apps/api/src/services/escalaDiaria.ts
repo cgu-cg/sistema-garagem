@@ -43,7 +43,7 @@ export function fixedSchedule(contexto: ReturnType<typeof parseDailyContext>) {
   return currentScaleTemplate(contexto);
 }
 function selector(contexto: ReturnType<typeof parseDailyContext>) { return { garagem_escalaTipo_turno_dataOperacao: contexto }; }
-function stored(conteudo: string | undefined, contexto: ReturnType<typeof parseDailyContext>) {
+export function parseStoredDailyScale(conteudo: string | undefined, contexto: ReturnType<typeof parseDailyContext>) {
   const parsed: unknown = conteudo === undefined ? [] : JSON.parse(conteudo);
   const value = Array.isArray(parsed) ? { itens: itemsSchema.parse(parsed), cards: null, confirmacoes: [] } : savedSchema.parse(parsed);
   if ('version' in value && value.version === 3 && !value.fluxo) throw new MvpError(409, 'Estado da escala invalido.');
@@ -107,7 +107,7 @@ export async function readEscalaDiaria(db: PrismaClient, value: unknown, userId:
   // A dica e somente para ordenar leituras CI da mais antiga para a mais nova.
   // O registro oficial e relido dentro da transacao; nunca se projeta a dica.
   const hint = await db.escalaDiaria.findUnique({ where: selector(contexto) });
-  const hintState = stored(hint?.conteudo, contexto);
+  const hintState = parseStoredDailyScale(hint?.conteudo, contexto);
   const mayNeedPrevious = !hint || Boolean(hintState.fluxo && hintState.fluxo.status !== 'FINALIZADA');
   return db.$transaction(async tx => {
     const previous = mayNeedPrevious ? await tx.folhaCI.findFirst({ where: { garagem: contexto.garagem, status: 'FINALIZADA',
@@ -115,7 +115,7 @@ export async function readEscalaDiaria(db: PrismaClient, value: unknown, userId:
     // Mesma ordem de leitura dos escritores novos: primeiro CI, depois escala.
     const currentCI = await tx.folhaCI.findUnique({ where: { garagem_dataFolha: { garagem: contexto.garagem, dataFolha: dateValue(contexto.dataOperacao) } }, include: { itens: true } });
     const record = await tx.escalaDiaria.findUnique({ where: selector(contexto) });
-    const state = stored(record?.conteudo, contexto), legacy = Boolean(record && !state.fluxo);
+    const state = parseStoredDailyScale(record?.conteudo, contexto), legacy = Boolean(record && !state.fluxo);
     const live = legacy ? await ciBlocks(tx, contexto, frota, true) : projectCiBlocks(currentCI, contexto.dataOperacao, frota);
     let source = state.fluxo?.status === 'FINALIZADA' ? state.fluxo.fonteCI : live;
     let ciProvisoria = false;
@@ -153,7 +153,7 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
     await tx.$queryRaw`SELECT id FROM dbo.escala_diaria WITH (UPDLOCK,HOLDLOCK) WHERE garagem=${garagem} AND escala_tipo=${escalaTipo} AND turno=${turno} AND data_operacao=${dataOperacao}`;
     const old = await tx.escalaDiaria.findUnique({ where: selector(contexto) });
     if ((old?.revisao ?? 0) !== c.revisao) throw new MvpError(409, 'Escala do dia alterada em outro posto. Recarregue e revise antes de salvar.');
-    const source = await ciBlocks(tx, contexto, frota), state = stored(old?.conteudo, contexto);
+    const source = await ciBlocks(tx, contexto, frota), state = parseStoredDailyScale(old?.conteudo, contexto);
     const nextStarted = await nextScaleStarted(tx, contexto);
     assertScaleOperation(operation, state.fluxo, Boolean(old), source.ciFinalizada, nextStarted);
     const { ciFinalizada: _ciFinalizada, ...sourceSnapshot } = source;

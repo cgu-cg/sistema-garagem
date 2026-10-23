@@ -1,3 +1,6 @@
+import { FleetVehicleInput } from './FleetVehicleInput';
+import type { DailyEscala } from '@/lib/sharedEscala';
+import { ScaleVehiclePrefix } from './ScaleVehiclePrefix';
 import { useState, useMemo, useEffect } from "react";
 import { SolturaItem, BloqueioCarro } from "@/data/solturaTypes";
 import { drivers } from "@/data/drivers";
@@ -33,6 +36,8 @@ interface DispatchedRecord {
 }
 
 interface CarroRealizadoViewProps {
+  scaleState?: DailyEscala | null;
+  readOnly?: boolean;
   garagem: "VCG" | "VCM";
   setGaragem: (g: "VCG" | "VCM") => void;
   escalaTipo: "SEG_SEX" | "SABADO" | "DOM_FER";
@@ -49,6 +54,8 @@ interface CarroRealizadoViewProps {
 }
 
 export function CarroRealizadoView({
+  scaleState = null,
+  readOnly = true,
   garagem,
   setGaragem,
   escalaTipo,
@@ -368,6 +375,7 @@ export function CarroRealizadoView({
 
   return (
     <div className="space-y-6">
+      {readOnly && <p role="status" className="text-sm text-muted-foreground">Somente consulta. A Soltura exige CI e Escala finalizadas da data atual.</p>}
 
       {/* ========================================================= */}
       {/* CABEÇALHO DO SUBMENU CARRO REALIZADO */}
@@ -488,6 +496,7 @@ export function CarroRealizadoView({
         </div>
       </div>
 
+      <fieldset disabled={readOnly} className="contents">
       {/* ========================================================= */}
       {/* PAINEL DE ESTATÍSTICAS DE LANÇAMENTO */}
       {/* ========================================================= */}
@@ -637,7 +646,7 @@ export function CarroRealizadoView({
                       {/* Carro Programado */}
                       <td className="py-2 px-2 text-center">
                         <div className="relative">
-                          <input
+                          <FleetVehicleInput fleetState={scaleState}
                             type="text"
                             placeholder="Ex: 4210"
                             value={newCarroProgramado}
@@ -798,7 +807,7 @@ export function CarroRealizadoView({
                 Carro Programado
               </Label>
               <div className="h-10 px-3 rounded-lg border bg-muted/20 flex items-center justify-between font-mono font-bold text-sm text-muted-foreground">
-                <span>{currentItem?.carroProgramado || "---"}</span>
+                <span><ScaleVehiclePrefix state={scaleState} prefixo={currentItem?.carroProgramado || "---"} /></span>
                 <span className="text-[10px] text-muted-foreground/70 uppercase">Escala</span>
               </div>
             </div>
@@ -813,7 +822,7 @@ export function CarroRealizadoView({
                   </span>
                 )}
               </Label>
-              <Input
+              <FleetVehicleInput fleetState={scaleState}
                 placeholder="Ex: 4204, 3200"
                 value={inputCarroRealizado}
                 onChange={(e) => setInputCarroRealizado(e.target.value)}
@@ -1056,16 +1065,16 @@ export function CarroRealizadoView({
                       <td className="py-2 px-3">
                         <span className={cn(
                           "font-mono px-2 py-0.5 rounded text-xs font-semibold",
-                          item.isSubstituido ? "line-through text-rose-500 bg-rose-50 dark:bg-rose-950/40" : "bg-muted text-muted-foreground"
+                          "bg-muted"
                         )}>
-                          {item.carroProgramado}
+                          <ScaleVehiclePrefix state={scaleState} prefixo={item.carroProgramado} />
                         </span>
                       </td>
 
                       {/* Carro Realizado (P) - Input Inline de Alta Agilidade */}
                       <td className="py-2 px-3">
                         <div className="flex items-center gap-1">
-                          <input
+                          <FleetVehicleInput fleetState={scaleState}
                             type="text"
                             defaultValue={item.carroRealizado || item.carroProgramado}
                             key={item.carroRealizado || item.carroProgramado}
@@ -1159,6 +1168,7 @@ export function CarroRealizadoView({
         </div>
       </div>
 
+      </fieldset>
     </div>
   );
 }

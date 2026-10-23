@@ -1,14 +1,19 @@
+import { FleetVehicleInput } from './FleetVehicleInput';
+import { ReleaseToolbar } from './ReleaseToolbar';
+import { ScaleFleetSidebar } from './ScaleFleetSidebar';
+import { ScaleVehiclePrefix } from './ScaleVehiclePrefix';
+import { CiVehicleNotice } from './CiVehicleNotice';
+import { useReleaseProgramming } from '@/lib/useReleaseProgramming';
 import { DailyScaleLifecycle } from './DailyScaleLifecycle';
 import { c4Realtime } from '@/lib/c4RealtimeClient';
-import { explicitGarage, canDispatch, canReadScale, canOfferRelease, canWriteDailyScale } from '@/lib/operationalAccess';
-import { c4Context, c4Folha } from '@/lib/c4';
+import { explicitGarage, canDispatch, canReadScale, canWriteDailyScale } from '@/lib/operationalAccess';
+import { c4Context } from '@/lib/c4';
 import { ciSelectionDate } from '@/lib/ciInitialDate';
 import { isReadInterrupted } from '@/lib/readCoordination';
 import { operationalContext } from '@/lib/mvpTemporal';
 import { useEffect, useState, useMemo, useCallback, useRef, Fragment } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { useAuth } from "@/stores/auth";
 import { api } from "@/lib/api";
 import { confirmedWrite } from "@/lib/confirmedWrite";
@@ -16,34 +21,25 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 
 import { toast } from "sonner";
 import {
-  Search,
-  CheckCircle2,
   Clock,
   AlertTriangle,
-  Printer,
   RefreshCw,
-  Wrench,
   MapPin,
   Calendar,
   Check,
-  FileSpreadsheet,
   Plus,
   Bus,
   Tag,
   ChevronDown,
   ChevronUp,
-  ChevronLeft,
-  ChevronRight,
-  Warehouse
 } from "lucide-react";
-import * as XLSX from "xlsx";
 import {
   SolturaItem,
   BloqueioCarro,
   TerminalReserva,
   parseTimeToMinutes
 } from "@/data/solturaTypes";
-import { terminaisReservaVCG, terminaisReservaVCM, reservasGaragemVCG } from '@/data/reservasData';
+import { terminaisReservaVCG, terminaisReservaVCM } from '@/data/reservasData';
 import { releaseScheduleBase, applyReleaseRecords, type ReleaseRecord } from '@/lib/releaseSchedule';
 import { drivers } from "@/data/drivers";
 import { cn } from "@/lib/utils";
@@ -59,7 +55,6 @@ type GaragemType = "VCG" | "VCM";
 export type EscalaTipo = "SEG_SEX" | "SABADO" | "DOM_FER";
 export type TurnoTipo = "MATUTINO" | "VESPERTINO";
 export type ViewMode = "FOLHA" | "HISTORICO" | "CARRO_REALIZADO" | "CI_MANUTENCAO" | "CARDS" | "CI_BLOQUEIOS" | "RESERVAS" | "ALTERAR_FOLHA" | "ALTERAR_CARRO_PROGRAMADO";
-type FilterStatus = "TODOS" | "PENDENTES" | "LIBERADOS" | "SUBSTITUIDOS" | "ATRASADOS";
 
 export interface ReservaTerminalItem {
   id: number;
@@ -165,10 +160,8 @@ interface SolturaPageProps {
 
 export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const location = useLocation();
-  const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === "ADMIN";
-  const dateInputRef = useRef<HTMLInputElement>(null);
   const scaleDateInputRef = useRef<HTMLInputElement>(null);
 
   // Determinar empresa permitida:
@@ -231,7 +224,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     }
     ciDateContext.current = { garagem, c4: ciC4Enabled };
   }, [isCIView, garagem, ciC4Enabled]);
-  const c4ReleaseAllowed = canOfferRelease(user, garagem, Boolean(ciC4Enabled), c4Folha(dataOperacao, garagem)?.status);
+
 
   // Atualizar viewMode baseado na URL quando a rota mudar
   useEffect(() => {
@@ -265,8 +258,6 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     }
   }, [viewMode]);
 
-  const [filterStatus, setFilterStatus] = useState<FilterStatus>("TODOS");
-  const [searchQuery, setSearchQuery] = useState("");
   const [isListaEstendida, setIsListaEstendida] = useState(false);
 
   // Base de CIs Bloqueados sincronizada e persistida
@@ -385,7 +376,11 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   useEffect(() => { if (viewMode === 'ALTERAR_CARRO_PROGRAMADO') setDataOperacao(operationalContext().tomorrow); }, [viewMode]);
   const canEditDailyScale = canWriteDailyScale(user, garagem) && dailyDateEditable && dailyScale?.fluxo?.status === 'EM_PREPARACAO' && dailyScale.fluxo.ciFinalizada && !dailyLifecyclePending;
   const permanentReady = Boolean(sharedScale && JSON.stringify(sharedScale.contexto) === scaleContextKey && !scaleError);
-  const releaseUiAllowed = c4ReleaseAllowed && (garagem === 'VCG' || permanentReady);
+  const releaseProgramming = useReleaseProgramming({ garagem, escalaTipo, turno: escalaTipo === 'SEG_SEX' ? turnoTipo : 'PADRAO', dataOperacao }, ['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode));
+  const releaseState = releaseProgramming.data?.escala ?? null;
+  const [dispatchLoaded, setDispatchLoaded] = useState(false);
+  const releaseUiAllowed = canDispatch(user) && garagem === 'VCG' && Boolean(ciC4Enabled) && dataOperacao === operationalContext().today
+    && dispatchLoaded && !releaseProgramming.loading && Boolean(releaseProgramming.data?.escalaFinalizada && releaseState?.fluxo?.ciFinalizada);
   const reloadDailyScale = async () => {
     if (viewMode !== 'ALTERAR_CARRO_PROGRAMADO') return;
     if ((dailyWritePending.current && dailyWriteContext.current === dailyContextKey) || dailyDirtyFields.current.size) return;
@@ -516,7 +511,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
   const scheduleKey = `${garagem}_${escalaTipo}_${escalaTipo === "SEG_SEX" ? turnoTipo : "PADRAO"}`;
   const permanentSchedules = permanentReady && sharedScale?.publicada ? customSchedules[scheduleKey] ?? defaultSchedules : defaultSchedules;
-  const rawBaseSchedules = garagem === 'VCG' ? defaultSchedules : permanentSchedules;
+  const releaseTemplate = releaseProgramming.data?.itens ?? defaultSchedules.map(row => ({ ...row, carroProgramado: '' }));
+  const rawBaseSchedules = ['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode) ? releaseTemplate : garagem === 'VCG' ? defaultSchedules : permanentSchedules;
   const fixedRows = useMemo(() => fixedScheduleRows(scaleContext), [scaleContextKey]);
   const dailySchedules = useMemo(() => applyDailySchedule(fixedRows, dailyReady ? dailyScale : null), [fixedRows, dailyScale, dailyReady]);
   const baseSchedules = useMemo(() => {
@@ -537,7 +533,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   useEffect(() => {
     if (!canDispatch(user)) return;
     let isCancelled = false;
-    setIsSyncingDb(true);
+    setIsSyncingDb(true); setDispatchLoaded(false);
 
     api.listSolturas({
       date: dataOperacao,
@@ -570,12 +566,12 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                 historicoTrocas: rec.historicoTrocas || [],
               };
             });
-            setDispatches(dbDispatches);
+            setDispatches(dbDispatches); setDispatchLoaded(true);
             localStorage.setItem(key, JSON.stringify(dbDispatches));
           } else {
             // O BANCO DE DADOS É A AUTORIDADE MÁXIMA: se o banco retornou 0 registros para esta data/turno,
             // a folha DEVE zerar imediatamente, limpando qualquer cache do localStorage!
-            setDispatches({});
+            setDispatches({}); setDispatchLoaded(true);
             localStorage.removeItem(key);
           }
         }
@@ -642,7 +638,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         status: "LIBERADO",
         notes: disp.observacoes || null
       };
-    }).filter(i => i.linha && i.tabela);
+    }).filter(i => i.linha);
 
     if (!itemsToPersist.length || itemsToPersist.length !== Object.keys(newDispatches).length) {
       toast.error("Viagem sem contexto oficial. Nada foi gravado."); return false;
@@ -651,7 +647,11 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     try {
       await confirmedWrite(() => api.batchSyncSolturas({ dataOperacao, garagem,
         turno: escalaTipo === "SEG_SEX" ? turnoTipo : "PADRAO", escalaTipo, items: itemsToPersist }),
-        () => saveDispatches(newDispatches));
+        () => saveDispatches(Object.fromEntries(Object.entries(newDispatches).map(([id, record]) => {
+          const row = baseSchedules.find(item => item.id === id);
+          return [id, { ...record, carroProgramado: dispatches[id]?.carroProgramado ?? row?.carroProgramado,
+            scheduleSnapshot: dispatches[id]?.scheduleSnapshot ?? (row ? { ...row } : undefined) }];
+        }))));
       return true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Soltura nao confirmada."); return false;
@@ -748,111 +748,24 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const [selectedTipo, setSelectedTipo] = useState<"VERMELHO" | "AZUL" | "CORINGA" | "MICRO" | "ARTICULADO">("VERMELHO");
   const [isSubmittingReserva, setIsSubmittingReserva] = useState(false);
 
-  // Reservas da Garagem Central (VCG) - Card separado independente com persistência
-  const [reservasGaragem, setReservasGaragem] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem("sistema-garagem-reservas-garagem-vcg");
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.error("Erro ao ler reservasGaragem do localStorage:", e);
-    }
-    return reservasGaragemVCG;
-  });
-  const [isGaragemModalOpen, setIsGaragemModalOpen] = useState(false);
-  const [inputCarroGaragem, setInputCarroGaragem] = useState("");
-  const [isSubmittingGaragem, setIsSubmittingGaragem] = useState(false);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("sistema-garagem-reservas-garagem-vcg", JSON.stringify(reservasGaragem));
-    } catch (e) {
-      console.error("Erro ao salvar reservasGaragem no localStorage:", e);
-    }
-  }, [reservasGaragem]);
-
-  const handleOpenAddGaragemModal = () => {
-    setInputCarroGaragem("");
-    setIsGaragemModalOpen(true);
-  };
-
-  const handleAddReservaGaragem = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    const cleanCarro = inputCarroGaragem.trim();
-    if (!cleanCarro) {
-      toast.error("Por favor, informe o prefixo do carro.");
-      return;
-    }
-
-    if (reservasGaragem.includes(cleanCarro)) {
-      toast.error(`Carro ${cleanCarro} já está na reserva da garagem central.`);
-      return;
-    }
-
-    const conflitoSoltura = activeSchedules.find(s => {
-      const disp = dispatches[s.id];
-      const prog = s.carroProgramado?.trim();
-      const realiz = (disp?.carroRealizado || s.carroRealizado || drafts[s.id]?.carro || "").trim();
-      return prog === cleanCarro || realiz === cleanCarro;
-    });
-
-    if (conflitoSoltura) {
-      toast.warning(`Atenção: Carro ${cleanCarro} já está escalado na Linha ${conflitoSoltura.linha} / Tab ${conflitoSoltura.tabela}.`);
-    }
-
-    try {
-      setIsSubmittingGaragem(true);
-      try {
-        const created = await api.createReservaTerminal({
-          carro: cleanCarro,
-          tipo: "AZUL",
-          terminal: "GARAGEM CENTRAL",
-          garagem: garagem,
-        });
-        setReservasTerminais(prev => [...prev, created]);
-      } catch (err) {
-        // Fallback local se API der erro ou conexão oscilar
-      }
-
-      setReservasGaragem(prev => [...prev, cleanCarro]);
-      toast.success(`Carro ${cleanCarro} adicionado à Reserva da Garagem Central!`);
-      setIsGaragemModalOpen(false);
-      setInputCarroGaragem("");
-    } catch (err) {
-      console.error("Erro ao adicionar carro na reserva da garagem:", err);
-      toast.error("Erro ao adicionar carro na reserva.");
-    } finally {
-      setIsSubmittingGaragem(false);
-    }
-  };
-
-  const handleRemoveReservaGaragem = async (carro: string) => {
-    setReservasGaragem(prev => prev.filter(c => c !== carro));
-    const itemApi = reservasTerminais.find(r => (r.terminal === "GARAGEM CENTRAL" || r.terminal === "GARAGEM") && r.carro === carro);
-    if (itemApi) {
-      try {
-        await api.deleteReservaTerminal(itemApi.id);
-        setReservasTerminais(prev => prev.filter(r => r.id !== itemApi.id));
-      } catch (err) {
-        // ignore
-      }
-    }
-    toast.info(`Carro ${carro} removido da Reserva da Garagem Central.`);
-  };
-
+  const reservationReadSequence = useRef(0);
   const loadReservas = useCallback(async () => {
+    const request = ++reservationReadSequence.current;
     try {
       const data = await api.listReservasTerminais({
         garagem,
         date: dataOperacao
       });
-      setReservasTerminais(data || []);
+      if (request === reservationReadSequence.current) setReservasTerminais(data || []);
     } catch (err) {
       console.error("Erro ao carregar reservas de terminais:", err);
     }
   }, [garagem, dataOperacao]);
 
   useEffect(() => {
+    setReservasTerminais([]);
     if (canDispatch(user)) loadReservas();
+    return () => { ++reservationReadSequence.current; };
   }, [loadReservas]);
 
   const handleOpenAddModal = (terminal: string) => {
@@ -952,8 +865,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   }, [ciList, garagem]);
 
   // Mapear itens mesclando programação base + despachos realizados
-  const activeSchedules = useMemo(() => applyReleaseRecords(baseSchedules, dispatches, viewMode === 'HISTORICO'),
-    [baseSchedules, dispatches, viewMode]);
+  const activeSchedules = useMemo(() => applyReleaseRecords(baseSchedules, dispatches, dataOperacao < operationalContext().today || viewMode === 'HISTORICO'),
+    [baseSchedules, dispatches, viewMode, dataOperacao]);
 
   // Estatísticas operacionais
   const stats = useMemo(() => {
@@ -970,13 +883,16 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   }, [activeSchedules, penduradosAtivos]);
 
   // Estado para animar e pulsar o carro bloqueado na seção de pendurados
-  const [pulsingCarro, setPulsingCarro] = useState<string | null>(null);
 
   // Função para verificar se o carro está em CI Bloqueado
   const checkBloqueioCI = useCallback((prefixo?: string) => {
     if (!prefixo) return null;
+    if (['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode)) {
+      if (!releaseState?.bloqueados.includes(prefixo)) return null;
+      return { prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, motivo: 'Bloqueado na CI ' + releaseState.ciData, data: releaseState.ciData };
+    }
     return checkCarroBloqueado(prefixo, ciList, dataOperacao);
-  }, [ciList, dataOperacao]);
+  }, [ciList, dataOperacao, viewMode, releaseState]);
 
   // Alerta sonner + scroll suave + efeito pulsante no carro pendurado
   const triggerPenduradoAlert = useCallback((prefixo: string, motivo?: string | null) => {
@@ -988,7 +904,6 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       duration: 5000
     });
 
-    setPulsingCarro(cleanPrefixo);
 
     setTimeout(() => {
       const elCarro = document.getElementById(`pendurado-${cleanPrefixo}`);
@@ -999,34 +914,13 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       }
     }, 150);
 
-    setTimeout(() => {
-      setPulsingCarro(prev => (prev === cleanPrefixo ? null : prev));
-    }, 5000);
   }, []);
 
-  // Filtro de pesquisa e status com ordenação pela ordem oficial da folha de soltura
+  const [lineSearch, setLineSearch] = useState('');
+  // Pesquisa por linha, preservando a ordem oficial da folha.
   const filteredSchedules = useMemo(() => {
-    return activeSchedules
-      .filter(item => {
-        // Filtro de Status
-        const isDone = item.status === "LIBERADO" || item.status === "SUBSTITUIDO";
-        const isSub = item.status === "SUBSTITUIDO" || (item.carroRealizado && item.carroRealizado !== item.carroProgramado);
-
-        if (filterStatus === "PENDENTES" && isDone) return false;
-        if (filterStatus === "LIBERADOS" && !isDone) return false;
-        if (filterStatus === "SUBSTITUIDOS" && !isSub) return false;
-
-        // Filtro de Texto (por Linha, Tabela ou Carro)
-        if (!searchQuery.trim()) return true;
-        const q = searchQuery.trim().toLowerCase();
-        return (
-          item.linha.toLowerCase().includes(q) ||
-          item.tabela.toLowerCase().includes(q) ||
-          (item.carroProgramado && item.carroProgramado.toLowerCase().includes(q)) ||
-          (item.carroRealizado && item.carroRealizado.toLowerCase().includes(q))
-        );
-      })
-      .sort((a, b) => {
+    const query = ['FOLHA', 'HISTORICO'].includes(viewMode) ? lineSearch.trim().toLocaleLowerCase('pt-BR') : '';
+    return activeSchedules.filter(item => !query || item.linha.toLocaleLowerCase('pt-BR').includes(query)).sort((a, b) => {
         if (a.ordem !== undefined && b.ordem !== undefined) return a.ordem - b.ordem;
         if (a.ordem !== undefined) return -1;
         if (b.ordem !== undefined) return 1;
@@ -1034,7 +928,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         const timeB = parseTimeToMinutes(b.saidaGaragem);
         return timeA - timeB;
       });
-  }, [activeSchedules, filterStatus, searchQuery]);
+  }, [activeSchedules, lineSearch, viewMode]);
 
   // Dividir em 2 colunas para exibição estilo Prancheta / Folha
   const { colunaEsquerda, colunaDireita } = useMemo(() => {
@@ -1136,6 +1030,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
     const newRecord: DispatchedRecord = {
       scheduleId: item.id,
+      carroProgramado: item.carroProgramado,
+      scheduleSnapshot: { ...item },
       carroRealizado: finalCarro,
       motoristaCodigo: finalMoto,
       motoristaNome: finalNome,
@@ -1214,6 +1110,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
     const newRecord: DispatchedRecord = {
       scheduleId: item.id,
+      carroProgramado: item.carroProgramado,
+      scheduleSnapshot: { ...item },
       carroRealizado: cleanNovo,
       motoristaCodigo: currentDisp?.motoristaCodigo || item.motoristaCodigo || "",
       motoristaNome: currentDisp?.motoristaNome || item.motoristaNome || "",
@@ -1250,294 +1148,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     window.print();
   };
 
-  // Exportar dados completos da soltura estruturados em Excel para Power BI
-  const handleExportExcelBI = () => {
-    try {
-      // 1. Tabela Fato: Viagens e Despachos da Folha
-      const rowsFato = activeSchedules.map((item, index) => {
-        const isSub = item.carroRealizado && item.carroRealizado !== item.carroProgramado;
-        const finalCarro = item.carroRealizado || item.carroProgramado;
-        const bloqueio = checkBloqueioCI(finalCarro);
-
-        const dataParts = dataOperacao.split("-");
-        const ano = Number(dataParts[0]) || 2026;
-        const mes = Number(dataParts[1]) || 1;
-        const dia = Number(dataParts[2]) || 1;
-
-        // Determinar dia da semana
-        const dateObj = new Date(ano, mes - 1, dia);
-        const diasSemana = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
-        const diaSemana = diasSemana[dateObj.getDay()] || "";
-
-        return {
-          ID_Registro: `${dataOperacao}_${garagem}_${item.id}`,
-          Data_Operacao: dataOperacao,
-          Ano: ano,
-          Mes: mes,
-          Dia: dia,
-          Dia_Semana: diaSemana,
-          Garagem_Codigo: garagem,
-          Garagem_Nome: garagem === "VCG" ? "Viação Campo Grande" : "Viação Cidade Morena",
-          Escala_Codigo: escalaTipo,
-          Escala_Descricao: escalaTipo === "SEG_SEX" ? "Segunda a Sexta" : escalaTipo === "SABADO" ? "Sábado" : "Domingo/Feriado",
-          Ordem_Saida: item.ordem || index + 1,
-          Tipo_Servico: item.tipo || "REGULAR",
-          Linha: item.linha,
-          Tabela: item.tabela,
-          Carro_Programado: item.carroProgramado || "",
-          Carro_Realizado: finalCarro || "",
-          Substituicao_Flag: isSub ? 1 : 0,
-          Substituicao_Status: isSub ? "Substituído" : "Programado",
-          Motorista_Codigo: item.motoristaCodigo || "",
-          Motorista_Nome: item.motoristaNome || "",
-          Horario_Saida_Garagem: item.saidaGaragem || "",
-          Horario_Inicio_Linha: item.inicioLinha || item.inicioBairro || "",
-          Horario_Liberacao_Real: item.horaLiberacao || "",
-          Status_Soltura: item.status || "PENDENTE",
-          Carro_Bloqueado_CI_Flag: bloqueio ? 1 : 0,
-          Motivo_Bloqueio_CI: bloqueio ? bloqueio.motivo : "",
-          Observacoes: item.observacoes || ""
-        };
-      });
-
-      // 2. Dimensão: Carros Bloqueados na CI
-      const rowsCI = ciList.map(ci => ({
-        Prefixo_Carro: ci.prefixo,
-        Garagem: ci.garagem,
-        Motivo_Bloqueio: ci.motivo,
-        Responsavel_Oficina: ci.responsavel || "Oficina",
-        Data_Entrada: ci.data || "",
-        Previsao_Saida: ci.previsao || "",
-        Status: "BLOQUEADO"
-      }));
-
-      // 3. Tabela de Métricas / KPIs Consolidados
-      const rowsKPI = [
-        { Indicador: "Data da Operação", Valor: dataOperacao },
-        { Indicador: "Garagem", Valor: garagem },
-        { Indicador: "Escala", Valor: escalaTipo },
-        { Indicador: "Total de Viagens Programadas", Valor: stats.total },
-        { Indicador: "Carros Liberados", Valor: stats.liberados },
-        { Indicador: "Carros Pendentes de Saída", Valor: stats.pendentes },
-        { Indicador: "Substituições / Trocas de Carro", Valor: stats.substituidos },
-        { Indicador: "Taxa de Soltura (%)", Valor: `${stats.percentual}%` },
-        { Indicador: "Carros Bloqueados no CI", Valor: stats.totalBloqueadosCI }
-      ];
-
-      const workbook = XLSX.utils.book_new();
-
-      // Montar e estilizar larguras da folha fato
-      const wsFato = XLSX.utils.json_to_sheet(rowsFato);
-      wsFato["!cols"] = [
-        { wch: 22 }, // ID_Registro
-        { wch: 14 }, // Data_Operacao
-        { wch: 8 },  // Ano
-        { wch: 6 },  // Mes
-        { wch: 6 },  // Dia
-        { wch: 14 }, // Dia_Semana
-        { wch: 16 }, // Garagem_Codigo
-        { wch: 24 }, // Garagem_Nome
-        { wch: 14 }, // Escala_Codigo
-        { wch: 18 }, // Escala_Descricao
-        { wch: 12 }, // Ordem_Saida
-        { wch: 14 }, // Tipo_Servico
-        { wch: 10 }, // Linha
-        { wch: 10 }, // Tabela
-        { wch: 18 }, // Carro_Programado
-        { wch: 18 }, // Carro_Realizado
-        { wch: 18 }, // Substituicao_Flag
-        { wch: 20 }, // Substituicao_Status
-        { wch: 18 }, // Motorista_Codigo
-        { wch: 24 }, // Motorista_Nome
-        { wch: 22 }, // Horario_Saida_Garagem
-        { wch: 20 }, // Horario_Inicio_Linha
-        { wch: 22 }, // Horario_Liberacao_Real
-        { wch: 16 }, // Status_Soltura
-        { wch: 22 }, // Carro_Bloqueado_CI_Flag
-        { wch: 30 }, // Motivo_Bloqueio_CI
-        { wch: 35 }  // Observacoes
-      ];
-      XLSX.utils.book_append_sheet(workbook, wsFato, "Fato_Soltura");
-
-      // Montar folha de CI
-      const wsCI = XLSX.utils.json_to_sheet(rowsCI);
-      wsCI["!cols"] = [
-        { wch: 16 }, // Prefixo_Carro
-        { wch: 12 }, // Garagem
-        { wch: 30 }, // Motivo_Bloqueio
-        { wch: 22 }, // Responsavel_Oficina
-        { wch: 14 }, // Data_Entrada
-        { wch: 14 }, // Previsao_Saida
-        { wch: 14 }  // Status
-      ];
-      XLSX.utils.book_append_sheet(workbook, wsCI, "Dim_CI_Bloqueios");
-
-      // Montar folha de KPIs
-      const wsKPI = XLSX.utils.json_to_sheet(rowsKPI);
-      wsKPI["!cols"] = [
-        { wch: 35 },
-        { wch: 20 }
-      ];
-      XLSX.utils.book_append_sheet(workbook, wsKPI, "Resumo_Metricas");
-
-      // 4. Dimensão: Reservas de Terminais Cadastradas
-      const rowsReservas = reservasTerminais.map(res => ({
-        ID_Reserva: res.id,
-        Terminal: res.terminal,
-        Prefixo_Carro: res.carro,
-        Tipo: res.tipo,
-        Garagem: res.garagem || garagem,
-        Data_Hora: res.dataHora
-      }));
-      const wsReservas = XLSX.utils.json_to_sheet(rowsReservas);
-      wsReservas["!cols"] = [
-        { wch: 12 },
-        { wch: 25 },
-        { wch: 16 },
-        { wch: 16 },
-        { wch: 12 },
-        { wch: 22 }
-      ];
-      XLSX.utils.book_append_sheet(workbook, wsReservas, "Dim_Reservas_Terminais");
-
-      // Nome do arquivo padronizado
-      const fileName = `Soltura_${garagem}_${escalaTipo}_${dataOperacao}.xlsx`;
-      XLSX.writeFile(workbook, fileName);
-
-      toast.success("Planilha Excel gerada com sucesso! Arquivo estruturado pronto para o Power BI.");
-    } catch (err: any) {
-      console.error("Erro ao exportar Excel:", err);
-      toast.error(`Falha na exportação: ${err?.message || "Erro desconhecido"}`);
-    }
-  };
-
   // Renderização reutilizável do Card de Pendurados (para Painel Lateral Fixo e Impressão A4)
-  const renderCardPendurados = (isPrint: boolean = false) => (
-    <div
-      id="secao-pendurados"
-      className={cn(
-        "rounded-2xl p-4 sm:p-5 transition-all duration-500 shadow-xs flex flex-col justify-between",
-        isPrint ? "print:bg-white print:border-neutral-500 print:p-2" : "border",
-        pulsingCarro
-          ? "border-2 border-rose-500 bg-rose-500/15 ring-2 ring-rose-500/40 shadow-lg"
-          : "border-rose-500/30 bg-rose-500/5 text-card-foreground"
-      )}
-    >
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-rose-700 dark:text-rose-400 flex items-center gap-1.5 print:text-black">
-            <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0 print:text-black" />
-            PENDURADOS / BLOQUEADOS
-          </h3>
-          <span className="text-[10px] text-muted-foreground font-mono">
-            Garagem {garagem} • {penduradosAtivos.length} {penduradosAtivos.length === 1 ? "carro" : "carros"}
-          </span>
-        </div>
-
-        <div className="flex flex-wrap gap-2 pt-0.5">
-          {penduradosAtivos.map(ci => {
-            const isPulsing = pulsingCarro === ci.prefixo;
-            return (
-              <div
-                id={`pendurado-${ci.prefixo}`}
-                key={ci.id || ci.prefixo}
-                className="relative group inline-block"
-              >
-
-
-                <div
-                  className={cn(
-                    "px-3 py-1 rounded-lg border font-mono font-bold text-xs flex items-center justify-center gap-1 shadow-2xs select-none transition-all duration-300 cursor-pointer print:border-neutral-400 print:text-black",
-                    isPulsing
-                      ? "border-rose-600 bg-rose-600 text-white ring-4 ring-rose-500/50 scale-110 animate-bounce shadow-xl font-black z-20"
-                      : "border-rose-500/50 bg-rose-500/10 text-rose-700 dark:text-rose-400 hover:bg-rose-500/20 hover:border-rose-500"
-                  )}
-                  title={`Carro ${ci.prefixo}${ci.motivo ? ` • Defeito: ${ci.motivo}` : ""}`}
-                >
-                  <span>{ci.prefixo}</span>
-                </div>
-
-                {ci.motivo && !isPrint && (
-                  <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:flex flex-col items-center z-30 transition-all duration-200">
-                    <div className="bg-neutral-900 text-white text-[11px] font-sans font-medium px-2.5 py-1 rounded-lg shadow-xl whitespace-nowrap border border-neutral-700/80">
-                      {ci.motivo}
-                    </div>
-                    <div className="w-2 h-2 -mt-1 rotate-45 bg-neutral-900 border-r border-b border-neutral-700/80"></div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          {penduradosAtivos.length === 0 && (
-            <span className="text-[11px] text-muted-foreground/70 italic print:text-neutral-500">
-              Nenhum carro bloqueado na Garagem {garagem} no momento.
-            </span>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-
   // Renderização reutilizável do Card de Reserva da Garagem Central (Separado e Independente)
-  const renderCardReservaGaragem = (isPrint: boolean = false) => {
-    if (garagem !== "VCG") return null;
-
-    return (
-      <div className={cn(
-        "rounded-2xl border border-border/80 bg-card text-card-foreground p-4 sm:p-5 shadow-xs space-y-3",
-        isPrint ? "print:bg-white print:border-neutral-500 print:p-2" : ""
-      )}>
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-foreground flex items-center gap-1.5 print:text-black">
-            <Warehouse className="w-3.5 h-3.5 text-[#164E3A] dark:text-emerald-400 print:text-black" />
-            RESERVA GARAGEM CENTRAL
-          </h3>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] text-muted-foreground font-mono">
-              {reservasGaragem.length} {reservasGaragem.length === 1 ? "carro" : "carros"}
-            </span>
-            {!isPrint && (
-              <button
-                type="button"
-                onClick={handleOpenAddGaragemModal}
-                className="w-6 h-6 rounded-md border border-emerald-600/40 dark:border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 flex items-center justify-center transition-colors cursor-pointer shrink-0 shadow-2xs"
-                title="Adicionar carro na reserva da garagem central"
-              >
-                <Plus className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-2 pt-0.5">
-          {reservasGaragem.map(car => (
-            <div
-              key={car}
-              className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold border border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 shadow-2xs flex items-center gap-1.5 group select-none transition-all hover:border-emerald-500/60 print:border-neutral-600 print:text-black"
-            >
-              <span>{car}</span>
-              {!isPrint && (
-                <button
-                  type="button"
-                  onClick={() => handleRemoveReservaGaragem(car)}
-                  className="text-muted-foreground hover:text-rose-600 dark:hover:text-rose-400 transition-colors opacity-60 group-hover:opacity-100 cursor-pointer text-[13px] leading-none ml-0.5"
-                  title={`Remover carro ${car} da reserva da garagem`}
-                >
-                  ×
-                </button>
-              )}
-            </div>
-          ))}
-          {reservasGaragem.length === 0 && (
-            <span className="text-xs text-muted-foreground/70 italic print:text-neutral-400">
-              Nenhum carro na reserva da garagem central
-            </span>
-          )}
-        </div>
-      </div>
-    );
-  };
-
   // Renderização reutilizável do Card de Reserva Terminal (para Painel Lateral Fixo e Impressão A4)
   const renderCardReservaTerminal = (isPrint: boolean = false) => (
     <div className={cn(
@@ -1595,7 +1207,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                     )}
                     title={`Carro ${car.carro} • Tipo: ${car.tipo}`}
                   >
-                    <span>{car.carro}</span>
+                    <ScaleVehiclePrefix state={releaseState} prefixo={car.carro} />
                     {!isPrint && (
                       <button
                         type="button"
@@ -1642,447 +1254,15 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       </div>}
 
       {/* ========================================================= */}
-      {/* CABEÇALHO PRINCIPAL E SELETORES (Folha de Soltura e Histórico) */}
-      {/* ========================================================= */}
-      {(viewMode === "FOLHA" || viewMode === "HISTORICO") && (
-        <div className="bg-card border rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col gap-4 print:hidden">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+      {['FOLHA', 'HISTORICO'].includes(viewMode) && <>
+        <ReleaseToolbar date={dataOperacao} garage={garagem} dayType={escalaTipo} period={turnoTipo} onDate={setDataOperacao}
+          lineSearch={lineSearch} onLineSearch={setLineSearch}
+          onGarage={isAdmin ? setGaragem : undefined} onDayType={setEscalaTipo} onPeriod={setTurnoTipo} onPrint={handlePrint} />
+        {dataOperacao !== operationalContext().today && <p className="text-xs text-muted-foreground print:hidden">Consulta por data: despachos disponíveis somente no dia da operação.</p>}
+        {releaseProgramming.error && <p role="alert" className="rounded-xl border border-rose-200 p-3 text-xs text-rose-600">{releaseProgramming.error}</p>}
+        {!releaseProgramming.error && !releaseProgramming.loading && !releaseUiAllowed && dataOperacao === operationalContext().today && <p role="status" className="rounded-xl border border-amber-200 p-3 text-xs text-amber-700">Finalize a CI e a Escala de Carros desta data para liberar a Soltura.</p>}
+      </>}
 
-            {/* Título e Identificação Oficial */}
-            <div className="flex items-start gap-3.5">
-              <div>
-                <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground mt-1">
-                  {viewMode === "HISTORICO" ? "Histórico de Soltura da Frota" : "Controle de Soltura da Frota"}
-                </h1>
-                {viewMode === "HISTORICO" && (
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Modo de consulta e auditoria de despachos operacionais por data
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Seletor de Garagem, Escala, Data e Ações */}
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
-
-              {/* Linha Superior: Garagem e Escala */}
-              <div className="flex flex-wrap items-center gap-2">
-                {/* Seletor de Garagem: Exclusivo para ADMIN; outros perfis visualizam apenas sua respectiva empresa */}
-                {isAdmin ? (
-                  <div className="flex items-center bg-muted/60 p-1 rounded-full border border-border/80">
-                    <button
-                      type="button"
-                      onClick={() => setGaragem("VCG")}
-                      className={cn(
-                        "px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-2",
-                        garagem === "VCG"
-                          ? "bg-[#164E3A] text-white shadow-xs"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      <span className="w-2 h-2 rounded-full bg-[#22C55E]" />
-                      VCG
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setGaragem("VCM")}
-                      className={cn(
-                        "px-3.5 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-2",
-                        garagem === "VCM"
-                          ? "bg-[#164E3A] text-white shadow-xs"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      <span className="w-2 h-2 rounded-full bg-[#3B82F6]" />
-                      VCM
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-border/80 bg-muted/40 text-xs font-bold text-foreground select-none">
-                    <span className={cn(
-                      "w-2.5 h-2.5 rounded-full",
-                      garagem === "VCM" ? "bg-[#3B82F6]" : "bg-[#22C55E]"
-                    )} />
-                    <span>{garagem === "VCM" ? "VCM" : "VCG"}</span>
-                  </div>
-                )}
-
-                {/* Seletor de Escala */}
-                <div className="flex items-center bg-muted/60 p-1 rounded-full border border-border/80">
-                  <button
-                    type="button"
-                    onClick={() => setEscalaTipo("SEG_SEX")}
-                    className={cn(
-                      "px-3 py-1 rounded-full text-xs transition-all cursor-pointer",
-                      escalaTipo === "SEG_SEX"
-                        ? "bg-[#164E3A] text-white shadow-xs font-bold"
-                        : "text-muted-foreground hover:text-foreground font-medium"
-                    )}
-                  >
-                    Seg-Sex
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setEscalaTipo("SABADO")}
-                    className={cn(
-                      "px-3 py-1 rounded-full text-xs transition-all cursor-pointer",
-                      escalaTipo === "SABADO"
-                        ? "bg-[#164E3A] text-white shadow-xs font-bold"
-                        : "text-muted-foreground hover:text-foreground font-medium"
-                    )}
-                  >
-                    Sábado
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setEscalaTipo("DOM_FER")}
-                    className={cn(
-                      "px-3 py-1 rounded-full text-xs transition-all cursor-pointer",
-                      escalaTipo === "DOM_FER"
-                        ? "bg-[#164E3A] text-white shadow-xs font-bold"
-                        : "text-muted-foreground hover:text-foreground font-medium"
-                    )}
-                  >
-                    Dom/Fer
-                  </button>
-                </div>
-
-                {/* Seletor de Turno: Matutino x Vespertino (Segunda a Sexta) */}
-                {escalaTipo === "SEG_SEX" && (
-                  <div className="flex items-center bg-muted/60 p-1 rounded-full border border-border/80 animate-in fade-in zoom-in-95 duration-200">
-                    <button
-                      type="button"
-                      onClick={() => setTurnoTipo("MATUTINO")}
-                      className={cn(
-                        "px-3 py-1 rounded-full text-xs transition-all flex items-center gap-1.5 cursor-pointer",
-                        turnoTipo === "MATUTINO"
-                          ? "bg-[#164E3A] text-white dark:bg-emerald-600 shadow-2xs font-bold"
-                          : "text-muted-foreground hover:text-foreground font-medium"
-                      )}
-                      title="Matutino (Manhã até 06:00)"
-                    >
-                      <span>☀️ Matutino</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setTurnoTipo("VESPERTINO")}
-                      className={cn(
-                        "px-3 py-1 rounded-full text-xs transition-all flex items-center gap-1.5 cursor-pointer",
-                        turnoTipo === "VESPERTINO"
-                          ? "bg-[#164E3A] text-white dark:bg-emerald-600 shadow-2xs font-bold"
-                          : "text-muted-foreground hover:text-foreground font-medium"
-                      )}
-                      title="Vespertino (Tarde - 10:30 até 17:40)"
-                    >
-                      <span>🌙 Vespertino</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Linha Inferior/Ao lado: Seletor de Data (apenas no Histórico) e Ações Imprimir / Excel */}
-              <div className="flex flex-wrap items-center gap-2">
-                {/* Seletor de Data: visível EXCLUSIVAMENTE no Histórico (/soltura/historico) */}
-                {viewMode === "HISTORICO" && (
-                  <div className="flex items-center gap-1.5 animate-in fade-in">
-                    {/* Input date nativo acionado pelo showPicker() posicionado fora da tela para não gerar artefatos visuais */}
-                    <input
-                      ref={dateInputRef}
-                      type="date"
-                      value={dataOperacao}
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          setDataOperacao(e.target.value);
-                        }
-                      }}
-                      className="fixed -top-[9999px] -left-[9999px] opacity-0 pointer-events-none w-0 h-0 select-none"
-                      tabIndex={-1}
-                      aria-label="Escolher data no calendário"
-                    />
-
-                    {/* Botão Dia Anterior (<) */}
-                    <button
-                      type="button"
-                      onClick={() => setDataOperacao((prev) => ajustarDia(prev, -1))}
-                      className="h-8 w-8 rounded-xl flex items-center justify-center border border-border/80 bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground transition-all cursor-pointer shadow-2xs shrink-0"
-                      title="Dia anterior"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-
-                    {/* Botão Central: Calendário + Data */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        try {
-                          dateInputRef.current?.showPicker();
-                        } catch {
-                          dateInputRef.current?.focus();
-                        }
-                      }}
-                      className="h-8 px-3 rounded-full border border-border/80 bg-muted/60 hover:bg-muted text-foreground flex items-center gap-1.5 cursor-pointer transition-all shadow-2xs shrink-0 select-none"
-                      title="Clique para escolher uma data no calendário"
-                    >
-                      <Calendar className="w-3.5 h-3.5 text-[#164E3A] dark:text-emerald-400 shrink-0" />
-                      <span className="font-semibold text-xs tracking-tight text-foreground">
-                        {getTextoDataHistorico(dataOperacao)}
-                      </span>
-                    </button>
-
-                    {/* Botão Próximo Dia (>) */}
-                    <button
-                      type="button"
-                      onClick={() => setDataOperacao((prev) => ajustarDia(prev, 1))}
-                      className="h-8 w-8 rounded-xl flex items-center justify-center border border-border/80 bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground transition-all cursor-pointer shadow-2xs shrink-0"
-                      title="Próximo dia"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-
-                    {/* Botão 'Hoje' (aparece apenas quando a data selecionada NÃO for hoje) */}
-                    {dataOperacao !== getHojeLocal() && (
-                      <button
-                        type="button"
-                        onClick={() => setDataOperacao(getHojeLocal())}
-                        className="h-8 px-3.5 rounded-full bg-[#164E3A] hover:bg-[#113C2D] text-white dark:bg-emerald-600 dark:hover:bg-emerald-500 font-bold text-xs shadow-2xs transition-all cursor-pointer flex items-center justify-center animate-in fade-in zoom-in-95 shrink-0"
-                        title="Ir para Hoje"
-                      >
-                        Hoje
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handlePrint}
-                  className="h-8 px-3.5 text-xs gap-1.5 rounded-full border border-border/80 font-semibold shadow-2xs hover:bg-muted/80 transition-all"
-                  title="Imprimir folha de soltura em formato papel A4"
-                >
-                  <Printer className="w-3.5 h-3.5 text-muted-foreground" />
-                  <span>Imprimir A4</span>
-                </Button>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleExportExcelBI}
-                  className="h-8 px-3.5 text-xs gap-1.5 rounded-full border font-semibold shadow-2xs bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20 transition-all"
-                  title="Exportar dados estruturados para Excel e Power BI"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                  <span>Exportar Excel (BI)</span>
-                </Button>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={isSyncingDb}
-                  onClick={() => {
-                    setIsSyncingDb(true);
-                    api.listSolturas({
-                      date: dataOperacao,
-                      garagem,
-                      turno: escalaTipo === "SEG_SEX" ? turnoTipo : undefined,
-                      escalaTipo,
-                    }).then((records: any[]) => {
-                      const key = getDispatchStorageKey(garagem, escalaTipo, turnoTipo, dataOperacao);
-                      if (Array.isArray(records) && records.length > 0) {
-                        const dbDispatches: Record<string, DispatchedRecord> = {};
-                        records.forEach((rec) => {
-                          const sid = rec.scheduleId || `${rec.linha}_${rec.tabela}`;
-                          dbDispatches[sid] = {
-                            scheduleId: sid,
-                            carroRealizado: rec.carroRealizado,
-                            motoristaCodigo: rec.driverCode || "",
-                            motoristaNome: rec.driverName || "",
-                            horaLiberacao: rec.horaLiberacao || "",
-                            observacoes: rec.notes || undefined,
-                            substituido: !!rec.substituido,
-                            historicoTrocas: rec.historicoTrocas || [],
-                          };
-                        });
-                        setDispatches(dbDispatches);
-                        localStorage.setItem(key, JSON.stringify(dbDispatches));
-                        toast.success(`${records.length} soltura(s) sincronizada(s) do banco!`);
-                      } else {
-                        setDispatches({});
-                        localStorage.removeItem(key);
-                        toast.info("Folha zerada. Nenhuma soltura no banco para esta data/turno.");
-                      }
-                    }).catch(err => {
-                      toast.error("Erro ao sincronizar com o banco: " + (err.message || ""));
-                    }).finally(() => {
-                      setIsSyncingDb(false);
-                    });
-
-                    // Sincronizar Bloqueios da CI do banco
-                    // O listener contextual recebe a lista oficial publicada pelo manager.
-                    void fetchCIBloqueiosFromApi({ garagem }).catch(() => {});
-                  }}
-                  className="h-8 px-3 text-xs gap-1.5 rounded-xl border font-semibold shadow-2xs hover:bg-muted/80 transition-all cursor-pointer"
-                  title="Atualizar dados diretamente do banco SQL Server"
-                >
-                  <RefreshCw className={cn("w-3.5 h-3.5 text-muted-foreground", isSyncingDb && "animate-spin text-emerald-600")} />
-                  <span>Sincronizar</span>
-                </Button>
-              </div>
-
-            </div>
-          </div>
-
-          {/* Banner informativo quando estiver consultando na página de Histórico */}
-          {viewMode === "HISTORICO" && (
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 sm:px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-amber-900 dark:text-amber-200 animate-in fade-in">
-              <div className="flex items-center gap-2 text-xs sm:text-sm font-semibold">
-                <Calendar className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-                <span>
-                  Consultando histórico de soltura de <strong>{formatarDataBr(dataOperacao)}</strong> ({dataOperacao === getHojeLocal() ? "Hoje" : dataOperacao === getOntemLocal() ? "Ontem" : "Data Selecionada"}). Registros congelados para consulta e auditoria.
-                </span>
-              </div>
-              {dataOperacao !== getOntemLocal() && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setDataOperacao(getOntemLocal())}
-                  className="h-7 text-xs px-2.5 font-bold border-amber-500/40 hover:bg-amber-500/20 text-amber-950 dark:text-amber-100 shrink-0 cursor-pointer rounded-lg"
-                >
-                  Ver Ontem
-                </Button>
-              )}
-            </div>
-          )}
-
-          {/* ========================================================= */}
-          {/* BARRA DE ESTATÍSTICAS E PROGRESSO OPERACIONAL (Folha de Soltura e Histórico) */}
-          {/* ========================================================= */}
-          {(viewMode === "FOLHA" || viewMode === "HISTORICO") && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2">
-
-              {/* Card Total */}
-              <div className="bg-card p-3 rounded-2xl border shadow-2xs">
-                <span className="text-[11px] text-muted-foreground font-medium block">Total Programado</span>
-                <div className="flex items-baseline gap-1 mt-1">
-                  <span className="text-xl font-bold text-foreground">{stats.total}</span>
-                  <span className="text-[11px] text-muted-foreground">viagens</span>
-                </div>
-              </div>
-
-              {/* Card Liberados */}
-              <div className="bg-emerald-500/10 p-3 rounded-2xl border border-emerald-500/30">
-                <span className="text-[11px] text-emerald-800 dark:text-emerald-300 font-semibold flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> Liberados
-                </span>
-                <div className="flex items-baseline gap-1 mt-1">
-                  <span className="text-xl font-bold text-emerald-700 dark:text-emerald-300">{stats.liberados}</span>
-                  <span className="text-[11px] text-emerald-800/80 dark:text-emerald-300/80">carros na rua</span>
-                </div>
-              </div>
-
-              {/* Card Pendentes */}
-              <div className="bg-amber-500/10 p-3 rounded-2xl border border-amber-500/30">
-                <span className="text-[11px] text-amber-800 dark:text-amber-300 font-semibold flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" /> Pendentes
-                </span>
-                <div className="flex items-baseline gap-1 mt-1">
-                  <span className="text-xl font-bold text-amber-700 dark:text-amber-300">{stats.pendentes}</span>
-                  <span className="text-[11px] text-amber-800/80 dark:text-amber-300/80">na garagem</span>
-                </div>
-              </div>
-
-              {/* Card Substituídos (Trocados) */}
-              <div className="bg-blue-500/10 p-3 rounded-2xl border border-blue-500/30">
-                <span className="text-[11px] text-blue-800 dark:text-blue-300 font-semibold flex items-center gap-1.5">
-                  <RefreshCw className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" /> Substituídos
-                </span>
-                <div className="flex items-baseline gap-1 mt-1">
-                  <span className="text-xl font-bold text-blue-700 dark:text-blue-300">{stats.substituidos}</span>
-                  <span className="text-[11px] text-blue-800/80 dark:text-blue-300/80">trocas</span>
-                </div>
-              </div>
-
-              {/* Card CI Bloqueios */}
-              <div
-                onClick={() => {
-                  setViewMode("CI_MANUTENCAO");
-                  navigate("/soltura/ci-manutencao");
-                }}
-                className="bg-rose-500/10 p-3 rounded-2xl border border-rose-500/30 cursor-pointer hover:bg-rose-500/15 transition-all"
-                title="Clique para abrir a tela de CI Manutenção"
-              >
-                <span className="text-[11px] text-rose-800 dark:text-rose-300 font-semibold flex items-center gap-1.5">
-                  <Wrench className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" /> CI Manutenção
-                </span>
-                <div className="flex items-baseline gap-1 mt-1">
-                  <span className="text-xl font-bold text-rose-700 dark:text-rose-300">{stats.totalBloqueadosCI}</span>
-                  <span className="text-[11px] text-rose-800/80 dark:text-rose-300/80">bloqueados</span>
-                </div>
-              </div>
-
-              {/* Card Taxa de Soltura */}
-              <div className="bg-card p-3 rounded-2xl border shadow-2xs flex flex-col justify-between">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-foreground font-bold">Soltura</span>
-                  <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{stats.percentual}%</span>
-                </div>
-                <div className="w-full bg-muted rounded-full h-2 mt-2 overflow-hidden">
-                  <div
-                    className="bg-[#164E3A] dark:bg-emerald-500 h-full rounded-full transition-all duration-500"
-                    style={{ width: `${stats.percentual}%` }}
-                  />
-                </div>
-              </div>
-
-            </div>
-          )}
-
-        </div>
-      )}
-
-      {/* ========================================================= */}
-      {/* FILTROS DE STATUS E BARRA DE BUSCA (Folha de Soltura e Histórico) */}
-      {/* ========================================================= */}
-      {(viewMode === "FOLHA" || viewMode === "HISTORICO") && (
-        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between print:hidden">
-          <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-full border border-border/80">
-            {(["TODOS", "PENDENTES", "LIBERADOS", "SUBSTITUIDOS"] as FilterStatus[]).map(st => (
-              <button
-                key={st}
-                type="button"
-                onClick={() => setFilterStatus(st)}
-                className={cn(
-                  "px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer",
-                  filterStatus === st
-                    ? "bg-card text-foreground shadow-xs font-bold border border-border/50"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {st === "TODOS" && `Todos (${stats.total})`}
-                {st === "PENDENTES" && `Pendentes (${stats.pendentes})`}
-                {st === "LIBERADOS" && `Liberados (${stats.liberados})`}
-                {st === "SUBSTITUIDOS" && `Trocados (${stats.substituidos})`}
-              </button>
-            ))}
-          </div>
-
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              placeholder="Buscar linha, tab, carro..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 h-8 text-xs bg-card rounded-full"
-            />
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================= */}
       {/* VISUALIZAÇÃO 1: FOLHA DE SOLTURA / PRANCHETA DIGITAL / HISTÓRICO */}
       {/* Idêntico às fotos dos formulários de papel e layout-soltura.PNG */}
       {/* ========================================================= */}
@@ -2116,77 +1296,15 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
             </div>
           </div>
 
-          {/* Cabeçalho da Folha em Tela (fiel a layout-soltura.PNG) */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1 print:hidden">
-            <div>
-              <div className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider font-semibold">
-                CONSÓRCIO GUAICURUS • GARAGEM {garagem === "VCG" ? "VIAÇÃO CAMPO GRANDE" : "VIAÇÃO CIDADE MORENA"}
-              </div>
-              <h2 className="text-base sm:text-lg font-bold text-foreground mt-0.5">
-                Horário de Saída de Veículos • {escalaTipo === "SEG_SEX" ? `Segunda a Sexta (${turnoTipo === "MATUTINO" ? "Matutino" : "Vespertino"})` : escalaTipo === "SABADO" ? "Sábado" : "Dom / Feriado"}
-              </h2>
-            </div>
-            <div className="flex items-center gap-3 text-xs text-muted-foreground font-medium flex-wrap">
-              <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-                Pendurado / Bloqueados
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#3B82F6]" />
-                Trocado / Substituto
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#F59E0B]" />
-                Reforço
-              </span>
-            </div>
-          </div>
-
-          {/* Barra de Pesquisa de Linha (como no novo layout) */}
-          <div className="flex items-center gap-2 pb-2 print:hidden">
-            <div className="relative w-full max-w-xs sm:max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="Pesquisar uma linha..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 pr-8 h-9 text-xs bg-muted/40 hover:bg-muted/60 focus:bg-background rounded-xl border border-border/80 focus:border-[#164E3A] focus:ring-1 focus:ring-[#164E3A] transition-all"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs p-0.5 rounded cursor-pointer"
-                  title="Limpar pesquisa"
-                >
-                  ×
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* ========================================================= */}
           {/* NOVO LAYOUT EM TELA: TABELA COM 20 ITENS + SCROLL (ESQ) E PAINEL FIXO (DIR) */}
           {/* ========================================================= */}
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start print:hidden">
 
             {/* 1. LADO ESQUERDO: TABELA ÚNICA DE HORÁRIOS (fixo no topo da tela com scroll) */}
             <div className="xl:col-span-8 2xl:col-span-8 border rounded-2xl overflow-hidden shadow-2xs bg-card border-border/80 sticky top-4 self-start z-10">
-              <div className="bg-muted/60 px-4 py-2.5 text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center justify-between border-b">
-                <span className="text-foreground flex items-center gap-2">
-                  Horário de Saída de Veículos {escalaTipo === "SEG_SEX" && `• ${turnoTipo === "MATUTINO" ? "Matutino" : "Vespertino"}`}
-                  {searchQuery && (
-                    <span className="text-[11px] font-normal text-muted-foreground lowercase">
-                      (filtrando "{searchQuery}")
-                    </span>
-                  )}
-                </span>
-                <span className="font-mono font-semibold text-foreground flex items-center gap-2">
-                  {isSyncingDb && (
-                    <RefreshCw className="w-3 h-3 animate-spin text-emerald-600 dark:text-emerald-400" />
-                  )}
-                  {filteredSchedules.length} {filteredSchedules.length === 1 ? "HORÁRIO" : "HORÁRIOS"}
-                </span>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 text-xs text-muted-foreground">
+                <div className="flex gap-3"><span className="inline-flex items-center gap-1.5"><AlertTriangle className="h-3 w-3 text-rose-600" />Bloqueados CI</span><span className="inline-flex items-center gap-1.5"><AlertTriangle className="h-3 w-3 text-amber-500" />Reforço</span></div>
+                <div className="flex gap-3 font-mono"><span>Feito: <strong className="text-emerald-700">{String(stats.liberados).padStart(2, '0')}</strong></span><span>Falta: <strong>{String(stats.pendentes).padStart(2, '0')}</strong></span></div>
               </div>
 
               {/* Barra de progresso sutil ao carregar linhas da folha */}
@@ -2251,6 +1369,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                           <FolhaTableRow
                             key={item.id}
                             item={item}
+                          scaleState={releaseState}
                             index={idx + 1}
                             reservasTerminais={reservasTerminais}
                             checkBloqueioCI={checkBloqueioCI}
@@ -2261,7 +1380,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                             getOutraLinhaComCarroRealiz={getOutraLinhaComCarroRealiz}
                             getOutraLinhaComMoto={getOutraLinhaComMoto}
                             historicoTrocas={dispatches[item.id]?.historicoTrocas || []}
-                            isReadOnly={!releaseUiAllowed || viewMode === "HISTORICO" || dataOperacao !== getHojeLocal()}
+                            isReadOnly={!releaseUiAllowed || dataOperacao !== operationalContext().today}
                           />
                         </>
                       );
@@ -2275,7 +1394,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                               <span className="text-xs font-medium">Carregando linhas da folha...</span>
                             </div>
                           ) : (
-                            `Nenhum registro encontrado para a busca "${searchQuery}".`
+                            'Nenhum horário para esta data e período.'
                           )}
                         </td>
                       </tr>
@@ -2308,9 +1427,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
             {/* 2. LADO DIREITO: COMPONENTE FIXO COM PENDURADOS, RESERVA GARAGEM E RESERVA TERMINAL */}
             <div className="xl:col-span-4 2xl:col-span-4 xl:sticky xl:top-4 self-start space-y-4">
-              {renderCardPendurados(false)}
-              {renderCardReservaGaragem(false)}
-              {renderCardReservaTerminal(false)}
+              <ScaleFleetSidebar state={releaseState} garage={garagem} reserve={releaseState?.reserva.filter(prefixo => !activeSchedules.some(row => row.carroRealizado === prefixo) && !reservasTerminais.some(row => TERMINAIS_PADRAO.includes(row.terminal) && row.carro === prefixo))} />
+              {dataOperacao === operationalContext().today && renderCardReservaTerminal(false)}
             </div>
 
           </div>
@@ -2351,6 +1469,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                         <FolhaTableRow
                           key={item.id}
                           item={item}
+                          scaleState={releaseState}
                           index={item.ordemTerminal ?? item.ordem ?? (idx + 1)}
                           reservasTerminais={reservasTerminais}
                           checkBloqueioCI={checkBloqueioCI}
@@ -2409,6 +1528,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                               <FolhaTableRow
                                 key={item.id}
                                 item={item}
+                          scaleState={releaseState}
                                 index={item.ordemTerminal ?? item.ordem ?? (colunaEsquerda.length + idx + 1)}
                                 reservasTerminais={reservasTerminais}
                                 checkBloqueioCI={checkBloqueioCI}
@@ -2456,7 +1576,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                     RESERVAS
                   </div>
                   <div className="grid grid-cols-3 gap-1 font-mono text-center font-bold text-[9pt]">
-                    {reservasGaragem.map((res, i) => (
+                    {(releaseState?.reserva ?? []).map((res, i) => (
                       <div key={i} className="py-0.5 px-1 border border-neutral-300 rounded bg-neutral-50">
                         {res}
                       </div>
@@ -2525,10 +1645,10 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
               <div className="grid grid-cols-10 gap-4 items-stretch">
                 <div className="col-span-3">
-                  {renderCardPendurados(true)}
+                  <ScaleFleetSidebar state={releaseState} garage={garagem} />
                 </div>
                 <div className="col-span-7">
-                  {renderCardReservaTerminal(true)}
+                  {dataOperacao === operationalContext().today && renderCardReservaTerminal(true)}
                 </div>
               </div>
 
@@ -2671,7 +1791,9 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           schedules={baseSchedules}
           dispatches={dispatches}
           onSaveDispatch={handleSaveDispatchFromView}
-          ciList={ciList}
+          ciList={releaseState ? releaseState.bloqueados.map(prefixo => ({ prefixo, tipo: 'BLOQUEADO_CORRETIVA', data: releaseState.ciData, motivo: 'Bloqueado na CI' })) : []}
+          scaleState={releaseState}
+          readOnly={!releaseUiAllowed}
         />
       )}
 
@@ -2918,60 +2040,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       {/* ========================================================= */}
       {/* POPUP MODAL: ADICIONAR NA RESERVA DA GARAGEM CENTRAL (Design System) */}
       {/* ========================================================= */}
-      <Dialog open={isGaragemModalOpen} onOpenChange={setIsGaragemModalOpen}>
-        <DialogContent className="max-w-[340px] sm:max-w-[360px] rounded-3xl border border-border bg-card text-card-foreground p-6 shadow-2xl">
-          <DialogHeader className="space-y-2 text-center pb-1">
-            <div>
-              <DialogTitle className="text-lg font-bold text-foreground">
-                Adicionar Carro Reserva
-              </DialogTitle>
-              <p className="text-sm font-bold text-[#164E3A] dark:text-emerald-400 mt-0.5">
-                Garagem Central (VCG)
-              </p>
-            </div>
-          </DialogHeader>
 
-          <form onSubmit={handleAddReservaGaragem} className="space-y-4 pt-1">
-            <div className="space-y-1.5 text-left">
-              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                <Bus className="w-3.5 h-3.5 text-[#164E3A] dark:text-emerald-400" />
-                Prefixo do Carro
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="Ex: 4259, 3132..."
-                  value={inputCarroGaragem}
-                  onChange={(e) => setInputCarroGaragem(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                  className="w-full h-11 px-3.5 rounded-xl border border-input bg-background text-sm font-bold font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-hidden focus:ring-2 focus:ring-[#164E3A]/40 dark:focus:ring-emerald-400/40 transition-all shadow-2xs"
-                  autoFocus
-                />
-                {inputCarroGaragem && (
-                  <button
-                    type="button"
-                    onClick={() => setInputCarroGaragem("")}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-sm font-bold cursor-pointer"
-                    title="Limpar prefixo"
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={isSubmittingGaragem}
-                className="w-full h-11 rounded-xl bg-[#164E3A] hover:bg-[#113C2D] dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white font-bold text-xs uppercase tracking-wider shadow-md transition-all active:scale-98 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
-              >
-                <Plus className="w-4 h-4" />
-                {isSubmittingGaragem ? "adicionando..." : "adicionar na reserva"}
-              </button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
 
     </div>
   );
@@ -2981,6 +2050,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 // COMPONENTE DE LINHA DA TABELA DA FOLHA DE SOLTURA (ESTILO PRANCHETA)
 // ----------------------------------------------------------------------
 interface FolhaTableRowProps {
+  scaleState: DailyEscala | null;
   item: SolturaItem;
   index: number;
   reservasTerminais?: ReservaTerminalItem[];
@@ -2996,6 +2066,7 @@ interface FolhaTableRowProps {
 }
 
 function FolhaTableRow({
+  scaleState,
   item,
   index,
   reservasTerminais = [],
@@ -3033,6 +2104,7 @@ function FolhaTableRow({
   const handleKeyDownCarro = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
+      if (isReadOnly) return;
       if (carroValue.trim() && motoValue.trim()) {
         if (conflitoMoto) {
           toast.error(`Motorista (MOTO ${motoValue.trim()}) já está escalado na Linha ${conflitoMoto.linha} / Tab ${conflitoMoto.tabela}!`);
@@ -3068,12 +2140,12 @@ function FolhaTableRow({
 
   // Alertas de CI verificados separadamente:
   // 1. Carro Programado: alerta se o programado estiver no CI
-  const bloqueioProg = checkBloqueioCI(item.carroProgramado);
+
   // 2. Carro Realizado: alerta APENAS se o carro preenchido estiver no CI
   const bloqueioRealiz = carroValue.trim() ? checkBloqueioCI(carroValue.trim()) : null;
 
   // Alerta de Reserva de Terminal:
-  const reservaProg = reservasTerminais.find(r => r.carro.trim() === item.carroProgramado?.trim());
+
   const reservaRealiz = carroValue.trim() ? reservasTerminais.find(r => r.carro.trim() === carroValue.trim()) : null;
 
   const isVCM = item.tipo === "VCM";
@@ -3122,27 +2194,7 @@ function FolhaTableRow({
         {item.tabela}
       </td>
 
-      {/* 4. Carro Programado - Destaca com alerta caso o carro programado esteja na CI ou na Reserva */}
-      <td className="py-2 px-2.5 whitespace-nowrap text-center">
-        <div className="flex items-center justify-center gap-1">
-          <span className={cn(
-            "font-bold text-xs",
-            (bloqueioProg || reservaProg) && "text-rose-600 dark:text-rose-400 font-extrabold",
-            isSub ? "line-through text-rose-500 font-normal decoration-2" : (!bloqueioProg && !reservaProg) && "text-muted-foreground"
-          )}>
-            {item.carroProgramado || "—"}
-          </span>
-          {bloqueioProg ? (
-            <span title={`Carro Programado no CI: ${bloqueioProg.motivo}`} className="cursor-help text-rose-500 shrink-0">
-              <AlertTriangle className="w-3.5 h-3.5" />
-            </span>
-          ) : reservaProg ? (
-            <span title={`Atenção: Carro ${item.carroProgramado} alocado na reserva do ${reservaProg.terminal}!`} className="cursor-help text-rose-500 shrink-0">
-              <AlertTriangle className="w-3.5 h-3.5" />
-            </span>
-          ) : null}
-        </div>
-      </td>
+      <td className="py-2 px-2.5 whitespace-nowrap text-center text-xs font-mono"><CiVehicleNotice state={scaleState} prefixo={item.carroProgramado || '—'} /></td>
 
       {/* 5. Carro Realizado (P) - Com suporte a popover de Alteração e Histórico de Trocas (Prints 2 e 3) */}
       <td className={cn(
@@ -3156,6 +2208,7 @@ function FolhaTableRow({
           {isDone ? (
             <CarroTrocaPopover
               item={item}
+              scaleState={scaleState}
               carroAtual={carroValue || item.carroRealizado || item.carroProgramado || "---"}
               historicoTrocas={historicoTrocas}
               onTrocarCarro={onTrocarCarro || (() => { })}
@@ -3166,7 +2219,7 @@ function FolhaTableRow({
             />
           ) : (
             <>
-              <input
+              <FleetVehicleInput fleetState={scaleState}
                 id={`carro-input-${item.id}`}
                 type="text"
                 placeholder=""
@@ -3210,7 +2263,7 @@ function FolhaTableRow({
                   }
                 }}
                 className={cn(
-                  "w-16 h-7 text-center rounded-md border text-xs font-bold font-mono focus:outline-hidden focus:ring-1 transition-all",
+                  "relative w-16 h-7 caret-foreground !text-transparent bg-transparent text-center rounded-md border text-xs font-bold font-mono focus:outline-hidden focus:ring-1 transition-all",
                   isReadOnly
                     ? "bg-transparent border-transparent text-foreground dark:text-white cursor-default font-bold"
                     : isSub
@@ -3230,18 +2283,7 @@ function FolhaTableRow({
                       : undefined
                 }
               />
-              {(bloqueioRealiz || reservaRealiz) && (
-                <span
-                  title={
-                    bloqueioRealiz
-                      ? `Carro Realizado no CI: ${bloqueioRealiz.motivo}`
-                      : `Carro na reserva do ${reservaRealiz?.terminal}`
-                  }
-                  className="cursor-help text-rose-500 shrink-0"
-                >
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                </span>
-              )}
+              {(!bloqueioRealiz && reservaRealiz) && <span title={'Carro na reserva do ' + reservaRealiz.terminal} className="cursor-help text-amber-500"><AlertTriangle className="w-3 h-3" /></span>}
             </>
           )}
         </div>

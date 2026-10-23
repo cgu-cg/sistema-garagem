@@ -21,13 +21,16 @@ function loadView() {
       fileName: f, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
     }).outputText, f);
     return { ...require('../../web/src/pages/soltura/AlterarCarroProgramadoView'),
+      FleetInput: require('../../web/src/pages/soltura/FleetVehicleInput').FleetVehicleInput,
+      Toolbar: require('../../web/src/pages/soltura/ReleaseToolbar').ReleaseToolbar,
+      Sidebar: require('../../web/src/pages/soltura/ScaleFleetSidebar').ScaleFleetSidebar,
       Lifecycle: require('../../web/src/pages/soltura/DailyScaleLifecycle').DailyScaleLifecycle };
   } finally {
     (Module as any)._resolveFilename = resolver;
     if (oldTSX) require.extensions['.tsx'] = oldTSX; else delete require.extensions['.tsx'];
   }
 }
-const { AlterarCarroProgramadoView: View, pickerOptions, Lifecycle } = loadView();
+const { AlterarCarroProgramadoView: View, pickerOptions, Lifecycle, Toolbar, Sidebar, FleetInput } = loadView();
 const contexto = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'MATUTINO', dataOperacao: '2026-10-14' } as const;
 const rows = fixedScheduleRows(contexto).slice(0, 2);
 const official: DailyEscala = { contexto, revisao: 0, itens: [], cardsOrigem: 'salvo', omitidosPadrao: 0,
@@ -204,3 +207,26 @@ test('referencia provisoria identifica CI de origem sem confundir finalizacao da
   assert.match(html, /Bloqueios provisórios da CI de 13\/10\/2026/);
   assert.match(html, /<button[^>]*disabled=""[^>]*>Iniciar Escala<\/button>/);
 });
+
+ test('toolbar da Soltura tem historico por data e seletores sem emojis, preservando impressao A4', () => {
+ const html = renderToStaticMarkup(React.createElement(Toolbar, { date:'2026-10-24', garage:'VCG', dayType:'SEG_SEX', period:'VESPERTINO',
+ onDate:()=>{},onDayType:()=>{},onPeriod:()=>{},onPrint:()=>{} }));
+ assert.match(html,/24\/10\/2026/); assert.match(html,/Data da Soltura/); assert.match(html,/Imprimir A4/);
+ assert.match(html,/aria-pressed="true"[^>]*>Vespertino/);
+ assert.doesNotMatch(html,/Exportar|Sincronizar|Total Programado|Controle de Soltura|[\u2600\u{1F319}]/u);
+ });
+ test('sidebar compartilhada da Soltura mostra reserva acima dos bloqueados e desconta carros ocupados', () => {
+ const state = { ...official, reserva: ['5001','5002'], bloqueados: ['5003'], coresFrota: { '5001':'VERMELHO/AZUL','5003':'AZUL' } };
+ const html=renderToStaticMarkup(React.createElement(Sidebar,{state,garage:'VCG',reserve:['5001']}));
+ assert.ok(html.indexOf('RESERVA GARAGEM VCG')<html.indexOf('BLOQUEADOS CI'));
+ assert.doesNotMatch(html,/data-ci-alert="bloqueado"/); assert.doesNotMatch(html,/>5002</);
+ assert.match(html,/text-rose-600[^>]*>50</); assert.match(html,/text-sky-600[^>]*>01</);
+ });
+
+ test('campo de carro preserva prefixo e input nativo, com duas cores e alerta flutuante independente', () => {
+ const state={...official,bloqueados:['4120'],coresFrota:{'4120':'VERMELHO/AZUL'}};
+ const html=renderToStaticMarkup(React.createElement(FleetInput,{fleetState:state,defaultValue:'4120',disabled:true,id:'carro-test'}));
+ assert.match(html,/<input[^>]*id="carro-test"[^>]*value="4120"/);
+ assert.match(html,/text-rose-600[^>]*>41</); assert.match(html,/text-sky-600[^>]*>20</);
+ assert.match(html,/data-ci-alert="bloqueado"/); assert.match(html,/pointer-events-none absolute z-10/);
+ });

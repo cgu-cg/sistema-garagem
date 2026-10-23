@@ -15,7 +15,7 @@ export function applyReleaseRecords(base: SolturaItem[], records: Record<string,
     !ids.has(id) && record.scheduleSnapshot ? [{ ...record.scheduleSnapshot, id }] : []) : [];
   return [...base, ...removed].map(row => {
     const record = records[row.id];
-    return record ? { ...row, carroProgramado: record.carroProgramado ?? row.carroProgramado,
+    return record ? { ...row, ...record.scheduleSnapshot, id: row.id, carroProgramado: record.carroProgramado ?? record.scheduleSnapshot?.carroProgramado ?? row.carroProgramado,
       carroRealizado: record.carroRealizado, motoristaCodigo: record.motoristaCodigo,
       motoristaNome: record.motoristaNome, horaLiberacao: record.horaLiberacao,
       observacoes: record.observacoes ?? row.observacoes, status: record.substituido ? 'SUBSTITUIDO' : 'LIBERADO' } : row;
