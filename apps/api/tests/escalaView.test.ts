@@ -20,13 +20,14 @@ function loadView() {
     require.extensions['.tsx'] = (m: any, f: string) => m._compile(ts.transpileModule(readFileSync(f, 'utf8'), {
       fileName: f, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
     }).outputText, f);
-    return require('../../web/src/pages/soltura/AlterarCarroProgramadoView');
+    return { ...require('../../web/src/pages/soltura/AlterarCarroProgramadoView'),
+      Lifecycle: require('../../web/src/pages/soltura/DailyScaleLifecycle').DailyScaleLifecycle };
   } finally {
     (Module as any)._resolveFilename = resolver;
     if (oldTSX) require.extensions['.tsx'] = oldTSX; else delete require.extensions['.tsx'];
   }
 }
-const { AlterarCarroProgramadoView: View, pickerOptions } = loadView();
+const { AlterarCarroProgramadoView: View, pickerOptions, Lifecycle } = loadView();
 const contexto = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'MATUTINO', dataOperacao: '2026-10-14' } as const;
 const rows = fixedScheduleRows(contexto).slice(0, 2);
 const official: DailyEscala = { contexto, revisao: 0, itens: [], cardsOrigem: 'salvo', omitidosPadrao: 0,
@@ -173,4 +174,33 @@ test('pedido da CI nao substitui cor azul do carro pelo amarelo', () => {
   } });
   assert.match(html, /class="font-bold text-sky-600 dark:text-sky-400"/);
   assert.match(html, /data-ci-alert="pedido"/);
+});
+
+const lifecycleHtml = (status: string, ciFinalizada = true, proximaIniciada = false, future = true, allowed = true) =>
+  renderToStaticMarkup(React.createElement(Lifecycle, { state: { ...official, ciData: contexto.dataOperacao,
+    fluxo: { status, ciFinalizada, proximaIniciada, iniciadaEm: null, finalizadaEm: null } },
+    future, allowed, dirty: false, pending: false, onChange() {}, onNext() {} }));
+
+test('ciclo da escala mostra inicio condicionado a CI finalizada da mesma data', () => {
+  assert.match(lifecycleHtml('NAO_INICIADA'), />Iniciar Escala<\/button>/);
+  assert.match(lifecycleHtml('NAO_INICIADA', false), /<button[^>]*disabled=""[^>]*>Iniciar Escala<\/button>/);
+  assert.doesNotMatch(lifecycleHtml('NAO_INICIADA', true, false, false), />Iniciar Escala</);
+  assert.doesNotMatch(lifecycleHtml('NAO_INICIADA', true, false, true, false), />Iniciar Escala</);
+});
+
+test('ciclo da escala impede reabrir apos virada ou proxima iniciada, e permite finalizar pendencia', () => {
+  assert.match(lifecycleHtml('FINALIZADA'), />Reabrir Escala</);
+  assert.doesNotMatch(lifecycleHtml('FINALIZADA', true, true), />Reabrir Escala</);
+  assert.doesNotMatch(lifecycleHtml('FINALIZADA', true, false, false), />Reabrir Escala</);
+  assert.match(lifecycleHtml('EM_PREPARACAO', true, false, false), />Finalizar Escala</);
+  assert.doesNotMatch(lifecycleHtml('LEGADO'), />Iniciar Escala|>Reabrir Escala|>Finalizar Escala/);
+});
+
+test('referencia provisoria identifica CI de origem sem confundir finalizacao da CI da escala', () => {
+  const html = renderToStaticMarkup(React.createElement(Lifecycle, { state: { ...official, ciData: '2026-10-13', ciProvisoria: true,
+    fluxo: { status: 'NAO_INICIADA', ciFinalizada: false, proximaIniciada: false, iniciadaEm: null, finalizadaEm: null } },
+    future: true, allowed: true, dirty: false, pending: false, onChange() {}, onNext() {} }));
+  assert.match(html, /CI de 14\/10\/2026: aguardando/);
+  assert.match(html, /Bloqueios provisórios da CI de 13\/10\/2026/);
+  assert.match(html, /<button[^>]*disabled=""[^>]*>Iniciar Escala<\/button>/);
 });

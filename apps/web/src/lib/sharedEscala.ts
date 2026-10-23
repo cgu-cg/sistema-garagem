@@ -18,6 +18,9 @@ export interface ScaleCardItem { id: string; prefixo: string; linha?: string; ta
 export interface ScaleCard { id: string; titulo: string; modo: 'lista' | 'unico' | 'rabicho'; itens: ScaleCardItem[] }
 export interface CardMutation { card: string; operacao: 'adicionar' | 'remover' | 'definir'; prefixo: string; itemId?: string; linha?: string; tabela?: string }
 export interface DailyEscala { contexto: EscalaContext & { dataOperacao: string }; revisao: number;
+  ciProvisoria?: boolean;
+  fluxo?: { status: 'NAO_INICIADA' | 'EM_PREPARACAO' | 'FINALIZADA' | 'LEGADO'; ciFinalizada: boolean;
+    proximaIniciada: boolean; iniciadaEm: string | null; finalizadaEm: string | null };
   coresFrota?: Record<string, string>;
   foraMolde?: { id: string; linha: string; tabela: string; saidaGaragem: string; carroSubstituido: string }[];
   reservaPorCor?: { updatedAt: string | null; grupos: { id: string; titulo: string; prefixos: string[] }[] };
@@ -27,6 +30,9 @@ export interface DailyEscala { contexto: EscalaContext & { dataOperacao: string 
   ocupacoes: { prefixo: string; local: string; chave: string }[]; ciData: string; cardsOrigem: 'padrao' | 'salvo'; omitidosPadrao: number }
 const prefixSchema = z.string().regex(/^\d{1,10}$/);
 const dailyResponseSchema = z.object({
+  ciProvisoria: z.boolean().optional(),
+  fluxo: z.object({ status: z.enum(['NAO_INICIADA', 'EM_PREPARACAO', 'FINALIZADA', 'LEGADO']), ciFinalizada: z.boolean(),
+    proximaIniciada: z.boolean(), iniciadaEm: z.string().datetime().nullable(), finalizadaEm: z.string().datetime().nullable() }).strict().optional(),
   coresFrota: z.record(prefixSchema, z.enum(['OUTRO', 'AZUL', 'PRATA', 'VERMELHO', 'VERMELHO/AZUL', 'EXECUTIVO', 'NAO IDENTIFICADO'])).optional(),
   contexto: z.object({ garagem: z.enum(['VCG', 'VCM']), escalaTipo: z.enum(['SEG_SEX', 'SABADO', 'DOM_FER']),
     turno: z.enum(['MATUTINO', 'VESPERTINO', 'PADRAO']), dataOperacao: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).strict(),
@@ -55,7 +61,9 @@ export function validateDailyEscala(value: unknown, contexto: DailyEscala['conte
   })) throw new Error('Registros anteriores inconsistentes com o contexto solicitado.');
   const nextDate = new Date(`${contexto.dataOperacao}T12:00:00Z`); nextDate.setUTCDate(nextDate.getUTCDate() + 1);
   if (Object.entries(contexto).some(([key, v]) => parsed.contexto[key as keyof typeof contexto] !== v)
-      || parsed.ciData !== nextDate.toISOString().slice(0, 10)
+      || (parsed.ciProvisoria
+        ? !parsed.fluxo || parsed.fluxo.status === 'LEGADO' || parsed.fluxo.status === 'FINALIZADA' || parsed.fluxo.ciFinalizada || parsed.ciData >= contexto.dataOperacao || Boolean(parsed.ciAvisos?.length)
+        : parsed.ciData !== (parsed.fluxo && parsed.fluxo.status !== 'LEGADO' ? contexto.dataOperacao : nextDate.toISOString().slice(0, 10)))
       || new Set(parsed.itens.map(i => i.id)).size !== parsed.itens.length || parsed.itens.some(i => !ids.has(i.id))
       || new Set(parsed.confirmadas).size !== parsed.confirmadas.length || parsed.confirmadas.some(id => !ids.has(id))
       || [...parsed.reserva, ...parsed.bloqueados].some(p => !parsed.frota.includes(p)))
@@ -77,3 +85,5 @@ export const saveDailyEscala = async (contexto: DailyEscala['contexto'], revisao
   validateDailyEscala(await api.post<DailyEscala>('/escala-carros/diaria', { contexto, revisao, id, carroSubstituido, base }), contexto);
 export const saveDailyScaleCard = async (contexto: DailyEscala['contexto'], revisao: number, mutation: CardMutation) =>
   validateDailyEscala(await api.post<DailyEscala>('/escala-carros/diaria', { contexto, revisao, ...mutation }), contexto);
+export const changeDailyScaleState = async (contexto: DailyEscala['contexto'], revisao: number, operacao: 'iniciar' | 'finalizar' | 'reabrir') =>
+  validateDailyEscala(await api.post<DailyEscala>('/escala-carros/diaria', { contexto, revisao, operacao }), contexto);

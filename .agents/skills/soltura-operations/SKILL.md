@@ -7,6 +7,13 @@ description: >-
 ---
 # Procedimentos Operacionais do Módulo Soltura
 
+## Escala manual - 23/10/2026
+
+Consultar docs/ESCALA-MANUAL.md e inicio de docs/DOMAIN.md. Nova Escala de D
+usa CI de D finalizada, inicia explicitamente limpa do JSON e edita/reabre so
+antes de D. Reabertura exige ausencia da proxima escala na mesma garagem.
+Registros anteriores sao somente consulta, preservados sem migracao automatica.
+
 ## Finalizacao pendente - 22/10/2026
 
 Conforme docs/DOMAIN.md, finalizar uma CI existente em EM_PREPARACAO pode

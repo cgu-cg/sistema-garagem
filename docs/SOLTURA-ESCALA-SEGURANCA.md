@@ -1,5 +1,9 @@
 # Contencao emergencial de solturas e escala compartilhada
 
+> Atualizacao de 23/10/2026: novas Escalas tem ciclo manual e usam CI finalizada
+> da mesma data, com preparacao somente futura. Registros anteriores ficam em
+> consulta. [ESCALA-MANUAL.md](ESCALA-MANUAL.md) prevalece sobre regras antigas.
+
 > Atualizacao de 21/10/2026: o molde VCG agora vem dos JSONs convertidos dos
 > Excel, inclusive na Soltura e nas datas anteriores. Consulte
 > [MOLDES-ESCALA-SOLTURA.md](MOLDES-ESCALA-SOLTURA.md) para o contrato atual.

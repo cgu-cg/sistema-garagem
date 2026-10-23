@@ -126,3 +126,4 @@ Desenvolvedores e agentes devem consultar [AGENTS.md](AGENTS.md) antes de
 alterar o projeto. A documentação detalhada de regras de domínio deve ser
 consultada no documento correspondente, não inferida a partir deste resumo.
 - [Moldes JSON de Escala e Soltura VCG](docs/MOLDES-ESCALA-SOLTURA.md)
+- [Fluxo manual da Escala de Carros](docs/ESCALA-MANUAL.md)

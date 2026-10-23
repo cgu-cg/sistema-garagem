@@ -31,11 +31,12 @@ function fixture() {
       update: async () => { state.scaleWrites++; throw Error('Escrita nao esperada'); },
     },
     escalaDiaria: {
+      findFirst: async () => null,
       findUnique: async () => state.daily,
       create: async ({ data }: any) => { state.dailyWrites++; state.daily = { id: 1, ...data }; return state.daily; },
       update: async ({ data }: any) => { state.dailyWrites++; state.daily = { ...state.daily, ...data }; return state.daily; },
     },
-    folhaCI: { findUnique: async () => ({ itens: state.blocks.map((prefixo: string) => ({ prefixo, categoria: 'BLOQUEADO' })) }) },
+    folhaCI: { findFirst: async () => null, findUnique: async () => ({ status: 'FINALIZADA', itens: state.blocks.map((prefixo: string) => ({ prefixo, categoria: 'BLOQUEADO' })) }) },
     $queryRaw: async () => [],
     $transaction: async (fn: any, options: any) => {
       assert.equal(options.isolationLevel, 'Serializable');
@@ -53,7 +54,7 @@ function fixture() {
       if (request === '../services/escalaDiaria') {
         const fleet = async () => ({ source: 'real', data: [{ idCarro: 5001, prefixo: '5001', garagem: 2, garagemNome: 'VCG' }] });
         return { ...dailyService, readEscalaDiaria: (d: any, q: any, id: number) => dailyService.readEscalaDiaria(d, q, id, fleet),
-          saveEscalaDiaria: (d: any, id: number, body: any) => dailyService.saveEscalaDiaria(d, id, body, fleet, undefined, () => new Date('2026-10-14T16:00:00Z')) };
+          saveEscalaDiaria: (d: any, id: number, body: any) => dailyService.saveEscalaDiaria(d, id, body, fleet, undefined, () => new Date('2026-10-13T16:00:00Z')) };
       }
       return oldLoad.call(this, request, parent, main);
     };
@@ -153,8 +154,9 @@ test('Soltura VCG grava card diario da propria garagem; outra garagem e bloquead
   assert.equal((await run('POST', '/escala-carros/diaria', { body })).status, 409);
   assert.equal(state.dailyWrites, 0);
   state.blocks = [];
+  assert.equal((await run('POST', '/escala-carros/diaria', { body: { contexto, revisao: 0, operacao: 'iniciar' } })).status, 200);
   assert.equal((await run('POST', '/escala-carros/diaria', { body })).status, 200);
-  assert.equal(state.dailyWrites, 1);
+  assert.equal(state.dailyWrites, 2);
 });
 
 test('rotas diarias preservam leitura por garagem e recusam escrita sem contexto autorizado', async () => {

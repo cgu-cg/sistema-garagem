@@ -11,6 +11,7 @@ import type { FixedScaleRow } from '@/lib/dailySchedule';
 import type { CardMutation, DailyEscala, ScaleCard, ScaleCardItem } from '@/lib/sharedEscala';
 
 interface Props {
+  lifecycleControl?: ReactNode;
   dateControl?: ReactNode;
   readOnly?: boolean; readOnlyReason?: string;
   onEditingChange?: (key: string, dirty: boolean) => void;
@@ -37,7 +38,7 @@ export function pickerOptions(state: DailyEscala | null, ownKey: string) {
   return state?.frota.filter(prefixo => !state.ocupacoes.some(o => o.prefixo === prefixo && o.chave.startsWith('linha:'))).map(prefixo => ({ prefixo, blocked: blocked(state, prefixo), unavailable: allocationError(state, prefixo, ownKey) })) ?? [];
 }
 
-export function AlterarCarroProgramadoView({ dateControl, readOnly = true, readOnlyReason, onEditingChange, garagem, escalaTipo,
+export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, readOnly = true, readOnlyReason, onEditingChange, garagem, escalaTipo,
   schedules, official, onSaveSubstitution, onSaveCard, onSelectGaragem, onSelectEscalaTipo }: Props) {
   const [search, setSearch] = useState(''), [extended, setExtended] = useState(false);
   const [modal, setModal] = useState<{ card: ScaleCard; item?: ScaleCardItem } | null>(null);
@@ -88,6 +89,7 @@ export function AlterarCarroProgramadoView({ dateControl, readOnly = true, readO
     </div>
   );
   return <div className="space-y-4 pb-12 text-foreground">
+    {lifecycleControl}
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="relative"><Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Pesquisar uma linha..." className="h-10 rounded-2xl border border-border bg-card pl-9 pr-3 text-sm" /></div>
       <div className="flex max-w-full flex-wrap items-center justify-end gap-3 text-xs">
@@ -127,6 +129,7 @@ export function AlterarCarroProgramadoView({ dateControl, readOnly = true, readO
           {!official?.reserva.length && <p className="text-[10px] italic text-muted-foreground">Sem carros</p>}
         </div>
         <div className={cn(surface, 'border-rose-300 bg-rose-50/30 dark:bg-rose-950/10')}><h3 className="text-xs font-bold text-rose-600 flex items-center gap-2"><AlertTriangle className="h-4 w-4" /> BLOQUEADOS CI {official?.ciData ?? ''}</h3>
+          {official?.ciProvisoria && <p className="text-[10px] text-muted-foreground">Referência provisória até iniciar a CI da data da escala.</p>}
           <div className="flex flex-wrap gap-1 text-xs font-mono">{official?.bloqueados.map(p => <span key={p} className="rounded-full border border-rose-300 px-2 py-0.5 text-rose-600"><CiVehicleNotice state={official} prefixo={p} hideIcon /></span>)}</div>
         </div>
         {otherCards.filter(card => card.id === 'PORTARIA').map(renderCard)}

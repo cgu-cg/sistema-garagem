@@ -1,5 +1,36 @@
 # Domain model e entendimento operacional atual
 
+## Escala de Carros manual - confirmado em 23/10/2026
+
+Complemento: enquanto a CI da data nao existir, consultar os bloqueados da
+ultima CI finalizada anterior da mesma garagem, identificando sua data como
+referencia provisoria. Somente bloqueados, sem copiar pedidos/itens. A CI da
+data iniciada passa a fornecer os dados, mesmo vazia. Isso nao libera comandos
+sem CI correspondente finalizada nem altera fotografias de escalas finalizadas.
+Se nenhuma origem estiver disponivel, nao presumir reserva livre: informar falha.
+
+A Escala de D usa os bloqueios e pedidos da CI de D, substituindo a referencia
+anterior D+1 para novas escalas. Finalizar a CI de 24/10 libera iniciar a
+Escala de 24/10. Preparacao pode ocorrer em qualquer data futura, sem janela
+de horario; iniciar, editar ou reabrir exige data maior que hoje em Campo Grande.
+Finalizar pendencia continua permitido depois da virada, sem editar conteudo.
+
+Iniciar e explicito: usa o molde JSON, com substituicoes e confirmacoes vazias
+e cards sem carros atribuidos, preservando suas posicoes. Nao copia a escala
+anterior. Finalizada so reabre antes de chegar sua data e enquanto nao existir
+escala da mesma garagem no dia imediatamente seguinte, em qualquer tipo/turno.
+Nao ha exigencia adicional de escala anterior finalizada para iniciar: a
+condicao e a CI correspondente finalizada. CI reaberta suspende alteracoes
+da escala ate nova finalizacao. Permissoes existentes sao preservadas.
+
+Estado, horarios e fotografia de bloqueios/pedidos ficam no conteudo JSON
+versionado da tabela escala_diaria; nao exige DDL, migrations ou jobs. Escritas
+validam permissao, revisao, CI e data dentro da transacao com locks ordenados.
+Consulta nao grava. Escala finalizada conserva fotografia da CI ate reabertura.
+Registros anteriores, sem estado manual, permanecem para consulta com dados
+e referencia CI anteriores, sem conversao, reset ou descarte automatico.
+Procedimento e compatibilidade em docs/ESCALA-MANUAL.md.
+
 ## Cores dos prefixos na Escala - confirmado em 22/10/2026
 
 Reserva Garagem exibe uma lista unica de carros, ordenada por prefixo, com
