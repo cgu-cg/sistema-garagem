@@ -223,14 +223,15 @@ for (const [categoria, extra] of [
   ['OFICINA', { setorOficina: 'BILHETAGEM' }],
   ['REFORCO', { tipoPosicao: 'FIXO', ordemPosicao: 12 }],
   ['REFORCO', { tipoPosicao: 'EXTRA', ordemPosicao: 6 }],
-] as const) test(`C4 ${categoria}/${JSON.stringify(extra)} aceita NULL e prefixo 23 em save/load`, async () => {
+] as const) test(`C4 ${categoria}/${JSON.stringify(extra)} preserva campos opcionais e prefixo 23 em save/load`, async () => {
   const f = await ready(), c = await command(f, 'ci');
+  const motivo = categoria === 'REFORCO' && 'tipoPosicao' in extra && extra.tipoPosicao === 'FIXO' ? 'INSPECAO' : null;
   (c.items as any[]).push({ id: 'novo-23', prefixo: '23', categoriaPlanilha: categoria, garagem: 'VCG', data: target,
-    consorciada: null, motivo: null, gravidade: null, status: null, ...extra });
+    consorciada: null, motivo, gravidade: null, status: null, ...extra });
   await saveC4(f.db, 1, c, 'ci', clock());
   const ctx = await readContext(f.db, 'VCG', day), i = ctx.ci.find(i => i.data === target && i.prefixo === '23')!;
   assert.ok(i); assert.equal(i.prefixo, '23'); assert.equal(i.consorciada, null);
-  assert.equal(i.motivo, null); assert.equal(i.gravidade, null); assert.equal(i.status, null);
+  assert.equal(i.motivo, motivo); assert.equal(i.gravidade, null); assert.equal(i.status, null);
   if (categoria === 'OFICINA') assert.equal(i.setorOficina, 'BILHETAGEM');
   const before = f.tables(), writes = f.writes();
   await saveC4(f.db, 1, await command(f, 'ci'), 'ci', clock());
@@ -1068,3 +1069,41 @@ for (const later of ['2026-10-08T12:00:00Z', '2026-10-09T12:00:00Z']) {
   }
  });
 }
+
+ test('reforco com horario exige motivo em inclusao e edicao, sem perder registros antigos incompletos', async () => {
+ for(const motivo of [null,'','   ']) {
+ const f=await ready(),ctx=await readContext(f.db,'VCG',day),before=f.tables();
+ const items=structuredClone(ctx.ci.filter(i=>i.data===target));
+ items.push({...items.find(i=>i.categoriaPlanilha==='REFORCO')!,id:'new-ref',prefixo:'5000',tipoPosicao:'FIXO',ordemPosicao:12,motivo});
+ await assert.rejects(saveC4(f.db,1,{garagem:'VCG',data:target,baseC4:ctx.baseC4,base:revision(ctx.ci.filter(i=>i.data===target)),items},'ci',clock()),(e:any)=>e.status===400&&/motivo/.test(e.message));
+ assert.deepEqual(f.tables(),before);
+ }
+ const f=await ready(),ctx=await readContext(f.db,'VCG',day),items=structuredClone(ctx.ci.filter(i=>i.data===target)),before=f.tables();
+ const ref=items.find(i=>i.categoriaPlanilha==='REFORCO'&&i.tipoPosicao==='FIXO')!;
+ ref.os='Observacao editada';
+ await assert.rejects(saveC4(f.db,1,{garagem:'VCG',data:target,baseC4:ctx.baseC4,base:revision(ctx.ci.filter(i=>i.data===target)),items},'ci',clock()),(e:any)=>e.status===400);
+ assert.deepEqual(f.tables(),before);
+ });
+ test('reforco completo salva sem observacao e demais setores preservam motivo antigo ausente', async () => {
+ const f=await ready(),ctx=await readContext(f.db,'VCG',day),items=structuredClone(ctx.ci.filter(i=>i.data===target));
+ items.push({...items.find(i=>i.categoriaPlanilha==='REFORCO')!,id:'new-ref',prefixo:'5000',tipoPosicao:'FIXO',ordemPosicao:12,motivo:'INSPECAO',os:null});
+ await saveC4(f.db,1,{garagem:'VCG',data:target,baseC4:ctx.baseC4,base:revision(ctx.ci.filter(i=>i.data===target)),items},'ci',clock());
+ const saved=f.tables().itemFolhaCI.filter(i=>i.folhaId!==10&&i.categoria==='REFORCO');
+ assert.ok(saved.some(i=>i.prefixo==='5000'&&i.motivo==='INSPECAO'&&i.observacoes===null));
+ assert.ok(saved.some(i=>i.tipoPosicao==='FIXO'&&i.ordemPosicao===1&&i.motivo===null));
+ const fresh=await readContext(f.db,'VCG',day),next=structuredClone(fresh.ci.filter(i=>i.data===target));
+ next.find(i=>i.categoriaPlanilha==='OFICINA')!.os='Ajuste oficina';
+ await saveC4(f.db,1,{garagem:'VCG',data:target,baseC4:fresh.baseC4,base:revision(fresh.ci.filter(i=>i.data===target)),items:next},'ci',clock());
+ assert.ok(f.tables().itemFolhaCI.some(i=>i.folhaId!==10&&i.tipoPosicao==='FIXO'&&i.ordemPosicao===1&&i.motivo===null));
+ });
+
+ test('reforco nao aceita retirar motivo de registro completo nem prefixo vazio', async () => {
+ const f=await ready(),c=await command(f,'ci');
+ const ref=c.items.find((i:any)=>i.categoriaPlanilha==='REFORCO'&&i.tipoPosicao==='FIXO') as any;
+ ref.motivo='INSPECAO'; await saveC4(f.db,1,c,'ci',clock());
+ for(const patch of [{motivo:''},{motivo:'   '},{prefixo:''}]) {
+ const next=await command(f,'ci'),before=f.tables();
+ Object.assign(next.items.find((i:any)=>i.categoriaPlanilha==='REFORCO'&&i.tipoPosicao==='FIXO')!,patch);
+ await assert.rejects(saveC4(f.db,1,next,'ci',clock())); assert.deepEqual(f.tables(),before);
+ }
+ });

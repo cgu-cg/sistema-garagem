@@ -1,4 +1,5 @@
 import { assertMaintenanceTransition } from './maintenanceStatus';
+import { assertCompleteReinforcement } from './reinforcementValidation';
 import { randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { z } from 'zod';
@@ -168,6 +169,7 @@ export async function saveCI(db: PrismaClient, userId: number | undefined, body:
     for (const i of input.items) {
       const existing = current.find(r => r.id === i.id);
       if (existing && revision([existing]) === revision([{ ...i, updatedAt: existing.updatedAt }])) continue;
+      assertCompleteReinforcement(i);
       const data = { prefixo: i.prefixo, garagem: 'VCG', consorciada: i.consorciada, categoria: i.categoriaPlanilha,
         subTipo: i.setorOficina || i.tipoPreventiva || null, horarioReforco: i.horarioReforco || null,
         motivo: i.motivo, dataBloqueio: ctx.tomorrow, horaBloqueio: i.hora || null,

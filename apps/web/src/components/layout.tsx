@@ -475,14 +475,14 @@ export function Layout() {
         data-desktop-sidebar
         id="desktop-navigation"
         className={cn(
-          "hidden md:flex print:hidden flex-col border-r border-slate-200/80 dark:border-slate-800/70 bg-[#FAFAFB] dark:bg-[#0B0F19] h-[calc(100dvh-4rem)] fixed left-0 top-16 transition-[width] duration-300 z-30 shadow-xs",
+          "hidden md:flex print:hidden flex-col overflow-hidden border-r border-slate-200/80 dark:border-slate-800/70 bg-[#FAFAFB] dark:bg-[#0B0F19] h-[calc(100dvh-4rem)] fixed left-0 top-16 transition-[width] duration-300 z-30 shadow-xs",
           sidebarCollapsed ? "w-14" : "w-64"
         )}
       >
         {/* Navigation items */}
         <nav className={cn(
-          "flex-1 overflow-y-auto",
-          sidebarCollapsed ? "p-1.5 space-y-1.5 flex flex-col items-center" : "p-3 space-y-1.5"
+          "flex-1 overflow-y-auto overflow-x-hidden p-2 space-y-1.5",
+          sidebarCollapsed ? "w-14 flex flex-col items-start" : "w-64"
         )}>
           {visibleNav.map((item) => {
             const Icon = item.icon;
@@ -539,7 +539,7 @@ export function Layout() {
                     onClick={handleToggle}
                     aria-expanded={isOpen}
                     className={cn(
-                      "flex items-center justify-between w-full px-3.5 py-2.5 rounded-xl text-sm font-medium transition-[background-color,box-shadow] group",
+                      "flex items-center justify-between w-full px-2.5 py-2.5 rounded-xl text-sm font-medium transition-[background-color,box-shadow] group",
                       active
                         ? "bg-[#164E3A] text-white hover:text-white focus:text-white active:text-white dark:text-white dark:bg-emerald-600 shadow-xs font-semibold"
                         : isParentActive
@@ -563,7 +563,7 @@ export function Layout() {
                   <Link
                     to={item.to}
                     className={cn(
-                      "flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-[background-color,box-shadow] group",
+                      "flex items-center gap-3 px-2.5 py-2.5 rounded-xl text-sm font-medium transition-[background-color,box-shadow] group",
                       active
                         ? "bg-[#164E3A] text-white hover:text-white focus:text-white active:text-white dark:text-white dark:bg-emerald-600 shadow-xs font-semibold"
                         : "text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white"
@@ -672,7 +672,7 @@ export function Layout() {
         <header className="hidden md:flex print:hidden h-16 shrink-0 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/90 dark:bg-[#0B0F19]/90 backdrop-blur-md px-4 gap-4 items-center justify-between sticky top-0 z-40 shadow-2xs">
           <div className="flex min-w-0 items-center">
             <div className="flex w-60 shrink-0 items-center gap-3">
-            <Button data-sidebar-toggle variant="ghost" size="icon" className="h-9 w-9 shrink-0 rounded-lg text-slate-700 dark:text-slate-200"
+            <Button data-sidebar-toggle variant="ghost" size="icon" className="-ml-1.5 mr-1.5 h-9 w-9 shrink-0 rounded-lg text-slate-700 dark:text-slate-200"
               onClick={() => setSidebarCollapsed(value => !value)} aria-controls="desktop-navigation" aria-expanded={!sidebarCollapsed}
               aria-label={sidebarCollapsed ? 'Expandir menu lateral' : 'Recolher menu lateral'} title={sidebarCollapsed ? 'Expandir menu lateral' : 'Recolher menu lateral'}>
               <Menu aria-hidden="true" className="h-5 w-5" />

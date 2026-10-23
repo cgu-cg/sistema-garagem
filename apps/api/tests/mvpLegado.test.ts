@@ -291,3 +291,14 @@ test('retirada nominal nao saneia silenciosamente bloqueios legados duplicados',
   await assert.rejects(saveCI(f.db, 1, { data: '2026-10-08', base: revision(before.ci), items: [], removeBlocked: ['4000'] }, now), (e: any) => e.status === 409);
   assert.equal(f.calls(), 0); assert.deepEqual(f.state(), before);
 });
+
+ test('legado recusa reforco com horario sem motivo e aceita motivo sem observacao', async () => {
+ for(const motivo of ['','   ']) {
+ const f=fixture([],[]),entry=item(c('ref',{categoria:'REFORCO',horarioReforco:'07:15 - A',motivo}));
+ await assert.rejects(saveCI(f.db,1,{data:'2026-10-08',base:revision([]),items:[entry]},now),(e:any)=>e.status===400&&/motivo/.test(e.message));
+ assert.deepEqual(f.state(),{ci:[],manut:[]});
+ }
+ const f=fixture([],[]),entry=item(c('ref',{categoria:'REFORCO',horarioReforco:'07:15 - A',motivo:'INSPECAO'}));
+ await saveCI(f.db,1,{data:'2026-10-08',base:revision([]),items:[entry]},now);
+ assert.equal(f.state().ci[0].motivo,'INSPECAO');
+ });

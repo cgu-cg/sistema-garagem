@@ -1459,36 +1459,12 @@ export function CiManutencaoView({
     const cleanObs = (slotData.obs || "").trim();
     const slotStorageId = `ci-reforco-${slotId}-${dataOperacao}`;
     const legacySlotStorageId = `ci-reforco-${slotId}`;
-
-    // Se o usuário limpou o carro e clicou no botão para desvincular um horário que já estava salvo
-    if (!cleanPrefixo || cleanPrefixo === "—") {
-      if (slotData.isSaved) {
-
-        const updatedList = ciList.filter(c => 
-          c.id !== slotStorageId && 
-          c.id !== legacySlotStorageId && 
-          (c as any).reforcoSlotId !== slotId &&
-          !(c.id && (c.id.includes(`-${slotId}-`) || c.id.endsWith(`-${slotId}`)))
-        );
-        if (!(await commitCI(updatedList, [], false, ciList, [slotId]))) return;
-        setReforcoDrafts(prev => {
-          const next = { ...prev };
-          delete next[slotId];
-          try {
-            localStorage.setItem(`reforco_drafts_${dataOperacao}`, JSON.stringify(next));
-          } catch {}
-          return next;
-        });
-        toast.info(`Carro desvinculado do horário ${horario}.`);
-        return;
-      }
-      toast.error(`Por favor, selecione um carro para o horário ${horario}.`);
+    if (!cleanPrefixo || cleanPrefixo === '\u2014') {
+      toast.error('Selecione o prefixo do carro antes de salvar o reforco.');
       return;
     }
-
-    // Validação solicitada pelo usuário: só salva se adicionar motivo e prefixo (obs opcional)
-    if (!cleanMotivo && !c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')) {
-      toast.error(`Por favor, selecione um motivo para o horário ${horario}.`);
+    if (!cleanMotivo) {
+      toast.error('Selecione o motivo antes de salvar o reforco.');
       return;
     }
 
@@ -2401,7 +2377,7 @@ export function CiManutencaoView({
                           type="button"
                           size="sm"
                           variant="outline"
-                          disabled={!isDataEditavel}
+                          disabled={!isDataEditavel || !slotData.prefixo.trim() || !slotData.motivo.trim()}
                           onClick={() => handleSaveReforcoSlot(slot.id, slot.horario)}
                           className={cn(
                             "h-7 w-7 p-0 rounded-full cursor-pointer transition-all duration-150 shrink-0",
@@ -2502,7 +2478,7 @@ export function CiManutencaoView({
                           type="button"
                           size="sm"
                           variant="outline"
-                          disabled={!isDataEditavel}
+                          disabled={!isDataEditavel || !slotData.prefixo.trim() || !slotData.motivo.trim()}
                           onClick={() => handleSaveReforcoSlot(slot.id, slot.horario)}
                           className={cn(
                             "h-7 w-7 p-0 rounded-full cursor-pointer transition-all duration-150 shrink-0",

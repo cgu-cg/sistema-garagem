@@ -1,5 +1,20 @@
 # Domain model e entendimento operacional atual
 
+## Reforco com horario - confirmado em 23/10/2026
+
+Salvar uma inclusao ou alteracao nos horarios do Reforco exige prefixo e
+motivo preenchidos; somente espacos nao atendem. Observacao continua opcional.
+O botao fica desabilitado enquanto faltar um desses campos e o backend
+revalida no fluxo C4 e no legado. Retirar carro continua pela acao explicita
+do seletor, sem usar Salvar com prefixo vazio para excluir um registro.
+
+Essa obrigatoriedade se aplica as posicoes FIXO (duas colunas de horarios)
+e aos horarios identificados no legado. A coluna separada de servicos extras
+mantem sua regra atual. Registros antigos incompletos sao preservados quando
+inalterados, inclusive na copia/inicializacao e em salvamentos de outros
+setores. Ao editar o horario, exige-se completar os campos. Isso complementa
+as referencias historicas a motivo opcional, sem alterar schema ou historico.
+
 ## Soltura por data - confirmado em 23/10/2026
 
 A Soltura de D exige CI e Escala de D finalizadas. Despacho somente em D,

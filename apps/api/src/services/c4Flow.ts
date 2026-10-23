@@ -1,4 +1,5 @@
 import { assertMaintenanceTransition } from './maintenanceStatus';
+import { assertCompleteReinforcement } from './reinforcementValidation';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient, ItemFolhaCI, EstadoManutencao } from '@prisma/client';
 import { z } from 'zod';
@@ -183,6 +184,8 @@ export async function saveC4(db: PrismaClient, userId: number | undefined, body:
         const existing = folha.itens.find(r => `c4-ci-${r.id}` === i.id);
         if (i.id.startsWith('c4-ci-') && !existing) throw new MvpError(409, 'ID pertence a outra folha.');
         if (existing && i.chaveItem && existing.chaveItem.toLowerCase() !== i.chaveItem.toLowerCase()) throw new MvpError(409, 'Identidade logica alterada.');
+        if (!existing || JSON.stringify(itemData(itemSchema.parse(projectItem(existing, c.garagem, target)))) !== JSON.stringify(itemData(i)))
+          assertCompleteReinforcement(i);
       }
       // Excluir somente itens explicitamente ausentes desta folha, apos validar intencao.
       for (const old of folha.itens) if (!items.some(i => i.id === `c4-ci-${old.id}`)) await tx.itemFolhaCI.delete({ where: { id: old.id } });
