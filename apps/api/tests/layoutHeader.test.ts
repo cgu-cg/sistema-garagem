@@ -45,7 +45,7 @@ test('header desktop mostra hamburguer antes do onibus e titulo fora da barra la
   assert.match(header, /aria-controls="desktop-navigation" aria-expanded="true"/);
   assert.ok(header.indexOf('lucide-menu') < header.indexOf('lucide-bus'));
   assert.ok(header.indexOf('Sistema Garagem') < header.indexOf('Escala Carros - Alterar Carro Programado'));
-  assert.match(header, /Garagem Operacional Integrada/);
+  assert.doesNotMatch(html, /Garagem Operacional Integrada/);
   assert.doesNotMatch(aside, /Sistema Garagem|Garagem Operacional Integrada|Recolher menu lateral/);
 });
 

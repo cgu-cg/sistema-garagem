@@ -1,3 +1,4 @@
+import { CiSummaryCard } from './CiSummaryCard';
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
@@ -11,7 +12,6 @@ import {
   ChevronRight,
   Loader2,
   Gauge,
-  ClipboardCheck,
   Clock,
   CheckCircle2,
   Plus,
@@ -203,20 +203,11 @@ export function HomePage() {
             Dashboard
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            Visão consolidada de soltura, combustível, catracas e controle de pista
+            Visão consolidada de soltura, combustível e controle de pista
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          {podeVerSoltura && (
-            <Link to="/soltura">
-              <Button size="sm" className="bg-[#154D34] hover:bg-[#0E3824] text-white rounded-xl text-xs gap-1.5 shadow-xs font-semibold px-4 h-9">
-                <Plus className="w-3.5 h-3.5" />
-                Nova Soltura
-              </Button>
-            </Link>
-          )}
-        </div>
+
       </div>
 
       {/* Top 4 Metric Cards (Matching the Donezo Hero Card + 3 Metric Cards) */}
@@ -294,7 +285,7 @@ export function HomePage() {
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
               Medição Tanques
             </span>
-            <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-slate-800 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full bg-emerald-50 dark:bg-slate-800 text-emerald-700 dark:text-emerald-400 flex items-center justify-center">
               <Gauge className="w-4 h-4" />
             </div>
           </div>
@@ -309,7 +300,7 @@ export function HomePage() {
           </div>
 
           <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800/60">
-            <span className="text-blue-600 dark:text-blue-400 font-semibold text-[11px] flex items-center gap-1">
+            <span className="text-emerald-700 dark:text-emerald-400 font-semibold text-[11px] flex items-center gap-1">
               <CheckCircle2 className="w-3 h-3" />
               Tanque 1 & 2 Operando
             </span>
@@ -319,36 +310,7 @@ export function HomePage() {
           </div>
         </div>
 
-        {/* CARD 4: Conferência Catracas */}
-        <div className="rounded-3xl bg-white dark:bg-[#0E1420] border border-slate-200/80 dark:border-slate-800/80 p-5 shadow-2xs flex flex-col justify-between min-h-[148px]">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Consistência Catracas
-            </span>
-            <div className="w-8 h-8 rounded-full bg-purple-50 dark:bg-slate-800 text-purple-600 dark:text-purple-400 flex items-center justify-center">
-              <ClipboardCheck className="w-4 h-4" />
-            </div>
-          </div>
-
-          <div className="my-2">
-            <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-              100%
-            </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-              Zero pulos de catraca no lote
-            </p>
-          </div>
-
-          <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800/60">
-            <span className="text-emerald-600 dark:text-emerald-400 font-semibold text-[11px] flex items-center gap-1">
-              <Check className="w-3 h-3" />
-              Auditado
-            </span>
-            <Link to="/catracas/consistencia" className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-[11px]">
-              Relatórios →
-            </Link>
-          </div>
-        </div>
+        <CiSummaryCard />
       </div>
 
       {/* Middle Row (Analytics Bar Chart + Reminders / Checklist) */}

@@ -670,7 +670,8 @@ export function Layout() {
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden print:h-auto print:overflow-visible">
         {/* Desktop Top Header Bar */}
         <header className="hidden md:flex print:hidden h-16 shrink-0 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/90 dark:bg-[#0B0F19]/90 backdrop-blur-md px-4 gap-4 items-center justify-between sticky top-0 z-40 shadow-2xs">
-          <div className="flex min-w-0 items-center gap-3">
+          <div className="flex min-w-0 items-center">
+            <div className="flex w-60 shrink-0 items-center gap-3">
             <Button data-sidebar-toggle variant="ghost" size="icon" className="h-9 w-9 shrink-0 rounded-lg text-slate-700 dark:text-slate-200"
               onClick={() => setSidebarCollapsed(value => !value)} aria-controls="desktop-navigation" aria-expanded={!sidebarCollapsed}
               aria-label={sidebarCollapsed ? 'Expandir menu lateral' : 'Recolher menu lateral'} title={sidebarCollapsed ? 'Expandir menu lateral' : 'Recolher menu lateral'}>
@@ -680,9 +681,9 @@ export function Layout() {
               <Bus aria-hidden="true" className="h-5 w-5 text-slate-900 dark:text-white" />
               <span className="text-sm font-bold tracking-tight text-slate-900 dark:text-white">Sistema Garagem</span>
             </div>
-            <div className="ml-2 min-w-0 border-l border-slate-200 pl-4 dark:border-slate-800">
+            </div>
+            <div className="min-w-0 border-l border-slate-200 pl-4 dark:border-slate-800">
               <h1 className="truncate text-base font-bold tracking-tight text-slate-900 dark:text-white">{getActiveTitle()}</h1>
-              <p className="truncate text-xs text-slate-500 dark:text-slate-400">Garagem Operacional Integrada</p>
             </div>
           </div>
 
