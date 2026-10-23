@@ -1,3 +1,4 @@
+import { PreparationOverlay, releasePreparationMessage } from './PreparationOverlay';
 import { FleetVehicleInput } from './FleetVehicleInput';
 import { ReleaseToolbar } from './ReleaseToolbar';
 import { ScaleFleetSidebar } from './ScaleFleetSidebar';
@@ -378,6 +379,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const permanentReady = Boolean(sharedScale && JSON.stringify(sharedScale.contexto) === scaleContextKey && !scaleError);
   const releaseProgramming = useReleaseProgramming({ garagem, escalaTipo, turno: escalaTipo === 'SEG_SEX' ? turnoTipo : 'PADRAO', dataOperacao }, ['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode));
   const releaseState = releaseProgramming.data?.escala ?? null;
+  const releasePendingMessage = releaseProgramming.data && dataOperacao >= operationalContext().today
+    ? releasePreparationMessage(Boolean(releaseState?.fluxo?.ciFinalizada), releaseProgramming.data.escalaFinalizada) : null;
   const [dispatchLoaded, setDispatchLoaded] = useState(false);
   const releaseUiAllowed = canDispatch(user) && garagem === 'VCG' && Boolean(ciC4Enabled) && dataOperacao === operationalContext().today
     && dispatchLoaded && !releaseProgramming.loading && Boolean(releaseProgramming.data?.escalaFinalizada && releaseState?.fluxo?.ciFinalizada);
@@ -1260,7 +1263,6 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           onGarage={isAdmin ? setGaragem : undefined} onDayType={setEscalaTipo} onPeriod={setTurnoTipo} onPrint={handlePrint} />
         {dataOperacao !== operationalContext().today && <p className="text-xs text-muted-foreground print:hidden">Consulta por data: despachos disponíveis somente no dia da operação.</p>}
         {releaseProgramming.error && <p role="alert" className="rounded-xl border border-rose-200 p-3 text-xs text-rose-600">{releaseProgramming.error}</p>}
-        {!releaseProgramming.error && !releaseProgramming.loading && !releaseUiAllowed && dataOperacao === operationalContext().today && <p role="status" className="rounded-xl border border-amber-200 p-3 text-xs text-amber-700">Finalize a CI e a Escala de Carros desta data para liberar a Soltura.</p>}
       </>}
 
       {/* VISUALIZAÇÃO 1: FOLHA DE SOLTURA / PRANCHETA DIGITAL / HISTÓRICO */}
@@ -1298,10 +1300,11 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
           {/* NOVO LAYOUT EM TELA: TABELA COM 20 ITENS + SCROLL (ESQ) E PAINEL FIXO (DIR) */}
           {/* ========================================================= */}
-          <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start print:hidden">
+          <PreparationOverlay title="Soltura aguardando finalização" message={releasePendingMessage} className="print:hidden">
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,13fr)_minmax(0,7fr)] gap-5 items-start print:hidden">
 
             {/* 1. LADO ESQUERDO: TABELA ÚNICA DE HORÁRIOS (fixo no topo da tela com scroll) */}
-            <div className="xl:col-span-8 2xl:col-span-8 border rounded-2xl overflow-hidden shadow-2xs bg-card border-border/80 sticky top-4 self-start z-10">
+            <div className="min-w-0 border rounded-2xl overflow-hidden shadow-2xs bg-card border-border/80 sticky top-4 self-start z-10">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 text-xs text-muted-foreground">
                 <div className="flex gap-3"><span className="inline-flex items-center gap-1.5"><AlertTriangle className="h-3 w-3 text-rose-600" />Bloqueados CI</span><span className="inline-flex items-center gap-1.5"><AlertTriangle className="h-3 w-3 text-amber-500" />Reforço</span></div>
                 <div className="flex gap-3 font-mono"><span>Feito: <strong className="text-emerald-700">{String(stats.liberados).padStart(2, '0')}</strong></span><span>Falta: <strong>{String(stats.pendentes).padStart(2, '0')}</strong></span></div>
@@ -1426,12 +1429,13 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
             </div>
 
             {/* 2. LADO DIREITO: COMPONENTE FIXO COM PENDURADOS, RESERVA GARAGEM E RESERVA TERMINAL */}
-            <div className="xl:col-span-4 2xl:col-span-4 xl:sticky xl:top-4 self-start space-y-4">
+            <div className="min-w-0 xl:sticky xl:top-4 self-start space-y-4">
               <ScaleFleetSidebar state={releaseState} garage={garagem} reserve={releaseState?.reserva.filter(prefixo => !activeSchedules.some(row => row.carroRealizado === prefixo) && !reservasTerminais.some(row => TERMINAIS_PADRAO.includes(row.terminal) && row.carro === prefixo))} />
               {dataOperacao === operationalContext().today && renderCardReservaTerminal(false)}
             </div>
 
           </div>
+          </PreparationOverlay>
 
           {/* ========================================================= */}
           {/* IMPRESSÃO A4: DUAS COLUNAS CONFORME FORMULÁRIO OFICIAL */}

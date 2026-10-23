@@ -40,6 +40,13 @@ Data, garagem, tipo de dia e periodo ficam no topo, sem indicadores ou filtros
 de status. Impressao A4 permanece. Historico pelo seletor de data; URL antiga
 compativel, sem item separado no menu.
 
+Enquanto faltar finalizar a CI ou a Escala da data atual/futura, a area da
+tabela e dos cards fica desfocada, com aviso central indicando a pendencia.
+Essa area nao aceita clique ou foco pelo teclado; seletores externos continuam
+acessiveis. O aviso desaparece quando as fontes ficam prontas. Historicos
+anteriores continuam em consulta, sem essa sobreposicao. Autorizacao de
+despacho permanece no backend, sem alteracao das regras de negocio.
+
 Prefixos usam as cores da frota da Escala, inclusive vermelho/azul dividido.
 Alertas CI ficam separados das cores. Reserva automatica usa carros livres
 da Escala, descontando realizados e reservas de terminal da consulta; aparece

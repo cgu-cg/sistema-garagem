@@ -21,6 +21,7 @@ function loadView() {
       fileName: f, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
     }).outputText, f);
     return { ...require('../../web/src/pages/soltura/AlterarCarroProgramadoView'),
+      ...require('../../web/src/pages/soltura/PreparationOverlay'),
       FleetInput: require('../../web/src/pages/soltura/FleetVehicleInput').FleetVehicleInput,
       Toolbar: require('../../web/src/pages/soltura/ReleaseToolbar').ReleaseToolbar,
       Sidebar: require('../../web/src/pages/soltura/ScaleFleetSidebar').ScaleFleetSidebar,
@@ -30,7 +31,7 @@ function loadView() {
     if (oldTSX) require.extensions['.tsx'] = oldTSX; else delete require.extensions['.tsx'];
   }
 }
-const { AlterarCarroProgramadoView: View, pickerOptions, Lifecycle, Toolbar, Sidebar, FleetInput } = loadView();
+const { AlterarCarroProgramadoView: View, pickerOptions, Lifecycle, Toolbar, Sidebar, FleetInput, PreparationOverlay, releasePreparationMessage } = loadView();
 const contexto = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'MATUTINO', dataOperacao: '2026-10-14' } as const;
 const rows = fixedScheduleRows(contexto).slice(0, 2);
 const official: DailyEscala = { contexto, revisao: 0, itens: [], cardsOrigem: 'salvo', omitidosPadrao: 0,
@@ -229,4 +230,36 @@ test('referencia provisoria identifica CI de origem sem confundir finalizacao da
  assert.match(html,/<input[^>]*id="carro-test"[^>]*value="4120"/);
  assert.match(html,/text-rose-600[^>]*>41</); assert.match(html,/text-sky-600[^>]*>20</);
  assert.match(html,/data-ci-alert="bloqueado"/); assert.match(html,/pointer-events-none absolute z-10/);
+ });
+
+ test('aviso central desfoca conteudo e impede foco/acao por inert sem bloquear seletores externos', () => {
+ const html=renderToStaticMarkup(React.createElement(PreparationOverlay,{title:'Aguardando',message:'Finalize a CI'},React.createElement('button',null,'Conteudo')));
+ assert.match(html,/<div inert="" aria-hidden="true"[^>]*blur-sm/);
+ assert.match(html,/absolute inset-0[^>]*items-center justify-center/);
+ assert.match(html,/role="status" aria-live="polite"/);
+ assert.ok(html.indexOf('Conteudo') < html.indexOf('role="status"'));
+ const ready=renderToStaticMarkup(React.createElement(PreparationOverlay,{title:'Pronto',message:null},React.createElement('button',null,'Iniciar')));
+ assert.doesNotMatch(ready,/inert=|aria-hidden="true"|blur-sm|role="status"/);
+ assert.match(ready,/>Iniciar</);
+ });
+ test('Soltura informa exatamente quais finalizacoes estao pendentes', () => {
+ assert.match(releasePreparationMessage(false,false),/CI e a Escala/);
+ assert.match(releasePreparationMessage(false,true),/^Finalize a CI desta data/);
+ assert.match(releasePreparationMessage(true,false),/^Finalize a Escala de Carros/);
+ assert.equal(releasePreparationMessage(true,true),null);
+ });
+ test('Escala com CI pendente move os avisos para popup e preserva pesquisa fora do bloqueio', () => {
+ const flow={status:'NAO_INICIADA',ciFinalizada:false,proximaIniciada:false,iniciadaEm:null,finalizadaEm:null};
+ const html=render(true,{official:{...official,ciData:'2026-10-13',ciProvisoria:true,fluxo:flow},readOnlyReason:'AVISO ANTIGO',lifecycleControl:React.createElement('div',null,'BANNER ANTIGO')});
+ assert.match(html,/Escala aguardando a CI/); assert.match(html,/CI de 14\/10\/2026/); assert.match(html,/CI de 13\/10\/2026/);
+ assert.doesNotMatch(html,/AVISO ANTIGO|BANNER ANTIGO/);
+ assert.ok(html.indexOf('Pesquisar uma linha') < html.indexOf('inert=""'));
+ assert.match(html,/<div inert="" aria-hidden="true"/);
+ });
+ test('Escala apos finalizar CI libera area e mantem controle de iniciar; legado permanece consultavel', () => {
+ const flow={status:'NAO_INICIADA',ciFinalizada:true,proximaIniciada:false,iniciadaEm:null,finalizadaEm:null};
+ const html=render(true,{official:{...official,fluxo:flow},lifecycleControl:React.createElement('button',null,'Iniciar Escala')});
+ assert.doesNotMatch(html,/inert=|blur-sm|Escala aguardando a CI/); assert.match(html,/>Iniciar Escala</);
+ const legacy=render(true,{official:{...official,fluxo:{...flow,status:'LEGADO',ciFinalizada:false}}});
+ assert.doesNotMatch(legacy,/inert=|blur-sm/);
  });

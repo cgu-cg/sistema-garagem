@@ -7,7 +7,6 @@ import {
   Users,
   LogOut,
   ChevronRight,
-  ChevronLeft,
   LayoutGrid,
   ClipboardCheck,
   Radio,
@@ -140,7 +139,7 @@ export function Layout() {
     if (sidebarCollapsed) return;
     const closeOutside = (event: PointerEvent) => {
       if (!window.matchMedia('(min-width: 768px)').matches) return;
-      if (event.target instanceof Element && !event.target.closest('[data-desktop-sidebar]')) {
+      if (event.target instanceof Element && !event.target.closest('[data-desktop-sidebar], [data-sidebar-toggle]')) {
         setSidebarCollapsed(true);
       }
     };
@@ -396,9 +395,9 @@ export function Layout() {
                     type="button"
                     onClick={handleToggle}
                     className={cn(
-                      "flex items-center justify-between w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all",
+                      "flex items-center justify-between w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-[background-color,box-shadow]",
                       active
-                        ? "bg-[#164E3A] text-white dark:bg-emerald-600 shadow-xs font-semibold"
+                        ? "bg-[#164E3A] text-white hover:text-white focus:text-white active:text-white dark:text-white dark:bg-emerald-600 shadow-xs font-semibold"
                         : isParentActive
                           ? "bg-slate-100 text-slate-900 dark:bg-slate-800/80 dark:text-emerald-300 font-semibold"
                           : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
@@ -420,9 +419,9 @@ export function Layout() {
                     to={item.to}
                     onClick={() => setMobileMenuOpen(false)}
                     className={cn(
-                      "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all",
+                      "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-[background-color,box-shadow]",
                       active
-                        ? "bg-[#164E3A] text-white dark:bg-emerald-600 shadow-xs font-semibold"
+                        ? "bg-[#164E3A] text-white hover:text-white focus:text-white active:text-white dark:text-white dark:bg-emerald-600 shadow-xs font-semibold"
                         : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60"
                     )}
                   >
@@ -441,9 +440,9 @@ export function Layout() {
                           to={subItem.to}
                           onClick={() => setMobileMenuOpen(false)}
                           className={cn(
-                            "flex items-center px-3 py-2 rounded-xl text-xs font-medium transition-all",
+                            "flex items-center px-3 py-2 rounded-xl text-xs font-medium transition-[background-color,box-shadow]",
                             subActive
-                              ? "bg-[#164E3A] text-white dark:bg-emerald-600 font-semibold shadow-xs"
+                              ? "bg-[#164E3A] text-white hover:text-white focus:text-white active:text-white dark:text-white dark:bg-emerald-600 font-semibold shadow-xs"
                               : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white"
                           )}
                         >
@@ -474,47 +473,12 @@ export function Layout() {
       {/* Desktop Persistent Sidebar */}
       <aside
         data-desktop-sidebar
+        id="desktop-navigation"
         className={cn(
-          "hidden md:flex print:hidden flex-col border-r border-slate-200/80 dark:border-slate-800/70 bg-[#FAFAFB] dark:bg-[#0B0F19] h-screen fixed left-0 top-0 transition-[width] duration-300 z-30 shadow-xs",
+          "hidden md:flex print:hidden flex-col border-r border-slate-200/80 dark:border-slate-800/70 bg-[#FAFAFB] dark:bg-[#0B0F19] h-[calc(100dvh-4rem)] fixed left-0 top-16 transition-[width] duration-300 z-30 shadow-xs",
           sidebarCollapsed ? "w-14" : "w-64"
         )}
       >
-        {/* Brand Header */}
-        <div className={cn(
-          "h-16 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center shrink-0",
-          sidebarCollapsed ? "justify-center" : "px-4 justify-between"
-        )}>
-          {sidebarCollapsed ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-slate-700 dark:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 rounded-lg"
-              onClick={() => setSidebarCollapsed(false)}
-              title="Expandir menu lateral"
-            >
-              <ChevronRight className="h-5 w-5" />
-            </Button>
-          ) : (
-            <>
-              <div className="flex items-center gap-2.5 overflow-hidden">
-                <Bus className="h-5 w-5 text-slate-900 dark:text-white shrink-0" />
-                <span className="font-bold text-sm tracking-tight text-slate-900 dark:text-white truncate">
-                  Sistema Garagem
-                </span>
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 shrink-0 rounded-lg"
-                onClick={() => setSidebarCollapsed(true)}
-                title="Recolher menu lateral"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-            </>
-          )}
-        </div>
-
         {/* Navigation items */}
         <nav className={cn(
           "flex-1 overflow-y-auto",
@@ -540,9 +504,9 @@ export function Layout() {
 
             if (sidebarCollapsed) {
               const iconClassName = cn(
-                "w-10 h-10 flex items-center justify-center rounded-xl transition-all group shrink-0",
+                "w-10 h-10 flex items-center justify-center rounded-xl transition-[background-color,box-shadow] group shrink-0",
                 active
-                  ? "bg-[#164E3A] text-white dark:bg-emerald-600 shadow-xs font-semibold"
+                  ? "bg-[#164E3A] text-white hover:text-white focus:text-white active:text-white dark:text-white dark:bg-emerald-600 shadow-xs font-semibold"
                   : "text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white"
               );
               if (hasChildren) {
@@ -575,9 +539,9 @@ export function Layout() {
                     onClick={handleToggle}
                     aria-expanded={isOpen}
                     className={cn(
-                      "flex items-center justify-between w-full px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all group",
+                      "flex items-center justify-between w-full px-3.5 py-2.5 rounded-xl text-sm font-medium transition-[background-color,box-shadow] group",
                       active
-                        ? "bg-[#164E3A] text-white dark:bg-emerald-600 shadow-xs font-semibold"
+                        ? "bg-[#164E3A] text-white hover:text-white focus:text-white active:text-white dark:text-white dark:bg-emerald-600 shadow-xs font-semibold"
                         : isParentActive
                           ? "bg-slate-100 text-slate-900 dark:bg-slate-800/80 dark:text-emerald-300 font-semibold"
                           : "text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white"
@@ -589,8 +553,9 @@ export function Layout() {
                     </div>
                     <ChevronRight
                       className={cn(
-                        "h-4 w-4 text-slate-400 transition-transform duration-200",
-                        isOpen && "rotate-90 text-slate-600 dark:text-slate-200"
+                        "h-4 w-4 transition-transform duration-200",
+                        active ? "text-white" : isOpen ? "text-slate-600 dark:text-slate-200" : "text-slate-400",
+                        isOpen && "rotate-90"
                       )}
                     />
                   </button>
@@ -598,9 +563,9 @@ export function Layout() {
                   <Link
                     to={item.to}
                     className={cn(
-                      "flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all group",
+                      "flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-[background-color,box-shadow] group",
                       active
-                        ? "bg-[#164E3A] text-white dark:bg-emerald-600 shadow-xs font-semibold"
+                        ? "bg-[#164E3A] text-white hover:text-white focus:text-white active:text-white dark:text-white dark:bg-emerald-600 shadow-xs font-semibold"
                         : "text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white"
                     )}
                   >
@@ -619,9 +584,9 @@ export function Layout() {
                           key={subItem.to}
                           to={subItem.to}
                           className={cn(
-                            "flex items-center px-3 py-2 rounded-xl text-xs font-medium transition-all",
+                            "flex items-center px-3 py-2 rounded-xl text-xs font-medium transition-[background-color,box-shadow]",
                             subActive
-                              ? "bg-[#164E3A] text-white dark:bg-emerald-600 font-semibold shadow-xs"
+                              ? "bg-[#164E3A] text-white hover:text-white focus:text-white active:text-white dark:text-white dark:bg-emerald-600 font-semibold shadow-xs"
                               : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white"
                           )}
                         >
@@ -702,17 +667,22 @@ export function Layout() {
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden md:ml-14 print:ml-0 print:h-auto print:overflow-visible">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden print:h-auto print:overflow-visible">
         {/* Desktop Top Header Bar */}
-        <header className="hidden md:flex print:hidden h-16 shrink-0 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/90 dark:bg-[#0B0F19]/90 backdrop-blur-md px-6 items-center justify-between sticky top-0 z-20 shadow-2xs">
-          <div className="flex items-center gap-4 min-w-0">
-            <div>
-              <h1 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
-                {getActiveTitle()}
-              </h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Garagem Operacional Integrada
-              </p>
+        <header className="hidden md:flex print:hidden h-16 shrink-0 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/90 dark:bg-[#0B0F19]/90 backdrop-blur-md px-4 gap-4 items-center justify-between sticky top-0 z-40 shadow-2xs">
+          <div className="flex min-w-0 items-center gap-3">
+            <Button data-sidebar-toggle variant="ghost" size="icon" className="h-9 w-9 shrink-0 rounded-lg text-slate-700 dark:text-slate-200"
+              onClick={() => setSidebarCollapsed(value => !value)} aria-controls="desktop-navigation" aria-expanded={!sidebarCollapsed}
+              aria-label={sidebarCollapsed ? 'Expandir menu lateral' : 'Recolher menu lateral'} title={sidebarCollapsed ? 'Expandir menu lateral' : 'Recolher menu lateral'}>
+              <Menu aria-hidden="true" className="h-5 w-5" />
+            </Button>
+            <div className="flex shrink-0 items-center gap-2.5">
+              <Bus aria-hidden="true" className="h-5 w-5 text-slate-900 dark:text-white" />
+              <span className="text-sm font-bold tracking-tight text-slate-900 dark:text-white">Sistema Garagem</span>
+            </div>
+            <div className="ml-2 min-w-0 border-l border-slate-200 pl-4 dark:border-slate-800">
+              <h1 className="truncate text-base font-bold tracking-tight text-slate-900 dark:text-white">{getActiveTitle()}</h1>
+              <p className="truncate text-xs text-slate-500 dark:text-slate-400">Garagem Operacional Integrada</p>
             </div>
           </div>
 
@@ -754,7 +724,7 @@ export function Layout() {
         </header>
 
         {/* Page Content Viewport */}
-        <main className="flex-1 p-3 sm:p-5 lg:p-6 overflow-y-auto print:p-0 print:m-0 print:overflow-visible">
+        <main className="flex-1 md:ml-14 print:ml-0 p-3 sm:p-5 lg:p-6 overflow-y-auto print:p-0 print:m-0 print:overflow-visible">
           <div className="max-w-7xl mx-auto w-full print:max-w-none print:w-full print:m-0 print:p-0">
             <Outlet />
           </div>

@@ -4,6 +4,14 @@ Regra confirmada em 23/10/2026, substituindo a edicao somente da escala de hoje.
 
 ## Operacao
 
+Quando a CI correspondente ainda nao estiver finalizada, tabela e cards ficam
+desfocados e indisponiveis para clique/foco, com aviso central explicando a
+pendencia e a referencia provisoria, quando houver. Esse aviso substitui o
+card superior de estado enquanto a CI esta pendente. Seletores permanecem
+acessiveis; apos finalizar a CI, o controle manual de iniciar/editar/finalizar
+reaparece. Registros legados mantem a consulta existente. Trata-se de uma
+apresentacao da restricao existente; as validacoes do backend nao mudam.
+
 Antes da CI da data ser iniciada, a consulta usa exclusivamente os bloqueados
 da ultima CI finalizada anterior da mesma garagem. Esses carros ficam fora da
 reserva e a tela identifica a data da referencia provisoria. Pedidos, reforcos e
