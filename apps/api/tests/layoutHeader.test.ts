@@ -7,11 +7,14 @@ import ts from 'typescript';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-function renderLayout() {
+function renderLayout(expanded = false) {
   const loader = (Module as any)._load, resolver = (Module as any)._resolveFilename;
   const oldTSX = require.extensions['.tsx'];
   const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
   const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const layoutFile = require.resolve('../../web/src/components/layout.tsx');
+  const cachedLayout = require.cache[layoutFile]; delete require.cache[layoutFile];
+  let stateIndex = 0;
   try {
     Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { onLine: true } });
     Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => 'light' } });
@@ -19,6 +22,9 @@ function renderLayout() {
       return resolver.call(this, id.startsWith('@/') ? path.resolve('apps/web/src', id.slice(2)) : id, ...args);
     };
     (Module as any)._load = function(id: string, ...args: unknown[]) {
+      if (id === 'react' && expanded) return { ...React, useState(initial: unknown) {
+        const result = React.useState(initial); return ++stateIndex === 2 ? [false, result[1]] : result;
+      } };
       if (id === '@/stores/auth') return { useAuth: () => ({ user: { role: 'ADMIN', name: 'Administrador', garagem: 'VCG' }, logout() {} }), roleLabels: { ADMIN: 'Administrador' } };
       if (id === 'react-router-dom') return { useLocation: () => ({ pathname: '/escala-carros/alterar-carro-programado' }), useNavigate: () => () => {},
         Outlet: () => React.createElement('p', null, 'Conteudo da pagina'),
@@ -32,6 +38,7 @@ function renderLayout() {
     return renderToStaticMarkup(React.createElement(Layout));
   } finally {
     (Module as any)._load = loader; (Module as any)._resolveFilename = resolver;
+    if (cachedLayout) require.cache[layoutFile] = cachedLayout; else delete require.cache[layoutFile];
     if (oldTSX) require.extensions['.tsx'] = oldTSX; else delete require.extensions['.tsx'];
     if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor); else delete (globalThis as any).navigator;
     if (storageDescriptor) Object.defineProperty(globalThis, 'localStorage', storageDescriptor); else delete (globalThis as any).localStorage;
@@ -42,7 +49,7 @@ test('header desktop mostra hamburguer antes do onibus e titulo fora da barra la
   const html = renderLayout();
   const header = html.match(/<header class="hidden md:flex[\s\S]*?<\/header>/)![0];
   const aside = html.match(/<aside[\s\S]*?<\/aside>/)![0];
-  assert.match(header, /aria-controls="desktop-navigation" aria-expanded="true"/);
+  assert.match(header, /aria-controls="desktop-navigation" aria-expanded="false"/);
   assert.ok(header.indexOf('lucide-menu') < header.indexOf('lucide-bus'));
   assert.ok(header.indexOf('Sistema Garagem') < header.indexOf('Escala Carros - Alterar Carro Programado'));
   assert.doesNotMatch(html, /Garagem Operacional Integrada/);
@@ -50,7 +57,7 @@ test('header desktop mostra hamburguer antes do onibus e titulo fora da barra la
 });
 
 test('menu continua expandido sobre conteudo abaixo do header, com navegacao e rodape preservados', () => {
-  const html = renderLayout();
+  const html = renderLayout(true);
   const aside = html.match(/<aside[\s\S]*?<\/aside>/)![0];
   assert.match(aside, /id="desktop-navigation"/);
   assert.match(aside, /fixed left-0 top-16/);
@@ -63,7 +70,7 @@ test('menu continua expandido sobre conteudo abaixo do header, com navegacao e r
 });
 
 test('menu selecionado conserva branco no texto e seta sem transicao de cor', () => {
-  const aside = renderLayout().match(/<aside[\s\S]*?<\/aside>/)![0];
+  const aside = renderLayout(true).match(/<aside[\s\S]*?<\/aside>/)![0];
   const parent = [...aside.matchAll(/<button\b[\s\S]*?<\/button>/g)].map(match => match[0]).find(button => button.includes('Escala Carros'))!;
   const child = [...aside.matchAll(/<a\b[\s\S]*?<\/a>/g)].map(match => match[0]).find(link => link.includes('Alterar Carro Programado'))!;
   for (const element of [parent, child]) {

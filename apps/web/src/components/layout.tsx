@@ -134,7 +134,7 @@ export function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   useEffect(() => {
     if (sidebarCollapsed) return;
     const closeOutside = (event: PointerEvent) => {
@@ -187,8 +187,14 @@ export function Layout() {
     }
   }, [theme]);
 
-  // Close mobile drawer on route change
+  const closeNavigation = () => {
+    setSidebarCollapsed(true);
+    setMobileMenuOpen(false);
+  };
+
+  // Inclui navegacao programatica e voltar/avancar do navegador.
   useEffect(() => {
+    setSidebarCollapsed(true);
     setMobileMenuOpen(false);
   }, [location.pathname]);
 
@@ -417,7 +423,7 @@ export function Layout() {
                 ) : (
                   <Link
                     to={item.to}
-                    onClick={() => setMobileMenuOpen(false)}
+                    onClick={closeNavigation}
                     className={cn(
                       "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-[background-color,box-shadow]",
                       active
@@ -438,7 +444,7 @@ export function Layout() {
                         <Link
                           key={subItem.to}
                           to={subItem.to}
-                          onClick={() => setMobileMenuOpen(false)}
+                          onClick={closeNavigation}
                           className={cn(
                             "flex items-center px-3 py-2 rounded-xl text-xs font-medium transition-[background-color,box-shadow]",
                             subActive
@@ -523,6 +529,7 @@ export function Layout() {
                 <Link
                   key={item.to}
                   to={item.to}
+                  onClick={closeNavigation}
                   className={iconClassName}
                   title={item.label}
                 >
@@ -562,6 +569,7 @@ export function Layout() {
                 ) : (
                   <Link
                     to={item.to}
+                    onClick={closeNavigation}
                     className={cn(
                       "flex items-center gap-3 px-2.5 py-2.5 rounded-xl text-sm font-medium transition-[background-color,box-shadow] group",
                       active
@@ -583,6 +591,7 @@ export function Layout() {
                         <Link
                           key={subItem.to}
                           to={subItem.to}
+                          onClick={closeNavigation}
                           className={cn(
                             "flex items-center px-3 py-2 rounded-xl text-xs font-medium transition-[background-color,box-shadow]",
                             subActive
