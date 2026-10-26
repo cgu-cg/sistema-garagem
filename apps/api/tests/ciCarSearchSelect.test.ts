@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import React from 'react';
+import Module from 'node:module';
 
 // Isola a funcao real sem carregar a pagina inteira, API ou banco.
 function exportedFunction(file: string, name: string) {
@@ -48,6 +49,11 @@ function harness() {
   const get = (predicate: (node: any) => boolean) => { const found = nodes.find(predicate); assert.ok(found); return found; };
   return { props, changes, text, render() { cursor = 0; nodes = []; walk(exports.CarSearchSelect(props)); },
     input: () => get(n => n.type === 'input'),
+    panel: () => get(n => n.type === 'section'),
+    attachInput(container: object | null) {
+      const ref = state.find(value => value && typeof value === 'object' && value.current === null);
+      assert.ok(ref); ref.current = { closest: (selector: string) => { assert.equal(selector, '[role="dialog"]'); return container; } };
+    },
     company: (name: string) => get(n => n.type === 'button' && text(n) === name),
     rows: () => nodes.filter(n => n.type === 'button' && /^\d{4}/.test(text(n))),
     allText: () => nodes.map(text).join(' '),
@@ -84,4 +90,37 @@ test('seletor bloqueado desabilita filtros e impede escolha de carro', () => {
   h.props.disabled = true; h.render();
   assert.equal(h.input().props.disabled, true); assert.equal(h.company('VSF').props.disabled, true);
   assert.ok(h.rows().every(n => n.props.disabled)); h.rows()[0].props.onClick(); assert.deepEqual(h.changes, []);
+});
+
+test('lista pertence ao Dialog que permite sua rolagem; fora de modal usa portal padrao', () => {
+  for (const dialog of [{ role: 'dialog' }, null]) {
+    const h = harness(); h.render(); h.attachInput(dialog);
+    h.input().props.onFocus(); h.render();
+    assert.equal(h.panel().props.container, dialog ?? undefined);
+  }
+});
+
+test('PopoverContent encaminha container ao Portal, sem vazar prop ao conteudo', () => {
+  const loader = (Module as any)._load, previousTSX = require.extensions['.tsx'];
+  const file = require.resolve('../../web/src/components/ui/popover.tsx');
+  const cached = require.cache[file]; delete require.cache[file];
+  const primitive = { Root() {}, Trigger() {}, Anchor() {}, Portal() {}, Content() {} };
+  try {
+    (Module as any)._load = function(id: string, ...args: unknown[]) {
+      if (id === '@radix-ui/react-popover') return primitive;
+      return loader.call(this, id, ...args);
+    };
+    require.extensions['.tsx'] = (m: any, f: string) => m._compile(ts.transpileModule(readFileSync(f, 'utf8'), {
+      fileName: f, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
+    }).outputText, f);
+    const { PopoverContent } = require(file), container = { role: 'dialog' };
+    const element = PopoverContent.render({ container, children: 'Lista' }, null);
+    assert.equal(element.type, primitive.Portal); assert.equal(element.props.container, container);
+    assert.equal(element.props.children.props.container, undefined);
+    assert.equal(PopoverContent.render({}, null).props.container, undefined);
+  } finally {
+    (Module as any)._load = loader;
+    if (previousTSX) require.extensions['.tsx'] = previousTSX; else delete require.extensions['.tsx'];
+    if (cached) require.cache[file] = cached; else delete require.cache[file];
+  }
 });

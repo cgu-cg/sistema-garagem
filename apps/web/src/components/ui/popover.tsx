@@ -5,12 +5,15 @@ import { cn } from "@/lib/utils";
 const Popover = PopoverPrimitive.Root;
 const PopoverTrigger = PopoverPrimitive.Trigger;
 const PopoverAnchor = PopoverPrimitive.Anchor;
+type PopoverContentProps = React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content> & {
+  container?: React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Portal>["container"];
+};
 
 const PopoverContent = React.forwardRef<
   React.ElementRef<typeof PopoverPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
->(({ className, align = "center", sideOffset = 6, ...props }, ref) => (
-  <PopoverPrimitive.Portal>
+  PopoverContentProps
+>(({ className, align = "center", sideOffset = 6, container, ...props }, ref) => (
+  <PopoverPrimitive.Portal container={container}>
     <PopoverPrimitive.Content
       ref={ref}
       align={align}

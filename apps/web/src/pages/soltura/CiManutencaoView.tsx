@@ -259,6 +259,9 @@ export function CarSearchSelect({
       </PopoverAnchor>
 
       <PopoverContent
+        // O Dialog permite rolagem apenas nos seus descendentes DOM.
+        // Manter o portal nesse container inclui a lista no bloqueio do modal.
+        container={inputRef.current?.closest<HTMLElement>('[role="dialog"]') ?? undefined}
         align="start"
         sideOffset={6}
         onOpenAutoFocus={(e) => e.preventDefault()}
@@ -276,7 +279,7 @@ export function CarSearchSelect({
             </button>)}
           </div>
         </div>
-        <div className="min-h-0 max-h-56 overflow-y-auto divide-y divide-gray-100 dark:divide-slate-800/60">
+        <div className="min-h-0 max-h-56 overflow-y-auto overscroll-contain touch-pan-y divide-y divide-gray-100 dark:divide-slate-800/60">
         {filteredCars.length === 0 ? (
           <div className="py-6 text-center text-xs text-gray-400 dark:text-slate-500">
             Nenhum veículo encontrado para a busca "{search}"
