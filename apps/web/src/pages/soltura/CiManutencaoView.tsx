@@ -96,6 +96,7 @@ interface CarSearchSelectProps {
   placeholder?: string;
   className?: string;
   inputClassName?: string;
+  leadingIcon?: React.ReactNode;
   autoFocus?: boolean;
   required?: boolean;
   disabled?: boolean;
@@ -112,6 +113,7 @@ export function CarSearchSelect({
   placeholder = "Carro",
   className,
   inputClassName,
+  leadingIcon,
   autoFocus = false,
   required = false,
   disabled = false,
@@ -121,6 +123,7 @@ export function CarSearchSelect({
   const clearPending = useRef(false);
   const interactionDisabled = disabled || clearing;
   const [search, setSearch] = useState(value || "");
+  const [companyFilter, setCompanyFilter] = useState('TODAS');
   const inputRef = useRef<HTMLInputElement>(null);
   const latestValue = useRef(value);
   const clearingSelectionWhileTyping = useRef(false);
@@ -138,9 +141,9 @@ export function CarSearchSelect({
   // Lista de carros filtrada pela busca digitada
   const filteredCars = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return allowedCars;
-    return allowedCars.filter(c => c.prefixo.toLowerCase().includes(q));
-  }, [allowedCars, search]);
+    return allowedCars.filter(car => (companyFilter === 'TODAS' || getConsorciadaByCarro(car.prefixo) === companyFilter)
+      && (!q || car.prefixo.toLowerCase().includes(q)));
+  }, [allowedCars, search, companyFilter]);
 
   // Seleciona um veículo
   const handleSelectCar = (prefixo: string) => {
@@ -184,8 +187,8 @@ export function CarSearchSelect({
     <Popover open={isOpen} onOpenChange={setIsOpen}>
       <PopoverAnchor asChild>
         <div className={cn("relative flex items-center w-full", className)}>
-          <div className="absolute left-2 text-muted-foreground/60 pointer-events-none">
-            <Search className="w-3.5 h-3.5" />
+          <div className={cn("absolute text-muted-foreground/60 pointer-events-none", leadingIcon ? "left-3" : "left-2")}>
+            {leadingIcon || <Search className="w-3.5 h-3.5" />}
           </div>
 
           <Input
@@ -202,7 +205,8 @@ export function CarSearchSelect({
               setSearch(e.target.value);
               if (!isOpen) setIsOpen(true);
               
-              const exactMatch = allowedCars.find(c => c.prefixo === e.target.value.trim());
+              const exactMatch = allowedCars.find(c => c.prefixo === e.target.value.trim()
+                && (companyFilter === 'TODAS' || getConsorciadaByCarro(c.prefixo) === companyFilter));
               if (exactMatch) {
                 onChange(exactMatch.prefixo);
               } else if (value) {
@@ -219,7 +223,7 @@ export function CarSearchSelect({
             )}
           />
 
-          <div className="absolute right-1 flex items-center gap-0.5">
+          <div className="absolute right-2 flex items-center gap-1">
             {/* Botão Limpar */}
             {(search || value) && !interactionDisabled && (
               <button
@@ -243,9 +247,12 @@ export function CarSearchSelect({
                   inputRef.current?.focus();
                 }
               }}
-              className="p-1 rounded-md text-muted-foreground/60 hover:text-foreground transition-colors cursor-pointer"
+              disabled={interactionDisabled}
+              aria-label="Abrir lista de veículos"
+              aria-expanded={isOpen}
+              className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:cursor-not-allowed"
             >
-              <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-150", isOpen && "rotate-180")} />
+              <ChevronDown className={cn("w-4 h-4 transition-transform duration-200", isOpen && "rotate-180 text-emerald-600")} />
             </button>
           </div>
         </div>
@@ -253,48 +260,69 @@ export function CarSearchSelect({
 
       <PopoverContent
         align="start"
-        sideOffset={4}
+        sideOffset={6}
         onOpenAutoFocus={(e) => e.preventDefault()}
-        className="w-[var(--radix-popover-anchor-width)] min-w-[190px] max-h-56 overflow-y-auto p-1.5 z-50 bg-popover text-popover-foreground border rounded-xl shadow-xl space-y-0.5"
+        className="flex w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-2rem)] max-h-[var(--radix-popover-content-available-height)] flex-col overflow-hidden p-0 z-50 bg-white dark:bg-[#0E1420] border-gray-200 dark:border-slate-700 rounded-2xl shadow-xl"
       >
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-1 border-b border-gray-100 bg-gray-50/70 p-2 dark:border-slate-800 dark:bg-slate-950/40">
+          <span className="pl-1 text-[11px] font-semibold text-gray-500 dark:text-slate-400">Filtrar por Empresa:</span>
+          <div className="flex items-center gap-1" role="group" aria-label="Filtrar veículos por empresa">
+            {['TODAS', 'VCG', 'JTU', 'VSF', 'VCM'].map(company => <button key={company} type="button" disabled={interactionDisabled}
+              aria-pressed={companyFilter === company} onClick={() => setCompanyFilter(company)}
+              className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold transition-colors cursor-pointer',
+                companyFilter === company ? 'bg-gray-900 text-white shadow-2xs dark:bg-white dark:text-slate-900'
+                  : 'text-gray-500 hover:bg-gray-200/60 dark:hover:bg-slate-800')}>
+              {company}
+            </button>)}
+          </div>
+        </div>
+        <div className="min-h-0 max-h-56 overflow-y-auto divide-y divide-gray-100 dark:divide-slate-800/60">
         {filteredCars.length === 0 ? (
-          <div className="py-3 text-center text-xs text-muted-foreground">
-            <Bus className="w-4 h-4 mx-auto mb-1 opacity-40" />
-            Nenhum carro encontrado para <strong>"{search}"</strong>
+          <div className="py-6 text-center text-xs text-gray-400 dark:text-slate-500">
+            Nenhum veículo encontrado para a busca "{search}"
           </div>
         ) : (
           filteredCars.map((c) => {
             const isSelected = c.prefixo === value;
+            const company = getConsorciadaByCarro(c.prefixo);
             return (
               <button
                 key={c.prefixo}
                 type="button"
+                disabled={interactionDisabled}
                 onClick={() => handleSelectCar(c.prefixo)}
                 className={cn(
-                  "w-full text-left px-2 py-1.5 rounded-lg text-xs flex items-center justify-between transition-colors cursor-pointer group",
+                  "w-full text-left px-3.5 py-2.5 flex items-center justify-between transition-colors cursor-pointer group",
                   isSelected
-                    ? "bg-primary text-primary-foreground font-bold shadow-2xs"
-                    : "hover:bg-muted text-foreground"
+                    ? "bg-emerald-50 dark:bg-emerald-950/40"
+                    : "hover:bg-gray-50 dark:hover:bg-slate-800/60"
                 )}
               >
-                <div className="flex items-center gap-2">
-                  <span className="font-mono font-bold text-xs">{c.prefixo}</span>
+                <div className="flex items-center gap-2.5">
+                  <span className="font-mono font-bold text-sm text-gray-900 dark:text-white group-hover:text-emerald-600 transition-colors">{c.prefixo}</span>
                   <span
                     className={cn(
-                      "text-[9px] font-mono px-1.5 py-0.2 rounded font-semibold",
-                      isSelected
-                        ? "bg-primary-foreground/20 text-primary-foreground"
-                        : "bg-muted text-muted-foreground"
+                      "text-[10px] font-bold px-2 py-0.5 rounded-md border",
+                      company === 'VCG' || company === 'VSF'
+                        ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                        : company === 'JTU'
+                        ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                        : 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800'
                     )}
                   >
-                    {c.garagem}
+                    {company}
                   </span>
+                  <span className="text-[10px] text-gray-400 dark:text-slate-500">Garagem {c.garagem}</span>
                 </div>
-                {isSelected && <Check className="w-3.5 h-3.5 shrink-0" />}
+                {isSelected && <Check className="w-4 h-4 shrink-0 text-emerald-600" />}
               </button>
             );
           })
         )}
+        </div>
+        <div className="shrink-0 border-t border-gray-100 bg-gray-50/50 p-2 text-center text-[10px] text-gray-400 dark:border-slate-800 dark:bg-slate-950/20">
+          Mostrando {filteredCars.length} de {allowedCars.length} veículos cadastrados
+        </div>
       </PopoverContent>
     </Popover>
   );

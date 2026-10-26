@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ComponentType } from 'react';
-import { Plus, X } from 'lucide-react';
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
+import { Bus, Check, ListChecks, MessageSquare, Plus, X } from 'lucide-react';
 import type { BloqueioCarro } from '@/data/solturaTypes';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,7 +8,7 @@ import type { CarOption } from './CiManutencaoView';
 import { MAX_INSPECTION_CARS, type InspectionChoice, type ReinforcementDraft } from './ciReinforcementEditor';
 
 type FixedSlot = { id: string; horario: string };
-type CarSelectProps = { value: string; onChange: (prefixo: string) => void; allowedCars: CarOption[]; disabled?: boolean; placeholder?: string; required?: boolean };
+type CarSelectProps = { value: string; onChange: (prefixo: string) => void; allowedCars: CarOption[]; disabled?: boolean; placeholder?: string; required?: boolean; inputClassName?: string; leadingIcon?: ReactNode };
 type Props = {
   slots: readonly FixedSlot[]; cars: CarOption[]; editable: boolean; busy: boolean; refreshRequired: boolean;
   readSlot: (slot: FixedSlot) => BloqueioCarro | undefined;
@@ -22,6 +22,10 @@ type Props = {
 
 const situations = ['LUBRIFICAÇÃO', 'TROCA DE ÓLEO', 'INSPEÇÃO', 'REVISÃO', 'PREVENTIVA'];
 const inspectionKey = 'inspection';
+const popupClass = 'max-w-md sm:max-w-lg rounded-2xl sm:rounded-2xl print:hidden';
+const fieldLabelClass = 'flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-slate-300';
+const carInputClass = 'h-11 rounded-xl border-border/80 bg-background pl-9 pr-12 font-mono text-xs font-semibold focus-visible:ring-primary';
+const confirmClass = 'h-9 rounded-xl bg-primary px-4 text-xs font-semibold text-primary-foreground shadow-xs hover:bg-primary/90 gap-1.5';
 
 export function CIReinforcementCards({ slots, cars, editable, busy, refreshRequired, readSlot, inspection, CarSelect,
   onStart, onEnd, onSaveFixed, onRemoveFixed, onSaveInspection }: Props) {
@@ -29,6 +33,8 @@ export function CIReinforcementCards({ slots, cars, editable, busy, refreshRequi
   const [inspectionOpen, setInspectionOpen] = useState(false);
   const [selected, setSelected] = useState<InspectionChoice[]>([]);
   const [initialSelection, setInitialSelection] = useState<InspectionChoice[]>([]);
+  const garages = [...new Set(cars.map(car => car.garagem))].join('/');
+  const fleetLabel = garages ? `${cars.length} veículos da Garagem ${garages}` : '0 veículos disponíveis';
   const activeKey = useRef<string>();
   const end = useRef(onEnd); end.current = onEnd;
   useEffect(() => () => { if (activeKey.current) end.current(activeKey.current); }, []);
@@ -92,42 +98,66 @@ export function CIReinforcementCards({ slots, cars, editable, busy, refreshRequi
     </div>
 
     <Dialog open={Boolean(fixed)} onOpenChange={open => { if (!open) close(); }}>
-      <DialogContent className="max-w-md rounded-2xl print:hidden">
-        <DialogHeader><DialogTitle>Reforço — {fixed?.slot.horario}</DialogTitle><DialogDescription>Selecione a situação e o carro. O registro só será cadastrado ao salvar.</DialogDescription></DialogHeader>
+      <DialogContent className={popupClass}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base font-bold sm:text-lg"><Plus className="h-5 w-5 text-primary" />REFORÇO COM HORÁRIO</DialogTitle>
+          <DialogDescription className="text-xs">Horário {fixed?.slot.horario}. Selecione o veículo da garagem ativa e informe os detalhes da solicitação.</DialogDescription>
+        </DialogHeader>
         {refreshRequired && <p role="alert" className="text-xs text-amber-700 dark:text-amber-300">É necessário atualizar os dados oficiais. Feche este popup e atualize a CI antes de tentar novamente.</p>}
-        {fixed && <form className="space-y-4" onSubmit={event => { event.preventDefault(); if (editable && fixed.draft.prefixo && fixed.draft.motivo.trim()) onSaveFixed(fixed.slot, fixed.draft, finish); }}>
-          <label className="block space-y-1 text-xs font-semibold">Situação
-            <select className="h-9 w-full rounded-md border bg-background px-2 text-sm" required value={fixed.draft.motivo} disabled={!editable}
+        {fixed && <form className="space-y-3.5 pt-1" onSubmit={event => { event.preventDefault(); if (editable && fixed.draft.prefixo && fixed.draft.motivo.trim()) onSaveFixed(fixed.slot, fixed.draft, finish); }}>
+          <label className="block space-y-1.5">
+            <span className={fieldLabelClass}><ListChecks className="h-3.5 w-3.5 text-gray-500" />Situação <span className="text-rose-500">*</span></span>
+            <select className="h-11 w-full rounded-xl border border-border/80 bg-background px-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary" required value={fixed.draft.motivo} disabled={!editable}
               onChange={event => setFixed({ ...fixed, draft: { ...fixed.draft, motivo: event.target.value } })}>
               <option value="">Selecione uma situação</option>
               {situations.map(value => <option key={value} value={value}>{value}</option>)}
               {fixed.draft.motivo && !situations.includes(fixed.draft.motivo) && <option value={fixed.draft.motivo}>{fixed.draft.motivo}</option>}
             </select>
           </label>
-          <div className="space-y-1 text-xs font-semibold"><span>Carro</span><CarSelect value={fixed.draft.prefixo} disabled={!editable} allowedCars={cars} placeholder="Selecione um carro" required
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className={fieldLabelClass}><Bus className="h-3.5 w-3.5 text-gray-500" />Prefixo do carro <span className="text-rose-500">*</span></span>
+              <span className="text-[10px] font-medium text-gray-500 dark:text-slate-400">{fleetLabel}</span>
+            </div>
+            <CarSelect value={fixed.draft.prefixo} disabled={!editable} allowedCars={cars} placeholder="Digite ou clique para selecionar..." required
+            inputClassName={carInputClass} leadingIcon={<Bus className="h-3.5 w-3.5" />}
             onChange={prefixo => setFixed({ ...fixed, draft: { ...fixed.draft, prefixo } })} /></div>
-          <label className="block space-y-1 text-xs font-semibold">Observação (opcional)<Input maxLength={255} value={fixed.draft.obs} disabled={!editable}
-            onChange={event => setFixed({ ...fixed, draft: { ...fixed.draft, obs: event.target.value } })} placeholder="Ex.: POSTO .M" /></label>
-          <DialogFooter className="gap-2">
-            {readSlot(fixed.slot) && <Button type="button" variant="ghost" className="text-rose-600" disabled={!editable} onClick={() => { if (window.confirm('Retirar o carro salvo deste horário?')) onRemoveFixed(fixed.slot, finish); }}>Retirar carro</Button>}
-            <Button type="button" variant="outline" disabled={busy} onClick={close}>Cancelar</Button>
-            <Button type="submit" className="bg-[#164E3A] text-white hover:bg-[#113C2D]" disabled={!editable || !fixed.draft.prefixo || !fixed.draft.motivo.trim()}>{busy ? 'Salvando…' : 'Salvar'}</Button>
+          <label className="block space-y-1.5">
+            <span className={fieldLabelClass}><MessageSquare className="h-3.5 w-3.5 text-gray-500" />Observação <span className="font-normal normal-case tracking-normal text-muted-foreground">(opcional)</span></span>
+            <Input className="h-11 rounded-xl border-border/80 bg-background text-xs" maxLength={255} value={fixed.draft.obs} disabled={!editable}
+              onChange={event => setFixed({ ...fixed, draft: { ...fixed.draft, obs: event.target.value } })} placeholder="Ex.: POSTO .M" /></label>
+          <DialogFooter className="flex flex-row items-center justify-between gap-2 border-t pt-3 sm:justify-between">
+            <Button type="button" variant="ghost" size="sm" className="text-xs" disabled={busy} onClick={close}>Cancelar</Button>
+            <div className="flex items-center gap-2">
+              {readSlot(fixed.slot) && <Button type="button" variant="ghost" size="sm" className="text-xs text-rose-600" disabled={!editable} onClick={() => { if (window.confirm('Retirar o carro salvo deste horário?')) onRemoveFixed(fixed.slot, finish); }}>Retirar carro</Button>}
+              <Button type="submit" size="sm" className={confirmClass} disabled={!editable || !fixed.draft.prefixo || !fixed.draft.motivo.trim()}><Check className="h-4 w-4" />{busy ? 'Salvando…' : 'Salvar'}</Button>
+            </div>
           </DialogFooter>
         </form>}
       </DialogContent>
     </Dialog>
 
     <Dialog open={inspectionOpen} onOpenChange={open => { if (!open) close(); }}>
-      <DialogContent className="max-w-md rounded-2xl print:hidden">
-        <DialogHeader><DialogTitle>Carros da inspeção</DialogTitle><DialogDescription>Selecione até 6 carros. Confira os prefixos abaixo e salve todos de uma vez.</DialogDescription></DialogHeader>
+      <DialogContent className={popupClass}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base font-bold sm:text-lg"><Plus className="h-5 w-5 text-primary" />INSPEÇÃO</DialogTitle>
+          <DialogDescription className="text-xs">Selecione até 6 veículos da garagem ativa e confira os prefixos antes de salvar.</DialogDescription>
+        </DialogHeader>
         {refreshRequired && <p role="alert" className="text-xs text-amber-700 dark:text-amber-300">É necessário atualizar os dados oficiais. Feche este popup e atualize a CI antes de tentar novamente.</p>}
-        <div className="space-y-3">
+        <div className="space-y-3.5 pt-1">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className={fieldLabelClass}><Bus className="h-3.5 w-3.5 text-gray-500" />Prefixo do carro</span>
+              <span className="text-[10px] font-medium text-gray-500 dark:text-slate-400">{fleetLabel}</span>
+            </div>
           <CarSelect key={selected.map(i => i.key).join('|')} value="" allowedCars={cars.filter(car => !selected.some(i => i.prefixo === car.prefixo))} disabled={!editable || selected.length >= MAX_INSPECTION_CARS}
-            placeholder="Selecione um carro" onChange={prefixo => {
+            inputClassName={carInputClass} leadingIcon={<Bus className="h-3.5 w-3.5" />}
+            placeholder="Digite ou clique para selecionar..." onChange={prefixo => {
               if (!prefixo || selected.length >= MAX_INSPECTION_CARS || selected.some(i => i.prefixo === prefixo)) return;
               setSelected(previous => previous.length >= MAX_INSPECTION_CARS || previous.some(i => i.prefixo === prefixo)
                 ? previous : [...previous, { key: `new-${prefixo}`, prefixo }]);
             }} />
+          </div>
           <div className="flex min-h-12 flex-wrap gap-2 rounded-xl border bg-muted/20 p-3" aria-label="Carros selecionados">
             {selected.map(car => <span key={car.key} className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 font-mono text-xs font-semibold text-emerald-700 dark:text-emerald-300">
               {car.prefixo}<button type="button" disabled={!editable} className="rounded-full p-0.5 hover:bg-emerald-500/20" aria-label={`Retirar ${car.prefixo} da seleção`}
@@ -137,10 +167,10 @@ export function CIReinforcementCards({ slots, cars, editable, busy, refreshRequi
           </div>
           <p className="text-xs text-muted-foreground" role="status">{selected.length}/{MAX_INSPECTION_CARS} carros selecionados{selected.length > MAX_INSPECTION_CARS ? '. Os registros anteriores foram mantidos; ajuste a seleção para salvar.' : '.'}</p>
         </div>
-        <DialogFooter className="gap-2">
-          <Button type="button" variant="outline" disabled={busy} onClick={close}>Cancelar</Button>
-          <Button type="button" className="bg-[#164E3A] text-white hover:bg-[#113C2D]" disabled={!editable || selected.length > MAX_INSPECTION_CARS || JSON.stringify(selected) === JSON.stringify(initialSelection)}
-            onClick={() => onSaveInspection(selected, finish)}>{busy ? 'Salvando…' : 'Salvar'}</Button>
+        <DialogFooter className="flex flex-row items-center justify-between gap-2 border-t pt-3 sm:justify-between">
+          <Button type="button" variant="ghost" size="sm" className="text-xs" disabled={busy} onClick={close}>Cancelar</Button>
+          <Button type="button" size="sm" className={confirmClass} disabled={!editable || selected.length > MAX_INSPECTION_CARS || JSON.stringify(selected) === JSON.stringify(initialSelection)}
+            onClick={() => onSaveInspection(selected, finish)}><Check className="h-4 w-4" />{busy ? 'Salvando…' : 'Salvar'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
