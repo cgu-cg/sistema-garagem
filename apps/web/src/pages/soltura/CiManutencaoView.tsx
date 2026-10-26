@@ -1,4 +1,6 @@
 import { removeSavedReinforcement } from './ciReinforcementRemoval';
+import { CIReinforcementCards } from './CIReinforcementCards';
+import { savedInspectionEntries, saveFixedReinforcement, saveInspectionSelection, type ReinforcementDraft, type InspectionChoice, type ReinforcementEditContext } from './ciReinforcementEditor';
 import { explicitGarage } from '@/lib/operationalAccess';
 import { normalizeIsoDate, selectCIReportItems, ciReportExtraSlots, ciReportSlot, groupCIReportSubtypes, matchesCISubtype, ciBlockDate } from './ciReport';
 import { operationalContext } from '@/lib/mvpTemporal';
@@ -121,10 +123,15 @@ export function CarSearchSelect({
   const [search, setSearch] = useState(value || "");
   const inputRef = useRef<HTMLInputElement>(null);
   const latestValue = useRef(value);
+  const clearingSelectionWhileTyping = useRef(false);
   latestValue.current = value;
 
   // Sincroniza o texto do input quando o value externo mudar
   useEffect(() => {
+    if (clearingSelectionWhileTyping.current && !value) {
+      clearingSelectionWhileTyping.current = false;
+      return;
+    }
     setSearch(value || "");
   }, [value]);
 
@@ -137,6 +144,7 @@ export function CarSearchSelect({
 
   // Seleciona um veículo
   const handleSelectCar = (prefixo: string) => {
+    if (interactionDisabled) return;
     onChange(prefixo);
     setSearch(prefixo);
     setIsOpen(false);
@@ -188,6 +196,8 @@ export function CarSearchSelect({
             required={required}
             autoFocus={autoFocus}
             placeholder={placeholder}
+            aria-label={placeholder}
+            autoComplete="off"
             onChange={(e) => {
               setSearch(e.target.value);
               if (!isOpen) setIsOpen(true);
@@ -195,6 +205,9 @@ export function CarSearchSelect({
               const exactMatch = allowedCars.find(c => c.prefixo === e.target.value.trim());
               if (exactMatch) {
                 onChange(exactMatch.prefixo);
+              } else if (value) {
+                clearingSelectionWhileTyping.current = true;
+                onChange('');
               }
             }}
             onFocus={() => setIsOpen(true)}
@@ -225,7 +238,7 @@ export function CarSearchSelect({
               type="button"
               tabIndex={-1}
               onClick={() => {
-                if (!disabled) {
+                if (!interactionDisabled) {
                   setIsOpen(!isOpen);
                   inputRef.current?.focus();
                 }
@@ -365,14 +378,7 @@ const FIXED_REFORCO_SLOTS = [
 ] as const;
 
 // 3.1 SLOTS EXTRAS DA COLUNA DE SERVIÇO (Card 3 do Reforço - 6 linhas para carros extras)
-const FIXED_REFORCO_EXTRA_SLOTS = [
-  { id: "ref-extra-1" },
-  { id: "ref-extra-2" },
-  { id: "ref-extra-3" },
-  { id: "ref-extra-4" },
-  { id: "ref-extra-5" },
-  { id: "ref-extra-6" },
-] as const;
+// As seis posicoes de inclusao sao gerenciadas no popup de inspecao.
 
 // 4. BLOQUEADOS POR CONSORCIADA (Bloco 4 do Print 01 e Print 02 - Grid 2x2 com bordas vermelhas)
 const CONSORCIADAS_BLOQUEIOS = [
@@ -559,13 +565,6 @@ export function CiManutencaoView({
 
   // Consulta da fotografia exata: ausencia de registros nao autoriza heranca.
   const ciListNaData = useMemo(() => ciList.filter(c => normalizeIsoDate(c.data) === normalizeIsoDate(dataOperacao)), [ciList, dataOperacao]);
-  const [extraDraftOrders, setExtraDraftOrders] = useState<number[]>([]);
-  const editedSlotKeys = ciEdits.keys().join('|');
-  const extraSlots = useMemo(() => {
-    const keys = new Set([...FIXED_REFORCO_EXTRA_SLOTS.map(s => Number(s.id.split('-').slice(-1)[0])), ...extraDraftOrders, ...ciListNaData.filter(i => i.tipoPosicao === 'EXTRA').map(i => i.ordemPosicao || 0), ...ciEdits.keys().filter(key => /^ref-extra-\d+$/.test(key)).map(key => Number(key.split('-').slice(-1)[0]))]);
-    return [...keys].filter(n => n > 0).sort((a, b) => a - b).map(n => ({ id: `ref-extra-${n}` }));
-  }, [ciListNaData, extraDraftOrders, editedSlotKeys]);
-  useEffect(() => { setExtraDraftOrders([]); }, [dataOperacao, activeGaragemScope]);
   const commitCI = async (next: BloqueioCarro[], removeBlocked: string[] = [], confirmRelease = false, baseline = quickAddModal.isOpen ? editCIBaseline('quick') : ciList, draftKeys: string[] = quickAddModal.isOpen ? ['quick'] : []): Promise<boolean> => {
     if (checkDataFuturaBloqueio()) return false;
     const vcm = (i: BloqueioCarro) => normalizeIsoDate(i.data) === normalizeIsoDate(dataOperacao) && getGaragemFisicaByCarro(i.prefixo) === 'VCM';
@@ -577,10 +576,9 @@ export function CiManutencaoView({
       if (!reload.isActive(context)) return false;
       if (error instanceof SavedRefreshRequired) toast.warning(error.message);
       else toast.error(error instanceof Error ? error.message : 'Gravacao nao confirmada. Recarregue.', {
-        action: draftKeys.length && !draftKeys.includes('quick') ? { label: 'Descartar rascunho', onClick: () => {
+        action: draftKeys.length && !draftKeys.includes('quick') && !draftKeys.some(key => key === 'inspection' || /^ref-\d+$/.test(key)) ? { label: 'Descartar rascunho', onClick: () => {
           if (!reload.isActive(context)) return;
           draftKeys.forEach(key => ciEdits.end(key));
-          setReforcoDrafts(previous => { const remaining = { ...previous }; draftKeys.forEach(key => delete remaining[key]); return remaining; });
         } } : undefined,
       });
       return false;
@@ -830,30 +828,6 @@ export function CiManutencaoView({
   const [quickAddMotivo, setQuickAddMotivo] = useState<string>("");
   const [quickAddDataBloqueio, setQuickAddDataBloqueio] = useState(operationalContext().today);
   const [isOutroMotivo, setIsOutroMotivo] = useState<boolean>(false);
-
-  // Estado local para armazenar escolhas de Prefixo, Motivo e Obs dos slots de reforço antes de confirmar no botão de salvar
-  const [reforcoDrafts, setReforcoDrafts] = useState<Record<string, { prefixo?: string; motivo?: string; obs?: string }>>(() => {
-    try {
-      const saved = localStorage.getItem(`reforco_drafts_${dataOperacao}`);
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return {};
-  });
-
-  useEffect(() => {
-    if (Object.keys(reforcoDrafts).some(key => ciEdits.has(key))) return;
-    try {
-      const saved = localStorage.getItem(`reforco_drafts_${dataOperacao}`);
-      if (c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')) { setReforcoDrafts({}); return; }
-      if (saved) {
-        setReforcoDrafts(JSON.parse(saved));
-      } else {
-        setReforcoDrafts({});
-      }
-    } catch {
-      setReforcoDrafts({});
-    }
-  }, [dataOperacao, activeGaragemScope, ready]);
 
   // Titulo da data exata; copia apenas no comando explicito de preparacao.
   const [reforcoServicoTipo, setReforcoServicoTipo] = useState<string>(() => {
@@ -1268,15 +1242,6 @@ export function CiManutencaoView({
     } catch {}
 
     if (categoria === "REFORCO") {
-      const nextDrafts: Record<string, { prefixo: string; motivo: string; obs: string }> = {};
-      FIXED_REFORCO_SLOTS.forEach(s => {
-        nextDrafts[s.id] = { prefixo: "", motivo: "", obs: "" };
-      });
-      setReforcoDrafts(nextDrafts);
-      try {
-        localStorage.setItem(`reforco_drafts_${targetDate}`, JSON.stringify(nextDrafts));
-      } catch {}
-
       // Congela os demais itens da data (Preventiva, Oficina, Bloqueado) caso ainda fossem clones
       const outrosItensDestaData = ciListNaData
         .filter(c => c.categoriaPlanilha !== "REFORCO" && !Boolean(c.horarioReforco))
@@ -1343,333 +1308,69 @@ export function CiManutencaoView({
     toast.success(`Carro ${carro} liberado da CI com sucesso na data ${formatarDataBr(targetDateIso)}!`);
   };
 
-  // Funções para Gerenciamento dos Slots Fixos de Reforço com Horário
-  const getReforcoSlotData = (slotId: string, _horario?: string, defaultMotivo: string = "", _index?: number) => {
-    const ciListNaData = editCIBaseline(slotId).filter(item => normalizeIsoDate(item.data) === normalizeIsoDate(dataOperacao));
-    const slotStorageId = `ci-reforco-${slotId}-${dataOperacao}`;
-    const legacySlotStorageId = `ci-reforco-${slotId}`;
-
-    // Identifica se é um dos 6 slots extras da coluna lateral de serviço (ex: INSPEÇÃO)
-    const isExtra = slotId.startsWith("ref-extra-") || slotId.startsWith("slot_extra_");
-
-    // 1. PRIORIDADE ABSOLUTA: Busca PRIMEIRO um registro que pertença especificamente a este slot único
-    let item = ciListNaData.find(c => {
-      if (c.status === "LIBERADO" || c.categoriaPlanilha !== "REFORCO") return false;
-      // Pelo ID exato do slot na data atual
-      if (c.id === slotStorageId || c.id === legacySlotStorageId) return true;
-      // Pelo reforcoSlotId explícito
-      if ((c as any).reforcoSlotId === slotId) return true;
-      // Se for item clonado ou ID contendo o slotId (ex: ci-reforco-ref-4-... ou clone-...-ref-4-...)
-      if (c.id && (c.id.includes(`-${slotId}-`) || c.id.endsWith(`-${slotId}`) || c.id.includes(`_${slotId}_`))) return true;
-      return false;
-    });
-
-    // 2. FALLBACK SECUNDÁRIO: Se NÃO achou nenhum registro para este slot e NÃO for coluna extra
-    if (!item && !isExtra && _horario && !c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')) {
-      // Localiza registros que tenham o mesmo horário e NÃO pertençam a nenhum outro slot
-      const candidatos = ciListNaData.filter(c => {
-        if (c.status === "LIBERADO" || c.categoriaPlanilha !== "REFORCO") return false;
-        if (c.horarioReforco !== _horario) return false;
-        const cid = c.id;
-        if (!cid) return true;
-        const belongsToAnySlot = 
-          FIXED_REFORCO_SLOTS.some(s => cid.includes(`-${s.id}-`) || cid.endsWith(`-${s.id}`)) ||
-                  extraSlots.some(s => cid.includes(`-${s.id}-`) || cid.endsWith(`-${s.id}`));
-        return !belongsToAnySlot;
-      });
-
-      // Mapeia 1-para-1 caso haja múltiplos slots no mesmo horário (ex: dois slots às 07:40 - A)
-      const slotsComMesmoHorario = FIXED_REFORCO_SLOTS.filter(s => s.horario === _horario);
-      const slotIndexNoHorario = slotsComMesmoHorario.findIndex(s => s.id === slotId);
-      if (slotIndexNoHorario >= 0 && slotIndexNoHorario < candidatos.length) {
-        item = candidatos[slotIndexNoHorario];
-      }
-    }
-
-    const draft = reforcoDrafts[slotId];
-
-    // O prefixo vem do draft (se editado) ou do item salvo
-    const prefixo = draft?.prefixo !== undefined ? draft.prefixo : (item ? item.prefixo : "");
-
-    // O motivo vem do draft (se editado) ou do item salvo, ou defaultMotivo
-    const motivo = draft?.motivo !== undefined 
-      ? draft.motivo 
-      : c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? item?.motivo ?? '' : (item?.motivo != null && item.motivo !== "" ? item.motivo : defaultMotivo);
-
-    // A obs vem do draft (se editado) ou do item salvo
-    const obs = draft?.obs !== undefined 
-      ? draft.obs 
-      : (item?.os !== undefined ? item.os : "");
-
-    const isSaved = Boolean(item && item.prefixo && (c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') || item.motivo));
-    const isDirty = draft !== undefined && (
-      (draft.prefixo !== undefined && draft.prefixo !== (item?.prefixo || "")) ||
-      (draft.motivo !== undefined && draft.motivo !== (item?.motivo || "")) ||
-      (draft.obs !== undefined && draft.obs !== (item?.os || ""))
-    );
-
-    return {
-      prefixo: prefixo || "",
-      motivo: motivo || "",
-      obs: obs || "",
-      isSaved,
-      isDirty,
-      hasCar: Boolean(prefixo),
-      savedItem: item
-    };
+  // Popups usam o snapshot oficial da abertura; nenhum rascunho aparece nos cards.
+  const reinforcementContext = (): ReinforcementEditContext => ({
+    date: normalizeIsoDate(dataOperacao), garage: activeGaragemScope === 'VCM' ? 'VCM' : 'VCG',
+    c4: c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG'), serviceTitle: reforcoServicoTipo,
+    fixedSlots: FIXED_REFORCO_SLOTS,
+    legacyVehicle: prefixo => ({
+      garagem: fleetCars.find(c => c.prefixo === prefixo)?.garagem || getGaragemFisicaByCarro(prefixo),
+      consorciada: ciListNaData.find(i => i.prefixo === prefixo)?.consorciada || getConsorciadaByCarro(prefixo),
+    }),
+  });
+  const readReinforcementSlot = (slot: { id: string; horario: string }, baseline = ciList) => {
+    const context = reinforcementContext();
+    return ciReportSlot(selectCIReportItems(baseline, context.date, context.garage), slot.id,
+      context.c4, slot.horario, FIXED_REFORCO_SLOTS).savedItem;
   };
-
-  const handleReforcoSlotDraftChange = (slotId: string, patch: { prefixo?: string; motivo?: string; obs?: string }) => {
-    if (checkDataFuturaBloqueio()) return;
-    ciEdits.begin(slotId, reloadContext, ciList);
-    const fixed = FIXED_REFORCO_SLOTS.find(slot => slot.id === slotId);
-    const initial = getReforcoSlotData(slotId, fixed?.horario || reforcoServicoTipo, fixed?.defaultMotivo || '');
-    setReforcoDrafts(prev => {
-      const current = prev[slotId] || { prefixo: initial.prefixo, motivo: initial.motivo, obs: initial.obs };
-      const nextSlot = { ...current, ...patch };
-      const next = { ...prev, [slotId]: nextSlot };
-      try {
-        localStorage.setItem(`reforco_drafts_${dataOperacao}`, JSON.stringify(next));
-      } catch (e) {}
-      return next;
-    });
-  };
-
-  const handleClearReforcoSlot = async (slotId: string, horario?: string): Promise<boolean> => {
+  const startReinforcementEdit = (key: string) => {
     if (checkDataFuturaBloqueio()) return false;
-    ciEdits.begin(slotId, reloadContext, ciList);
-    const baseline = editCIBaseline(slotId);
-    const fixed = FIXED_REFORCO_SLOTS.find(slot => slot.id === slotId);
-    const slotData = getReforcoSlotData(slotId, horario || fixed?.horario || reforcoServicoTipo);
-    if (!slotData.savedItem) {
-      handleReforcoSlotDraftChange(slotId, { prefixo: '' });
-      return true;
-    }
-    const removed = await removeSavedReinforcement(baseline, slotData.savedItem,
-      next => commitCI(next, [], false, baseline, [slotId]));
-    if (!removed) return false;
-    setReforcoDrafts(previous => {
-      const remaining = { ...previous }; delete remaining[slotId];
-      try { localStorage.setItem('reforco_drafts_' + dataOperacao, JSON.stringify(remaining)); } catch {}
-      return remaining;
-    });
-    toast.success('Carro retirado desta posicao do Reforco.');
+    ciEdits.begin(key, reloadContext, ciList, true);
     return true;
   };
-
-  const handleSaveReforcoSlot = async (slotId: string, horario: string) => {
-    const ciList = editCIBaseline(slotId);
-    if (checkDataFuturaBloqueio()) return;
-    const slotData = getReforcoSlotData(slotId, horario);
-    const cleanPrefixo = (slotData.prefixo || "").trim();
-    const cleanMotivo = (slotData.motivo || "").trim();
-    const cleanObs = (slotData.obs || "").trim();
-    const slotStorageId = `ci-reforco-${slotId}-${dataOperacao}`;
-    const legacySlotStorageId = `ci-reforco-${slotId}`;
-    if (!cleanPrefixo || cleanPrefixo === '\u2014') {
-      toast.error('Selecione o prefixo do carro antes de salvar o reforco.');
-      return;
-    }
-    if (!cleanMotivo) {
-      toast.error('Selecione o motivo antes de salvar o reforco.');
-      return;
-    }
-
-    const carroGaragemFisica = c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? (activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') : fleetCars.find(c => c.prefixo === cleanPrefixo)?.garagem || getGaragemFisicaByCarro(cleanPrefixo);
-    const autoConsorciada = c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? slotData.savedItem?.consorciada ?? null : ciListNaData.find(i => i.prefixo === cleanPrefixo)?.consorciada || getConsorciadaByCarro(cleanPrefixo);
-
-    const newReforcoItem: BloqueioCarro & { reforcoSlotId?: string } = {
-      ...(c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? slotData.savedItem : {}),
-      id: c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? slotData.savedItem?.id || slotStorageId : slotStorageId,
-      prefixo: cleanPrefixo,
-      garagem: carroGaragemFisica,
-      consorciada: autoConsorciada,
-      categoriaPlanilha: "REFORCO",
-      horarioReforco: c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && slotData.savedItem ? slotData.savedItem.horarioReforco ?? null : slotData.savedItem?.horarioReforco ?? horario,
-      reforcoSlotId: slotId,
-      tipo: "REFORCO_REVISAO",
-      motivo: cleanMotivo,
-      data: normalizeIsoDate(dataOperacao) || getTodayString(),
-      hora: new Date().toLocaleTimeString("pt-BR", { timeZone: 'America/Campo_Grande', hour: "2-digit", minute: "2-digit" }),
-      gravidade: "ALTA",
-      responsavel: "Pista / Reforço",
-      os: cleanObs || undefined,
-      status: "BLOQUEADO",
-      ...(c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? { ...c4KnownFields(slotData.savedItem), motivo: c4EditedText(slotData.motivo, slotData.savedItem?.motivo), os: c4EditedText(slotData.obs, slotData.savedItem?.os) } : {})
-    };
-
-    // Executa a gravação do slot sem remover o carro de outros setores (coexistência)
-    const executeSaveReforco = async () => {
-      // Remove apenas registro anterior deste mesmo slot, sem apagar o carro de outros locais da CI
-      const cleanList = ciList.filter(c => 
-        c.id !== slotStorageId && 
-        c.id !== legacySlotStorageId && 
-        (c as any).reforcoSlotId !== slotId &&
-        !(c.id && (c.id.includes(`-${slotId}-`) || c.id.endsWith(`-${slotId}`)))
-      );
-      const updatedList = [newReforcoItem, ...cleanList];
-
-      if (!(await commitCI(updatedList, [], false, ciList, [slotId]))) return;
-
-      // Limpa o draft deste slot, pois agora o item está salvo oficialmente na CI
-      setReforcoDrafts(prev => {
-        const next = { ...prev };
-        delete next[slotId];
-        try {
-          localStorage.setItem(`reforco_drafts_${dataOperacao}`, JSON.stringify(next));
-        } catch {}
-        return next;
-      });
-
-      toast.success(`Horário ${horario} salvo com sucesso! Carro: ${cleanPrefixo}`);
-    };
-
-    // Checa se o veículo já está em outro local da CI na data consultada
-    const existing = findExistingCarLocations(cleanPrefixo, undefined, slotId);
-    if (existing.length > 0) {
-      setConflictModal({
-        isOpen: true,
-        carro: cleanPrefixo,
-        existingLocations: existing,
-        targetLocation: `Reforço com Horário (${horario})`,
-        onConfirm: async () => {
-          setConflictModal(prev => ({ ...prev, isOpen: false }));
-          await executeSaveReforco();
-        }
-      });
-      return;
-    }
-
-    await executeSaveReforco();
+  const persistReinforcement = async (next: BloqueioCarro[], baseline: BloqueioCarro[], key: string, done: () => void) => {
+    if (!(await commitCI(next, [], false, baseline, [key]))) return;
+    toast.success('Dados salvos na CI.');
+    done();
   };
-
-  // Salva ou remove um veículo do slot extra de serviço (Card 3)
-  const handleSaveReforcoExtraSlot = async (slotId: string) => {
-    const ciList = editCIBaseline(slotId);
+  const saveFixedFromPopup = async (slot: { id: string; horario: string }, draft: ReinforcementDraft, done: () => void) => {
     if (checkDataFuturaBloqueio()) return;
-    const slotData = getReforcoSlotData(slotId, reforcoServicoTipo);
-    const cleanPrefixo = (slotData.prefixo || "").trim();
-    const slotStorageId = `ci-reforco-${slotId}-${dataOperacao}`;
-    const legacySlotStorageId = `ci-reforco-${slotId}`;
-
-    // Se o usuário limpou o carro e clicou no botão para desvincular um veículo que já estava salvo
-    if (!cleanPrefixo || cleanPrefixo === "—") {
-      if (slotData.isSaved) {
-
-        const updatedList = ciList.filter(c => 
-          c.id !== slotStorageId && 
-          c.id !== legacySlotStorageId && 
-          (c as any).reforcoSlotId !== slotId &&
-          !(c.id && (c.id.includes(`-${slotId}-`) || c.id.endsWith(`-${slotId}`)))
-        );
-        if (!(await commitCI(updatedList, [], false, ciList, [slotId]))) return;
-        setReforcoDrafts(prev => {
-          const next = { ...prev };
-          delete next[slotId];
-          try {
-            localStorage.setItem(`reforco_drafts_${dataOperacao}`, JSON.stringify(next));
-          } catch {}
-          return next;
-        });
-        toast.info(`Carro desvinculado de ${reforcoServicoTipo}.`);
-        return;
-      }
-      toast.error(`Por favor, selecione um carro para a linha de ${reforcoServicoTipo}.`);
-      return;
-    }
-
-    const carroGaragemFisica = c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? (activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') : fleetCars.find(c => c.prefixo === cleanPrefixo)?.garagem || getGaragemFisicaByCarro(cleanPrefixo);
-    const autoConsorciada = c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? slotData.savedItem?.consorciada ?? null : ciListNaData.find(i => i.prefixo === cleanPrefixo)?.consorciada || getConsorciadaByCarro(cleanPrefixo);
-
-    const newReforcoItem: BloqueioCarro & { reforcoSlotId?: string } = {
-      ...(c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? slotData.savedItem : {}),
-      id: c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? slotData.savedItem?.id || slotStorageId : slotStorageId,
-      prefixo: cleanPrefixo,
-      garagem: carroGaragemFisica,
-      consorciada: autoConsorciada,
-      categoriaPlanilha: "REFORCO",
-      horarioReforco: c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? slotData.savedItem?.horarioReforco : reforcoServicoTipo,
-      reforcoSlotId: slotId,
-      tipo: "REFORCO_REVISAO",
-      motivo: reforcoServicoTipo,
-      data: normalizeIsoDate(dataOperacao) || getTodayString(),
-      hora: new Date().toLocaleTimeString("pt-BR", { timeZone: 'America/Campo_Grande', hour: "2-digit", minute: "2-digit" }),
-      gravidade: "ALTA",
-      responsavel: "Pista / Reforço",
-      os: c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? slotData.obs : reforcoServicoTipo,
-      status: "BLOQUEADO",
-      ...(c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') ? { ...c4KnownFields(slotData.savedItem), motivo: slotData.savedItem?.motivo ?? null, os: c4EditedText(slotData.obs, slotData.savedItem?.os) } : {})
-    };
-
-    const executeSaveExtra = async () => {
-      const cleanList = ciList.filter(c => 
-        c.id !== slotStorageId && 
-        c.id !== legacySlotStorageId && 
-        (c as any).reforcoSlotId !== slotId &&
-        !(c.id && (c.id.includes(`-${slotId}-`) || c.id.endsWith(`-${slotId}`)))
-      );
-      const updatedList = [newReforcoItem, ...cleanList];
-
-      if (!(await commitCI(updatedList, [], false, ciList, [slotId]))) return;
-
-      setReforcoDrafts(prev => {
-        const next = { ...prev };
-        delete next[slotId];
-        try {
-          localStorage.setItem(`reforco_drafts_${dataOperacao}`, JSON.stringify(next));
-        } catch {}
-        return next;
-      });
-
-      toast.success(`Carro ${cleanPrefixo} salvo com sucesso em ${reforcoServicoTipo}!`);
-    };
-
-    const existing = findExistingCarLocations(cleanPrefixo, undefined, slotId);
-    if (existing.length > 0) {
-      setConflictModal({
-        isOpen: true,
-        carro: cleanPrefixo,
-        existingLocations: existing,
-        targetLocation: `Reforço (${reforcoServicoTipo})`,
-        onConfirm: async () => {
-          setConflictModal(prev => ({ ...prev, isOpen: false }));
-          await executeSaveExtra();
-        }
-      });
-      return;
-    }
-
-    await executeSaveExtra();
+    try {
+      const baseline = editCIBaseline(slot.id);
+      const next = saveFixedReinforcement(baseline, reinforcementContext(), slot.id, slot.horario, draft);
+      const execute = () => persistReinforcement(next, baseline, slot.id, done);
+      const existingLocations = findExistingCarLocations(draft.prefixo, readReinforcementSlot(slot, baseline)?.id, slot.id);
+      if (existingLocations.length) {
+        setConflictModal({ isOpen: true, carro: draft.prefixo, existingLocations,
+          targetLocation: 'Reforço com Horário (' + slot.horario + ')',
+          onConfirm: async () => { setConflictModal(prev => ({ ...prev, isOpen: false })); await execute(); } });
+      } else await execute();
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Não foi possível salvar o reforço.'); }
   };
-
-  // Salva todos os veículos preenchidos da coluna de serviço extra (Card 3)
-  const handleSaveAllReforcoExtraSlots = async () => {
+  const removeFixedFromPopup = async (slot: { id: string; horario: string }, done: () => void) => {
     if (checkDataFuturaBloqueio()) return;
-    let next = ciList;
-    const changed: string[] = [];
-    const scope = activeGaragemScope === 'VCM' ? 'VCM' : 'VCG';
-    for (const slot of extraSlots) {
-      const draft = getReforcoSlotData(slot.id, reforcoServicoTipo);
-      const prefixo = draft.prefixo.trim();
-      if (!prefixo || prefixo === '—' || (draft.isSaved && !draft.isDirty)) continue;
-      if (!c4Enabled(scope) && getGaragemFisicaByCarro(prefixo) !== 'VCG') { toast.error('MVP permite alteracoes somente na VCG.'); return; }
-      const id = 'ci-reforco-' + slot.id + '-' + dataOperacao;
-      next = next.filter(c => !(normalizeIsoDate(c.data) === normalizeIsoDate(dataOperacao) && (c.id === id || c.id === draft.savedItem?.id)));
-      next = [...next, { ...(c4Enabled(scope) ? draft.savedItem : {}), id: c4Enabled(scope) ? draft.savedItem?.id || id : id, prefixo, garagem: scope, consorciada: c4Enabled(scope) ? draft.savedItem?.consorciada ?? null : ciListNaData.find(i => i.prefixo === prefixo)?.consorciada || getConsorciadaByCarro(prefixo), categoriaPlanilha: 'REFORCO',
-        horarioReforco: c4Enabled(scope) ? draft.savedItem?.horarioReforco : reforcoServicoTipo, tipo: 'REFORCO_REVISAO', motivo: reforcoServicoTipo,
-        data: normalizeIsoDate(dataOperacao), responsavel: 'Pista / Reforço', os: draft.obs, status: 'BLOQUEADO',
-        ...(c4Enabled(scope) ? { ...c4KnownFields(draft.savedItem), motivo: draft.savedItem?.motivo ?? null, os: c4EditedText(draft.obs, draft.savedItem?.os) } : {}) }];
-      changed.push(slot.id);
-    }
-    if (!changed.length) { toast.info('Nenhuma alteração pendente nesta coluna.'); return; }
-    if (!confirm('Salvar todas as alterações da coluna? Os outros setores serão preservados.')) return;
-    if (!(await commitCI(next, [], false, ciEdits.oldest(changed, ciList), changed))) return;
-    setReforcoDrafts(prev => {
-      const remaining = { ...prev }; changed.forEach(id => delete remaining[id]);
-      try { localStorage.setItem('reforco_drafts_' + dataOperacao, JSON.stringify(remaining)); } catch {}
-      return remaining;
-    });
-    toast.success('Coluna salva com sucesso.');
+    const baseline = editCIBaseline(slot.id), saved = readReinforcementSlot(slot, baseline);
+    if (!saved) return;
+    try {
+      const removed = await removeSavedReinforcement(baseline, saved,
+        next => commitCI(next, [], false, baseline, [slot.id]));
+      if (removed) { toast.success('Carro retirado deste horário.'); done(); }
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Não foi possível retirar o carro.'); }
+  };
+  const saveInspectionFromPopup = async (selected: InspectionChoice[], done: () => void) => {
+    if (checkDataFuturaBloqueio()) return;
+    try {
+      const baseline = editCIBaseline('inspection');
+      const next = saveInspectionSelection(baseline, reinforcementContext(), selected);
+      const execute = () => persistReinforcement(next, baseline, 'inspection', done);
+      const added = selected.filter(i => i.key.startsWith('new-'));
+      const existingLocations = added.flatMap(i => findExistingCarLocations(i.prefixo).map(location => i.prefixo + ': ' + location));
+      if (existingLocations.length) {
+        setConflictModal({ isOpen: true, carro: added.map(i => i.prefixo).join(', '), existingLocations,
+          targetLocation: 'Inspeção',
+          onConfirm: async () => { setConflictModal(prev => ({ ...prev, isOpen: false })); await execute(); } });
+      } else await execute();
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Não foi possível salvar a inspeção.'); }
   };
 
   // Mapa rápido de carros com registro de CI ativo na data selecionada
@@ -2311,279 +2012,14 @@ export function CiManutencaoView({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-            
-            {/* Tabela Coluna 1 (Slots 0 a 5) */}
-            <div className="lg:col-span-5 border rounded-xl overflow-hidden bg-background">
-              <div className="bg-muted/50 px-2.5 py-2 border-b text-[11px] font-bold grid grid-cols-12 gap-1.5 sm:gap-2 text-muted-foreground uppercase font-mono items-center">
-                <span className="col-span-2">Horário</span>
-                <span className="col-span-3">Motivo</span>
-                <span className="col-span-3">Prefixo</span>
-                <span className="col-span-3">Obs</span>
-                <span className="col-span-1 text-center">Salvar</span>
-              </div>
-              <div className="divide-y divide-border/60">
-                {FIXED_REFORCO_SLOTS.slice(0, 6).map((slot, idx) => {
-                  const slotData = getReforcoSlotData(slot.id, slot.horario, slot.defaultMotivo, idx);
-                  return (
-                    <div key={slot.id} onFocusCapture={() => { if (isDataEditavel) ciEdits.begin(slot.id, reloadContext, ciList); }} className="p-2 grid grid-cols-12 gap-1.5 sm:gap-2 items-center text-xs hover:bg-muted/20 transition-colors">
-                      {/* Horário Fixo */}
-                      <div className="col-span-2 font-mono font-bold text-xs flex items-center">
-                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 whitespace-nowrap text-[11px]">
-                          {slotData.savedItem?.horarioReforco || slot.horario}
-                        </span>
-                      </div>
-
-                      {/* Motivo */}
-                      <div className="col-span-3">
-                        <select
-                          value={slotData.motivo}
-                          disabled={!isDataEditavel}
-                          onChange={(e) => handleReforcoSlotDraftChange(slot.id, { motivo: e.target.value })}
-                          className={cn(
-                            "w-full h-8 px-1.5 sm:px-2 rounded-md border bg-background text-[11px] font-medium focus:outline-hidden",
-                            !isDataEditavel && "opacity-50 cursor-not-allowed"
-                          )}
-                        >
-                          <option value="">—</option>
-                          <option value="LUBRIFICAÇÃO">LUBRIFICAÇÃO</option>
-                          <option value="TROCA DE ÓLEO">TROCA DE ÓLEO</option>
-                          <option value="INSPEÇÃO">INSPEÇÃO</option>
-                          <option value="REVISÃO">REVISÃO</option>
-                          <option value="PREVENTIVA">PREVENTIVA</option>
-                          {slotData.motivo && !["LUBRIFICAÇÃO", "TROCA DE ÓLEO", "INSPEÇÃO", "REVISÃO", "PREVENTIVA"].includes(slotData.motivo) && (
-                            <option value={slotData.motivo}>{slotData.motivo}</option>
-                          )}
-                        </select>
-                      </div>
-
-                      {/* Prefixo (Select com Busca de Carros da Garagem) */}
-                      <div className="col-span-3">
-                        <CarSearchSelect
-                          value={slotData.prefixo}
-                          disabled={!isDataEditavel}
-                          onClear={() => handleClearReforcoSlot(slot.id, slot.horario)}
-                          onChange={(novoPrefixo) => handleReforcoSlotDraftChange(slot.id, { prefixo: novoPrefixo })}
-                          allowedCars={sortedAllowedCars}
-                          placeholder="Carro"
-                        />
-                      </div>
-
-                      {/* Obs (Opcional) */}
-                      <div className="col-span-3">
-                        <Input
-                          value={slotData.obs}
-                          disabled={!isDataEditavel}
-                          placeholder="Ex: POSTO .M"
-                          onChange={(e) => handleReforcoSlotDraftChange(slot.id, { obs: e.target.value })}
-                          className={cn("h-8 text-[11px] bg-background", !isDataEditavel && "opacity-50 cursor-not-allowed")}
-                        />
-                      </div>
-
-                      {/* Botão Redondo com Ícone de Certo */}
-                      <div className="col-span-1 flex items-center justify-center">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={!isDataEditavel || !slotData.prefixo.trim() || !slotData.motivo.trim()}
-                          onClick={() => handleSaveReforcoSlot(slot.id, slot.horario)}
-                          className={cn(
-                            "h-7 w-7 p-0 rounded-full cursor-pointer transition-all duration-150 shrink-0",
-                            slotData.isSaved && !slotData.isDirty
-                              ? "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-2xs"
-                              : (slotData.prefixo && slotData.motivo)
-                              ? "border-2 border-emerald-500 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-600 hover:text-white bg-emerald-500/10 shadow-2xs"
-                              : "border-border/80 text-muted-foreground/50 hover:border-emerald-500/50 hover:text-emerald-600 hover:bg-emerald-500/10",
-                            !isDataEditavel && "opacity-40 cursor-not-allowed pointer-events-none"
-                          )}
-                          title={
-                            !isDataEditavel
-                              ? "Folha fechada para edição"
-                              : slotData.isSaved && !slotData.isDirty
-                              ? "Salvo na CI. Clique para atualizar se alterar algo."
-                              : "Salvar horário na CI (Requer Motivo e Prefixo)"
-                          }
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Tabela Coluna 2 (Slots 6 a 11) */}
-            <div className="lg:col-span-5 border rounded-xl overflow-hidden bg-background">
-              <div className="bg-muted/50 px-2.5 py-2 border-b text-[11px] font-bold grid grid-cols-12 gap-1.5 sm:gap-2 text-muted-foreground uppercase font-mono items-center">
-                <span className="col-span-2">Horário</span>
-                <span className="col-span-3">Motivo</span>
-                <span className="col-span-3">Prefixo</span>
-                <span className="col-span-3">Obs</span>
-                <span className="col-span-1 text-center">Salvar</span>
-              </div>
-              <div className="divide-y divide-border/60">
-                {FIXED_REFORCO_SLOTS.slice(6, 12).map((slot, idx) => {
-                  const slotData = getReforcoSlotData(slot.id, slot.horario, slot.defaultMotivo, idx + 6);
-                  return (
-                    <div key={slot.id} onFocusCapture={() => { if (isDataEditavel) ciEdits.begin(slot.id, reloadContext, ciList); }} className="p-2 grid grid-cols-12 gap-1.5 sm:gap-2 items-center text-xs hover:bg-muted/20 transition-colors">
-                      {/* Horário Fixo */}
-                      <div className="col-span-2 font-mono font-bold text-xs flex items-center">
-                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 whitespace-nowrap text-[11px]">
-                          {slotData.savedItem?.horarioReforco || slot.horario}
-                        </span>
-                      </div>
-
-                      {/* Motivo */}
-                      <div className="col-span-3">
-                        <select
-                          value={slotData.motivo}
-                          disabled={!isDataEditavel}
-                          onChange={(e) => handleReforcoSlotDraftChange(slot.id, { motivo: e.target.value })}
-                          className={cn(
-                            "w-full h-8 px-1.5 sm:px-2 rounded-md border bg-background text-[11px] font-medium focus:outline-hidden",
-                            !isDataEditavel && "opacity-50 cursor-not-allowed"
-                          )}
-                        >
-                          <option value="">—</option>
-                          <option value="LUBRIFICAÇÃO">LUBRIFICAÇÃO</option>
-                          <option value="TROCA DE ÓLEO">TROCA DE ÓLEO</option>
-                          <option value="INSPEÇÃO">INSPEÇÃO</option>
-                          <option value="REVISÃO">REVISÃO</option>
-                          <option value="PREVENTIVA">PREVENTIVA</option>
-                          {slotData.motivo && !["LUBRIFICAÇÃO", "TROCA DE ÓLEO", "INSPEÇÃO", "REVISÃO", "PREVENTIVA"].includes(slotData.motivo) && (
-                            <option value={slotData.motivo}>{slotData.motivo}</option>
-                          )}
-                        </select>
-                      </div>
-
-                      {/* Prefixo (Select com Busca de Carros da Garagem) */}
-                      <div className="col-span-3">
-                        <CarSearchSelect
-                          value={slotData.prefixo}
-                          disabled={!isDataEditavel}
-                          onClear={() => handleClearReforcoSlot(slot.id, slot.horario)}
-                          onChange={(novoPrefixo) => handleReforcoSlotDraftChange(slot.id, { prefixo: novoPrefixo })}
-                          allowedCars={sortedAllowedCars}
-                          placeholder="Carro"
-                        />
-                      </div>
-
-                      {/* Obs (Opcional - Idêntico à Coluna 1) */}
-                      <div className="col-span-3">
-                        <Input
-                          value={slotData.obs}
-                          disabled={!isDataEditavel}
-                          placeholder="Ex: POSTO .M"
-                          onChange={(e) => handleReforcoSlotDraftChange(slot.id, { obs: e.target.value })}
-                          className={cn("h-8 text-[11px] bg-background", !isDataEditavel && "opacity-50 cursor-not-allowed")}
-                        />
-                      </div>
-
-                      {/* Botão Redondo com Ícone de Certo */}
-                      <div className="col-span-1 flex items-center justify-center">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={!isDataEditavel || !slotData.prefixo.trim() || !slotData.motivo.trim()}
-                          onClick={() => handleSaveReforcoSlot(slot.id, slot.horario)}
-                          className={cn(
-                            "h-7 w-7 p-0 rounded-full cursor-pointer transition-all duration-150 shrink-0",
-                            slotData.isSaved && !slotData.isDirty
-                              ? "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-2xs"
-                              : (slotData.prefixo && slotData.motivo)
-                              ? "border-2 border-emerald-500 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-600 hover:text-white bg-emerald-500/10 shadow-2xs"
-                              : "border-border/80 text-muted-foreground/50 hover:border-emerald-500/50 hover:text-emerald-600 hover:bg-emerald-500/10",
-                            !isDataEditavel && "opacity-40 cursor-not-allowed pointer-events-none"
-                          )}
-                          title={
-                            !isDataEditavel
-                              ? "Folha fechada para edição"
-                              : slotData.isSaved && !slotData.isDirty
-                              ? "Salvo na CI. Clique para atualizar se alterar algo."
-                              : "Salvar horário na CI (Requer Motivo e Prefixo)"
-                          }
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Tabela Coluna 3: Card Especial de Serviço (Titulo fixo INSPECAO + SALVAR no topo e 6 linhas com CarSearchSelect) */}
-            <div className="lg:col-span-2 border rounded-xl overflow-hidden bg-background">
-              <div className="bg-muted/50 px-2.5 py-2 border-b text-[11px] font-bold flex items-center justify-between text-muted-foreground uppercase font-mono">
-                <span className="flex-1 mr-2 text-foreground">INSPEÇÃO</span>
-                <button
-                  type="button"
-                  disabled={!isDataEditavel}
-                  onClick={handleSaveAllReforcoExtraSlots}
-                  className={cn(
-                    "text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 uppercase tracking-wider shrink-0 cursor-pointer",
-                    !isDataEditavel && "opacity-40 cursor-not-allowed pointer-events-none"
-                  )}
-                  title={isDataEditavel ? "Salvar todos os veículos desta coluna" : "Folha fechada para edição"}
-                >
-                  SALVAR
-                </button>
-              </div>
-              <div className="divide-y divide-border/60">
-                {extraSlots.map((slot) => {
-                  const extraData = getReforcoSlotData(slot.id, reforcoServicoTipo);
-                  return (
-                    <div key={slot.id} onFocusCapture={() => { if (isDataEditavel) ciEdits.begin(slot.id, reloadContext, ciList); }} className="p-2 flex items-center gap-2 text-xs hover:bg-muted/20 transition-colors">
-                      {/* Prefixo (Select com Busca de Carros da Garagem) */}
-                      <div className="flex-1">
-                        <CarSearchSelect
-                          value={extraData.prefixo}
-                          disabled={!isDataEditavel}
-                          onClear={() => handleClearReforcoSlot(slot.id)}
-                          onChange={(novoCarro) => handleReforcoSlotDraftChange(slot.id, { prefixo: novoCarro })}
-                          allowedCars={sortedAllowedCars}
-                          placeholder="Carro"
-                        />
-                      </div>
-
-                      {/* Botão Redondo com Ícone de Certo */}
-                      <div className="shrink-0 flex items-center justify-center">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={!isDataEditavel}
-                          onClick={() => handleSaveReforcoExtraSlot(slot.id)}
-                          className={cn(
-                            "h-7 w-7 p-0 rounded-full cursor-pointer transition-all duration-150 shrink-0",
-                            extraData.isSaved && !extraData.isDirty
-                              ? "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-2xs"
-                              : extraData.prefixo
-                              ? "border-2 border-emerald-500 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-600 hover:text-white bg-emerald-500/10 shadow-2xs"
-                              : "border-border/80 text-muted-foreground/50 hover:border-emerald-500/50 hover:text-emerald-600 hover:bg-emerald-500/10",
-                            !isDataEditavel && "opacity-40 cursor-not-allowed pointer-events-none"
-                          )}
-                          title={
-                            !isDataEditavel
-                              ? "Folha fechada para edição"
-                              : extraData.isSaved && !extraData.isDirty
-                              ? `Salvo em ${reforcoServicoTipo}. Clique para atualizar.`
-                              : `Salvar veículo em ${reforcoServicoTipo}`
-                          }
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-          </div>
+          <CIReinforcementCards key={reloadContext} slots={FIXED_REFORCO_SLOTS} cars={sortedAllowedCars}
+            editable={isDataEditavel} busy={writeState.pending} refreshRequired={writeState.refreshRequired} CarSelect={CarSearchSelect}
+            readSlot={readReinforcementSlot}
+            inspection={savedInspectionEntries(ciList, reinforcementContext()).map(({ key, prefixo }) => ({ key, prefixo }))}
+            onStart={startReinforcementEdit} onEnd={key => ciEdits.end(key)}
+            onSaveFixed={(slot, draft, done) => void saveFixedFromPopup(slot, draft, done)}
+            onRemoveFixed={(slot, done) => void removeFixedFromPopup(slot, done)}
+            onSaveInspection={(selected, done) => void saveInspectionFromPopup(selected, done)} />
         </div>
 
         {/* ========================================================= */}

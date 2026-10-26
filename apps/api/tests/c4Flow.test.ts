@@ -11,6 +11,7 @@ import { revision } from '../src/services/mvpTemporal';
 import { revision as clientRevision } from '../../web/src/lib/mvpTemporal';
 import { ciEntryGarage, vehiclesForGarage } from '../../web/src/lib/c4Vehicles';
 import { c4KnownFields, c4EditedText } from '../../web/src/lib/c4ItemFields';
+import { savedInspectionEntries, saveInspectionSelection } from '../../web/src/pages/soltura/ciReinforcementEditor';
 import Module from 'node:module';
 import path from 'node:path';
 
@@ -1235,4 +1236,31 @@ test('regularizacao: UI conserva leitura sem capacidade oficial e apos finalizac
    assert.equal(Boolean(client.c4Mutable(selectedDay, 'VCG')), expected);
   }
  } finally { (Module as any)._load = loader; }
+});
+
+test('popup inspecao: lote de seis salva e recarrega pelo sync existente preservando outros setores', async () => {
+ const f = await ready(), ctx = await readContext(f.db, 'VCG', day, clock());
+ const original = ctx.ci.filter(i => i.data === target), before = f.tables();
+ const context = { date: target, garage: 'VCG' as const, c4: true, serviceTitle: 'INSPEÇÃO', fixedSlots: [], legacyVehicle: () => ({ garagem: 'VCG' as const }) };
+ const existing = savedInspectionEntries(ctx.ci, context);
+ const selected = [...existing.map(({ key, prefixo }) => ({ key, prefixo })), ...Array.from({ length: 5 }, (_, n) => ({ key: `new-${4500+n}`, prefixo: String(4500+n) }))];
+ const next = saveInspectionSelection(ctx.ci, context, selected).filter(i => i.data === target);
+ await saveC4(f.db, 1, { garagem: 'VCG', data: target, baseC4: ctx.baseC4, base: revision(original), items: next }, 'ci', clock());
+ const loaded = await readContext(f.db, 'VCG', day, clock());
+ assert.equal(savedInspectionEntries(loaded.ci, context).length, 6);
+ assert.deepEqual(f.tables().itemFolhaCI.filter(i => i.folhaId === 10), before.itemFolhaCI.filter(i => i.folhaId === 10));
+ assert.deepEqual(f.tables().estadoManutencao, before.estadoManutencao);
+ assert.equal(loaded.ci.filter(i => i.data === target && i.categoriaPlanilha !== 'REFORCO').length, original.filter(i => i.categoriaPlanilha !== 'REFORCO').length);
+});
+
+test('popup inspecao: conflito rejeita lote inteiro e preserva vencedor sem inclusoes parciais', async () => {
+ const f = await ready(), ctx = await readContext(f.db, 'VCG', day, clock());
+ const original = ctx.ci.filter(i => i.data === target);
+ const context = { date: target, garage: 'VCG' as const, c4: true, serviceTitle: 'INSPEÇÃO', fixedSlots: [], legacyVehicle: () => ({ garagem: 'VCG' as const }) };
+ const next = saveInspectionSelection(ctx.ci, context, [{ key: 'new-4500', prefixo: '4500' }, { key: 'new-4501', prefixo: '4501' }]).filter(i => i.data === target);
+ await manualSave(f, 'ci', target, items => { items.find(i => i.categoriaPlanilha === 'OFICINA').os = 'OUTRO USUARIO'; });
+ const winner = f.tables();
+ await assert.rejects(saveC4(f.db, 1, { garagem: 'VCG', data: target, baseC4: ctx.baseC4, base: revision(original), items: next }, 'ci', clock()), /desatualizado/);
+ assert.deepEqual(f.tables(), winner);
+ assert.ok(!f.tables().itemFolhaCI.some(i => i.prefixo === '4500' || i.prefixo === '4501'));
 });

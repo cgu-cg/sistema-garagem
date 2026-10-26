@@ -1,5 +1,28 @@
 # Domain model e entendimento operacional atual
 
+## Cadastro de Reforco e Inspecao por popup - 26/10/2026
+
+Os horarios do Reforco exibem somente dados salvos. O botao + de cada posicao
+abre formulario de situacao (campo motivo), carro e observacao opcional.
+Salvar exige situacao e prefixo, conforme validacao existente no backend.
+Alteracao e retirada ocorrem pelo popup; cancelar descarta apenas o rascunho.
+
+Inspecao possui um unico + no cabecalho, sem seletores ou confirmacoes por
+linha. O popup mostra os carros atuais e permite adicionar/remover badges e
+salvar o conjunto de ate seis carros em um unico snapshot. Impede novas
+selecoes repetidas. Registros antigos adicionais nao sao truncados ao abrir,
+copiar, consultar ou salvar outros setores; o popup pede ajuste explicito
+para salvar conjuntos com mais de seis. Itens mantidos conservam identidade
+e campos opcionais existentes; novos extras C4 nao recebem motivo/obs ficticios.
+
+Rascunhos ficam locais ao popup, sem gravacao em localStorage ou cards.
+Fechar com alteracoes pede descarte; salvar so fecha apos confirmacao da API.
+Enquanto ha popup aberto, a protecao existente impede finalizar a CI com
+edicao pendente. Contexto e snapshot da abertura sao preservados, incluindo
+em recargas concorrentes; conflito ou falha mantem o formulario para revisao.
+Permissoes, datas, avisos de coexistencia e relatorio oficial sao preservados.
+Usa o sync existente, sem nova rota ou alteracao de banco.
+
 ## Regularizacao sequencial da CI - confirmado em 26/10/2026
 
 ADMIN pode iniciar explicitamente a regularizacao de uma CI de hoje ou
