@@ -29,6 +29,8 @@ model User {
   manutencaoCarros           ManutencaoCarro[]
 
   folhasCIRegistradas FolhaCI[] @relation("FolhaResponsavel")
+  regularizacoesCIIniciadas FolhaCI[] @relation("CIRegularizacaoResponsavel")
+  folhasCIFinalizadas FolhaCI[] @relation("CIFinalizador")
   itensFolhaCIRegistrados ItemFolhaCI[] @relation("ItemFolhaResponsavel")
   estadosManutencaoRegistrados EstadoManutencao[] @relation("EstadoManutencaoResponsavel")
 
@@ -279,6 +281,9 @@ model FolhaCI {
   inicializadaEm          DateTime?         @map("inicializada_em") @db.DateTime2
   finalizacaoPrevistaEm   DateTime?         @map("finalizacao_prevista_em") @db.DateTime2
   finalizadaEm            DateTime?         @map("finalizada_em") @db.DateTime2
+  regularizacaoIniciadaEm DateTime?         @map("regularizacao_iniciada_em") @db.DateTime2
+  regularizacaoIniciadaPorId Int?           @map("regularizacao_iniciada_por_id") @db.Int
+  finalizadaPorId         Int?              @map("finalizada_por_id") @db.Int
   referenciaOrigem        String?           @map("referencia_origem") @db.NVarChar(255)
   responsavelRegistroId   Int?              @map("responsavel_registro_id") @db.Int
   createdAt               DateTime          @default(dbgenerated("SYSUTCDATETIME()"), map: "DF_folha_ci_created_at") @map("created_at") @db.DateTime2
@@ -288,6 +293,8 @@ model FolhaCI {
   folhaOrigem             FolhaCI?          @relation("OrigemFolha", fields: [folhaOrigemId, garagem], references: [id, garagem], onDelete: NoAction, onUpdate: NoAction, map: "FK_folha_ci_origem_garagem")
   folhasDerivadas         FolhaCI[]         @relation("OrigemFolha")
   responsavelRegistro     User?             @relation("FolhaResponsavel", fields: [responsavelRegistroId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_folha_ci_responsavel")
+  regularizacaoIniciadaPor User?             @relation("CIRegularizacaoResponsavel", fields: [regularizacaoIniciadaPorId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_folha_ci_regularizacao_usuario")
+  finalizadaPor           User?             @relation("CIFinalizador", fields: [finalizadaPorId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_folha_ci_finalizador")
   itens                   ItemFolhaCI[]
 
   @@unique([garagem, dataFolha], map: "UQ_folha_ci_garagem_data")

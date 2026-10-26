@@ -3,6 +3,8 @@ import { explicitGarage } from '@/lib/operationalAccess';
 import { normalizeIsoDate, selectCIReportItems, ciReportExtraSlots, ciReportSlot, groupCIReportSubtypes, matchesCISubtype, ciBlockDate } from './ciReport';
 import { operationalContext } from '@/lib/mvpTemporal';
 import { initialCIDate } from '@/lib/c4';
+import type { CILifecycleOperation } from '@/lib/c4';
+import { CIRegularizationNotice } from './CIRegularizationNotice';
 import { canWriteC4 } from '@/lib/c4Authorization';
 import { canMutate, getMutationState, subscribeMutationState, confirmRefresh, requireRefresh, SavedRefreshRequired, readTicket } from '@/lib/mvpTemporal';
 import { useReadCoordinator } from '@/lib/readCoordination';
@@ -514,24 +516,29 @@ export function CiManutencaoView({
   const lifecycleContext = c4Context(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG', ciContextDay(selectedCIDate));
   const previousCIFinalized = lifecycleContext?.folhas?.some(f => f.dataFolha === ciContextDay(selectedCIDate) && f.status === 'FINALIZADA');
   const nextCIStarted = lifecycleContext?.folhas?.some(f => f.dataFolha === ciNextDay(selectedCIDate));
+  const selectedFolha = c4Folha(selectedCIDate, activeGaragemScope === 'VCM' ? 'VCM' : 'VCG');
+  const canRegularize = isAdmin && selectedCIDate <= getTodayString() && !nextCIStarted &&
+    (!selectedFolha || (selectedFolha.status === 'EM_PREPARACAO' && !selectedFolha.regularizacaoIniciadaEm));
 
-  // No fluxo manual, qualquer folha futura iniciada e em preparacao pode ser editada.
+  // Folhas futuras em preparacao; datas vencidas exigem regularizacao ADMIN.
   const isDataEditavel = useMemo(() => {
     const target = normalizeIsoDate(dataOperacao);
     const tomorrow = getTomorrowString();
     const scope = activeGaragemScope === 'VCM' ? 'VCM' : 'VCG';
-    return Boolean(ready && !writeState.pending && !writeState.refreshRequired && target && (c4Enabled(scope) ? target > getTodayString() : target === tomorrow) && (c4Enabled(scope) ? canWriteC4(user, scope) : isAdmin) && canMutate(target, 'ci', c4Enabled(scope)) && (c4Enabled(scope) ? activeGaragemScope !== 'TODAS' && c4Mutable(target, scope) : activeGaragemScope !== 'VCM'));
-  }, [dataOperacao, clock, user, isAdmin, activeGaragemScope, ready, writeState]);
+    return Boolean(ready && !writeState.pending && !writeState.refreshRequired && target && (c4Enabled(scope)
+      ? activeGaragemScope !== 'TODAS' && canWriteC4(user, scope) && (!selectedFolha?.regularizacaoIniciadaEm || isAdmin) && c4Mutable(target, scope)
+      : target === tomorrow && isAdmin && canMutate(target, 'ci') && activeGaragemScope !== 'VCM'));
+  }, [dataOperacao, clock, user, isAdmin, activeGaragemScope, ready, writeState, selectedFolha]);
 
-  // Datas de hoje/anteriores e folhas finalizadas nao recebem alteracoes.
+  // Revalida a capacidade oficial, inclusive a excecao de regularizacao ADMIN.
   const checkDataFuturaBloqueio = useCallback((): boolean => {
     const target = normalizeIsoDate(dataOperacao);
     const scope = activeGaragemScope === 'VCM' ? 'VCM' : 'VCG';
-    if (!ready || getMutationState().pending || getMutationState().refreshRequired || !(c4Enabled(scope) ? canWriteC4(user, scope) : isAdmin) || !canMutate(target, 'ci', c4Enabled(scope)) || (c4Enabled(scope) ? activeGaragemScope === 'TODAS' || !c4Mutable(target, scope) : activeGaragemScope === 'VCM')) { toast.error('Esta folha permite apenas consulta.'); return true; }
+    if (!ready || getMutationState().pending || getMutationState().refreshRequired || !(c4Enabled(scope) ? canWriteC4(user, scope) : isAdmin) || (c4Enabled(scope) ? activeGaragemScope === 'TODAS' || !c4Mutable(target, scope) || Boolean(c4Folha(target, scope)?.regularizacaoIniciadaEm && !isAdmin) : !canMutate(target, 'ci') || activeGaragemScope === 'VCM')) { toast.error('Esta folha permite apenas consulta.'); return true; }
     const today = getTodayString();
     const tomorrow = getTomorrowString();
 
-    if (target && target <= today) {
+    if (!c4Enabled(scope) && target && target <= today) {
       toast.error("Folha Fechada para Edição!", {
         description: `A CI desta data (${formatarDataBr(target)}) já foi encerrada e está bloqueada para alterações. Conforme regra operacional, apenas a folha de amanhã (${formatarDataBr(tomorrow)}) pode receber alterações.`,
         duration: 5000,
@@ -580,15 +587,15 @@ export function CiManutencaoView({
     }
   };
 
-  const handleCIState = async (operation: 'iniciar' | 'finalizar' | 'reabrir') => {
+  const handleCIState = async (operation: CILifecycleOperation) => {
     if (ciEdits.keys().length) { toast.warning('Salve ou descarte os rascunhos antes de alterar o estado da CI.'); return; }
-    if (!window.confirm(operation === 'finalizar' ? 'Finalizar esta CI e liberar a preparacao da proxima?' : operation === 'reabrir' ? 'Reabrir esta CI para edicao?' : 'Iniciar esta CI copiando os dados da CI anterior finalizada?')) return;
+    if (!window.confirm(operation === 'regularizar' ? 'Iniciar a regularização desta CI? Confira os dados desta data antes de finalizar. Seu usuário e o horário real serão registrados.' : operation === 'finalizar' ? 'Finalizar esta CI e liberar a preparacao da proxima?' : operation === 'reabrir' ? 'Reabrir esta CI para edicao?' : 'Iniciar esta CI copiando os dados da CI anterior finalizada?')) return;
     const context = reloadContext;
     try {
       const records = await changeCIState(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG', normalizeIsoDate(dataOperacao), operation);
       if (!reload.isActive(context)) return;
       setCiList(records); confirmRefresh();
-      toast.success(operation === 'finalizar' ? 'CI finalizada.' : operation === 'reabrir' ? 'CI reaberta.' : 'CI iniciada com os dados da anterior.');
+      toast.success(operation === 'regularizar' ? 'Regularização iniciada. Revise os dados antes de finalizar.' : operation === 'finalizar' ? 'CI finalizada.' : operation === 'reabrir' ? 'CI reaberta.' : 'CI iniciada com os dados da anterior.');
     } catch (error) { if (reload.isActive(context)) toast.error(error instanceof Error ? error.message : 'Nao foi possivel alterar a CI.'); }
   };
 
@@ -1014,7 +1021,7 @@ export function CiManutencaoView({
     setQuickAddCarro("");
     setQuickAddCars([]);
     setQuickAddFilterCompany(!c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && category === "BLOQUEADO" && ["VSF", "VCG", "JTU", "VCM"].includes(subType) ? subType : "TODAS");
-    setQuickAddDataBloqueio(operationalContext().today);
+    setQuickAddDataBloqueio(selectedCIDate <= operationalContext().today ? ciContextDay(selectedCIDate) : operationalContext().today);
     setQuickAddSelectorOpen(false);
     setIsOutroMotivo(false);
 
@@ -1783,7 +1790,7 @@ export function CiManutencaoView({
     const isChipExistente = chips.some(c => c.toLowerCase() === motivoAtual.toLowerCase());
     setIsOutroMotivo(Boolean(motivoAtual && !isChipExistente));
     setQuickAddMotivo(motivoAtual);
-    setQuickAddDataBloqueio(existingCI.dataBloqueio || operationalContext().today);
+    setQuickAddDataBloqueio(existingCI.dataBloqueio || (selectedCIDate <= operationalContext().today ? ciContextDay(selectedCIDate) : operationalContext().today));
     setQuickAddFilterCompany(existingCI.consorciada || "TODAS");
     setQuickAddSelectorOpen(false);
   };
@@ -1959,7 +1966,8 @@ export function CiManutencaoView({
 
           {activeGaragemScope !== 'TODAS' && c4Enabled(activeGaragemScope) && canWriteC4(user, activeGaragemScope) && <>
             {normalizeIsoDate(dataOperacao) > operationalContext().today && !c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope) && <Button type="button" className="bg-[#164E3A] hover:bg-[#113C2D] text-white rounded-full" size="sm" title={previousCIFinalized ? 'Copiar a CI anterior finalizada' : 'Finalize a CI do dia anterior para liberar esta CI'} disabled={!ready || writeState.pending || writeState.refreshRequired || !previousCIFinalized} onClick={() => void handleCIState('iniciar')}>Iniciar CI</Button>}
-            {c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope)?.status === 'EM_PREPARACAO' && <Button type="button" className="bg-[#164E3A] hover:bg-[#113C2D] text-white rounded-full" size="sm" disabled={!ready || writeState.pending || writeState.refreshRequired} onClick={() => void handleCIState('finalizar')}>Finalizar CI</Button>}
+            {canRegularize && <Button type="button" variant="outline" size="sm" title={previousCIFinalized ? 'Revisar esta data com auditoria de regularização' : 'Finalize a CI do dia anterior primeiro'} disabled={!ready || writeState.pending || writeState.refreshRequired || !previousCIFinalized} onClick={() => void handleCIState('regularizar')}>Regularizar CI</Button>}
+            {selectedFolha?.status === 'EM_PREPARACAO' && (!selectedFolha.regularizacaoIniciadaEm || isAdmin) && <Button type="button" className="bg-[#164E3A] hover:bg-[#113C2D] text-white rounded-full" size="sm" disabled={!ready || writeState.pending || writeState.refreshRequired} onClick={() => void handleCIState('finalizar')}>Finalizar CI</Button>}
             {c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope)?.status === 'FINALIZADA' && normalizeIsoDate(dataOperacao) > operationalContext().today && !nextCIStarted && <Button type="button" variant="outline" size="sm" disabled={!ready || writeState.pending || writeState.refreshRequired} onClick={() => void handleCIState('reabrir')}>Reabrir CI</Button>}
             {c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope)?.status === 'FINALIZADA' && <Button type="button" variant="outline" size="sm" disabled={!ready || writeState.pending} onClick={() => setDataOperacao(ciNextDay(selectedCIDate))}>Próxima CI</Button>}
           </>}
@@ -1978,13 +1986,14 @@ export function CiManutencaoView({
       {/* ========================================================= */}
       {writeState.pending && <p role="status">Salvando. Aguarde antes de outra operacao.</p>}
       {writeState.refreshRequired && <p role="alert">Atualize os dados oficiais antes de continuar.</p>}
+      {selectedFolha && c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && <CIRegularizationNotice folha={selectedFolha} />}
       {c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && <p role="status" className="text-sm">Folha: {c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')?.status === 'FINALIZADA' ? 'Finalizada' : c4Folha(normalizeIsoDate(dataOperacao), activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')?.status === 'EM_PREPARACAO' ? 'Em preparação' : 'Não preparada'}</p>}
       {/* PRANCHETA DIGITAL (LAYOUT PRINT 01 & PRINT 02) */}
       {/* ========================================================= */}
       <div className="space-y-6">
         
         {/* BANNER INFORMATIVO PARA FOLHA FECHADA (DATAS <= HOJE) */}
-        {isFolhaFechada && (
+        {isFolhaFechada && !isDataEditavel && (
           <div className="bg-slate-100 dark:bg-slate-800/60 border-2 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 shadow-xs">
             <div className="flex items-start gap-3">
               <Lock className="w-5 h-5 shrink-0 text-slate-600 dark:text-slate-400 mt-0.5" />
@@ -3237,7 +3246,7 @@ export function CiManutencaoView({
             }}
             className="space-y-3.5 pt-1"
           >
-            {quickAddModal.category === 'BLOQUEADO' && c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && <label className="block text-xs font-semibold">Data original do bloqueio<Input type="date" value={quickAddDataBloqueio} max={operationalContext().today} onChange={e => setQuickAddDataBloqueio(e.target.value)} disabled={!isDataEditavel} required /></label>}
+            {quickAddModal.category === 'BLOQUEADO' && c4Enabled(activeGaragemScope === 'VCM' ? 'VCM' : 'VCG') && <label className="block text-xs font-semibold">Data original do bloqueio<Input type="date" value={quickAddDataBloqueio} max={selectedCIDate <= operationalContext().today ? ciContextDay(selectedCIDate) : operationalContext().today} onChange={e => setQuickAddDataBloqueio(e.target.value)} disabled={!isDataEditavel} required /></label>}
             {/* Banner de Modo Somente Leitura se a folha estiver fechada */}
             {!isDataEditavel && (
               <div className="bg-slate-100 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-xl p-3 flex items-center gap-2.5 text-xs">

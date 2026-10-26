@@ -5,10 +5,19 @@ import { operationalContext, revision, readTicket, assertReadTicket } from './mv
 import { ReadInterrupted } from './readCoordination';
 
 export type C4Garage = 'VCG' | 'VCM';
+export interface CIRegularizationAudit {
+  regularizacaoIniciadaEm?: string | null;
+  regularizacaoIniciadaPorId?: number | null;
+  regularizacaoIniciadaPor?: { id: number; name: string } | null;
+  finalizadaEm?: string | null;
+  finalizadaPorId?: number | null;
+  finalizadaPor?: { id: number; name: string } | null;
+}
+export type CILifecycleOperation = 'iniciar' | 'finalizar' | 'reabrir' | 'regularizar';
 export interface C4Context {
   mode: 'C4' | 'LEGADO'; garagem: C4Garage; garages?: C4Garage[]; day?: string; baseC4?: string; mutable?: boolean; ciMutable?: boolean;
-  folha?: { id: number; status: string; tituloColunaAdicional: string | null } | null;
-  folhas?: { id: number; dataFolha: string; status: string; origem: string; tituloColunaAdicional: string | null }[];
+  folha?: ({ id: number; status: string; tituloColunaAdicional: string | null } & CIRegularizationAudit) | null;
+  folhas?: ({ id: number; dataFolha: string; status: string; origem: string; tituloColunaAdicional: string | null } & CIRegularizationAudit)[];
   ci?: BloqueioCarro[]; maintenance?: ManutencaoCarroItem[];
 }
 const contexts = new Map<string, C4Context>();
@@ -69,7 +78,9 @@ export function ciContextDay(date: string) {
 export function ciNextDay(date: string) { return new Date(Date.parse(date + 'T12:00:00Z') + 86400000).toISOString().slice(0, 10); }
 export function c4Folha(day: string, garagem: C4Garage = 'VCG') { return (c4Context(garagem, ciContextDay(day)) ?? c4Context(garagem))?.folhas?.find(f => f.dataFolha === day); }
 export function c4Mutable(day: string, garagem: C4Garage = 'VCG') {
-  return day > operationalContext().today && c4Context(garagem, ciContextDay(day))?.ciMutable && c4Folha(day, garagem)?.status === 'EM_PREPARACAO';
+  const folha = c4Folha(day, garagem);
+  return (day > operationalContext().today || Boolean(folha?.regularizacaoIniciadaEm)) &&
+    c4Context(garagem, ciContextDay(day))?.ciMutable && folha?.status === 'EM_PREPARACAO';
 }
 // Representacao existente da UI e traduzida para a identidade persistida tipo+ordem.
 export function c4Items(items: BloqueioCarro[]) {

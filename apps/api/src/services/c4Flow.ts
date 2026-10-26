@@ -7,6 +7,7 @@ import { MvpError, assertFlags, revision } from './mvpTemporal';
 import { operationalContext, assertC4Context, C4_CLOSE_HOUR, Garage, garage, civil, dateValue, dateString, addDays, eventInstant } from './c4Temporal';
 import { canWriteC4 } from './c4Authorization';
 import { notifyC4Updated } from './c4Events';
+import { assertCIContentContext } from './ciRegularization';
 
 type Tx = Prisma.TransactionClient;
 export const titles = ['INSPEÇÃO', 'LUBRIFICAÇÃO', 'EM MANUTENÇÃO', 'TROCA DE ÓLEO', 'REVISÃO', 'PREVENTIVA'] as const;
@@ -74,19 +75,22 @@ export function projectItem(i: ItemFolhaCI, scope: string, day: string) {
 export function projectState(s: EstadoManutencao, day: string) {
   return { ...s, id: `c4-m-${s.id}`, data: day, observacao: s.bloqueado ? s.observacaoBloqueio : s.observacaoOficina };
 }
-export async function readContext(db: PrismaClient, scope: Garage, day: string, now = () => new Date()) {
+export async function readContext(db: PrismaClient, scope: Garage, day: string, now = () => new Date(), userId?: number) {
   civil(day);
   // Leitura coerente: nao cria estrutura nem chama recuperacao, mesmo se ausente.
   return db.$transaction(async tx => {
     const b = await bundle(tx, scope, day, now());
-    const folhas = await tx.folhaCI.findMany({ where: { garagem: scope }, include: { itens: { orderBy: { id: 'asc' } } }, orderBy: { dataFolha: 'asc' } });
+    const folhas = await tx.folhaCI.findMany({ where: { garagem: scope }, include: { itens: { orderBy: { id: 'asc' } },
+      regularizacaoIniciadaPor: { select: { id: true, name: true } }, finalizadaPor: { select: { id: true, name: true } } }, orderBy: { dataFolha: 'asc' } });
+    const user = userId ? await tx.user.findUnique({ where: { id: userId }, select: { role: true } }) : null;
     return { mode: 'C4', garagem: scope, day, baseC4: b.baseC4,
       cycle: b.cycle, folha: b.folha ? { ...b.folha, itens: undefined } : null,
       folhas: folhas.map(f => ({ ...f, itens: undefined, dataFolha: dateString(f.dataFolha) })),
       ci: folhas.flatMap(f => f.itens.map(i => projectItem(i, scope, dateString(f.dataFolha)))),
       maintenance: b.states.map(s => projectState(s, day)),
       mutable: operationalContext(now()).open && day === operationalContext(now()).today && Boolean(b.cycle && b.folha && b.folha.cicloPreparacaoId === b.cycle.id),
-      ciMutable: addDays(day, 1) > operationalContext(now()).today && b.folha?.status === 'EM_PREPARACAO',
+      ciMutable: Boolean(b.folha?.status === 'EM_PREPARACAO' && (addDays(day, 1) > operationalContext(now()).today ||
+        (user?.role === 'ADMIN' && b.folha.regularizacaoIniciadaEm && !folhas.some(f => dateString(f.dataFolha) === addDays(day, 2))))),
     };
   }, { isolationLevel: 'Serializable' });
 }
@@ -127,7 +131,8 @@ function explicitRemovals(before: string[], after: string[], requested: string[]
 async function authorized(tx: Tx, userId: number | undefined, day: string, kind: 'ci' | 'manutencao', now: () => Date, scope: Garage) {
   const user = userId ? await tx.user.findUnique({ where: { id: userId }, select: { role: true, garagem: true } }) : null;
   if (!canWriteC4(user, scope)) throw new MvpError(403, 'Fluxo C4 exige ADMIN ou manutencao vinculada a VCG.');
-  return assertC4Context(day, kind, now());
+  if (kind === 'manutencao') assertC4Context(day, kind, now());
+  return user;
 }
 
 export async function saveC4(db: PrismaClient, userId: number | undefined, body: unknown, kind: 'ci' | 'manutencao', now = () => new Date()) {
@@ -145,8 +150,12 @@ export async function saveC4(db: PrismaClient, userId: number | undefined, body:
   let changed = false;
   const committed = await db.$transaction(async tx => {
     await lockManualCI(tx, c.garagem, target);
-    await authorized(tx, userId, c.data, kind, now, c.garagem);
+    const user = await authorized(tx, userId, c.data, kind, now, c.garagem);
     const b = await bundle(tx, c.garagem, day, now());
+    if (kind === 'ci') {
+      assertCIContentContext(c.data, user, b.folha, now());
+      if (b.folha?.regularizacaoIniciadaEm && await tx.folhaCI.findUnique({ where: { garagem_dataFolha: { garagem: c.garagem, dataFolha: dateValue(addDays(target, 1)) } } })) throw new MvpError(409, 'A proxima CI ja foi iniciada; regularizacao indisponivel.');
+    }
     if (!b.cycle || !b.folha || (kind === 'ci' && b.folha.status !== 'EM_PREPARACAO') || b.folha.cicloPreparacaoId !== b.cycle.id) throw new MvpError(409, 'Ciclo/folha em preparacao indisponivel; inicie a CI explicitamente.');
     if (c.baseC4 !== b.baseC4) throw new MvpError(409, 'Snapshot C4 desatualizado. Recarregue CI e Controle.');
     const folha = b.folha, cycle = b.cycle;
@@ -246,7 +255,8 @@ export async function saveC4(db: PrismaClient, userId: number | undefined, body:
     }
     // Esperas/escritas podem atravessar a meia-noite: revalidar antes do commit.
     const result = await bundle(tx, c.garagem, day, now());
-    assertC4Context(c.data, kind, now());
+    if (kind === 'ci') assertCIContentContext(c.data, user, result.folha, now());
+    else assertC4Context(c.data, kind, now());
     changed = result.baseC4 !== b.baseC4;
     return { records: result.states.map(s => projectState(s, day)), baseC4: result.baseC4 };
   }, { isolationLevel: 'Serializable' });

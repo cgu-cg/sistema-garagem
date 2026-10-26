@@ -1,5 +1,38 @@
 # Domain model e entendimento operacional atual
 
+## Regularizacao sequencial da CI - confirmado em 26/10/2026
+
+ADMIN pode iniciar explicitamente a regularizacao de uma CI de hoje ou
+anterior, ausente ou EM_PREPARACAO. Exige CI do dia imediatamente anterior
+FINALIZADA e ausencia de folha seguinte iniciada na mesma garagem. Nao pula
+datas, nao cria intermediarias automaticamente e nao ha job de finalizacao.
+Esta excecao prevalece sobre as restricoes de edicao retroativa abaixo,
+somente para folhas em regularizacao e somente para ADMIN.
+
+Se ausente, copia integralmente a anterior, com novos IDs fisicos; se aberta,
+preserva seus itens e o inicio original. Registra regularizacaoIniciadaEm,
+regularizacaoIniciadaPorId e, ao finalizar, finalizadaPorId/finalizadaEm.
+Usuarios e horarios reais sao obtidos no servidor; o usuario iniciador nao e
+sobrescrito ao salvar/finalizar. A identificacao de regularizacao permanece
+visivel depois da finalizacao. Campos novos sao opcionais para preservar
+fotografias antigas, sem inventar autores ou datas para o legado.
+
+Somente ADMIN pode editar ou finalizar uma folha em regularizacao. Os demais
+usuarios mantem o fluxo normal, inclusive finalizar pendente nao regularizada
+sem editar seu conteudo. CI finalizada de hoje/passada nao reabre, nem mesmo
+para ADMIN. Revisoes, locks por garagem/data e transacoes continuam obrigatorios.
+
+Regularizacao nao sincroniza/manipula manutencao de hoje ou historica, Escala
+ou despachos existentes. A regra de BLOQUEADOS continua limitada a CI de amanha
+e manutencao de hoje. Datas de bloqueio da regularizacao respeitam o limite
+da folha original (dia anterior a data da CI), nunca o presente como fallback.
+GET permanece somente leitura. Apos finalizar, a acao Proxima CI permite
+seguir a sequencia ate voltar ao planejamento futuro normal.
+
+Banco: script aditivo `scripts/sql/ci-regularizacao-provisionamento.sql`;
+aplicar antes de subir o backend gerado com o novo schema Prisma. Nao usar
+prisma migrate/db push e nao executar regularizacoes reais para testar.
+
 ## Reforco com horario - confirmado em 23/10/2026
 
 Salvar uma inclusao ou alteracao nos horarios do Reforco exige prefixo e

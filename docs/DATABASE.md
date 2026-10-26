@@ -1,5 +1,36 @@
 # Arquitetura de dados atual
 
+## CI: regularizacao sequencial - 26/10/2026
+
+Script: `scripts/sql/ci-regularizacao-provisionamento.sql`. Parametros
+obrigatorios: ServidorEsperado, BancoEsperado e Aplicar (0 para precheck,
+1 para aplicar); executa somente no destino correspondente. DDL aditivo,
+transacional e repetivel, sem atualizar ou copiar registros operacionais.
+
+Aplicado em 26/10/2026 no destino explicitamente tratado nesta tarefa,
+SRV-BD02 / garagem. Precheck aprovado; tres colunas opcionais, duas FKs e
+dois CHECKs confirmados ativos e confiaveis em sys.columns/foreign_keys/
+check_constraints. Consulta dos campos/relacoes pelo Prisma Client validada
+sem gravar dados. Nao houve backfill, copia ou finalizacao de CIs reais.
+
+Adiciona a dbo.folha_ci tres colunas opcionais:
+- regularizacao_iniciada_em datetime2(3): instante real da entrada no modo;
+- regularizacao_iniciada_por_id int: FK users(id), autor preservado;
+- finalizada_por_id int: FK users(id), autor da finalizacao atual.
+
+CHECK exige instante/autor juntos e finalizador nas regularizacoes finalizadas.
+Os status/origens existentes nao mudam. ReferenciaOrigem continua livre para
+sua finalidade anterior, sem codificar auditoria em texto. Registros antigos
+permanecem NULL, sem backfill ou atribuicao artificial de responsabilidade.
+FinalizadaEm/inicializadaEm continuam sendo os instantes reais existentes;
+em folha ja aberta, inicializadaEm permanece original e o novo instante
+indica quando a regularizacao comecou. O frontend exibe nomes por relacoes
+limitadas a id/name; nao retorna emails, senhas ou outros dados de usuario.
+
+Aplicar o SQL antes de disponibilizar o backend com o novo Prisma Client.
+Gerar o client e validar schema sao operacoes locais e nao aplicam migrations.
+Ver docs/DOMAIN.md para permissoes, sequencia e isolamento da manutencao.
+
 ## DATA-001/C4 — Evolução operacional local e ativação manual
 
 ### Correção de nulabilidade antes da carga histórica — preparada, não aplicada

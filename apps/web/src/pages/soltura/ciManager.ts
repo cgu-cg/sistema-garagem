@@ -1,6 +1,6 @@
 import { BloqueioCarro } from "@/data/solturaTypes";
 import { api } from "@/lib/api";
-import { c4Context, c4Enabled, c4Items, c4SnapshotRevision, fetchC4Context, storeC4Context, C4Garage, ciContextDay } from '@/lib/c4';
+import { c4Context, c4Enabled, c4Items, c4SnapshotRevision, fetchC4Context, storeC4Context, C4Garage, ciContextDay, c4Mutable, CILifecycleOperation } from '@/lib/c4';
 import { operationalContext, canMutate, revision, beginMutation, endMutation, requireRefresh, SavedRefreshRequired, getMutationState, readTicket, assertReadTicket } from "@/lib/mvpTemporal";
 import { ReadInterrupted } from '@/lib/readCoordination';
 export type CIUpdateContext = { garagem: C4Garage; day: string };
@@ -128,7 +128,7 @@ export async function fetchCIBloqueiosFromApi(params?: { garagem?: string; statu
 }
 
 export async function saveCISnapshot(list: BloqueioCarro[], date: string, baseline: BloqueioCarro[], removeBlocked: string[] = [], operation: 'save' | 'prepare' = 'save', garagem: C4Garage = 'VCG', tituloColunaAdicional?: string, confirmRelease = false): Promise<BloqueioCarro[]> {
-  if (!canMutate(date, 'ci', c4Enabled(garagem))) throw new Error('CI fora da janela de edicao.');
+  if (!(canMutate(date, 'ci', c4Enabled(garagem)) || (c4Enabled(garagem) && c4Mutable(date, garagem)))) throw new Error('CI fora da janela de edicao.');
   if (!officialCI) throw new Error('Carregue a CI oficial antes de alterar.');
   const current = baseline.filter(i => i.data === date && i.garagem === garagem);
   const items = operation === 'prepare' ? [] : list.filter(i => i.data === date && i.garagem === garagem);
@@ -146,7 +146,7 @@ export async function saveCISnapshot(list: BloqueioCarro[], date: string, baseli
     throw error;
   } finally { endMutation(); }
 }
-export async function changeCIState(garagem: C4Garage, date: string, operacao: 'iniciar' | 'finalizar' | 'reabrir') {
+export async function changeCIState(garagem: C4Garage, date: string, operacao: CILifecycleOperation) {
   const context = c4Context(garagem, ciContextDay(date));
   if (!context?.baseC4) throw new Error('Consulte esta data antes de alterar o estado da CI.');
   beginMutation();

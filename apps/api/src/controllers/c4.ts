@@ -23,7 +23,7 @@ export async function context(req: AuthRequest, res: Response) {
     const garages = enabledGarages();
     if (!garages.includes(scope)) return res.json({ mode: 'LEGADO', garagem: scope, garages });
     await assertC4Read(prisma, req.userId, scope);
-    return res.json({ ...await readContext(prisma, scope, civil(req.query.data || operationalContext().today)), garages });
+    return res.json({ ...await readContext(prisma, scope, civil(req.query.data || operationalContext().today), undefined, req.userId), garages });
   } catch (error) {
     if (error instanceof MvpError) return res.status(error.status).json({ error: error.message });
     return res.status(503).json({ error: 'C4 indisponivel; nao ha fallback para o legado.' });

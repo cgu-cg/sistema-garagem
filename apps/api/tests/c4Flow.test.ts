@@ -744,7 +744,7 @@ test('frontend CI C4 usa data civil; janelas da manutencao e legado nao mudam', 
   }
  } finally {globalThis.Date=RealDate;}
  const source=readFileSync(path.resolve('apps/web/src/pages/soltura/CiManutencaoView.tsx'),'utf8');
- assert.ok(!source.includes("canMutate(target, 'ci')"));
+ assert.ok(source.includes('c4Mutable(target, scope)'));
 });
 
 
@@ -953,7 +953,7 @@ test('19/10: novo bloqueio incluido pela CI encerra execucao no Controle', async
 });
 
 const manualContext = (f: ReturnType<typeof fixture>, date = target, now = clock()) => readContext(f.db, 'VCG', addDays(date, -1), now);
-async function manual(f: ReturnType<typeof fixture>, date: string, operacao: 'iniciar' | 'finalizar' | 'reabrir', now = clock()) {
+async function manual(f: ReturnType<typeof fixture>, date: string, operacao: 'iniciar' | 'finalizar' | 'reabrir' | 'regularizar', now = clock()) {
  const c = await manualContext(f, date, now);
  return changeCILifecycle(f.db, 1, { garagem: 'VCG', data: date, operacao, baseC4: c.baseC4 }, now, ['VCG']);
 }
@@ -1107,3 +1107,132 @@ for (const later of ['2026-10-08T12:00:00Z', '2026-10-09T12:00:00Z']) {
  await assert.rejects(saveC4(f.db,1,next,'ci',clock())); assert.deepEqual(f.tables(),before);
  }
  });
+
+const regularizationClock = clock('2026-10-10T15:20:00Z');
+
+test('regularizacao: recompõe dias em sequencia com copia integral e horarios reais', async () => {
+ const f = fixture(), source = f.tables();
+ await assert.rejects(manual(f, '2026-10-09', 'regularizar', regularizationClock), /anterior/);
+ assert.deepEqual(f.tables(), source);
+ for (const date of [target, '2026-10-09', '2026-10-10']) {
+  await manual(f, date, 'regularizar', regularizationClock);
+  const current = f.tables().folhaCI.find(i => i.dataFolha.getTime() === dateValue(date).getTime());
+  assert.equal(current.regularizacaoIniciadaPorId, 1);
+  assert.equal(current.regularizacaoIniciadaEm.toISOString(), regularizationClock().toISOString());
+  assert.equal(current.inicializadaEm.toISOString(), regularizationClock().toISOString());
+  assert.equal(f.tables().itemFolhaCI.filter(i => i.folhaId === current.id).length, source.itemFolhaCI.length);
+  await manualSave(f, 'ci', date, items => { items.find(i => i.categoriaPlanilha === 'PREVENTIVA').os = `REVISAO ${date}`; }, regularizationClock);
+  await manual(f, date, 'finalizar', regularizationClock);
+ }
+ await manual(f, '2026-10-11', 'iniciar', regularizationClock);
+ assert.deepEqual(f.tables().itemFolhaCI.filter(i => i.folhaId === 10), source.itemFolhaCI);
+ assert.deepEqual(f.tables().estadoManutencao, []);
+ assert.equal(f.tables().folhaCI.find(i => i.dataFolha.getTime() === dateValue('2026-10-11').getTime()).regularizacaoIniciadaEm, undefined);
+});
+
+test('regularizacao: folha aberta preserva itens e inicio original; finalizador separado do iniciador', async () => {
+ const f = fixture(); await manual(f, target, 'iniciar');
+ const before = f.tables();
+ await manual(f, target, 'regularizar', regularizationClock);
+ const after = f.tables(), sheet = after.folhaCI.find(i => i.id !== 10);
+ assert.deepEqual(after.itemFolhaCI, before.itemFolhaCI);
+ assert.deepEqual(sheet.inicializadaEm, before.folhaCI.find(i => i.id === sheet.id).inicializadaEm);
+ assert.equal(sheet.regularizacaoIniciadaPorId, 1);
+ assert.equal(sheet.regularizacaoIniciadaEm.toISOString(), regularizationClock().toISOString());
+ const context = await readContext(f.db, 'VCG', day, regularizationClock, 1);
+ await changeCILifecycle(f.db, 2, { garagem: 'VCG', data: target, operacao: 'finalizar', baseC4: context.baseC4 }, regularizationClock, ['VCG']);
+ const finalized = f.tables().folhaCI.find(i => i.id === sheet.id);
+ assert.equal(finalized.finalizadaPorId, 2);
+ assert.equal(finalized.regularizacaoIniciadaPorId, 1);
+ assert.equal(finalized.finalizadaEm.toISOString(), regularizationClock().toISOString());
+ await assert.rejects(manual(f, target, 'regularizar', regularizationClock), /finalizada/);
+ await assert.rejects(manual(f, target, 'reabrir', regularizationClock), /consulta/);
+});
+
+test('regularizacao: nao altera estados de manutencao persistidos nem fotos finalizadas', async () => {
+ const f = await ready();
+ const before = f.tables();
+ await manual(f, target, 'regularizar', regularizationClock);
+ await manualSave(f, 'ci', target, items => { items.find(i => i.categoriaPlanilha === 'BLOQUEADO').motivo = 'HISTORICO REVISADO'; }, regularizationClock);
+ assert.deepEqual(f.tables().estadoManutencao, before.estadoManutencao);
+ assert.deepEqual(f.tables().folhaCI.find(i => i.id === 10), before.folhaCI.find(i => i.id === 10));
+ assert.deepEqual(f.tables().itemFolhaCI.filter(i => i.folhaId === 10), before.itemFolhaCI.filter(i => i.folhaId === 10));
+});
+
+for (const role of ['manutencao', 'COLABORADOR', 'OPERADOR']) {
+ test(`regularizacao: ${role} nao inicia, edita ou finaliza por API`, async () => {
+  const f = fixture(); f.identity({ role, garagem: 'VCG' });
+  const before = f.tables();
+  await assert.rejects(manual(f, target, 'regularizar', regularizationClock), (e: any) => e.status === 403);
+  assert.deepEqual(f.tables(), before);
+  f.identity({ role: 'ADMIN' }); await manual(f, target, 'regularizar', regularizationClock);
+  const regularized = f.tables(); f.identity({ role, garagem: 'VCG' });
+  await assert.rejects(manualSave(f, 'ci', target, items => { items.find(i => i.categoriaPlanilha === 'PREVENTIVA').os = 'NEGADO'; }, regularizationClock), (e: any) => e.status === 403);
+  await assert.rejects(manual(f, target, 'finalizar', regularizationClock), (e: any) => e.status === 403);
+  assert.deepEqual(f.tables(), regularized);
+  const ctx = await readContext(f.db, 'VCG', day, regularizationClock, 1);
+  assert.equal(ctx.ciMutable, false);
+ });
+}
+
+test('regularizacao: manutencao continua podendo finalizar pendente normal sem edicao retroativa', async () => {
+ const f = fixture(); await manual(f, target, 'iniciar');
+ f.identity({ role: 'manutencao', garagem: 'VCG' });
+ await assert.rejects(manualSave(f, 'ci', target, () => {}, regularizationClock), /consulta/);
+ await manual(f, target, 'finalizar', regularizationClock);
+ assert.equal(f.tables().folhaCI.find(i => i.id !== 10).status, 'FINALIZADA');
+});
+
+test('regularizacao: permissoes de leitura e edicao expostas apenas a ADMIN', async () => {
+ const f = fixture(); await manual(f, target, 'regularizar', regularizationClock);
+ const writes = f.writes();
+ const admin = await readContext(f.db, 'VCG', day, regularizationClock, 1);
+ assert.equal(admin.ciMutable, true);
+ assert.equal((await readContext(f.db, 'VCG', day, regularizationClock)).ciMutable, false);
+ await manual(f, target, 'finalizar', regularizationClock);
+ assert.equal((await readContext(f.db, 'VCG', day, regularizationClock, 1)).ciMutable, false);
+ assert.equal(f.writes(), writes + 1);
+});
+
+test('regularizacao: rejeita futuro, repeticao, origem ausente e snapshot obsoleto sem escrita', async () => {
+ const f = fixture(), before = f.tables();
+ await assert.rejects(manual(f, '2026-10-11', 'regularizar', regularizationClock), /hoje ou anterior/);
+ await assert.rejects(manual(f, '2026-10-05', 'regularizar', regularizationClock), /anterior/);
+ assert.deepEqual(f.tables(), before);
+ const stale = await manualContext(f, target, regularizationClock);
+ await manual(f, target, 'regularizar', regularizationClock);
+ const regularized = f.tables();
+ await assert.rejects(changeCILifecycle(f.db, 1, { garagem: 'VCG', data: target, operacao: 'regularizar', baseC4: stale.baseC4 }, regularizationClock, ['VCG']), /outro posto/);
+ await assert.rejects(manual(f, target, 'regularizar', regularizationClock), /ja esta/);
+ assert.deepEqual(f.tables(), regularized);
+});
+
+test('regularizacao: chamadas concorrentes iniciam uma unica folha auditada', async () => {
+ const f = fixture(); const ctx = await manualContext(f, target, regularizationClock);
+ const payload = { garagem: 'VCG', data: target, operacao: 'regularizar', baseC4: ctx.baseC4 };
+ const results = await Promise.allSettled([1, 2].map(userId => changeCILifecycle(f.db, userId, payload, regularizationClock, ['VCG'])));
+ assert.equal(results.filter(i => i.status === 'fulfilled').length, 1);
+ assert.equal(f.tables().folhaCI.filter(i => i.dataFolha.getTime() === dateValue(target).getTime()).length, 1);
+});
+
+test('regularizacao: UI conserva leitura sem capacidade oficial e apos finalizacao', () => {
+ const loader = (Module as any)._load;
+ try {
+  (Module as any)._load = function(id: string, ...args: unknown[]) {
+   if (id === './api') return { api: {} };
+   return loader.call(this, id, ...args);
+  };
+  const client = require('../../web/src/lib/c4');
+  const selectedDay = '2000-01-02', contextDay = '2000-01-01';
+  for (const [ciMutable, status, regularizacaoIniciadaEm, expected] of [
+   [false, 'EM_PREPARACAO', '2026-10-26T15:00:00Z', false],
+   [true, 'EM_PREPARACAO', '2026-10-26T15:00:00Z', true],
+   [true, 'FINALIZADA', '2026-10-26T15:00:00Z', false],
+   [true, 'EM_PREPARACAO', null, false],
+  ]) {
+   client.storeC4Context({ mode: 'C4', garagem: 'VCG', ciMutable,
+    folhas: [{ id: 1, dataFolha: selectedDay, status, regularizacaoIniciadaEm }] }, contextDay);
+   assert.equal(Boolean(client.c4Mutable(selectedDay, 'VCG')), expected);
+  }
+ } finally { (Module as any)._load = loader; }
+});
