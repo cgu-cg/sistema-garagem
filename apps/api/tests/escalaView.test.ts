@@ -82,6 +82,21 @@ test('carro com defeito e pedido CI mantem ambos os icones e respeita ocultacao 
   assert.doesNotMatch(hidden, /data-ci-alert=/);
 });
 
+test('Portaria e erro de alocacao nao recebem triangulo de bloqueio CI', () => {
+  const prefixo = rows[0].carroProgramado;
+  const state: DailyEscala = { ...official, bloqueados: [], ocupacoes: [],
+    cards: [{ id: 'PORTARIA', titulo: 'BLOQUEADOS PORTARIA', modo: 'lista', itens: [{ id: 'p1', prefixo }] }] };
+  const html = render(false, { official: state });
+  assert.doesNotMatch(html, /data-ci-alert="bloqueado"/);
+  assert.match(html, /Ver ocorrencias do carro .* na Portaria/);
+  const releaseHtml = renderToStaticMarkup(React.createElement(TrocaCarro, { item: rows[0], scaleState: state,
+    carroAtual: prefixo, onTrocarCarro: async () => true }));
+  assert.doesNotMatch(releaseHtml, /data-ci-alert="bloqueado"/);
+  assert.equal(pickerOptions(state, 'linha:' + rows[0].id).find((p: any) => p.prefixo === prefixo)?.blocked, true);
+  const ciHtml = render(false, { official: { ...state, bloqueados: [prefixo] } });
+  assert.match(ciHtml, /data-ci-alert="bloqueado"/);
+});
+
 test('troca por equivoco nao recebe alerta de defeito de troca anterior', () => {
   const html = renderToStaticMarkup(React.createElement(TrocaCarro, { item: rows[0], scaleState: { ...official, bloqueados: [] }, carroAtual: '4002',
     historicoTrocas: [{ carroAnterior: '4000', novoCarro: '4001', motivo: 'Defeito Garagem', dataHora: '10:00' },

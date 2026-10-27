@@ -1,4 +1,4 @@
-import { AlertTriangle, BusFront } from 'lucide-react';
+import { AlertTriangle, BusFront, ShieldAlert } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { DailyEscala } from '@/lib/sharedEscala';
 import type { GarageDefect } from '@/lib/releaseProgramming';
@@ -21,10 +21,10 @@ export function ScaleFleetSidebar({ state, garage, reserve = state?.reserva ?? [
       {state?.ciProvisoria && <p className="text-[10px] text-muted-foreground">Referência provisória até iniciar a CI da data.</p>}
       <div className="flex flex-wrap gap-1 text-xs font-mono">{state?.bloqueados.map(prefixo => <span key={prefixo} className="rounded-full border border-rose-300 px-2 py-0.5"><CiVehicleNotice state={state} prefixo={prefixo} hideIcon /></span>)}</div>
     </div>
-    {defeitosGaragem && <div className={cn(surface, 'border-rose-300 bg-rose-50/30 dark:bg-rose-950/10')}>
-      <h3 className="flex items-center gap-2 text-xs font-bold text-rose-600"><AlertTriangle className="h-4 w-4" />DEFEITO GARAGEM ({defeitosGaragem.length})</h3>
+    {defeitosGaragem && <div className={surface}>
+      <h3 className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide"><ShieldAlert aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[#164E3A] dark:text-emerald-400" />DEFEITO GARAGEM ({defeitosGaragem.length})</h3>
       <div className="flex flex-wrap gap-1.5 text-xs">{defeitosGaragem.map(defeito => <span key={defeito.prefixo}
-        className="cursor-help rounded-full border border-rose-300 px-2 py-0.5 font-mono text-rose-600"><CiVehicleNotice state={state} prefixo={defeito.prefixo} defectDescription={defeito.descricao} hideIcon /></span>)}</div>
+        className="inline-flex cursor-help items-center gap-1 rounded-full border border-rose-500 bg-muted/30 px-2 py-0.5 font-mono text-rose-600"><CiVehicleNotice state={state} prefixo={defeito.prefixo} defectDescription={defeito.descricao} hideIcon /></span>)}</div>
       {!defeitosGaragem.length && <p className="text-[10px] italic text-muted-foreground">Nenhum veículo com defeito registrado.</p>}
     </div>}
   </div>;

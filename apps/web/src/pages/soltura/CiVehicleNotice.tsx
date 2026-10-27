@@ -12,8 +12,8 @@ const subtypes: Record<string, string> = { PREVENTIVA: 'PREVENTIVAS', LUBRIFICAC
 export function ciNoticesFor(state: DailyEscala | null, prefixo: string) {
   return state?.ciAvisos?.filter(i => i.prefixo === prefixo) ?? [];
 }
-export function vehicleNoticeFlags(state: DailyEscala | null, prefixo: string, warning?: string, substitution?: unknown) {
-  return { blocked: Boolean(warning || state?.bloqueados.includes(prefixo) || state?.cards.find(c => c.id === 'PORTARIA')?.itens.some(i => i.prefixo === prefixo)),
+export function vehicleNoticeFlags(state: DailyEscala | null, prefixo: string, _warning?: string, substitution?: unknown) {
+  return { blocked: Boolean(state?.bloqueados.includes(prefixo)),
     requested: ciNoticesFor(state, prefixo).length > 0,
     defect: Boolean(substitution || state?.defeitosGaragem?.some(d => d.prefixo === prefixo)) };
 }
@@ -56,7 +56,7 @@ export function CiVehicleNotice({ state, prefixo, warning, children, hideIcon = 
       onKeyDown={event => { if (!hoverOnly && !children && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); pinned.current = !pinned.current; setOpen(pinned.current); } }}
       onClick={event => { if (hoverOnly || children) return; event.preventDefault(); pinned.current = !pinned.current; setOpen(pinned.current); }}>
       {text}
-      {!hideIcon && <VehicleNoticeIcons blocked={red} requested={notices.length > 0} defect={blue} />}
+      {!hideIcon && <VehicleNoticeIcons blocked={blockedCI} requested={notices.length > 0} defect={blue} />}
     </span></Anchor>
     {open && !hoverDisabled && <PopoverContent align="start" className={'w-80 max-w-[calc(100vw-2rem)] bg-card text-card-foreground ' + (red ? 'border-rose-300' : blue ? 'border-blue-300' : 'border-amber-300')}
       onOpenAutoFocus={event => event.preventDefault()} onCloseAutoFocus={event => event.preventDefault()}>
