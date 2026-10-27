@@ -20,6 +20,8 @@ export interface CardMutation { card: string; operacao: 'adicionar' | 'remover' 
 export interface ScaleWithdrawal { prefixo: string; destino: 'RESERVA' | 'BLOQUEAR'; motivo: string }
 export interface ScaleExchange extends ScaleWithdrawal { id: string; linhaId: string; substituto: string; usuarioId: number; registradoEm: string }
 export interface DailyEscala { contexto: EscalaContext & { dataOperacao: string }; revisao: number;
+  // Anotacao de apresentacao da Soltura; nao altera a fotografia da Escala.
+  defeitosGaragem?: { prefixo: string; descricao: string }[];
   historicoTrocas?: ScaleExchange[];
   ciProvisoria?: boolean;
   fluxo?: { status: 'NAO_INICIADA' | 'EM_PREPARACAO' | 'FINALIZADA' | 'LEGADO'; ciFinalizada: boolean;

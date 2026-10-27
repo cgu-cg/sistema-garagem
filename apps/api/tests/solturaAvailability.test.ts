@@ -28,7 +28,7 @@ function fixture(status = 'FINALIZADA') {
     } },
     estadoManutencao: { findMany: async () => states },
     soltura: {
-      findMany: async ({ where }: any) => rows.filter(r => r.scheduleId === where.scheduleId),
+      findMany: async ({ where }: any) => rows.filter(r => Object.entries(where).every(([key, value]) => r[key] === value)),
       update: async ({ where, data }: any) => { const index = rows.findIndex(row => row.id === where.id); rows[index] = { ...rows[index], ...data }; return rows[index]; },
       create: async ({ data }: any) => { if (failWrite && rows.length) throw Error('Escrita falhou'); const r = { id: rows.length + 1, ...data }; rows.push(r); return r; },
     },
@@ -40,6 +40,83 @@ function fixture(status = 'FINALIZADA') {
   return { db, locks, states, ci, rows: () => rows, failRead: () => { failRead = true; }, failWrite: () => { failWrite = true; }, missingCycle: () => { cycle = null; } };
 }
 const reason = (code: string) => (e: any) => e.status === 409 && e.code === code;
+
+test('carro realizado vazio usa programado oficial e exige motorista e disponibilidade', async () => {
+ const f = fixture();
+ const saved: any = await writeSafeRelease(f.db, 1, { ...body, carroRealizado: '', carroProgramado: '9999' }, false, () => eventInstant(target, 4), () => ['VCG']);
+ assert.ok(saved.carroProgramado); assert.equal(saved.carroRealizado, saved.carroProgramado); assert.notEqual(saved.carroRealizado, '9999');
+ assert.equal(saved.substituido, false);
+ const g = fixture(); g.ci.push({ prefixo: saved.carroProgramado, categoria: 'BLOQUEADO' });
+ await assert.rejects(writeSafeRelease(g.db, 1, { ...body, carroRealizado: undefined }, false, () => eventInstant(target, 4), () => ['VCG']), reason('VEICULO_BLOQUEADO_NA_CI'));
+ await assert.rejects(writeSafeRelease(f.db, 1, { ...body, carroRealizado: '', driverCode: '' }, false, () => eventInstant(target, 4), () => ['VCG']));
+ assert.equal(g.rows().length, 0);
+});
+
+test('troca por defeito salva descricao e autor no servidor e impede outro despacho', async () => {
+ const f = fixture(); const clock = () => eventInstant(target, 4);
+ await writeSafeRelease(f.db, 1, body, false, clock, () => ['VCG']);
+ const saved: any = await writeSafeRelease(f.db, 1, { ...body, carroRealizado: '4001', trocaCarro: { carroAnterior: '4000', motivo: 'Defeito Garagem', descricaoDefeito: '  Pneu furado  ' } }, false, clock, () => ['VCG']);
+ const history = JSON.parse(saved.historicoTrocas);
+ assert.equal(history.length, 1); assert.equal(history[0].descricaoDefeito, 'Pneu furado'); assert.equal(history[0].usuarioId, 1);
+ assert.equal(history[0].registradoEm, clock().toISOString()); assert.equal(history[0].carroAnterior, '4000');
+ assert.equal(f.ci.length, 0);
+ const before = structuredClone(f.rows());
+ await assert.rejects(writeSafeRelease(f.db, 1, { ...body, ...secondItem, carroRealizado: '4000' }, false, clock, () => ['VCG']), reason('VEICULO_COM_DEFEITO_GARAGEM'));
+ assert.deepEqual(f.rows(), before);
+ const same: any = await writeSafeRelease(f.db, 1, { ...body, carroRealizado: '4001', historicoTrocas: [] }, false, clock, () => ['VCG']);
+ assert.deepEqual(JSON.parse(same.historicoTrocas), history);
+});
+
+test('troca exige motivo, descricao de defeito e prefixo anterior atual, sem gravacao parcial', async () => {
+ const f = fixture(); const clock = () => eventInstant(target, 4);
+ await writeSafeRelease(f.db, 1, body, false, clock, () => ['VCG']); const before = structuredClone(f.rows());
+ for (const trocaCarro of [undefined, { carroAnterior: '4000', motivo: 'Defeito Garagem', descricaoDefeito: '  ' },
+   { carroAnterior: '4002', motivo: 'Adicionado equivocadamente' }, { carroAnterior: '4000', motivo: 'Outro' },
+   { carroAnterior: '4000', motivo: 'Defeito Garagem', descricaoDefeito: 'Pneu', usuarioId: 99 }]) {
+   await assert.rejects(writeSafeRelease(f.db, 1, { ...body, carroRealizado: '4001', trocaCarro }, false, clock, () => ['VCG']));
+   assert.deepEqual(f.rows(), before);
+ }
+});
+
+test('equivoco registra troca sem criar defeito; cliente nao pode inventar historico', async () => {
+ const f = fixture(); const clock = () => eventInstant(target, 4);
+ const forged = [{ carroAnterior: '4001', motivo: 'Defeito Garagem' }];
+ const initial: any = await writeSafeRelease(f.db, 1, { ...body, historicoTrocas: forged }, false, clock, () => ['VCG']);
+ assert.deepEqual(JSON.parse(initial.historicoTrocas), []);
+ const saved: any = await writeSafeRelease(f.db, 1, { ...body, carroRealizado: '4001', trocaCarro: { carroAnterior: '4000', motivo: 'Adicionado equivocadamente' } }, false, clock, () => ['VCG']);
+ assert.equal(JSON.parse(saved.historicoTrocas)[0].motivo, 'Adicionado equivocadamente');
+ await writeSafeRelease(f.db, 1, { ...body, ...secondItem, carroRealizado: '4000' }, false, clock, () => ['VCG']);
+ assert.equal(f.rows().length, 2);
+});
+
+test('defeito de outro turno bloqueia; outra data ou garagem nao transporta bloqueio', async () => {
+ const clock = () => eventInstant(target, 4);
+ for (const [garagem, dataOperacao, shouldBlock] of [['VCG', target, true], ['VCM', target, false], ['VCG', day, false]] as const) {
+  const f = fixture(); f.rows().push({ id: 99, garagem, dataOperacao, turno: 'VESPERTINO', escalaTipo: 'SEG_SEX', scheduleId: 'outro', carroRealizado: '4002',
+    historicoTrocas: JSON.stringify([{ carroAnterior: '4000', motivo: 'Defeito Garagem', descricaoDefeito: 'Motor' }]) });
+  const request = writeSafeRelease(f.db, 1, body, false, clock, () => ['VCG']);
+  if (shouldBlock) await assert.rejects(request, reason('VEICULO_COM_DEFEITO_GARAGEM')); else await request;
+ }
+});
+
+test('defeito em lote impede reutilizacao no mesmo lote e reverte tudo', async () => {
+ const f = fixture(); const clock = () => eventInstant(target, 4);
+ await writeSafeRelease(f.db, 1, body, false, clock, () => ['VCG']); const before = structuredClone(f.rows());
+ for (const reverse of [false, true]) {
+  const rows = [{ ...item, carroRealizado: '4002', trocaCarro: { carroAnterior: '4000', motivo: 'Defeito Garagem', descricaoDefeito: 'Motor' } }, { ...secondItem, carroRealizado: '4000' }];
+  await assert.rejects(writeSafeRelease(f.db, 1, { ...body, items: reverse ? rows.reverse() : rows }, true, clock, () => ['VCG']), reason('VEICULO_COM_DEFEITO_GARAGEM'));
+  assert.deepEqual(f.rows(), before);
+ }
+});
+
+test('falha ao persistir lote reverte troca e historico de defeito ja preparados', async () => {
+ const f = fixture(); const clock = () => eventInstant(target, 4);
+ await writeSafeRelease(f.db, 1, body, false, clock, () => ['VCG']); const before = structuredClone(f.rows()); f.failWrite();
+ await assert.rejects(writeSafeRelease(f.db, 1, { ...body, items: [
+  { ...item, carroRealizado: '4002', trocaCarro: { carroAnterior: '4000', motivo: 'Defeito Garagem', descricaoDefeito: 'Motor' } }, secondItem,
+ ] }, true, clock, () => ['VCG']), /Escrita falhou/);
+ assert.deepEqual(f.rows(), before);
+});
 test('somente a data atual permite despacho, inclusive antes das 03h', () => {
  for (const hour of [0, 1, 3, 22]) assert.deepEqual(resolveReleaseContext('VCG', target, eventInstant(target, hour)), { ciDate: target, maintenanceDate: target });
  for (const hour of [15, 22]) assert.throws(() => resolveReleaseContext('VCG', target, eventInstant(day, hour)), reason('DATA_FORA_DO_CONTEXTO'));

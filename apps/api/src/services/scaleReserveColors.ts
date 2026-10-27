@@ -1,4 +1,4 @@
-import { vehicleColor, type FleetColorCache } from './fleetColors';
+import { vehicleColor, type FleetColorCache, type FleetColor } from './fleetColors';
 
 export const reserveColorGroups = [
   { id: 'AZUL', titulo: 'AZUL' }, { id: 'VERMELHO', titulo: 'VERMELHO' }, { id: 'MICRO', titulo: 'MICRO' },
@@ -7,12 +7,15 @@ export const reserveColorGroups = [
 export const isColorReserveCard = (id: string) => reserveColorGroups.some(g => g.id === id);
 
 export function groupReserveColors(reserve: string[], cache: FleetColorCache | null) {
+  return groupReserveColorsBy(reserve, cache?.updatedAt ?? null, prefixo => vehicleColor(cache, prefixo));
+}
+export function groupReserveColorsBy(reserve: string[], updatedAt: string | null, colorFor: (prefixo: string) => FleetColor) {
   const grupos = reserveColorGroups.map(g => ({ ...g, prefixos: [] as string[] }));
-  if (cache) for (const prefixo of [...new Set(reserve)]) {
-    const color = vehicleColor(cache, prefixo);
+  if (updatedAt) for (const prefixo of [...new Set(reserve)]) {
+    const color = colorFor(prefixo);
     const id = color === 'EXECUTIVO' ? 'MICRO' : color === 'VERMELHO/AZUL' ? 'VERMELHO_AZUL'
       : color === 'NAO IDENTIFICADO' ? 'OUTRO' : color;
     grupos.find(g => g.id === id)!.prefixos.push(prefixo);
   }
-  return { updatedAt: cache?.updatedAt ?? null, grupos };
+  return { updatedAt, grupos };
 }

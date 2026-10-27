@@ -1,7 +1,9 @@
 import { FleetVehicleInput } from './FleetVehicleInput';
 import type { DailyEscala } from '@/lib/sharedEscala';
 import { ScaleVehiclePrefix } from './ScaleVehiclePrefix';
-import { useState } from "react";
+import { CiVehicleNotice, VehicleNoticeIcons, vehicleNoticeFlags } from './CiVehicleNotice';
+import { useRef, useState } from "react";
+import type { ReleaseExchangeCommand } from '@/lib/releaseProgramming';
 import { SolturaItem } from "@/data/solturaTypes";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
@@ -14,6 +16,9 @@ export interface TrocaCarroItem {
   novoCarro: string;
   motivo: "Adicionado equivocadamente" | "Defeito Garagem" | "Defeito Rua (SOS)" | string;
   dataHora: string;
+  descricaoDefeito?: string;
+  registradoEm?: string;
+  usuarioId?: number;
 }
 
 interface CarroTrocaPopoverProps {
@@ -21,7 +26,7 @@ interface CarroTrocaPopoverProps {
   item: SolturaItem;
   carroAtual: string;
   historicoTrocas?: TrocaCarroItem[];
-  onTrocarCarro: (item: SolturaItem, novoCarro: string, motivo: string) => void;
+  onTrocarCarro: (item: SolturaItem, novoCarro: string, motivo: ReleaseExchangeCommand['motivo'], descricaoDefeito?: string) => Promise<boolean>;
   checkBloqueioCI?: (prefixo?: string) => any;
   onPenduradoAlert?: (prefixo: string, motivo?: string) => void;
   getOutraLinhaComCarroRealiz?: (carro: string, currentItemId: string) => SolturaItem | undefined | null;
@@ -32,6 +37,7 @@ const MOTIVOS_DISPONIVEIS = [
   "Adicionado equivocadamente",
   "Defeito Garagem"
 ] as const;
+const vehicleBadgeClass = 'relative inline-flex items-center gap-1 rounded-md border border-neutral-300 bg-neutral-100/90 px-2.5 py-0.5 font-mono text-xs font-bold text-neutral-900 shadow-2xs dark:border-neutral-700 dark:bg-neutral-800/80 dark:text-white';
 
 export function CarroTrocaPopover({
   scaleState = null,
@@ -47,21 +53,33 @@ export function CarroTrocaPopover({
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"ALTERAR" | "HISTORICO">("ALTERAR");
   const [novoCarro, setNovoCarro] = useState("");
-  const [motivo, setMotivo] = useState<string>("Adicionado equivocadamente");
+  const [motivo, setMotivo] = useState<ReleaseExchangeCommand['motivo'] | ''>('');
+  const [descricaoDefeito, setDescricaoDefeito] = useState(''), [saving, setSaving] = useState(false);
+  const pending = useRef(false);
 
   const totalTrocas = historicoTrocas.length;
   const isAlterado = totalTrocas > 0;
+  const ultimaTroca = historicoTrocas.slice(-1)[0];
+  const substitution = ultimaTroca?.motivo === 'Defeito Garagem' && ultimaTroca.novoCarro === carroAtual
+    ? { carroAnterior: ultimaTroca.carroAnterior, descricaoDefeito: ultimaTroca.descricaoDefeito } : undefined;
+  const historyDescription = !substitution && ultimaTroca
+    ? 'Última troca: ' + ultimaTroca.carroAnterior + ' → ' + ultimaTroca.novoCarro + '. ' + ultimaTroca.motivo : undefined;
 
   const handleOpenAlterar = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (isReadOnly) return;
     setActiveTab("ALTERAR");
     setNovoCarro("");
-    setMotivo("Adicionado equivocadamente");
+    setMotivo('');
+    setDescricaoDefeito('');
     setIsOpen(true);
   };
 
-  const handleSalvar = (e: React.FormEvent) => {
+  const handleSalvar = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (pending.current || isReadOnly) return;
+    if (!motivo) { toast.error('Selecione o motivo da troca.'); return; }
+    if (motivo === 'Defeito Garagem' && !descricaoDefeito.trim()) { toast.error('Descreva o defeito na garagem.'); return; }
     const cleanCarro = novoCarro.trim().replace(/\D/g, "");
     if (!cleanCarro) {
       toast.error("Informe o número do novo carro.");
@@ -77,7 +95,6 @@ export function CarroTrocaPopover({
       const bloqueio = checkBloqueioCI(cleanCarro);
       if (bloqueio) {
         onPenduradoAlert?.(cleanCarro, bloqueio.motivo);
-        setIsOpen(false);
         return;
       }
     }
@@ -91,38 +108,42 @@ export function CarroTrocaPopover({
       }
     }
 
-    onTrocarCarro(item, cleanCarro, motivo);
-    setIsOpen(false);
-    setNovoCarro("");
+    pending.current = true; setSaving(true);
+    try {
+      if (await onTrocarCarro(item, cleanCarro, motivo, descricaoDefeito.trim())) { setIsOpen(false); setNovoCarro(''); setDescricaoDefeito(''); }
+    } catch { toast.error('Troca não confirmada. Revise os dados antes de tentar novamente.'); }
+    finally { pending.current = false; setSaving(false); }
   };
 
-  if (isReadOnly) {
+  if (isReadOnly && !isOpen) {
     return (
-      <span className={cn(
-        "font-mono font-bold text-xs",
-        isAlterado ? "text-blue-600 dark:text-blue-400" : "text-neutral-900 dark:text-white"
-      )}>
+      <CiVehicleNotice state={scaleState} prefixo={carroAtual} substitution={substitution} description={historyDescription} hideIcon><span data-readonly="true" className={vehicleBadgeClass}>
         <ScaleVehiclePrefix state={scaleState} prefixo={carroAtual || "—"} />
-      </span>
+        <Pencil aria-hidden="true" className="h-2.5 w-2.5 text-muted-foreground" />
+        <VehicleNoticeIcons {...vehicleNoticeFlags(scaleState, carroAtual, undefined, substitution)} />
+      </span></CiVehicleNotice>
     );
   }
 
   return (
-    <Popover open={isOpen} onOpenChange={setIsOpen}>
+    <CiVehicleNotice state={scaleState} prefixo={carroAtual} substitution={substitution} hideIcon hoverOnly hoverDisabled={isOpen}
+      description={historyDescription}>
+    <Popover open={isOpen} onOpenChange={open => { if (!pending.current) setIsOpen(open); }}>
       {/* Gatilho visual na célula da tabela */}
-      <div className="flex items-center justify-center gap-1 group">
+      <span className="inline-flex items-center justify-center gap-1 group">
         <PopoverTrigger asChild>
           <button
             type="button"
+            disabled={isReadOnly}
             onClick={handleOpenAlterar}
             className={cn(
-              "font-mono font-bold text-xs px-2.5 py-0.5 rounded-md transition-all cursor-pointer select-none flex items-center gap-1 shadow-2xs",
-              isAlterado
-                ? "text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/40 group-hover:ring-1 group-hover:ring-blue-500/40"
-                : "text-neutral-900 dark:text-white bg-neutral-100/90 dark:bg-neutral-800/80 hover:bg-neutral-200 dark:hover:bg-neutral-700/80 border border-neutral-300 dark:border-neutral-700 group-hover:ring-1 group-hover:ring-neutral-400/40"
+              vehicleBadgeClass,
+              "transition-colors cursor-pointer select-none hover:bg-neutral-200 dark:hover:bg-neutral-700/80 group-hover:ring-1 group-hover:ring-neutral-400/40"
             )}
-            title={
-              isAlterado
+            aria-label={
+              substitution
+                ? `Defeito Garagem: ${substitution.descricaoDefeito || 'Troca por defeito na garagem'}. Clique para alterar ou ver histórico.`
+                : isAlterado
                 ? `Carro alterado/substituído (${totalTrocas} troca(s)). Clique para alterar ou ver histórico.`
                 : "Carro realizado. Clique para alterar ou ver histórico."
             }
@@ -130,14 +151,15 @@ export function CarroTrocaPopover({
             <span><ScaleVehiclePrefix state={scaleState} prefixo={carroAtual || "—"} /></span>
             <Pencil className={cn(
               "w-2.5 h-2.5 opacity-70 group-hover:opacity-100 transition-opacity",
-              isAlterado ? "text-blue-500 dark:text-blue-400" : "text-muted-foreground group-hover:text-foreground dark:group-hover:text-white"
+              "text-muted-foreground group-hover:text-foreground dark:group-hover:text-white"
             )} />
+            <VehicleNoticeIcons {...vehicleNoticeFlags(scaleState, carroAtual, undefined, substitution)} />
           </button>
         </PopoverTrigger>
-      </div>
+      </span>
 
       {/* Conteúdo do Card Suspenso Ancorado (Seguindo Prints 2 e 3) */}
-      <PopoverContent
+      {isOpen && <PopoverContent
         align="center"
         sideOffset={6}
         className="w-[280px] p-3.5 rounded-2xl border border-border/80 bg-card shadow-2xl text-card-foreground space-y-3 print:hidden"
@@ -155,7 +177,7 @@ export function CarroTrocaPopover({
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
               )}
             >
-              Alterar Carro Prog.
+              Alterar carro realizado
             </button>
             <button
               type="button"
@@ -179,6 +201,7 @@ export function CarroTrocaPopover({
           <button
             type="button"
             onClick={() => setIsOpen(false)}
+            disabled={saving}
             className="w-6 h-6 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 flex items-center justify-center transition-colors cursor-pointer"
             title="Fechar"
           >
@@ -201,6 +224,7 @@ export function CarroTrocaPopover({
                 autoFocus
                 placeholder="novo carro"
                 value={novoCarro}
+                disabled={saving}
                 onChange={(e) => {
                   const val = e.target.value.replace(/\D/g, "");
                   setNovoCarro(val);
@@ -235,7 +259,7 @@ export function CarroTrocaPopover({
                   return (
                     <label
                       key={op}
-                      onClick={() => setMotivo(op)}
+                      onClick={() => { if (!saving) setMotivo(op); }}
                       className={cn(
                         "flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer transition-all select-none",
                         isChecked
@@ -243,6 +267,7 @@ export function CarroTrocaPopover({
                           : "border-transparent hover:bg-muted/40 text-muted-foreground hover:text-foreground"
                       )}
                     >
+                      <input type="radio" name={'motivo-troca-' + item.id} value={op} checked={isChecked} onChange={() => setMotivo(op)} disabled={saving} required className="sr-only" />
                       <div
                         className={cn(
                           "w-3.5 h-3.5 rounded-full border flex items-center justify-center transition-all shrink-0",
@@ -261,12 +286,18 @@ export function CarroTrocaPopover({
             </div>
 
             {/* Botão Salvar */}
+            {motivo === 'Defeito Garagem' && <div className="space-y-1.5">
+              <label htmlFor={'defeito-' + item.id} className="text-xs font-semibold">Descreva o defeito <span className="text-rose-500">*</span></label>
+              <textarea id={'defeito-' + item.id} value={descricaoDefeito} onChange={e => setDescricaoDefeito(e.target.value)} required maxLength={1000} disabled={saving}
+                rows={3} placeholder="Informe o defeito na garagem..." className="w-full rounded-xl border border-border bg-background p-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#164E3A]" />
+            </div>}
             <Button
               type="submit"
+              disabled={isReadOnly || saving || !novoCarro.trim() || !motivo || (motivo === 'Defeito Garagem' && !descricaoDefeito.trim())}
               className="w-full h-9 rounded-xl bg-[#164E3A] hover:bg-[#113C2D] text-white font-bold text-xs shadow-sm transition-all cursor-pointer flex items-center justify-center gap-1.5"
             >
               <Check className="w-3.5 h-3.5" />
-              Salvar
+              {saving ? 'Salvando...' : 'Salvar'}
             </Button>
 
             {/* Atalho para ver histórico se houver */}
@@ -304,6 +335,7 @@ export function CarroTrocaPopover({
                     </div>
                     <div className="text-[11px] text-muted-foreground">
                       {t.motivo}
+                      {t.descricaoDefeito && <p className="mt-1 break-words">{t.descricaoDefeito}</p>}
                     </div>
                   </div>
                   <span className="text-[10px] font-mono text-muted-foreground shrink-0">
@@ -351,7 +383,8 @@ export function CarroTrocaPopover({
             </Button>
           </div>
         )}
-      </PopoverContent>
+      </PopoverContent>}
     </Popover>
+    </CiVehicleNotice>
   );
 }

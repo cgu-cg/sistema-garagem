@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { hasValidReleaseTable } from '../services/solturaTemplateTable';
+import { releaseExchangeCommandSchema } from '../services/releaseVehicleExchange';
 
 export const loginSchema = z.object({
   email: z.string().email("Email inválido"),
@@ -42,7 +43,7 @@ export const createSolturaFields = z.object({
   programmedBusId: z.number().int().positive().optional().nullable(),
   scheduleId: z.string().optional().nullable(),
   carroProgramado: z.string().optional().nullable(),
-  carroRealizado: z.string().min(1, "Carro realizado é obrigatório"),
+  carroRealizado: z.string().optional().nullable(),
   linha: z.string().min(1, "Linha é obrigatória"),
   tabela: z.string(),
   driverCode: z.string().optional().nullable(),
@@ -56,6 +57,7 @@ export const createSolturaFields = z.object({
   dataOperacao: z.string().optional().nullable(),
   substituido: z.boolean().optional().nullable(),
   historicoTrocas: z.union([z.string(), z.array(z.any())]).optional().nullable(),
+  trocaCarro: releaseExchangeCommandSchema.optional(),
   status: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
 });
@@ -72,7 +74,7 @@ export const batchSyncSolturaSchema = z.object({
     z.object({
       scheduleId: z.string().min(1),
       carroProgramado: z.string().optional().nullable(),
-      carroRealizado: z.string().min(1),
+      carroRealizado: z.string().optional().nullable(),
       linha: z.string().min(1),
       tabela: z.string(),
       driverCode: z.string().optional().nullable(),
@@ -82,6 +84,7 @@ export const batchSyncSolturaSchema = z.object({
       horaLiberacao: z.string().optional().nullable(),
       substituido: z.boolean().optional().nullable(),
       historicoTrocas: z.union([z.string(), z.array(z.any())]).optional().nullable(),
+      trocaCarro: releaseExchangeCommandSchema.optional(),
       status: z.string().optional().nullable(),
       notes: z.string().optional().nullable(),
     })

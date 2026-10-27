@@ -1,8 +1,8 @@
+import type { ReleaseExchangeCommand } from '@/lib/releaseProgramming';
 import { PreparationOverlay, releasePreparationMessage } from './PreparationOverlay';
 import { FleetVehicleInput } from './FleetVehicleInput';
 import { ReleaseToolbar } from './ReleaseToolbar';
 import { ScaleFleetSidebar } from './ScaleFleetSidebar';
-import { ScaleVehiclePrefix } from './ScaleVehiclePrefix';
 import { CiVehicleNotice } from './CiVehicleNotice';
 import { useReleaseProgramming } from '@/lib/useReleaseProgramming';
 import { DailyScaleLifecycle } from './DailyScaleLifecycle';
@@ -96,6 +96,7 @@ export interface DispatchedRecord extends ReleaseRecord {
   observacoes?: string;
   substituido: boolean;
   historicoTrocas?: TrocaCarroItem[];
+  trocaCarro?: ReleaseExchangeCommand;
 }
 
 export function getHojeLocal(): string {
@@ -378,7 +379,9 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const canEditDailyScale = canWriteDailyScale(user, garagem) && dailyDateEditable && dailyScale?.fluxo?.status === 'EM_PREPARACAO' && dailyScale.fluxo.ciFinalizada && !dailyLifecyclePending;
   const permanentReady = Boolean(sharedScale && JSON.stringify(sharedScale.contexto) === scaleContextKey && !scaleError);
   const releaseProgramming = useReleaseProgramming({ garagem, escalaTipo, turno: escalaTipo === 'SEG_SEX' ? turnoTipo : 'PADRAO', dataOperacao }, ['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode));
-  const releaseState = releaseProgramming.data?.escala ?? null;
+  const releaseAvailability = releaseProgramming.data?.disponibilidade;
+  const releaseState = useMemo(() => releaseProgramming.data ? { ...releaseProgramming.data.escala,
+    ...(releaseAvailability ? { reserva: releaseAvailability.reserva, reservaPorCor: releaseAvailability.reservaPorCor, defeitosGaragem: releaseAvailability.defeitosGaragem } : {}) } : null, [releaseProgramming.data, releaseAvailability]);
   const releasePendingMessage = releaseProgramming.data && dataOperacao >= operationalContext().today
     ? releasePreparationMessage(Boolean(releaseState?.fluxo?.ciFinalizada), releaseProgramming.data.escalaFinalizada) : null;
   const [dispatchLoaded, setDispatchLoaded] = useState(false);
@@ -595,9 +598,9 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
   // Persistir despacho individual na API
   const dispatchWritePending = useRef(false);
-  const persistDispatchToApi = async (item: SolturaItem, record: DispatchedRecord) => {
+  const persistDispatchToApi = async (item: SolturaItem, record: DispatchedRecord, trocaCarro?: ReleaseExchangeCommand): Promise<DispatchedRecord> => {
       if (!releaseUiAllowed) throw new Error('Soltura indisponivel para este perfil ou contexto de CI.');
-      await api.createSoltura({
+      const saved: any = await api.createSoltura({
         scheduleId: item.id,
         carroProgramado: item.carroProgramado || null,
         carroRealizado: record.carroRealizado,
@@ -614,9 +617,12 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         dataOperacao,
         substituido: record.substituido,
         historicoTrocas: record.historicoTrocas || [],
+        trocaCarro,
         status: "LIBERADO",
         notes: record.observacoes || null,
       });
+      return { ...record, carroRealizado: saved.carroRealizado,
+        historicoTrocas: typeof saved.historicoTrocas === 'string' ? JSON.parse(saved.historicoTrocas) : saved.historicoTrocas ?? [] };
   };
 
   // Salvar múltiplos despachos (usado pelo CarroRealizadoView)
@@ -638,6 +644,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         horaLiberacao: disp.horaLiberacao || null,
         substituido: !!disp.substituido,
         historicoTrocas: disp.historicoTrocas || [],
+        trocaCarro: disp.trocaCarro,
         status: "LIBERADO",
         notes: disp.observacoes || null
       };
@@ -650,11 +657,15 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     try {
       await confirmedWrite(() => api.batchSyncSolturas({ dataOperacao, garagem,
         turno: escalaTipo === "SEG_SEX" ? turnoTipo : "PADRAO", escalaTipo, items: itemsToPersist }),
-        () => saveDispatches(Object.fromEntries(Object.entries(newDispatches).map(([id, record]) => {
+        (result: any) => saveDispatches(Object.fromEntries(Object.entries(newDispatches).map(([id, record]) => {
           const row = baseSchedules.find(item => item.id === id);
-          return [id, { ...record, carroProgramado: dispatches[id]?.carroProgramado ?? row?.carroProgramado,
+          const received = result.items.find((entry: any) => entry.scheduleId === id);
+          const { trocaCarro: _troca, ...savedRecord } = record;
+          return [id, { ...savedRecord, carroRealizado: received.carroRealizado,
+            historicoTrocas: typeof received.historicoTrocas === 'string' ? JSON.parse(received.historicoTrocas) : received.historicoTrocas ?? [], carroProgramado: dispatches[id]?.carroProgramado ?? row?.carroProgramado,
             scheduleSnapshot: dispatches[id]?.scheduleSnapshot ?? (row ? { ...row } : undefined) }];
         }))));
+      await releaseProgramming.reload();
       return true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Soltura nao confirmada."); return false;
@@ -891,11 +902,13 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const checkBloqueioCI = useCallback((prefixo?: string) => {
     if (!prefixo) return null;
     if (['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode)) {
+      const defeito = releaseAvailability?.defeitosGaragem.find(d => d.prefixo === prefixo);
+      if (defeito) return { prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, motivo: 'Defeito Garagem: ' + defeito.descricao, data: dataOperacao };
       if (!releaseState?.bloqueados.includes(prefixo)) return null;
       return { prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, motivo: 'Bloqueado na CI ' + releaseState.ciData, data: releaseState.ciData };
     }
     return checkCarroBloqueado(prefixo, ciList, dataOperacao);
-  }, [ciList, dataOperacao, viewMode, releaseState]);
+  }, [ciList, dataOperacao, viewMode, releaseState, releaseAvailability]);
 
   // Alerta sonner + scroll suave + efeito pulsante no carro pendurado
   const triggerPenduradoAlert = useCallback((prefixo: string, motivo?: string | null) => {
@@ -986,7 +999,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     const rawCarro = customCarro !== undefined ? customCarro : draft?.carro;
     const rawMoto = customMoto !== undefined ? customMoto : draft?.moto;
 
-    const finalCarro = (rawCarro || "").trim();
+    const finalCarro = (rawCarro ?? "").trim() || item.carroProgramado?.trim() || "";
     const finalMoto = (rawMoto || "").trim();
 
     // Apenas liberar se o campo de carro Realiz e moto esteja completado
@@ -1046,7 +1059,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     if (dispatchWritePending.current) { toast.error("Aguarde a gravacao pendente."); return; }
     dispatchWritePending.current = true;
     try {
-      await confirmedWrite(() => persistDispatchToApi(item, newRecord), () => saveDispatches(updated));
+      await confirmedWrite(() => persistDispatchToApi(item, newRecord), saved => saveDispatches({ ...updated, [item.id]: saved }));
+      await releaseProgramming.reload();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Soltura nao confirmada."); return;
     } finally { dispatchWritePending.current = false; }
@@ -1075,24 +1089,24 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   };
 
   // Alteração de carro com motivo e registro de histórico de trocas (Prints 2 e 3)
-  const handleTrocarCarro = async (item: SolturaItem, novoCarro: string, motivo: string) => {
+  const handleTrocarCarro = async (item: SolturaItem, novoCarro: string, motivo: ReleaseExchangeCommand['motivo'], descricaoDefeito?: string): Promise<boolean> => {
     const cleanNovo = novoCarro.trim();
     if (!cleanNovo) {
       toast.error("Informe o prefixo do novo carro.");
-      return;
+      return false;
     }
 
     const bloqueio = checkBloqueioCI(cleanNovo);
     if (bloqueio) {
       triggerPenduradoAlert(cleanNovo, bloqueio.motivo);
-      return;
+      return false;
     }
 
     // Só poder adicionar se não estiver sendo utilizado em nenhum outro campo de carro realiz
     const conflitoOutraLinha = getOutraLinhaComCarroRealiz(cleanNovo, item.id);
     if (conflitoOutraLinha) {
       toast.error(`Carro ${cleanNovo} já está sendo utilizado na Linha ${conflitoOutraLinha.linha} / Tab ${conflitoOutraLinha.tabela}!`);
-      return;
+      return false;
     }
 
     const agora = new Date();
@@ -1101,15 +1115,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     const currentDisp = dispatches[item.id];
     const carroAnterior = currentDisp?.carroRealizado || item.carroRealizado || item.carroProgramado || "---";
 
-    const novaTroca: TrocaCarroItem = {
-      carroAnterior,
-      novoCarro: cleanNovo,
-      motivo,
-      dataHora: `${new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} ${dataHoraFormatada}`
-    };
-
-    const historicoAtual = currentDisp?.historicoTrocas || [];
-    const novoHistorico = [...historicoAtual, novaTroca];
+    const trocaCarro: ReleaseExchangeCommand = { carroAnterior, motivo, descricaoDefeito };
+    if (motivo === 'Defeito Garagem' && !descricaoDefeito?.trim()) { toast.error('Descreva o defeito na garagem.'); return false; }
 
     const newRecord: DispatchedRecord = {
       scheduleId: item.id,
@@ -1120,16 +1127,18 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       motoristaNome: currentDisp?.motoristaNome || item.motoristaNome || "",
       horaLiberacao: currentDisp?.horaLiberacao || dataHoraFormatada,
       substituido: cleanNovo !== item.carroProgramado,
-      historicoTrocas: novoHistorico
+      historicoTrocas: currentDisp?.historicoTrocas ?? [],
+      observacoes: currentDisp?.observacoes
     };
 
     const updated = { ...dispatches, [item.id]: newRecord };
-    if (dispatchWritePending.current) { toast.error("Aguarde a gravacao pendente."); return; }
+    if (dispatchWritePending.current) { toast.error("Aguarde a gravacao pendente."); return false; }
     dispatchWritePending.current = true;
     try {
-      await confirmedWrite(() => persistDispatchToApi(item, newRecord), () => saveDispatches(updated));
+      await confirmedWrite(() => persistDispatchToApi(item, newRecord, trocaCarro), saved => saveDispatches({ ...updated, [item.id]: saved }));
+      await releaseProgramming.reload();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Soltura nao confirmada."); return;
+      toast.error(error instanceof Error ? error.message : "Soltura nao confirmada."); return false;
     } finally { dispatchWritePending.current = false; }
 
     // Se o novo carro estiver em Reserva Terminal, remover da reserva
@@ -1144,6 +1153,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     }
 
     if (selectedDispatchKey.current === dispatchContextKey) toast.success(`Carro da Linha ${item.linha} alterado para ${cleanNovo}!`);
+    return true;
   };
 
   // Imprimir folha A4
@@ -1208,9 +1218,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                             car.tipo === "MICRO" ? "border border-purple-500/50 text-purple-700 dark:text-purple-400 bg-purple-500/10 print:border-purple-600 print:text-purple-700" :
                               "border border-orange-500/50 text-orange-700 dark:text-orange-400 bg-orange-500/10 print:border-orange-600 print:text-orange-700"
                     )}
-                    title={`Carro ${car.carro} • Tipo: ${car.tipo}`}
                   >
-                    <ScaleVehiclePrefix state={releaseState} prefixo={car.carro} />
+                    <CiVehicleNotice state={releaseState} prefixo={car.carro} description={`Reserva Terminal: ${termNome}. Tipo: ${car.tipo}`} />
                     {!isPrint && (
                       <button
                         type="button"
@@ -1306,7 +1315,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
             {/* 1. LADO ESQUERDO: TABELA ÚNICA DE HORÁRIOS (fixo no topo da tela com scroll) */}
             <div className="min-w-0 border rounded-2xl overflow-hidden shadow-2xs bg-card border-border/80 sticky top-4 self-start z-10">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 text-xs text-muted-foreground">
-                <div className="flex gap-3"><span className="inline-flex items-center gap-1.5"><AlertTriangle className="h-3 w-3 text-rose-600" />Bloqueados CI</span><span className="inline-flex items-center gap-1.5"><AlertTriangle className="h-3 w-3 text-amber-500" />Reforço</span></div>
+                <div className="flex flex-wrap gap-3"><span className="inline-flex items-center gap-1.5"><AlertTriangle className="h-3 w-3 text-rose-600" />Bloqueados CI</span><span className="inline-flex items-center gap-1.5"><AlertTriangle className="h-3 w-3 text-amber-500" />Reforço</span><span className="inline-flex items-center gap-1.5"><AlertTriangle className="h-3 w-3 text-blue-600" />Defeito Garagem</span></div>
                 <div className="flex gap-3 font-mono"><span>Feito: <strong className="text-emerald-700">{String(stats.liberados).padStart(2, '0')}</strong></span><span>Falta: <strong>{String(stats.pendentes).padStart(2, '0')}</strong></span></div>
               </div>
 
@@ -1430,7 +1439,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
             {/* 2. LADO DIREITO: COMPONENTE FIXO COM PENDURADOS, RESERVA GARAGEM E RESERVA TERMINAL */}
             <div className="min-w-0 xl:sticky xl:top-4 self-start space-y-4">
-              <ScaleFleetSidebar state={releaseState} garage={garagem} reserve={releaseState?.reserva.filter(prefixo => !activeSchedules.some(row => row.carroRealizado === prefixo) && !reservasTerminais.some(row => TERMINAIS_PADRAO.includes(row.terminal) && row.carro === prefixo))} />
+              <ScaleFleetSidebar state={releaseState} garage={garagem} defeitosGaragem={releaseAvailability?.defeitosGaragem ?? []} reserve={releaseState?.reserva.filter(prefixo => !activeSchedules.some(row => row.carroRealizado === prefixo) && !reservasTerminais.some(row => TERMINAIS_PADRAO.includes(row.terminal) && row.carro === prefixo))} />
               {dataOperacao === operationalContext().today && renderCardReservaTerminal(false)}
             </div>
 
@@ -1649,7 +1658,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
               <div className="grid grid-cols-10 gap-4 items-stretch">
                 <div className="col-span-3">
-                  <ScaleFleetSidebar state={releaseState} garage={garagem} />
+                  <ScaleFleetSidebar state={releaseState} garage={garagem} defeitosGaragem={releaseAvailability?.defeitosGaragem ?? []} />
                 </div>
                 <div className="col-span-7">
                   {dataOperacao === operationalContext().today && renderCardReservaTerminal(true)}
@@ -1795,7 +1804,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           schedules={baseSchedules}
           dispatches={dispatches}
           onSaveDispatch={handleSaveDispatchFromView}
-          ciList={releaseState ? releaseState.bloqueados.map(prefixo => ({ prefixo, tipo: 'BLOQUEADO_CORRETIVA', data: releaseState.ciData, motivo: 'Bloqueado na CI' })) : []}
+          onTrocarCarro={handleTrocarCarro}
+          ciList={releaseState ? [...releaseState.bloqueados.map(prefixo => ({ prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, data: releaseState.ciData, motivo: 'Bloqueado na CI' })), ...(releaseAvailability?.defeitosGaragem ?? []).map(d => ({ prefixo: d.prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, data: dataOperacao, motivo: d.descricao }))] : []}
           scaleState={releaseState}
           readOnly={!releaseUiAllowed}
         />
@@ -2061,7 +2071,7 @@ interface FolhaTableRowProps {
   checkBloqueioCI: (prefixo?: string) => BloqueioCarro | undefined | null;
   onRelease: (item: SolturaItem, carro?: string, moto?: string) => void;
   onDraftChange: (itemId: string, field: "carro" | "moto", value: string) => void;
-  onTrocarCarro?: (item: SolturaItem, novoCarro: string, motivo: string) => void;
+  onTrocarCarro?: (item: SolturaItem, novoCarro: string, motivo: ReleaseExchangeCommand['motivo'], descricaoDefeito?: string) => Promise<boolean>;
   onPenduradoAlert?: (prefixo: string, motivo?: string | null) => void;
   getOutraLinhaComCarroRealiz?: (carro: string, currentItemId: string) => SolturaItem | undefined | null;
   getOutraLinhaComMoto?: (moto: string, currentItemId: string) => SolturaItem | undefined | null;
@@ -2102,14 +2112,14 @@ function FolhaTableRow({
   const conflitoMoto = motoValue.trim() && getOutraLinhaComMoto ? getOutraLinhaComMoto(motoValue.trim(), item.id) : null;
 
   // Apenas permitir liberar se Carro Realizado e MOTO estiverem completados e sem conflito de motorista
-  const isLiberarHabilitado = Boolean(carroValue.trim() && motoValue.trim() && !conflitoMoto);
+  const isLiberarHabilitado = Boolean((carroValue.trim() || item.carroProgramado) && motoValue.trim() && !conflitoMoto);
 
   // Atalho: pressionar Enter com Carro Realizado e MOTO preenchidos já libera a saída
   const handleKeyDownCarro = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
       if (isReadOnly) return;
-      if (carroValue.trim() && motoValue.trim()) {
+      if ((carroValue.trim() || item.carroProgramado) && motoValue.trim()) {
         if (conflitoMoto) {
           toast.error(`Motorista (MOTO ${motoValue.trim()}) já está escalado na Linha ${conflitoMoto.linha} / Tab ${conflitoMoto.tabela}!`);
           return;
@@ -2127,7 +2137,7 @@ function FolhaTableRow({
   const handleKeyDownMoto = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      if (carroValue.trim() && motoValue.trim()) {
+      if ((carroValue.trim() || item.carroProgramado) && motoValue.trim()) {
         if (conflitoMoto) {
           toast.error(`Motorista (MOTO ${motoValue.trim()}) já está escalado na Linha ${conflitoMoto.linha} / Tab ${conflitoMoto.tabela}!`);
           return;
@@ -2215,7 +2225,7 @@ function FolhaTableRow({
               scaleState={scaleState}
               carroAtual={carroValue || item.carroRealizado || item.carroProgramado || "---"}
               historicoTrocas={historicoTrocas}
-              onTrocarCarro={onTrocarCarro || (() => { })}
+              onTrocarCarro={onTrocarCarro || (async () => false)}
               checkBloqueioCI={checkBloqueioCI}
               onPenduradoAlert={onPenduradoAlert}
               getOutraLinhaComCarroRealiz={getOutraLinhaComCarroRealiz}
@@ -2279,15 +2289,9 @@ function FolhaTableRow({
                           : "bg-background border-border/80 text-foreground dark:text-white focus:ring-[#164E3A]",
                   (bloqueioRealiz || reservaRealiz) && "border-rose-500 text-rose-600 bg-rose-500/10 font-bold"
                 )}
-                title={
-                  bloqueioRealiz
-                    ? `Atenção: Carro Realizado no CI: ${bloqueioRealiz.motivo}`
-                    : reservaRealiz
-                      ? `Atenção: Carro ${carroValue} alocado na reserva do ${reservaRealiz.terminal} (será consumido da reserva ao liberar)`
-                      : undefined
-                }
+                noticeDescription={reservaRealiz ? 'Reserva Terminal: ' + reservaRealiz.terminal + '. A reserva será consumida ao liberar o carro.' : undefined}
               />
-              {(!bloqueioRealiz && reservaRealiz) && <span title={'Carro na reserva do ' + reservaRealiz.terminal} className="cursor-help text-amber-500"><AlertTriangle className="w-3 h-3" /></span>}
+              {(!bloqueioRealiz && reservaRealiz) && <CiVehicleNotice state={scaleState} prefixo={carroValue.trim()} description={'Reserva Terminal: ' + reservaRealiz.terminal} hideIcon><span className="cursor-help text-amber-500"><AlertTriangle className="w-3 h-3" /></span></CiVehicleNotice>}
             </>
           )}
         </div>

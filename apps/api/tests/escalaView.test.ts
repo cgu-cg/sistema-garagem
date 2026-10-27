@@ -25,13 +25,15 @@ function loadView() {
       FleetInput: require('../../web/src/pages/soltura/FleetVehicleInput').FleetVehicleInput,
       Toolbar: require('../../web/src/pages/soltura/ReleaseToolbar').ReleaseToolbar,
       Sidebar: require('../../web/src/pages/soltura/ScaleFleetSidebar').ScaleFleetSidebar,
-      Lifecycle: require('../../web/src/pages/soltura/DailyScaleLifecycle').DailyScaleLifecycle };
+      Lifecycle: require('../../web/src/pages/soltura/DailyScaleLifecycle').DailyScaleLifecycle,
+      Notice: require('../../web/src/pages/soltura/CiVehicleNotice').CiVehicleNotice,
+      TrocaCarro: require('../../web/src/pages/soltura/CarroTrocaPopover').CarroTrocaPopover };
   } finally {
     (Module as any)._resolveFilename = resolver;
     if (oldTSX) require.extensions['.tsx'] = oldTSX; else delete require.extensions['.tsx'];
   }
 }
-const { AlterarCarroProgramadoView: View, pickerOptions, Lifecycle, Toolbar, Sidebar, FleetInput, PreparationOverlay, releasePreparationMessage } = loadView();
+const { AlterarCarroProgramadoView: View, pickerOptions, Lifecycle, Toolbar, Sidebar, FleetInput, PreparationOverlay, releasePreparationMessage, Notice, TrocaCarro } = loadView();
 const contexto = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'MATUTINO', dataOperacao: '2026-10-14' } as const;
 const rows = fixedScheduleRows(contexto).slice(0, 2);
 const official: DailyEscala = { contexto, revisao: 0, itens: [], cardsOrigem: 'salvo', omitidosPadrao: 0,
@@ -45,6 +47,55 @@ const render = (readOnly: boolean, overrides: Record<string, unknown> = {}) => r
   garagem: 'VCG', escalaTipo: 'SEG_SEX', schedules: rows, official, readOnly,
   readOnlyReason: 'Consulta indisponivel', onSaveSubstitution: async () => true, onSaveCard: async () => true, ...overrides,
 }));
+
+test('Soltura mostra Defeito Garagem abaixo de Bloqueados CI, sem adicionar esse card na Escala', () => {
+  const html = renderToStaticMarkup(React.createElement(Sidebar, { state: official, garage: 'VCG', defeitosGaragem: [
+    { prefixo: '4000', descricao: 'Pneu furado', registradoEm: '2026-10-27T12:00:00Z' },
+  ] }));
+  assert.ok(html.indexOf('BLOQUEADOS CI') < html.indexOf('DEFEITO GARAGEM'));
+  assert.match(html, /Ver ocorrencias do carro 4000/); assert.match(html, /4000/);
+  assert.doesNotMatch(html, /title="Pneu furado"/);
+  assert.doesNotMatch(html, />Pneu furado</);
+  assert.doesNotMatch(render(false), /DEFEITO GARAGEM/);
+});
+
+test('carro realizado substituido por defeito mostra alertas simultaneos sem fundo azul no botao', () => {
+  const prefixo = '4001';
+  const state = { ...official, bloqueados: [prefixo], ciAvisos: [{ prefixo, categoria: 'OFICINA', subTipo: 'ELEVADOR', horario: null, tipoPosicao: null, ordemPosicao: null }] };
+  const html = renderToStaticMarkup(React.createElement(TrocaCarro, { item: rows[0], scaleState: state, carroAtual: prefixo,
+    historicoTrocas: [{ carroAnterior: '4000', novoCarro: prefixo, motivo: 'Defeito Garagem', descricaoDefeito: 'Motor', dataHora: '27/10 10:00' }], onTrocarCarro: async () => true }));
+  assert.match(html, /data-ci-alert="bloqueado"/); assert.match(html, /data-ci-alert="pedido"/);
+  assert.match(html.match(/<svg[^>]*data-ci-alert="defeito-garagem"[^>]*>/)![0], /text-blue-600/);
+  assert.match(html, /inline-flex items-center gap-0.5/);
+  assert.doesNotMatch(html, /<button[^>]*class="[^"]*bg-blue/);
+  assert.doesNotMatch(html, /title="Defeito Garagem:/);
+});
+
+test('carro com defeito e pedido CI mantem ambos os icones e respeita ocultacao nos cards', () => {
+  const prefixo = '4000';
+  const state = { ...official, bloqueados: [], defeitosGaragem: [{ prefixo, descricao: 'Pneu' }],
+    ciAvisos: [{ prefixo, categoria: 'REFORCO', subTipo: null, horario: '07:15', tipoPosicao: null, ordemPosicao: null }] };
+  const html = renderToStaticMarkup(React.createElement(Notice, { state, prefixo }));
+  assert.match(html, /data-ci-alert="pedido"/); assert.match(html, /data-ci-alert="defeito-garagem"/);
+  assert.doesNotMatch(html, /data-ci-alert="bloqueado"/);
+  const hidden = renderToStaticMarkup(React.createElement(Notice, { state, prefixo, hideIcon: true }));
+  assert.doesNotMatch(hidden, /data-ci-alert=/);
+});
+
+test('troca por equivoco nao recebe alerta de defeito de troca anterior', () => {
+  const html = renderToStaticMarkup(React.createElement(TrocaCarro, { item: rows[0], scaleState: { ...official, bloqueados: [] }, carroAtual: '4002',
+    historicoTrocas: [{ carroAnterior: '4000', novoCarro: '4001', motivo: 'Defeito Garagem', dataHora: '10:00' },
+      { carroAnterior: '4001', novoCarro: '4002', motivo: 'Adicionado equivocadamente', dataHora: '10:01' }], onTrocarCarro: async () => true }));
+  assert.doesNotMatch(html, /data-ci-alert="defeito-garagem"/);
+});
+
+test('carro realizado sem ocorrencia ou historico nao recebe aviso generico da CI', () => {
+  const html = renderToStaticMarkup(React.createElement(TrocaCarro, { item: rows[0], scaleState: { ...official, bloqueados: [] },
+    carroAtual: '3141', historicoTrocas: [], onTrocarCarro: async () => true }));
+  assert.doesNotMatch(html, /Ver ocorrencias do carro 3141/);
+  assert.doesNotMatch(html, /data-ci-alert=/);
+  assert.match(html, /aria-label="Carro realizado. Clique para alterar ou ver histórico."/);
+});
 
 test('linha sem carro fixo mostra traco sem alerta e continua sem confirmacao valida', () => {
   const html = render(false, { schedules: [{ ...rows[0], carroProgramado: '', confirmada: false }] });
@@ -147,12 +198,12 @@ test('carro da CI tem aviso amarelo acessivel sem desabilitar confirmacao', () =
   assert.doesNotMatch(html, /aria-label="Confirmar linha [^"]+"[^>]*disabled=""/);
 });
 
-test('bloqueado conserva prioridade vermelha sobre ocorrencia informativa na CI', () => {
+test('bloqueado e pedido CI exibem alertas vermelho e amarelo juntos', () => {
   const prefixo = rows[0].carroProgramado;
   const html = render(false, { official: { ...official, ciAvisos: [{ prefixo, categoria: 'OFICINA', subTipo: 'ELEVADOR', horario: null, tipoPosicao: null, ordemPosicao: null }] } });
   assert.match(html, /data-ci-alert="bloqueado"/);
   assert.ok(html.includes('Ver ocorrencias do carro ' + prefixo));
-  assert.doesNotMatch(html, /data-ci-alert="pedido"/);
+  assert.match(html, /data-ci-alert="pedido"/);
 });
 
 test('substituto da CI tambem recebe alerta amarelo sem impedir selecao', () => {
@@ -167,7 +218,7 @@ test('prefixo vermelho/azul preserva duas cores mesmo bloqueado e alerta flutua 
     ...official, frota: [...official.frota, prefixo], bloqueados: [prefixo], coresFrota: { [prefixo]: 'VERMELHO/AZUL' },
   } });
   assert.match(html, /text-rose-600 dark:text-rose-400">41<\/span><span class="text-sky-600 dark:text-sky-400">20<\/span>/);
-  assert.match(html, /class="[^"]*absolute -right-2 -top-2[^>]*data-ci-alert="bloqueado"/);
+  assert.match(html, /class="[^"]*absolute -right-2 -top-2[^>]*><svg[^>]*data-ci-alert="bloqueado"/);
 });
 
 test('pedido da CI nao substitui cor azul do carro pelo amarelo', () => {

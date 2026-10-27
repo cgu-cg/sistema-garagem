@@ -1,5 +1,46 @@
 # Domain model e entendimento operacional atual
 
+## Atualizacao da Soltura e estabilidade visual - 27/10/2026
+
+Recargas por foco e realtime sao agrupadas em 100 ms e executadas em serie.
+Uma recarga explicita absorve eventos ainda agendados; invalidacao recebida
+durante consulta exige uma leitura posterior. Trocar contexto cancela a fila
+antiga. Nao usa cache para autorizar despacho e nao remove validacoes oficiais.
+
+Durante consulta, a Soltura continua bloqueando gravacao, mas o carro realizado
+mantem borda, tamanho e icones. Popup ja aberto preserva rascunho e permanece
+visivel, com Salvar indisponivel ate a revalidacao terminar. Formularios e
+cards de hover fechados nao sao montados. Correspondencia por linha/tabela
+usa indice local por leitura, preservando a recusa de correspondencias ambiguas.
+
+## Troca de carro e defeito na garagem na Soltura - 27/10/2026
+
+Ao corrigir o carro de um despacho existente, escolher **Adicionado
+equivocadamente** ou **Defeito Garagem**. Defeito exige descricao. Equivoco
+devolve o carro retirado a reserva somente se nao estiver ocupado/bloqueado;
+defeito exclui o prefixo da reserva e o mostra no card **DEFEITO GARAGEM**, logo
+abaixo de Bloqueados CI. O bloqueio por defeito vale na mesma garagem/data,
+inclusive em outro turno. Nao modifica CI, manutencao ou escala finalizada.
+Nao cria liberacao automatica nem transporta esses registros para outras datas.
+
+Troca e historico sao gravados na mesma transacao. O backend confirma o carro
+anterior e registra usuario/horario reais, preservando historico anterior.
+Historicos enviados pelo cliente nao substituem os oficiais. Dados antigos
+sem descricao permanecem visiveis como registro anterior sem descricao.
+Popup fecha somente com sucesso; falha mantem o rascunho.
+
+Na Soltura, a troca por Defeito Garagem recebe triangulo azul e legenda propria,
+sem fundo azul no botao do carro realizado. Avisos sao independentes: bloqueio
+vermelho, pedido CI amarelo e defeito/substituicao azul aparecem lado a lado
+quando coexistem. O azul da troca informa o motivo historico; nao bloqueia o
+substituto que assumiu a linha. O carro retirado por defeito continua bloqueado.
+
+Na confirmacao inicial, Carro Realizado pode ficar vazio se houver programado
+oficial. O backend resolve o programado da escala/snapshot e grava esse prefixo
+como realizado. Motorista permanece obrigatorio, com as mesmas verificacoes
+de CI, manutencao, defeito, data e permissao. Sem programado, exige realizado.
+Usa historicoTrocas existente em Soltura; nenhuma alteracao de schema.
+
 ## Destino de carro substituido na Escala - confirmado em 27/10/2026
 
 Trocar o carro efetivo de uma linha exige escolher Reserva ou Bloquear e

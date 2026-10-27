@@ -1,4 +1,7 @@
 import { FleetVehicleInput } from './FleetVehicleInput';
+import { CiVehicleNotice } from './CiVehicleNotice';
+import { CarroTrocaPopover, type TrocaCarroItem } from './CarroTrocaPopover';
+import type { ReleaseExchangeCommand } from '@/lib/releaseProgramming';
 import type { DailyEscala } from '@/lib/sharedEscala';
 import { ScaleVehiclePrefix } from './ScaleVehiclePrefix';
 import { useState, useMemo, useEffect } from "react";
@@ -33,6 +36,8 @@ interface DispatchedRecord {
   horaLiberacao: string;
   observacoes?: string;
   substituido: boolean;
+  historicoTrocas?: TrocaCarroItem[];
+  trocaCarro?: ReleaseExchangeCommand;
 }
 
 interface CarroRealizadoViewProps {
@@ -49,6 +54,7 @@ interface CarroRealizadoViewProps {
   schedules: SolturaItem[];
   dispatches: Record<string, DispatchedRecord>;
   onSaveDispatch: (newDispatches: Record<string, DispatchedRecord>) => Promise<boolean>;
+  onTrocarCarro?: (item: SolturaItem, novoCarro: string, motivo: ReleaseExchangeCommand['motivo'], descricaoDefeito?: string) => Promise<boolean>;
   ciList: BloqueioCarro[];
   onAddSchedule?: (newItem: SolturaItem) => Promise<boolean>;
 }
@@ -67,6 +73,7 @@ export function CarroRealizadoView({
   schedules,
   dispatches,
   onSaveDispatch,
+  onTrocarCarro,
   ciList,
   onAddSchedule
 }: CarroRealizadoViewProps) {
@@ -78,6 +85,7 @@ export function CarroRealizadoView({
   const [inputMotoNome, setInputMotoNome] = useState("");
   const [inputHoraSaida, setInputHoraSaida] = useState("");
   const [inputMotivoSubstituicao, setInputMotivoSubstituicao] = useState("");
+  const [descricaoDefeito, setDescricaoDefeito] = useState('');
   const [inputObs, setInputObs] = useState("");
 
   // Estado do Card de Cadastro de Carros Programados
@@ -155,6 +163,7 @@ export function CarroRealizadoView({
     setInputHoraSaida(disp?.horaLiberacao || horaAtual);
     setInputObs(disp?.observacoes || item.observacoes || "");
     setInputMotivoSubstituicao("");
+    setDescricaoDefeito('');
   };
 
   // Atualizar código de motorista
@@ -202,6 +211,15 @@ export function CarroRealizadoView({
     const agora = new Date();
     const horaFinal = inputHoraSaida || `${String(agora.getHours()).padStart(2, "0")}:${String(agora.getMinutes()).padStart(2, "0")}`;
     const substituido = finalCarro !== currentItem.carroProgramado;
+    const anterior = dispatches[currentItem.id]?.carroRealizado || currentItem.carroRealizado;
+    let trocaCarro: ReleaseExchangeCommand | undefined;
+    if (anterior && anterior !== finalCarro) {
+      if (inputMotivoSubstituicao !== 'Adicionado equivocadamente' && inputMotivoSubstituicao !== 'Defeito Garagem') {
+        toast.error('Informe o motivo da troca.'); return;
+      }
+      if (inputMotivoSubstituicao === 'Defeito Garagem' && !descricaoDefeito.trim()) { toast.error('Descreva o defeito na garagem.'); return; }
+      trocaCarro = { carroAnterior: anterior, motivo: inputMotivoSubstituicao, descricaoDefeito: descricaoDefeito.trim() };
+    }
 
     let obsFinal = inputObs;
     if (substituido && inputMotivoSubstituicao.trim()) {
@@ -209,13 +227,15 @@ export function CarroRealizadoView({
     }
 
     const newRecord: DispatchedRecord = {
+      ...dispatches[currentItem.id],
       scheduleId: currentItem.id,
       carroRealizado: finalCarro,
       motoristaCodigo: inputMotoCodigo.trim(),
       motoristaNome: inputMotoNome.trim(),
       horaLiberacao: horaFinal,
       observacoes: obsFinal,
-      substituido
+      substituido,
+      trocaCarro,
     };
 
     const updated = { ...dispatches, [currentItem.id]: newRecord };
@@ -257,6 +277,7 @@ export function CarroRealizadoView({
     }
 
     const updatedRecord: DispatchedRecord = {
+      ...currentDisp,
       scheduleId: item.id,
       carroRealizado: carro,
       motoristaCodigo: moto,
@@ -895,7 +916,7 @@ export function CarroRealizadoView({
             </div>
 
             {/* Motivo de Substituição (se houver) */}
-            {isSubstituicao ? (
+            {isSubstituicao || (currentItem?.carroRealizado && (inputCarroRealizado.trim() || currentItem.carroProgramado) !== currentItem.carroRealizado) ? (
               <div className="space-y-1.5">
                 <Label className="text-xs font-bold text-blue-600 dark:text-blue-400">
                   Motivo da Troca de Carro
@@ -905,12 +926,11 @@ export function CarroRealizadoView({
                   onChange={(e) => setInputMotivoSubstituicao(e.target.value)}
                   className="w-full h-9 px-3 rounded-lg border border-blue-300 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/40 text-xs font-semibold focus:outline-hidden"
                 >
-                  <option value="Carro com pendência no CI">Carro com defeito / CI</option>
-                  <option value="Remanejamento de frota">Remanejamento operacional</option>
-                  <option value="Troca por ar condicionado">Ar-condicionado inoperante</option>
-                  <option value="Atraso na liberação">Atraso na lavagem/revisão</option>
-                  <option value="Outro motivo operacional">Outro motivo</option>
+                  <option value="">Selecione o motivo...</option>
+                  <option value="Adicionado equivocadamente">Adicionado equivocadamente</option>
+                  <option value="Defeito Garagem">Defeito Garagem</option>
                 </select>
+                {inputMotivoSubstituicao === 'Defeito Garagem' && <Input value={descricaoDefeito} onChange={e => setDescricaoDefeito(e.target.value)} maxLength={1000} required placeholder="Descreva o defeito na garagem..." />}
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -1074,7 +1094,9 @@ export function CarroRealizadoView({
                       {/* Carro Realizado (P) - Input Inline de Alta Agilidade */}
                       <td className="py-2 px-3">
                         <div className="flex items-center gap-1">
-                          <FleetVehicleInput fleetState={scaleState}
+                          {item.isPreenchido && onTrocarCarro ? <CarroTrocaPopover scaleState={scaleState} item={item} carroAtual={item.carroRealizado}
+                            historicoTrocas={dispatches[item.id]?.historicoTrocas ?? []} onTrocarCarro={onTrocarCarro} isReadOnly={readOnly}
+                            checkBloqueioCI={prefixo => prefixo ? checkCarroBloqueado(prefixo, ciList, dataOperacao) : null} /> : <FleetVehicleInput fleetState={scaleState}
                             type="text"
                             defaultValue={item.carroRealizado || item.carroProgramado}
                             key={item.carroRealizado || item.carroProgramado}
@@ -1094,11 +1116,11 @@ export function CarroRealizadoView({
                                   : "bg-muted/40 text-foreground"
                             )}
                             placeholder="Prefixo..."
-                          />
+                          />}
                           {itemBloqueio && (
-                            <span title={`Carro no CI: ${itemBloqueio.motivo}`}>
+                            <CiVehicleNotice state={scaleState} prefixo={item.carroRealizado || item.carroProgramado} warning={itemBloqueio.motivo ?? undefined} hideIcon><span>
                               <ShieldAlert className="w-4 h-4 text-rose-500 shrink-0" />
-                            </span>
+                            </span></CiVehicleNotice>
                           )}
                         </div>
                       </td>

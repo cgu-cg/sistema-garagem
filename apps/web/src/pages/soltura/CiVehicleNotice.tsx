@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { DailyEscala } from '@/lib/sharedEscala';
 import { AlertTriangle } from 'lucide-react';
 import { ScaleVehiclePrefix } from './ScaleVehiclePrefix';
@@ -12,30 +12,62 @@ const subtypes: Record<string, string> = { PREVENTIVA: 'PREVENTIVAS', LUBRIFICAC
 export function ciNoticesFor(state: DailyEscala | null, prefixo: string) {
   return state?.ciAvisos?.filter(i => i.prefixo === prefixo) ?? [];
 }
+export function vehicleNoticeFlags(state: DailyEscala | null, prefixo: string, warning?: string, substitution?: unknown) {
+  return { blocked: Boolean(warning || state?.bloqueados.includes(prefixo) || state?.cards.find(c => c.id === 'PORTARIA')?.itens.some(i => i.prefixo === prefixo)),
+    requested: ciNoticesFor(state, prefixo).length > 0,
+    defect: Boolean(substitution || state?.defeitosGaragem?.some(d => d.prefixo === prefixo)) };
+}
+export function VehicleNoticeIcons({ blocked, requested, defect }: ReturnType<typeof vehicleNoticeFlags>) {
+  return <span className="pointer-events-none absolute -right-2 -top-2 inline-flex items-center gap-0.5">
+    {blocked && <AlertTriangle aria-hidden="true" data-ci-alert="bloqueado" className="h-3 w-3 text-rose-600 dark:text-rose-400" />}
+    {requested && <AlertTriangle aria-hidden="true" data-ci-alert="pedido" className="h-3 w-3 text-amber-500 dark:text-amber-400" />}
+    {defect && <AlertTriangle aria-hidden="true" data-ci-alert="defeito-garagem" className="h-3 w-3 text-blue-600 dark:text-blue-400" />}
+  </span>;
+}
 
-export function CiVehicleNotice({ state, prefixo, warning, children, hideIcon = false }: { state: DailyEscala | null; prefixo: string; warning?: string; children?: ReactNode; hideIcon?: boolean }) {
+export function CiVehicleNotice({ state, prefixo, warning, children, hideIcon = false, substitution, defectDescription, hoverOnly = false, hoverDisabled = false, description }: { state: DailyEscala | null; prefixo: string; warning?: string; children?: ReactNode; hideIcon?: boolean;
+  substitution?: { carroAnterior: string; descricaoDefeito?: string }; defectDescription?: string; hoverOnly?: boolean; hoverDisabled?: boolean; description?: string }) {
   const [open, setOpen] = useState(false);
   const pinned = useRef(false);
   const notices = ciNoticesFor(state, prefixo);
   const troca = state?.historicoTrocas?.filter(t => t.prefixo === prefixo).slice(-1)[0];
-  const blocked = state?.bloqueados.includes(prefixo) || state?.cards.find(c => c.id === 'PORTARIA')?.itens.some(i => i.prefixo === prefixo);
+  const defeito = state?.defeitosGaragem?.find(d => d.prefixo === prefixo) ?? (defectDescription ? { descricao: defectDescription } : undefined);
+  const blue = Boolean(defeito || substitution);
+  const blockedCI = Boolean(state?.bloqueados.includes(prefixo));
+  const blockedPortaria = Boolean(state?.cards.find(c => c.id === 'PORTARIA')?.itens.some(i => i.prefixo === prefixo));
+  const blocked = blockedCI || blockedPortaria;
   const red = Boolean(blocked || warning);
+  const origins = [
+    (blockedCI || notices.length > 0) && `CI ${state?.ciData ?? ''}`,
+    blockedPortaria && 'Portaria',
+    blue && 'Soltura',
+    troca && 'Escala',
+    description && 'Soltura',
+  ].filter((value): value is string => typeof value === 'string');
+  const source = [...new Set(origins)].join(' • ') || 'Escala';
   const text = children ?? <ScaleVehiclePrefix state={state} prefixo={prefixo} />;
-  if (!/^\d{1,10}$/.test(prefixo) || (!notices.length && !red && !troca)) return <>{text}</>;
-  return <Popover open={open} onOpenChange={value => { pinned.current = false; setOpen(value); }}>
-    <PopoverTrigger asChild><span tabIndex={0} role={children ? undefined : 'button'} aria-label={'Ver ocorrencias do carro ' + prefixo + ' na CI ' + state?.ciData}
+  const Anchor = hoverOnly ? PopoverAnchor : PopoverTrigger;
+  if (!/^\d{1,10}$/.test(prefixo) || (!notices.length && !red && !troca && !blue && !description)) return <>{text}</>;
+  return <Popover open={open && !hoverDisabled} onOpenChange={value => { pinned.current = false; setOpen(value); }}>
+    <Anchor asChild><span tabIndex={hoverOnly ? undefined : 0} role={children ? undefined : 'button'} aria-label={'Ver ocorrencias do carro ' + prefixo + ' na ' + source}
       className="relative inline-flex items-center font-bold"
       onMouseEnter={() => setOpen(true)} onMouseLeave={() => { if (!pinned.current) setOpen(false); }}
       onFocus={() => setOpen(true)} onBlur={() => { if (!pinned.current) setOpen(false); }}
-      onKeyDown={event => { if (!children && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); pinned.current = !pinned.current; setOpen(pinned.current); } }}
-      onClick={event => { if (children) return; event.preventDefault(); pinned.current = !pinned.current; setOpen(pinned.current); }}>
+      onKeyDown={event => { if (!hoverOnly && !children && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); pinned.current = !pinned.current; setOpen(pinned.current); } }}
+      onClick={event => { if (hoverOnly || children) return; event.preventDefault(); pinned.current = !pinned.current; setOpen(pinned.current); }}>
       {text}
-      {!hideIcon && (red || notices.length > 0) && <AlertTriangle aria-hidden="true" data-ci-alert={red ? 'bloqueado' : 'pedido'} className={'pointer-events-none absolute -right-2 -top-2 h-3 w-3 ' + (red ? 'text-rose-600 dark:text-rose-400' : 'text-amber-500 dark:text-amber-400')} />}
-    </span></PopoverTrigger>
-    <PopoverContent align="start" className={'w-80 max-w-[calc(100vw-2rem)] bg-card text-card-foreground ' + (red ? 'border-rose-300' : 'border-amber-300')}
+      {!hideIcon && <VehicleNoticeIcons blocked={red} requested={notices.length > 0} defect={blue} />}
+    </span></Anchor>
+    {open && !hoverDisabled && <PopoverContent align="start" className={'w-80 max-w-[calc(100vw-2rem)] bg-card text-card-foreground ' + (red ? 'border-rose-300' : blue ? 'border-blue-300' : 'border-amber-300')}
       onOpenAutoFocus={event => event.preventDefault()} onCloseAutoFocus={event => event.preventDefault()}>
-      <p className={'text-xs font-bold ' + (red ? 'text-rose-600' : 'text-amber-600')}>Carro {prefixo} • CI {state?.ciData}</p>
+      <p className={'text-xs font-bold ' + (red ? 'text-rose-600' : blue ? 'text-blue-600' : 'text-amber-600')}>Carro {prefixo} • {source}</p>
+      {description && <p className="mt-2 text-xs">{description}</p>}
       {red && <p className="mt-2 text-xs font-semibold">{warning || (state?.bloqueados.includes(prefixo) ? 'Bloqueado na CI.' : 'Bloqueado na Portaria.')}</p>}
+      {defeito && <p className="mt-2 text-xs"><strong>Defeito Garagem:</strong> {defeito.descricao}</p>}
+      {substitution && <div className="mt-2 space-y-1 text-xs">
+        <p className="font-semibold">Substituição por Defeito Garagem: {substitution.carroAnterior} → {prefixo}</p>
+        {substitution.descricaoDefeito && <p>{substitution.descricaoDefeito}</p>}
+      </div>}
       {troca && <div className="mt-2 space-y-1 border-t pt-2 text-xs">
         <p className="font-semibold">Motivo da substituição: {troca.motivo}</p>
         <p>Substituído pelo carro {troca.substituto}. Destino: {troca.destino === 'RESERVA' ? 'Reserva' : 'Bloqueados Portaria'}.</p>
@@ -46,7 +78,7 @@ export function CiVehicleNotice({ state, prefixo, warning, children, hideIcon = 
         {item.horario && <p>Horário: {item.horario}</p>}
         {item.tipoPosicao === 'EXTRA' && <p>Posição extra{item.ordemPosicao ? ' ' + item.ordemPosicao : ''}</p>}
       </li>)}</ul>
-      <p className="mt-2 border-t pt-2 text-[10px] text-muted-foreground">{red ? 'Este carro não pode ser utilizado. Informe um substituto livre.' : 'Informativo: esta ocorrência não bloqueia o uso do carro.'}</p>
-    </PopoverContent>
+      <p className="mt-2 border-t pt-2 text-[10px] text-muted-foreground">{red || defeito ? 'Este carro não pode ser utilizado. Informe um substituto livre.' : 'Informativo: esta ocorrência não bloqueia o uso do carro.'}</p>
+    </PopoverContent>}
   </Popover>;
 }
