@@ -3,6 +3,7 @@ import { PreparationOverlay } from './PreparationOverlay';
 import { ScaleVehiclePrefix } from './ScaleVehiclePrefix';
 import { CiVehicleNotice } from './CiVehicleNotice';
 import { ScaleVehiclePicker } from './ScaleVehiclePicker';
+import { ScaleSubstitutionDialog } from './ScaleSubstitutionDialog';
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { Search, Plus, Bus, AlertTriangle, Check, Loader2, X, ChevronDown, ChevronUp, MapPin, ShieldAlert, Route } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -10,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import type { FixedScaleRow } from '@/lib/dailySchedule';
-import type { CardMutation, DailyEscala, ScaleCard, ScaleCardItem } from '@/lib/sharedEscala';
+import type { CardMutation, DailyEscala, ScaleCard, ScaleCardItem, ScaleWithdrawal } from '@/lib/sharedEscala';
 
 interface Props {
   lifecycleControl?: ReactNode;
@@ -19,7 +20,7 @@ interface Props {
   onEditingChange?: (key: string, dirty: boolean) => void;
   garagem: 'VCG' | 'VCM'; escalaTipo: 'SEG_SEX' | 'SABADO' | 'DOM_FER'; schedules: FixedScaleRow[];
   official: DailyEscala | null;
-  onSaveSubstitution: (id: string, prefixo: string) => Promise<boolean>;
+  onSaveSubstitution: (id: string, prefixo: string, retirada?: ScaleWithdrawal) => Promise<boolean>;
   onSaveCard: (change: CardMutation) => Promise<boolean>;
   onSelectGaragem?: (garage: 'VCG' | 'VCM') => void;
   onSelectEscalaTipo?: (tipo: 'SEG_SEX' | 'SABADO' | 'DOM_FER') => void;
@@ -86,7 +87,7 @@ export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, read
       </div>
       {card.modo === 'rabicho' ? <table className="w-full text-xs font-mono"><thead><tr className="text-muted-foreground"><th className="text-left">Linha</th><th>Tab</th><th>Carro</th></tr></thead>
         <tbody>{card.itens.map(i => <tr key={i.id}><td className="py-2">{i.linha}</td><td className="text-center">{i.tabela}</td><td className="text-right"><button disabled={readOnly || saving} type="button" aria-label={'Definir carro da linha ' + i.linha + ' tabela ' + i.tabela} onClick={() => open(card, i)} className={cn(i.prefixo ? 'inline-flex items-center justify-center rounded-full border border-emerald-600/40 bg-emerald-500/10 px-2.5 py-0.5 text-emerald-700 dark:text-emerald-400 disabled:opacity-40' : addVehicleButton, official && i.prefixo && allocationError(official, i.prefixo, 'card:' + card.id + ':' + i.id) && 'text-rose-600 border-rose-500')}>{i.prefixo ? <CiVehicleNotice state={official} prefixo={i.prefixo} /> : <Plus className="h-3 w-3" />}</button></td></tr>)}</tbody></table>
-        : <div className="flex flex-wrap gap-1.5 text-xs font-mono">{card.itens.filter(i => i.prefixo).map(i => <span key={i.id} className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 bg-muted/30', official && allocationError(official, i.prefixo, 'card:' + card.id + ':' + i.id) && 'text-rose-600 border-rose-500')}>
+        : <div className="flex flex-wrap gap-1.5 text-xs font-mono">{card.itens.filter(i => i.prefixo).map(i => <span key={i.id} title={official?.historicoTrocas?.filter(t => t.prefixo === i.prefixo).slice(-1)[0]?.motivo} className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 bg-muted/30', official && allocationError(official, i.prefixo, 'card:' + card.id + ':' + i.id) && 'text-rose-600 border-rose-500')}>
           <CiVehicleNotice state={official} prefixo={i.prefixo} />{i.horario && <span className="text-muted-foreground"> {i.horario}</span>}
           <button type="button" disabled={readOnly || saving} aria-label={'Retirar ' + i.prefixo + ' de ' + card.titulo} onClick={() => void mutate({ card: card.id, operacao: 'remover', prefixo: '', itemId: i.id })}><X className="h-3 w-3" /></button>
         </span>)}</div>}
@@ -154,29 +155,49 @@ export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, read
   </div>;
 }
 function LineRow({ item, official, readOnly, onSave, onEditingChange, drafts }: { item: FixedScaleRow; official: DailyEscala | null; readOnly: boolean;
-  onSave: (id: string, prefixo: string) => Promise<boolean>; onEditingChange?: (key: string, dirty: boolean) => void; drafts: Map<string, string> }) {
+  onSave: (id: string, prefixo: string, retirada?: ScaleWithdrawal) => Promise<boolean>; onEditingChange?: (key: string, dirty: boolean) => void; drafts: Map<string, string> }) {
   const [prefixo, setPrefixo] = useState(drafts.get(item.id) ?? item.carroSubstituido ?? ''), [saving, setSaving] = useState(false);
+  const [exchange, setExchange] = useState<{ anterior: string; substituto: string; value: string } | null>(null);
   const dirty = useRef(drafts.has(item.id)), pending = useRef(false);
   useEffect(() => { if (!dirty.current) setPrefixo(item.carroSubstituido ?? ''); }, [item.carroSubstituido]);
   const ownKey = 'linha:' + item.id;
   const fixedAlert = official && item.carroProgramado ? allocationError(official, item.carroProgramado, ownKey) : '';
   const confirmed = Boolean(item.confirmada && !dirty.current && prefixo.trim() === (item.carroSubstituido ?? '')
     && !allocationError(official, prefixo.trim() || item.carroProgramado, ownKey));
-  const confirm = async () => {
+  const anterior = item.carroSubstituido || item.carroProgramado;
+  const requestExchange = (p: string) => {
+    const substituto = p || item.carroProgramado;
+    if (substituto === anterior || !/^\d{1,10}$/.test(anterior)) return false;
+    const error = allocationError(official, substituto, ownKey);
+    if (error) { toast.error(error); return true; }
+    setExchange({ anterior, substituto, value: p });
+    return true;
+  };
+  const cancelExchange = () => {
+    if (pending.current) return;
+    setExchange(null); setPrefixo(item.carroSubstituido ?? '');
+    dirty.current = false; drafts.delete(item.id); onEditingChange?.(item.id, false);
+  };
+  const confirm = async (retirada?: ScaleWithdrawal) => {
     if (readOnly || pending.current) return;
-    const p = prefixo.trim(), error = allocationError(official, p || item.carroProgramado, ownKey);
+    const p = retirada && exchange ? exchange.value : prefixo.trim(), error = allocationError(official, p || item.carroProgramado, ownKey);
     if (error) { toast.error(error); return; }
+    if (!retirada && requestExchange(p)) return;
+    if (retirada && retirada.prefixo !== anterior) { toast.error('O carro da linha mudou. Cancele e revise a troca.'); return; }
     pending.current = true; setSaving(true);
-    try { if (await onSave(item.id, p)) { dirty.current = false; drafts.delete(item.id); onEditingChange?.(item.id, false); setPrefixo(p === item.carroProgramado ? '' : p); toast.success('Linha validada e escala salva.'); } }
+    try { if (await onSave(item.id, p, retirada)) { setExchange(null); dirty.current = false; drafts.delete(item.id); onEditingChange?.(item.id, false); setPrefixo(p === item.carroProgramado ? '' : p); toast.success('Linha validada e escala salva.'); } }
     finally { pending.current = false; setSaving(false); }
   };
-  return <tr data-confirmada={confirmed ? 'true' : 'false'} className={cn('border-b border-border/60 font-mono', confirmed ? 'bg-emerald-100 hover:bg-emerald-200/70 dark:bg-emerald-900/40 dark:hover:bg-emerald-900/50' : 'hover:bg-muted/30')}><td className="p-3 font-bold">{item.linha}</td><td className="p-3">{item.tabela}</td><td className="p-3">{item.saidaGaragem}</td><td className="p-3">{item.chegadaGaragem || '\u2014'}</td>
+  return <><tr data-confirmada={confirmed ? 'true' : 'false'} className={cn('border-b border-border/60 font-mono', confirmed ? 'bg-emerald-100 hover:bg-emerald-200/70 dark:bg-emerald-900/40 dark:hover:bg-emerald-900/50' : 'hover:bg-muted/30')}><td className="p-3 font-bold">{item.linha}</td><td className="p-3">{item.tabela}</td><td className="p-3">{item.saidaGaragem}</td><td className="p-3">{item.chegadaGaragem || '\u2014'}</td>
     <td className="p-3 font-bold"><CiVehicleNotice state={official} prefixo={item.carroProgramado || '\u2014'} warning={fixedAlert || undefined} /></td>
     <td className="p-2"><div className="flex items-center gap-2"><CiVehicleNotice state={official} prefixo={prefixo.trim()} warning={prefixo.trim() ? allocationError(official, prefixo.trim(), ownKey) || undefined : undefined}><ScaleVehiclePicker label={'Carro substituido da Linha ' + item.linha + ' Tabela ' + item.tabela} value={prefixo} disabled={readOnly || saving}
       garage={official?.contexto.garagem ?? ''} options={pickerOptions(official, ownKey)}
       onChange={value => { dirty.current = true; drafts.set(item.id, value); onEditingChange?.(item.id, true); setPrefixo(value); }} onConfirm={() => void confirm()}
+      onSelect={value => { if (!readOnly) requestExchange(value); }}
       renderPrefix={p => <ScaleVehiclePrefix state={official} prefixo={p} />} className="h-7 w-24 py-0 text-center" /></CiVehicleNotice>
       <button type="button" aria-label={(confirmed ? 'Linha confirmada ' : 'Confirmar linha ') + item.linha + ' tabela ' + item.tabela} title={confirmed ? 'Linha confirmada para esta data' : 'Confirmar linha'} disabled={readOnly || saving || confirmed} onClick={() => void confirm()} className={cn('h-7 w-7 inline-flex items-center justify-center rounded-full', 'bg-[#164E3A] text-white', (readOnly || saving || confirmed) && 'opacity-40 cursor-not-allowed')}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}</button>
     </div></td>
-  </tr>;
+  </tr>{exchange && <ScaleSubstitutionDialog prefixo={exchange.anterior} substituto={exchange.substituto} saving={saving}
+    reserveUnavailable={official && blocked(official, exchange.anterior) ? 'Este carro já está bloqueado e não pode ir para a reserva.' : undefined}
+    onCancel={cancelExchange} onSave={retirada => void confirm(retirada)} />}</>;
 }

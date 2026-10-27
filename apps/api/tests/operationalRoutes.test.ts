@@ -154,8 +154,9 @@ test('Soltura VCG grava card diario da propria garagem; outra garagem e bloquead
   assert.equal((await run('POST', '/escala-carros/diaria', { body })).status, 409);
   assert.equal(state.dailyWrites, 0);
   state.blocks = [];
-  assert.equal((await run('POST', '/escala-carros/diaria', { body: { contexto, revisao: 0, operacao: 'iniciar' } })).status, 200);
-  assert.equal((await run('POST', '/escala-carros/diaria', { body })).status, 200);
+  const started = await run('POST', '/escala-carros/diaria', { body: { contexto, revisao: 0, operacao: 'iniciar' } });
+  assert.equal(started.status, 200); assert.equal(started.body.revisao, 1);
+  assert.equal((await run('POST', '/escala-carros/diaria', { body: { ...body, revisao: started.body.revisao } })).status, 200);
   assert.equal(state.dailyWrites, 2);
 });
 

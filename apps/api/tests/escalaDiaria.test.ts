@@ -13,7 +13,7 @@ const original = fixedSchedule(contexto).find(row => /^\d+$/.test(row.carroProgr
 const fleetRows = [...new Set([...fixedSchedule(contexto).map(i => i.carroProgramado).filter(p => /^\d{1,10}$/.test(p)), '5001', '5002', '5001', '5002', '5003'])].map(prefixo => ({ idCarro: Number(prefixo), prefixo, garagem: 2, garagemNome: 'VCG' }));
 const readEscalaDiaria = (db: any, value: unknown, userId: number | undefined) => readReal(db, value, userId, async () => db.__fleet, async () => db.__colors ?? null);
 const now = () => new Date('2026-10-13T16:00:00Z');
-const lifecycle = (db: any, operacao: 'iniciar' | 'finalizar' | 'reabrir', revisao = 0, context = contexto, clock = now, userId: number | undefined = 1) =>
+const lifecycle = (db: any, operacao: 'iniciar' | 'finalizar' | 'reabrir', revisao = operacao === 'iniciar' ? 0 : 1, context = contexto, clock = now, userId: number | undefined = 1) =>
   saveReal(db, userId, { contexto: context, revisao, operacao }, async () => db.__fleet, async () => db.__colors ?? null, clock);
 // Setup explicito de preparacao para os cenarios de alocacao; nao altera o fluxo da aplicacao.
 const saveEscalaDiaria = async (db: any, userId: number | undefined, value: any) => db.$transaction(async () => {
@@ -43,11 +43,13 @@ function fixture() {
       findUnique: async ({ where }: any) => records.get(key(where)) ?? null,
       create: async ({ data }: any) => {
         if (fail) throw new Error('Falha simulada');
+        assert.ok(Number.isInteger(data.revisao) && data.revisao >= 1, 'CK_escala_diaria_revisao: revisao >= 1');
         const { garagem, escalaTipo, turno, dataOperacao } = data;
         records.set(JSON.stringify({ garagem, escalaTipo, turno, dataOperacao }), { id: records.size + 1, ...data });
       },
       update: async ({ where, data }: any) => {
         if (fail) throw new Error('Falha simulada');
+        assert.ok(Number.isInteger(data.revisao) && data.revisao >= 1, 'CK_escala_diaria_revisao: revisao >= 1');
         for (const [k, r] of records) if (r.id === where.id) records.set(k, { ...r, ...data });
       },
     },
@@ -60,7 +62,8 @@ function fixture() {
   };
   return { db, records, locks, role: (value: string) => { role = value; }, garage: (value: string) => { garagem = value; }, fail: () => { fail = true; } };
 }
-const command = (revisao = 0, carroSubstituido = '5001') => ({ contexto, revisao, id: original.id, carroSubstituido, base: JSON.stringify(original) });
+const command = (revisao = 1, carroSubstituido = '5001') => ({ contexto, revisao, id: original.id, carroSubstituido, base: JSON.stringify(original),
+  retirada: { prefixo: revisao === 1 ? original.carroProgramado : '5001', destino: 'RESERVA' as const, motivo: 'Troca operacional' } });
 
 test('hoje e anteriores rejeitam linhas e cards antes das integracoes, inclusive ADMIN', async () => {
   for (const day of ['2026-10-13', '2026-10-14']) {
@@ -78,9 +81,9 @@ test('data usa Campo Grande: aceita antes da meia-noite local e rejeita depois',
   const f = fixture(); await lifecycle(f.db, 'iniciar');
   await saveReal(f.db, 1, command(), async () => f.db.__fleet, async () => null,
     () => new Date('2026-10-14T03:59:59Z'));
-  await assert.rejects(saveReal(f.db, 1, command(1, '5002'), async () => f.db.__fleet, async () => null,
+  await assert.rejects(saveReal(f.db, 1, command(2, '5002'), async () => f.db.__fleet, async () => null,
     () => new Date('2026-10-14T04:00:00Z')), (e: any) => e.status === 409);
-  assert.equal([...f.records.values()][0].revisao, 1);
+  assert.equal([...f.records.values()][0].revisao, 2);
 });
 
 test('virada do dia durante a transacao cancela gravacao', async () => {
@@ -124,20 +127,20 @@ test('consulta data anterior recupera substituicao sem modificar o dia seguinte'
 });
 test('duas gravacoes consecutivas atualizam apenas a substituicao', async () => {
   const f = fixture(); await saveEscalaDiaria(f.db, 1, command());
-  const daily = await saveEscalaDiaria(f.db, 1, command(1, '5002'));
-  assert.equal(daily.revisao, 2); assert.deepEqual(daily.itens, [{ id: original.id, carroSubstituido: '5002' }]);
+  const daily = await saveEscalaDiaria(f.db, 1, command(2, '5002'));
+  assert.equal(daily.revisao, 3); assert.deepEqual(daily.itens, [{ id: original.id, carroSubstituido: '5002' }]);
 });
 test('limpar substituicao ou informar carro original restaura valores fixos', async () => {
   for (const value of ['', original.carroProgramado]) {
     const f = fixture(); await saveEscalaDiaria(f.db, 1, command());
-    const daily = await saveEscalaDiaria(f.db, 1, command(1, value));
+    const daily = await saveEscalaDiaria(f.db, 1, command(2, value));
     assert.deepEqual(daily.itens, []);
     assert.equal(applyDailySchedule(fixedScheduleRows(baseContext), daily).find(i => i.id === original.id)!.carroProgramado, original.carroProgramado);
   }
 });
 test('revisao diaria obsoleta retorna 409 e preserva vencedor', async () => {
   const f = fixture(); await saveEscalaDiaria(f.db, 1, command());
-  await assert.rejects(saveEscalaDiaria(f.db, 1, command(0, '5002')), (e: any) => e.status === 409);
+  await assert.rejects(saveEscalaDiaria(f.db, 1, command(1, '5002')), (e: any) => e.status === 409);
   assert.equal((await readEscalaDiaria(f.db, contexto, 1)).itens[0].carroSubstituido, '5001');
 });
 test('JSON divergente entre cliente e servidor retorna 409', async () => {
@@ -148,22 +151,22 @@ test('viagem inexistente nao pode ser gravada', async () => {
 });
 test('erro de persistencia conserva alteracao anterior', async () => {
   const f = fixture(); await saveEscalaDiaria(f.db, 1, command()); f.fail();
-  await assert.rejects(saveEscalaDiaria(f.db, 1, command(1, '5002')));
+  await assert.rejects(saveEscalaDiaria(f.db, 1, command(2, '5002')));
   const daily = await readEscalaDiaria(f.db, contexto, 1);
-  assert.equal(daily.revisao, 1); assert.equal(daily.itens[0].carroSubstituido, '5001');
+  assert.equal(daily.revisao, 2); assert.equal(daily.itens[0].carroSubstituido, '5001');
 });
 test('ADMIN e Soltura da propria garagem podem alterar; outra garagem e COLABORADOR nao', async () => {
   const f = fixture(); f.role('COLABORADOR');
   await assert.rejects(saveEscalaDiaria(f.db, 1, command()), (e: any) => e.status === 403);
   f.role('soltura');
-  assert.equal((await saveEscalaDiaria(f.db, 1, command())).revisao, 1);
+  assert.equal((await saveEscalaDiaria(f.db, 1, command())).revisao, 2);
   f.garage('VCM');
   await assert.rejects(readEscalaDiaria(f.db, contexto, 1), (e: any) => e.status === 403);
-  await assert.rejects(saveEscalaDiaria(f.db, 1, command(1)), (e: any) => e.status === 403);
+  await assert.rejects(saveEscalaDiaria(f.db, 1, command(2)), (e: any) => e.status === 403);
 });
 test('datas invalidas, prefixos invalidos e tentativa de editar campos fixos sao recusados', async () => {
   assert.throws(() => parseDailyContext({ ...contexto, dataOperacao: '2026-02-30' }));
-  await assert.rejects(saveEscalaDiaria(fixture().db, 1, command(0, 'abc')));
+  await assert.rejects(saveEscalaDiaria(fixture().db, 1, command(1, 'abc')));
   for (const extra of [{ linha: '02' }, { chegadaGaragem: '08:20' }, { carroProgramado: '4200' }, { status: 'LIBERADO' }])
     await assert.rejects(saveEscalaDiaria(fixture().db, 1, { ...command(), ...extra }));
 });
@@ -199,7 +202,7 @@ test('frontend recusa resposta malformada, duplicada ou de outra data', async ()
   assert.throws(() => validateDailyEscala({ ...response, itens: [response.itens[0], response.itens[0]] }, contexto));
 });
 
-const cardCommand = (revisao = 0, prefixo = '5001', card = 'LIMPEZA') => ({ contexto, revisao, card, operacao: 'adicionar', prefixo });
+const cardCommand = (revisao = 1, prefixo = '5001', card = 'LIMPEZA') => ({ contexto, revisao, card, operacao: 'adicionar', prefixo });
 test('bloqueados vem exclusivamente da CI da mesma data e da frota selecionada', async () => {
   const f = fixture();
   f.db.folhaCI.findUnique = async ({ where }: any) => {
@@ -217,9 +220,9 @@ test('bloqueados vem exclusivamente da CI da mesma data e da frota selecionada',
 });
 test('carro fixo bloqueado exige substituto livre, sem alterar o JSON', async () => {
   const f = fixture(); f.db.__blocks = [original.carroProgramado];
-  await assert.rejects(saveEscalaDiaria(f.db, 1, command(0, '')), (e: any) => e.status === 409 && /bloqueado/.test(e.message));
+  await assert.rejects(saveEscalaDiaria(f.db, 1, command(1, '')), (e: any) => e.status === 409 && /bloqueado/.test(e.message));
   assert.equal(f.records.size, 0);
-  const saved = await saveEscalaDiaria(f.db, 1, command());
+  const saved = await saveEscalaDiaria(f.db, 1, { ...command(), retirada: { ...command().retirada, destino: 'BLOQUEAR' } });
   assert.equal(saved.itens[0].carroSubstituido, '5001');
   assert.equal(fixedSchedule(contexto).find(i => i.id === original.id)!.carroProgramado, original.carroProgramado);
   assert.ok(!saved.reserva.includes(original.carroProgramado));
@@ -228,26 +231,26 @@ test('bloqueado nao entra em linha nem em qualquer card de veiculos', async () =
   const f = fixture(); f.db.__blocks = ['5001'];
   await assert.rejects(saveEscalaDiaria(f.db, 1, command()), (e: any) => /bloqueado/.test(e.message));
   for (const card of ['PORTARIA', 'LIMPEZA', 'BORRACHARIA', 'PEDIDOS_GARAGEM'])
-    await assert.rejects(saveEscalaDiaria(f.db, 1, cardCommand(0, '5001', card)), (e: any) => /bloqueado/.test(e.message));
+    await assert.rejects(saveEscalaDiaria(f.db, 1, cardCommand(1, '5001', card)), (e: any) => /bloqueado/.test(e.message));
   const state = await readEscalaDiaria(f.db, contexto, 1);
   const terminal = state.cards.find(c => c.modo === 'unico')!;
-  await assert.rejects(saveEscalaDiaria(f.db, 1, { ...cardCommand(0, '5001', terminal.id), operacao: 'definir', itemId: terminal.itens[0].id }), (e: any) => /bloqueado/.test(e.message));
-  await assert.rejects(saveEscalaDiaria(f.db, 1, { ...cardCommand(0, '5001', 'RABICHO'), operacao: 'definir', itemId: state.cards.find(c => c.id === 'RABICHO')!.itens[0].id }), (e: any) => /bloqueado/.test(e.message));
+  await assert.rejects(saveEscalaDiaria(f.db, 1, { ...cardCommand(1, '5001', terminal.id), operacao: 'definir', itemId: terminal.itens[0].id }), (e: any) => /bloqueado/.test(e.message));
+  await assert.rejects(saveEscalaDiaria(f.db, 1, { ...cardCommand(1, '5001', 'RABICHO'), operacao: 'definir', itemId: state.cards.find(c => c.id === 'RABICHO')!.itens[0].id }), (e: any) => /bloqueado/.test(e.message));
   assert.equal(f.records.size, 0);
 });
 test('duplicidade entre linha e cards ou entre cards e recusada no backend', async () => {
   const f = fixture();
-  await assert.rejects(saveEscalaDiaria(f.db, 1, cardCommand(0, original.carroProgramado)), (e: any) => /ja utilizado/.test(e.message));
+  await assert.rejects(saveEscalaDiaria(f.db, 1, cardCommand(1, original.carroProgramado)), (e: any) => /ja utilizado/.test(e.message));
   await saveEscalaDiaria(f.db, 1, cardCommand());
-  await assert.rejects(saveEscalaDiaria(f.db, 1, cardCommand(1, '5001', 'BORRACHARIA')), (e: any) => /ja utilizado/.test(e.message));
-  await assert.rejects(saveEscalaDiaria(f.db, 1, command(1)), (e: any) => /ja utilizado/.test(e.message));
+  await assert.rejects(saveEscalaDiaria(f.db, 1, cardCommand(2, '5001', 'BORRACHARIA')), (e: any) => /ja utilizado/.test(e.message));
+  await assert.rejects(saveEscalaDiaria(f.db, 1, command(2)), (e: any) => /ja utilizado/.test(e.message));
 });
 test('fixo so pode entrar em card apos ser substituido; restauracao nao pode duplicar', async () => {
   const f = fixture();
   await saveEscalaDiaria(f.db, 1, command());
-  const card = await saveEscalaDiaria(f.db, 1, cardCommand(1, original.carroProgramado));
+  const card = await saveEscalaDiaria(f.db, 1, cardCommand(2, original.carroProgramado));
   assert.ok(card.cards.find(c => c.id === 'LIMPEZA')?.itens.some(i => i.prefixo === original.carroProgramado));
-  await assert.rejects(saveEscalaDiaria(f.db, 1, command(2, '')), (e: any) => /ja utilizado/.test(e.message));
+  await assert.rejects(saveEscalaDiaria(f.db, 1, command(3, '')), (e: any) => /ja utilizado/.test(e.message));
   assert.equal((await readEscalaDiaria(f.db, contexto, 1)).itens[0].carroSubstituido, '5001');
 });
 test('reserva e derivada da frota menos linhas, cards e bloqueados', async () => {
@@ -257,7 +260,7 @@ test('reserva e derivada da frota menos linhas, cards e bloqueados', async () =>
   const saved = await saveEscalaDiaria(f.db, 1, command());
   assert.ok(!saved.reserva.includes('5001')); assert.ok(!saved.reserva.includes('5003'));
   assert.ok(saved.reserva.includes(original.carroProgramado));
-  const withCard = await saveEscalaDiaria(f.db, 1, cardCommand(1, '5002'));
+  const withCard = await saveEscalaDiaria(f.db, 1, cardCommand(2, '5002'));
   assert.ok(!withCard.reserva.includes('5002'));
 });
 test('cards compartilhados por data nao migram para o dia seguinte e podem ser retirados', async () => {
@@ -266,14 +269,14 @@ test('cards compartilhados por data nao migram para o dia seguinte e podem ser r
   assert.equal((await readEscalaDiaria(f.db, contexto, 1)).cards.find(c => c.id === 'LIMPEZA')?.itens[0].prefixo, '5001');
   const tomorrow = await readEscalaDiaria(f.db, { ...contexto, dataOperacao: '2026-10-15' }, 1);
   assert.deepEqual(tomorrow.cards.find(c => c.id === 'LIMPEZA')?.itens, []);
-  await saveEscalaDiaria(f.db, 1, { contexto, revisao: 1, card: 'LIMPEZA', operacao: 'remover', prefixo: '', itemId: item.id });
+  await saveEscalaDiaria(f.db, 1, { contexto, revisao: 2, card: 'LIMPEZA', operacao: 'remover', prefixo: '', itemId: item.id });
   assert.deepEqual((await readEscalaDiaria(f.db, contexto, 1)).cards.find(c => c.id === 'LIMPEZA')?.itens, []);
 });
 test('conflito entre gravacao de card e linha preserva vencedor sem repetir POST', async () => {
   const f = fixture(); await saveEscalaDiaria(f.db, 1, cardCommand());
-  await assert.rejects(saveEscalaDiaria(f.db, 1, command(0, '5002')), (e: any) => e.status === 409);
+  await assert.rejects(saveEscalaDiaria(f.db, 1, command(1, '5002')), (e: any) => e.status === 409);
   const state = await readEscalaDiaria(f.db, contexto, 1);
-  assert.equal(state.revisao, 1); assert.deepEqual(state.itens, []);
+  assert.equal(state.revisao, 2); assert.deepEqual(state.itens, []);
   assert.equal(state.cards.find(c => c.id === 'LIMPEZA')?.itens[0].prefixo, '5001');
 });
 test('mudanca na CI apos consulta bloqueia a gravacao com base diaria ainda valida', async () => {
@@ -300,8 +303,8 @@ test('frota filtra garagem oficial e nao infere pela consorciada ou prefixo', ()
 });
 test('prefixo fora da frota ou de outra garagem nao pode ser alocado', async () => {
   const f = fixture(); f.db.__fleet.data = [...fleetRows, { idCarro: 1322, prefixo: '1322', garagem: 1, garagemNome: 'VCM' }];
-  await assert.rejects(saveEscalaDiaria(f.db, 1, command(0, '1322')), (e: any) => /frota/.test(e.message));
-  await assert.rejects(saveEscalaDiaria(f.db, 1, cardCommand(0, '5999')), (e: any) => /frota/.test(e.message));
+  await assert.rejects(saveEscalaDiaria(f.db, 1, command(1, '1322')), (e: any) => /frota/.test(e.message));
+  await assert.rejects(saveEscalaDiaria(f.db, 1, cardCommand(1, '5999')), (e: any) => /frota/.test(e.message));
 });
 test('formato anterior continua legivel e nao e convertido ou sobrescrito ao salvar', async () => {
   const f = fixture();
@@ -337,7 +340,7 @@ test('confirmacao da linha persiste por data e e recuperada apos recarga', async
   assert.deepEqual(tomorrow.confirmadas, []);
 });
 test('carro fixo livre pode ser confirmado sem substituicao e nao se torna LIBERADO', async () => {
-  const saved = await saveEscalaDiaria(fixture().db, 1, command(0, ''));
+  const saved = await saveEscalaDiaria(fixture().db, 1, command(1, ''));
   assert.deepEqual(saved.itens, []); assert.deepEqual(saved.confirmadas, [original.id]);
   assert.equal(applyDailySchedule(fixedScheduleRows(baseContext), saved).find(i => i.id === original.id)!.status, 'PENDENTE');
 });
@@ -357,7 +360,7 @@ test('confirmacoes nao sao inferidas de registros antigos e novos bloqueios inva
 });
 test('falha de gravacao nao registra confirmacao de outro carro nem altera confirmacao oficial', async () => {
   const f = fixture(); await saveEscalaDiaria(f.db, 1, command()); f.fail();
-  await assert.rejects(saveEscalaDiaria(f.db, 1, command(1, '5002')));
+  await assert.rejects(saveEscalaDiaria(f.db, 1, command(2, '5002')));
   const payload = JSON.parse([...f.records.values()][0].conteudo);
   assert.deepEqual(payload.confirmacoes, [{ id: original.id, prefixo: '5001' }]);
 });
@@ -366,9 +369,9 @@ test('Rabicho permite definir carro em posicao existente mas nao criar linha ou 
   const f = fixture();
   const state = await readEscalaDiaria(f.db, contexto, 1);
   const card = state.cards.find(c => c.id === 'RABICHO')!;
-  await assert.rejects(saveEscalaDiaria(f.db, 1, { ...cardCommand(0, '5001', 'RABICHO'), linha: '999', tabela: '99' }), (e: any) => e.status === 400 && /fixas/.test(e.message));
+  await assert.rejects(saveEscalaDiaria(f.db, 1, { ...cardCommand(1, '5001', 'RABICHO'), linha: '999', tabela: '99' }), (e: any) => e.status === 400 && /fixas/.test(e.message));
   assert.equal(f.records.size, 0);
-  const saved = await saveEscalaDiaria(f.db, 1, { ...cardCommand(0, '5001', 'RABICHO'), operacao: 'definir', itemId: card.itens[0].id });
+  const saved = await saveEscalaDiaria(f.db, 1, { ...cardCommand(1, '5001', 'RABICHO'), operacao: 'definir', itemId: card.itens[0].id });
   const updated = saved.cards.find(c => c.id === 'RABICHO')!;
   assert.equal(updated.itens.length, card.itens.length);
   assert.equal(updated.itens[0].linha, card.itens[0].linha);
@@ -382,7 +385,7 @@ test('API retorna reserva automatica sem gravacao e recusa mutacoes nos grupos a
   const state = await readEscalaDiaria(f.db, contexto, 1);
   assert.ok(state.reservaPorCor.grupos[0].prefixos.includes('5001'));
   assert.equal(f.records.size, 0);
-  await assert.rejects(saveEscalaDiaria(f.db, 1, cardCommand(0, '5001', 'AZUL')), (e: any) => e.status === 400 && /automatica/.test(e.message));
+  await assert.rejects(saveEscalaDiaria(f.db, 1, cardCommand(1, '5001', 'AZUL')), (e: any) => e.status === 400 && /automatica/.test(e.message));
   assert.equal(f.records.size, 0);
   const saved = await saveEscalaDiaria(f.db, 1, command());
   assert.ok(!saved.reservaPorCor.grupos.flatMap(g => g.prefixos).includes('5001'));
@@ -462,7 +465,7 @@ test('troca do molde preserva substituicoes antigas sem aplicar em outra viagem'
 
 test('manual: gravacao direta nao inicia a escala implicitamente', async () => {
   const f = fixture();
-  await assert.rejects(saveReal(f.db, 1, command(), async () => f.db.__fleet, async () => null, now), /Inicie a escala/);
+  await assert.rejects(saveReal(f.db, 1, command(0), async () => f.db.__fleet, async () => null, now), /Inicie a escala/);
   assert.equal(f.records.size, 0);
 });
 
@@ -482,6 +485,113 @@ test('manual: CI ausente ou em preparacao impede inicio, sem gravar durante cons
   }
 });
 
+test('manual: primeira escala persiste revisao 1 e rejeita inicio repetido com revisao zero', async () => {
+  const f = fixture();
+  const absent = await readEscalaDiaria(f.db, contexto, 1);
+  assert.equal(absent.revisao, 0);
+  assert.equal(f.records.size, 0);
+  const started = await lifecycle(f.db, 'iniciar', absent.revisao);
+  assert.equal(started.revisao, 1);
+  assert.equal([...f.records.values()][0].revisao, 1);
+  assert.equal(started.fluxo.status, 'EM_PREPARACAO');
+  const before = structuredClone([...f.records]);
+  await assert.rejects(lifecycle(f.db, 'iniciar', 0), (e: any) => e.status === 409);
+  assert.deepEqual([...f.records], before);
+  const saved = await saveReal(f.db, 1, command(started.revisao), async () => f.db.__fleet, async () => null, now);
+  assert.equal(saved.revisao, 2);
+  assert.equal((await readEscalaDiaria(f.db, contexto, 1)).revisao, 2);
+});
+
+test('troca: reserva salva motivo, autor e horario e preserva historico ao finalizar/reabrir', async () => {
+  const f = fixture(); await lifecycle(f.db, 'iniciar');
+  const saved = await saveReal(f.db, 1, { ...command(), retirada: { ...command().retirada, motivo: '  Ajuste operacional  ' } }, async () => f.db.__fleet, async () => null, now);
+  assert.ok(saved.reserva.includes(original.carroProgramado));
+  assert.ok(!saved.reserva.includes('5001'));
+  assert.ok(!saved.cards.find(c => c.id === 'PORTARIA')!.itens.length);
+  assert.equal(saved.historicoTrocas.length, 1);
+  assert.deepEqual({ ...saved.historicoTrocas[0], id: 'gerado' }, { id: 'gerado', linhaId: original.id,
+    prefixo: original.carroProgramado, substituto: '5001', destino: 'RESERVA', motivo: 'Ajuste operacional', usuarioId: 1, registradoEm: now().toISOString() });
+  const closed = await lifecycle(f.db, 'finalizar', saved.revisao);
+  const reopened = await lifecycle(f.db, 'reabrir', closed.revisao);
+  assert.deepEqual(reopened.historicoTrocas, saved.historicoTrocas);
+  const loaded = await readEscalaDiaria(f.db, contexto, 1);
+  assert.deepEqual(validateDailyEscala(loaded, contexto), loaded);
+  assert.deepEqual(loaded.historicoTrocas, saved.historicoTrocas);
+});
+
+test('troca: bloquear e substituir sao atomicos e impedem reutilizacao do carro retirado', async () => {
+  const f = fixture(); await lifecycle(f.db, 'iniciar');
+  const saved = await saveReal(f.db, 1, { ...command(), retirada: { ...command().retirada, destino: 'BLOQUEAR' } }, async () => f.db.__fleet, async () => null, now);
+  assert.equal(saved.revisao, 2);
+  assert.equal(saved.cards.find(c => c.id === 'PORTARIA')!.itens[0].prefixo, original.carroProgramado);
+  assert.ok(!saved.reserva.includes(original.carroProgramado));
+  assert.deepEqual(saved.bloqueados, []); // Nao escreve nem simula bloqueio na CI.
+  assert.equal(saved.historicoTrocas[0].destino, 'BLOQUEAR');
+  assert.deepEqual((await readEscalaDiaria(f.db, contexto, 1)).historicoTrocas, saved.historicoTrocas);
+  await assert.rejects(saveReal(f.db, 1, command(2, ''), async () => f.db.__fleet, async () => null, now), /bloqueado/);
+  await assert.rejects(saveReal(f.db, 1, cardCommand(2, original.carroProgramado), async () => f.db.__fleet, async () => null, now), /bloqueado/);
+  assert.equal([...f.records.values()][0].revisao, 2);
+});
+
+test('troca: falha ao persistir nao move carro nem registra motivo ou confirmacao', async () => {
+  const f = fixture(); await lifecycle(f.db, 'iniciar');
+  const before = structuredClone([...f.records]); f.fail();
+  await assert.rejects(saveReal(f.db, 1, { ...command(), retirada: { ...command().retirada, destino: 'BLOQUEAR' } }, async () => f.db.__fleet, async () => null, now), /Falha simulada/);
+  assert.deepEqual([...f.records], before);
+});
+
+test('troca: motivo e destino obrigatorios, carro retirado correto e autor nao fornecido pelo cliente', async () => {
+  const f = fixture(); await lifecycle(f.db, 'iniciar');
+  const before = structuredClone([...f.records]);
+  for (const retirada of [undefined, { ...command().retirada, motivo: '  ' }, { ...command().retirada, motivo: 'x'.repeat(1001) },
+    { ...command().retirada, destino: 'OUTRO' }, { ...command().retirada, prefixo: '5002' }, { ...command().retirada, usuarioId: 99 }]) {
+    await assert.rejects(saveReal(f.db, 1, { ...command(), retirada }, async () => f.db.__fleet, async () => null, now));
+    assert.deepEqual([...f.records], before);
+  }
+});
+
+test('troca: segunda substituicao destina o substituto anterior e mantem a primeira decisao', async () => {
+  const f = fixture(); await lifecycle(f.db, 'iniciar');
+  const first = await saveReal(f.db, 1, { ...command(), retirada: { ...command().retirada, destino: 'BLOQUEAR' } }, async () => f.db.__fleet, async () => null, now);
+  const second = await saveReal(f.db, 1, { ...command(first.revisao, '5002'), retirada: { prefixo: '5001', destino: 'RESERVA', motivo: 'Nova troca' } }, async () => f.db.__fleet, async () => null, now);
+  assert.equal(second.historicoTrocas.length, 2);
+  assert.equal(second.historicoTrocas[1].prefixo, '5001');
+  assert.ok(second.reserva.includes('5001'));
+  assert.ok(!second.reserva.includes(original.carroProgramado));
+  assert.ok(!second.reserva.includes('5002'));
+  const before = structuredClone([...f.records]);
+  await assert.rejects(saveReal(f.db, 1, { ...command(second.revisao, '5003'), retirada: { prefixo: '5001', destino: 'RESERVA', motivo: 'Rascunho antigo' } }, async () => f.db.__fleet, async () => null, now), /carro da linha mudou/);
+  assert.deepEqual([...f.records], before);
+});
+
+test('troca: bloqueio CI nao e removido pela opcao reserva, bloquear nao duplica na Portaria', async () => {
+  const f = fixture(); f.db.__blocks = [original.carroProgramado]; await lifecycle(f.db, 'iniciar');
+  const before = structuredClone([...f.records]);
+  await assert.rejects(saveReal(f.db, 1, command(), async () => f.db.__fleet, async () => null, now), /bloqueado/);
+  assert.deepEqual([...f.records], before);
+  const saved = await saveReal(f.db, 1, { ...command(), retirada: { ...command().retirada, destino: 'BLOQUEAR' } }, async () => f.db.__fleet, async () => null, now);
+  assert.deepEqual(saved.bloqueados, [original.carroProgramado]);
+  assert.equal(saved.cards.find(c => c.id === 'PORTARIA')!.itens.length, 1);
+  const confirmed = await saveReal(f.db, 1, { ...command(saved.revisao), retirada: undefined }, async () => f.db.__fleet, async () => null, now);
+  assert.equal(confirmed.historicoTrocas.length, 1);
+  assert.equal(confirmed.cards.find(c => c.id === 'PORTARIA')!.itens.length, 1);
+});
+
+test('troca: confirmar carro fixo sem trocar dispensa popup e nao cria historico', async () => {
+  const f = fixture(); await lifecycle(f.db, 'iniciar');
+  const saved = await saveReal(f.db, 1, { ...command(1, ''), retirada: undefined }, async () => f.db.__fleet, async () => null, now);
+  assert.deepEqual(saved.historicoTrocas, []);
+  assert.deepEqual(saved.confirmadas, [original.id]);
+});
+
+test('troca: conflito de revisao nao registra destino ou motivo de outro posto', async () => {
+  const f = fixture(); await lifecycle(f.db, 'iniciar');
+  await saveReal(f.db, 1, command(), async () => f.db.__fleet, async () => null, now);
+  const before = structuredClone([...f.records]);
+  await assert.rejects(saveReal(f.db, 1, { ...command(1, '5002'), retirada: { ...command().retirada, destino: 'BLOQUEAR' } }, async () => f.db.__fleet, async () => null, now), (e: any) => e.status === 409);
+  assert.deepEqual([...f.records], before);
+});
+
 test('manual: iniciar usa CI da mesma data e comeca limpa sem herdar escala anterior', async () => {
   const f = fixture();
   f.records.set('previous', { id: 22, garagem: 'VCG', dataOperacao: '2026-10-13', revisao: 9,
@@ -495,7 +605,7 @@ test('manual: iniciar usa CI da mesma data e comeca limpa sem herdar escala ante
   assert.deepEqual(f.records.get('previous'), previous);
   assert.deepEqual(validateDailyEscala(started, contexto), started);
   const before = structuredClone([...f.records]);
-  await assert.rejects(lifecycle(f.db, 'iniciar'), /ja iniciada/);
+  await assert.rejects(lifecycle(f.db, 'iniciar', started.revisao), /ja iniciada/);
   assert.deepEqual([...f.records], before);
 });
 

@@ -1,5 +1,16 @@
 # Domain model e entendimento operacional atual
 
+## Destino de carro substituido na Escala - confirmado em 27/10/2026
+
+Trocar o carro efetivo de uma linha exige escolher Reserva ou Bloquear e
+informar motivo. Na primeira troca, destina o fixo; nas seguintes, destina o
+substituto anterior. Bloquear coloca em Bloqueados Portaria; Reserva usa a
+reserva automatica existente. Bloqueados pela CI permanecem bloqueados e nao
+podem voltar a reserva pela Escala. A operacao nao modifica CI ou manutencao.
+Troca, destino e motivo sao atomicos, com usuario/horario reais do servidor.
+Cancelar nao grava; falha/conflito preserva rascunho para revisao. Historicos
+anteriores e fotografias finalizadas sao preservados. Ver ESCALA-MANUAL.md.
+
 ## Cadastro de Reforco e Inspecao por popup - 26/10/2026
 
 Os horarios do Reforco exibem somente dados salvos. O botao + de cada posicao

@@ -17,10 +17,11 @@ export function CiVehicleNotice({ state, prefixo, warning, children, hideIcon = 
   const [open, setOpen] = useState(false);
   const pinned = useRef(false);
   const notices = ciNoticesFor(state, prefixo);
+  const troca = state?.historicoTrocas?.filter(t => t.prefixo === prefixo).slice(-1)[0];
   const blocked = state?.bloqueados.includes(prefixo) || state?.cards.find(c => c.id === 'PORTARIA')?.itens.some(i => i.prefixo === prefixo);
   const red = Boolean(blocked || warning);
   const text = children ?? <ScaleVehiclePrefix state={state} prefixo={prefixo} />;
-  if (!/^\d{1,10}$/.test(prefixo) || (!notices.length && !red)) return <>{text}</>;
+  if (!/^\d{1,10}$/.test(prefixo) || (!notices.length && !red && !troca)) return <>{text}</>;
   return <Popover open={open} onOpenChange={value => { pinned.current = false; setOpen(value); }}>
     <PopoverTrigger asChild><span tabIndex={0} role={children ? undefined : 'button'} aria-label={'Ver ocorrencias do carro ' + prefixo + ' na CI ' + state?.ciData}
       className="relative inline-flex items-center font-bold"
@@ -29,12 +30,16 @@ export function CiVehicleNotice({ state, prefixo, warning, children, hideIcon = 
       onKeyDown={event => { if (!children && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); pinned.current = !pinned.current; setOpen(pinned.current); } }}
       onClick={event => { if (children) return; event.preventDefault(); pinned.current = !pinned.current; setOpen(pinned.current); }}>
       {text}
-      {!hideIcon && <AlertTriangle aria-hidden="true" data-ci-alert={red ? 'bloqueado' : 'pedido'} className={'pointer-events-none absolute -right-2 -top-2 h-3 w-3 ' + (red ? 'text-rose-600 dark:text-rose-400' : 'text-amber-500 dark:text-amber-400')} />}
+      {!hideIcon && (red || notices.length > 0) && <AlertTriangle aria-hidden="true" data-ci-alert={red ? 'bloqueado' : 'pedido'} className={'pointer-events-none absolute -right-2 -top-2 h-3 w-3 ' + (red ? 'text-rose-600 dark:text-rose-400' : 'text-amber-500 dark:text-amber-400')} />}
     </span></PopoverTrigger>
     <PopoverContent align="start" className={'w-80 max-w-[calc(100vw-2rem)] bg-card text-card-foreground ' + (red ? 'border-rose-300' : 'border-amber-300')}
       onOpenAutoFocus={event => event.preventDefault()} onCloseAutoFocus={event => event.preventDefault()}>
       <p className={'text-xs font-bold ' + (red ? 'text-rose-600' : 'text-amber-600')}>Carro {prefixo} • CI {state?.ciData}</p>
       {red && <p className="mt-2 text-xs font-semibold">{warning || (state?.bloqueados.includes(prefixo) ? 'Bloqueado na CI.' : 'Bloqueado na Portaria.')}</p>}
+      {troca && <div className="mt-2 space-y-1 border-t pt-2 text-xs">
+        <p className="font-semibold">Motivo da substituição: {troca.motivo}</p>
+        <p>Substituído pelo carro {troca.substituto}. Destino: {troca.destino === 'RESERVA' ? 'Reserva' : 'Bloqueados Portaria'}.</p>
+      </div>}
       <ul className="mt-2 space-y-2 text-xs">{notices.map((item, index) => <li key={index}>
         <p className="font-semibold">{sections[item.categoria]}</p>
         {item.subTipo && <p>{subtypes[item.subTipo] ?? item.subTipo}</p>}

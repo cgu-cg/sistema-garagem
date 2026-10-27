@@ -49,7 +49,7 @@ import { AlterarFolhaView } from "./AlterarFolhaView";
 import { AlterarCarroProgramadoView } from "./AlterarCarroProgramadoView";
 import { CarroRealizadoView } from "./CarroRealizadoView";
 import { checkCarroBloqueado, subscribeCIUpdates, fetchCIBloqueiosFromApi, getGaragemFisicaByCarro } from "./ciManager";
-import { loadSharedEscala, saveSharedEscala, SharedEscala, EscalaContext, DailyEscala, loadDailyEscala, changeDailyScaleState, saveDailyEscala, saveDailyScaleCard, CardMutation } from '@/lib/sharedEscala';
+import { loadSharedEscala, saveSharedEscala, SharedEscala, EscalaContext, DailyEscala, loadDailyEscala, changeDailyScaleState, saveDailyEscala, saveDailyScaleCard, CardMutation, ScaleWithdrawal } from '@/lib/sharedEscala';
 import { applyDailySchedule, fixedScheduleRows, fixedScheduleToken } from '@/lib/dailySchedule';
 
 type GaragemType = "VCG" | "VCM";
@@ -410,7 +410,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     return () => { unsubscribe(); window.removeEventListener('focus', refresh); };
   }, [dailyContextKey, viewMode, canConsultDailyScale, user?.id]);
   useEffect(() => { if (viewMode !== 'ALTERAR_CARRO_PROGRAMADO') dailyDirtyFields.current.clear(); }, [viewMode]);
-  const persistDailySchedule = async (id: string, prefixo: string) => {
+  const persistDailySchedule = async (id: string, prefixo: string, retirada?: ScaleWithdrawal) => {
     if (dataOperacao <= operationalContext().today) {
       toast.error('Somente escalas futuras em preparacao podem ser alteradas.'); return false;
     }
@@ -421,7 +421,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     const key = dailyContextKey;
     dailyWritePending.current = true; dailyWriteContext.current = key; ++dailyReadSequence.current;
     try {
-      const saved = await saveDailyEscala(dailyContext, dailyScale.revisao, id, prefixo, base);
+      const saved = await saveDailyEscala(dailyContext, dailyScale.revisao, id, prefixo, base, retirada);
       if (selectedDailyKey.current === key) { setDailyScale(saved); setDailyError(''); }
       return true;
     } catch (error) {

@@ -47,10 +47,37 @@ continua revalidando todas as condicoes ao salvar.
 
 ## Persistencia e compatibilidade
 
+### Destino do carro retirado - 27/10/2026
+
+Selecionar um substituto abre um popup com **Colocar carro na reserva** ou
+**Bloquear carro**, e motivo obrigatorio (ate 1000 caracteres). Digitacao manual
+abre o mesmo popup ao confirmar. O carro mostrado e o efetivo anterior da linha:
+o fixo na primeira troca ou o substituto atual em uma troca seguinte. Confirmar
+sem mudar de carro nao exige motivo; linha sem carro anterior nao destina um
+prefixo inexistente. Cancelar restaura o valor salvo, sem gravar a troca.
+
+Salvar grava substituicao, confirmacao, destino e motivo na mesma transacao e
+revisao. Reserva continua derivada da frota livre; Bloquear inclui o retirado em
+**Bloqueados Portaria**, impedindo sua reutilizacao. Nao libera nem modifica CI
+ou manutencao. Bloqueado pela CI nao pode ir para reserva; o popup desabilita
+essa escolha e o backend tambem recusa. Carro ainda ocupado em outra linha/card
+nao e movido automaticamente. Conflito ou falha mantem o formulario para revisao.
+
+O JSON existente em escala_diaria recebe historicoTrocas opcional, com prefixo
+retirado, substituto, linha, destino, motivo, usuarioId e registradoEm obtidos
+no servidor. Finalizar/reabrir preserva esse historico. Registros anteriores
+continuam legiveis sem criar motivos ficticios. O motivo mais recente do carro
+pode ser consultado nos cards de reserva e Portaria. Sem alteracao de schema,
+migration ou escrita operacional para validacao.
+
 Novos registros em escala_diaria usam conteudo version 3, com itens, cards,
 confirmacoes e fluxo (status, iniciadaEm, finalizadaEm e fonteCI). CI usa a mesma
-data. Inicio cria registro com revisao 0; cada alteracao seguinte incrementa.
-Iniciar repetidamente nao sobrescreve registros, mesmo com revisao 0.
+data. Antes de existir registro, GET retorna revisao 0 e Iniciar recebe essa
+revisao como base. O inicio grava e retorna revisao 1; cada alteracao seguinte
+incrementa. Revisao nao representa preenchimento nem finalizacao da escala.
+Isso atende ao CHECK revisao>=1 do SQL Server (correcao de 26/10/2026).
+Iniciar repetidamente nao sobrescreve registros: revisao antiga gera conflito
+e um comando com revisao atual tambem recusa uma escala ja iniciada.
 
 Arrays antigos e conteudo version 2 continuam legiveis. Recebem o estado de tela
 LEGADO e mantem a referencia antiga da CI (dia seguinte), somente para consulta.
