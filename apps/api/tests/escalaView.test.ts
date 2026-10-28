@@ -66,7 +66,7 @@ test('carro realizado substituido por defeito mostra alertas simultaneos sem fun
     historicoTrocas: [{ carroAnterior: '4000', novoCarro: prefixo, motivo: 'Defeito Garagem', descricaoDefeito: 'Motor', dataHora: '27/10 10:00' }], onTrocarCarro: async () => true }));
   assert.match(html, /data-ci-alert="bloqueado"/); assert.match(html, /data-ci-alert="pedido"/);
   assert.match(html.match(/<svg[^>]*data-ci-alert="defeito-garagem"[^>]*>/)![0], /text-blue-600/);
-  assert.match(html, /inline-flex items-center gap-0.5/);
+  assert.match(html, /inline-flex items-center -space-x-1/);
   assert.doesNotMatch(html, /<button[^>]*class="[^"]*bg-blue/);
   assert.doesNotMatch(html, /title="Defeito Garagem:/);
 });

@@ -1,11 +1,12 @@
+import { VehicleAlertIcon } from './CiVehicleNotice';
 import { ScaleFleetSidebar } from './ScaleFleetSidebar';
 import { PreparationOverlay } from './PreparationOverlay';
 import { ScaleVehiclePrefix } from './ScaleVehiclePrefix';
-import { CiVehicleNotice } from './CiVehicleNotice';
+import { CiVehicleNotice, VehicleNoticeIcons, vehicleNoticeFlags } from './CiVehicleNotice';
 import { ScaleVehiclePicker } from './ScaleVehiclePicker';
 import { ScaleSubstitutionDialog } from './ScaleSubstitutionDialog';
 import { useState, useEffect, useRef, type ReactNode } from 'react';
-import { Search, Plus, Bus, AlertTriangle, Check, Loader2, X, ChevronDown, ChevronUp, MapPin, ShieldAlert, Route } from 'lucide-react';
+import { Search, Plus, Bus, Check, Loader2, X, ChevronDown, ChevronUp, MapPin, ShieldAlert, Route } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
@@ -120,8 +121,8 @@ export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, read
       <div className="min-w-0 rounded-3xl border border-border bg-card overflow-hidden self-start">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3 text-xs text-muted-foreground">
           <div className="flex flex-wrap items-center gap-3">
-            <span className="inline-flex items-center gap-1.5"><AlertTriangle aria-hidden="true" className="h-3 w-3 text-rose-600" />Bloqueados CI</span>
-            <span className="inline-flex items-center gap-1.5"><AlertTriangle aria-hidden="true" className="h-3 w-3 text-amber-500" />Reforço</span>
+            <span className="inline-flex items-center gap-1.5"><VehicleAlertIcon aria-hidden="true" className="h-3 w-3 text-rose-600" />Bloqueados CI</span>
+            <span className="inline-flex items-center gap-1.5"><VehicleAlertIcon aria-hidden="true" className="h-3 w-3 text-amber-500" />Reforço</span>
           </div>
           <div role="status" className="ml-auto flex items-center gap-3 whitespace-nowrap font-mono">
             <span>Feito: <strong className="text-[#164E3A] dark:text-emerald-400">{String(completed).padStart(2, '0')}</strong></span>
@@ -190,11 +191,11 @@ function LineRow({ item, official, readOnly, onSave, onEditingChange, drafts }: 
   };
   return <><tr data-confirmada={confirmed ? 'true' : 'false'} className={cn('border-b border-border/60 font-mono', confirmed ? 'bg-emerald-100 hover:bg-emerald-200/70 dark:bg-emerald-900/40 dark:hover:bg-emerald-900/50' : 'hover:bg-muted/30')}><td className="p-3 font-bold">{item.linha}</td><td className="p-3">{item.tabela}</td><td className="p-3">{item.saidaGaragem}</td><td className="p-3">{item.chegadaGaragem || '\u2014'}</td>
     <td className="p-3 font-bold"><CiVehicleNotice state={official} prefixo={item.carroProgramado || '\u2014'} warning={fixedAlert || undefined} /></td>
-    <td className="p-2"><div className="flex items-center gap-2"><CiVehicleNotice state={official} prefixo={prefixo.trim()} warning={prefixo.trim() ? allocationError(official, prefixo.trim(), ownKey) || undefined : undefined}><ScaleVehiclePicker label={'Carro substituido da Linha ' + item.linha + ' Tabela ' + item.tabela} value={prefixo} disabled={readOnly || saving}
+    <td className="p-2"><div className="flex items-center gap-2"><CiVehicleNotice hideIcon state={official} prefixo={prefixo.trim()} warning={prefixo.trim() ? allocationError(official, prefixo.trim(), ownKey) || undefined : undefined}><ScaleVehiclePicker label={'Carro substituido da Linha ' + item.linha + ' Tabela ' + item.tabela} value={prefixo} disabled={readOnly || saving}
       garage={official?.contexto.garagem ?? ''} options={pickerOptions(official, ownKey)}
       onChange={value => { dirty.current = true; drafts.set(item.id, value); onEditingChange?.(item.id, true); setPrefixo(value); }} onConfirm={() => void confirm()}
       onSelect={value => { if (!readOnly) requestExchange(value); }}
-      renderPrefix={p => <ScaleVehiclePrefix state={official} prefixo={p} />} className="h-7 w-24 py-0 text-center" /></CiVehicleNotice>
+      renderPrefix={p => <span className="relative inline-flex"><ScaleVehiclePrefix state={official} prefixo={p} />{p === prefixo.trim() && <VehicleNoticeIcons {...vehicleNoticeFlags(official, p)} />}</span>} className="h-7 w-24 py-0 text-center" /></CiVehicleNotice>
       <button type="button" aria-label={(confirmed ? 'Linha confirmada ' : 'Confirmar linha ') + item.linha + ' tabela ' + item.tabela} title={confirmed ? 'Linha confirmada para esta data' : 'Confirmar linha'} disabled={readOnly || saving || confirmed} onClick={() => void confirm()} className={cn('h-7 w-7 inline-flex items-center justify-center rounded-full', 'bg-[#164E3A] text-white', (readOnly || saving || confirmed) && 'opacity-40 cursor-not-allowed')}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}</button>
     </div></td>
   </tr>{exchange && <ScaleSubstitutionDialog prefixo={exchange.anterior} substituto={exchange.substituto} saving={saving}

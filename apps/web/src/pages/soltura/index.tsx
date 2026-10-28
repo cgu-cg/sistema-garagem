@@ -1,3 +1,4 @@
+import { VehicleAlertIcon } from './CiVehicleNotice';
 import type { ReleaseExchangeCommand } from '@/lib/releaseProgramming';
 import { PreparationOverlay, releasePreparationMessage } from './PreparationOverlay';
 import { FleetVehicleInput } from './FleetVehicleInput';
@@ -1315,7 +1316,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
             {/* 1. LADO ESQUERDO: TABELA ÚNICA DE HORÁRIOS (fixo no topo da tela com scroll) */}
             <div className="min-w-0 border rounded-2xl overflow-hidden shadow-2xs bg-card border-border/80 sticky top-4 self-start z-10">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 text-xs text-muted-foreground">
-                <div className="flex flex-wrap gap-3"><span className="inline-flex items-center gap-1.5"><AlertTriangle className="h-3 w-3 text-rose-600" />Bloqueados CI</span><span className="inline-flex items-center gap-1.5"><AlertTriangle className="h-3 w-3 text-amber-500" />Reforço</span><span className="inline-flex items-center gap-1.5"><AlertTriangle className="h-3 w-3 text-blue-600" />Defeito Garagem</span></div>
+                <div className="flex flex-wrap gap-3"><span className="inline-flex items-center gap-1.5"><VehicleAlertIcon className="h-3 w-3 text-rose-600" />Bloqueados CI</span><span className="inline-flex items-center gap-1.5"><VehicleAlertIcon className="h-3 w-3 text-amber-500" />Reforço</span><span className="inline-flex items-center gap-1.5"><VehicleAlertIcon className="h-3 w-3 text-blue-600" />Defeito Garagem</span></div>
                 <div className="flex gap-3 font-mono"><span>Feito: <strong className="text-emerald-700">{String(stats.liberados).padStart(2, '0')}</strong></span><span>Falta: <strong>{String(stats.pendentes).padStart(2, '0')}</strong></span></div>
               </div>
 

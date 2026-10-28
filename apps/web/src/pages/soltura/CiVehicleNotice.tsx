@@ -1,7 +1,11 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { DailyEscala } from '@/lib/sharedEscala';
-import { AlertTriangle } from 'lucide-react';
+import type { SVGProps } from 'react';
+
+export function VehicleAlertIcon(props: SVGProps<SVGSVGElement>) {
+  return <svg viewBox="0 0 24 24" fill="none" {...props}><path d="M10.3 3.9a2 2 0 0 1 3.4 0l8 14a2 2 0 0 1-1.7 3H4a2 2 0 0 1-1.7-3Z" fill="currentColor" /><path d="M12 9v4m0 4h.01" stroke="white" strokeWidth="2" strokeLinecap="round" /></svg>;
+}
 import { ScaleVehiclePrefix } from './ScaleVehiclePrefix';
 
 const sections = { PREVENTIVA: '1. Preventivas', OFICINA: '2. Setores da Oficina', REFORCO: '3. Reforço com Horário' };
@@ -18,10 +22,10 @@ export function vehicleNoticeFlags(state: DailyEscala | null, prefixo: string, _
     defect: Boolean(substitution || state?.defeitosGaragem?.some(d => d.prefixo === prefixo)) };
 }
 export function VehicleNoticeIcons({ blocked, requested, defect }: ReturnType<typeof vehicleNoticeFlags>) {
-  return <span className="pointer-events-none absolute -right-2 -top-2 inline-flex items-center gap-0.5">
-    {blocked && <AlertTriangle aria-hidden="true" data-ci-alert="bloqueado" className="h-3 w-3 text-rose-600 dark:text-rose-400" />}
-    {requested && <AlertTriangle aria-hidden="true" data-ci-alert="pedido" className="h-3 w-3 text-amber-500 dark:text-amber-400" />}
-    {defect && <AlertTriangle aria-hidden="true" data-ci-alert="defeito-garagem" className="h-3 w-3 text-blue-600 dark:text-blue-400" />}
+  return <span className="pointer-events-none absolute -right-2 -top-2 inline-flex items-center -space-x-1">
+    {blocked && <VehicleAlertIcon aria-hidden="true" data-ci-alert="bloqueado" className="h-3 w-3 text-rose-600 dark:text-rose-400" />}
+    {requested && <VehicleAlertIcon aria-hidden="true" data-ci-alert="pedido" className="h-3 w-3 text-amber-500 dark:text-amber-400" />}
+    {defect && <VehicleAlertIcon aria-hidden="true" data-ci-alert="defeito-garagem" className="h-3 w-3 text-blue-600 dark:text-blue-400" />}
   </span>;
 }
 
