@@ -1,3 +1,8 @@
+import { useReleaseLifecycle } from '@/lib/useReleaseLifecycle';
+import { ReleaseLifecycleBar } from './ReleaseLifecycleBar';
+import { MotoristaTrocaPopover } from './MotoristaTrocaPopover';
+import { loadReleaseReport } from '@/lib/releaseLifecycle';
+import { buildReleaseReportHtml } from '@/lib/releaseReport';
 import { VehicleAlertIcon } from './CiVehicleNotice';
 import type { ReleaseExchangeCommand } from '@/lib/releaseProgramming';
 import { PreparationOverlay, releasePreparationMessage } from './PreparationOverlay';
@@ -389,6 +394,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     && Boolean(dailyScale?.fluxo && ['EM_PREPARACAO', 'FINALIZADA'].includes(dailyScale.fluxo.status));
   const permanentReady = Boolean(sharedScale && JSON.stringify(sharedScale.contexto) === scaleContextKey && !scaleError);
   const releaseProgramming = useReleaseProgramming({ garagem, escalaTipo, turno: escalaTipo === 'SEG_SEX' ? turnoTipo : 'PADRAO', dataOperacao }, ['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode));
+  const releaseContext = { garagem, escalaTipo, turno: escalaTipo === 'SEG_SEX' ? turnoTipo : 'PADRAO' as const, dataOperacao };
+  const releaseLifecycle = useReleaseLifecycle(releaseContext, canDispatch(user) && ['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode));
   const releaseAvailability = releaseProgramming.data?.disponibilidade;
   const releaseState = useMemo(() => releaseProgramming.data ? { ...releaseProgramming.data.escala,
     ...(releaseAvailability ? { reserva: releaseAvailability.reserva, reservaPorCor: releaseAvailability.reservaPorCor, defeitosGaragem: releaseAvailability.defeitosGaragem } : {}) } : null, [releaseProgramming.data, releaseAvailability]);
@@ -423,6 +430,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     ? releasePreparationMessage(Boolean(releaseState?.fluxo?.ciFinalizada), releaseProgramming.data.escalaFinalizada) : null;
   const [dispatchLoaded, setDispatchLoaded] = useState(false);
   const releaseUiAllowed = canDispatch(user) && garagem === 'VCG' && (independentRelease || Boolean(ciC4Enabled)) && dataOperacao === operationalContext().today
+    && releaseLifecycle.data?.status === 'EM_ANDAMENTO' && !releaseLifecycle.pending
     && dispatchLoaded && !releaseProgramming.loading && Boolean(releaseProgramming.data && (independentRelease || (releaseProgramming.data.escalaFinalizada && releaseState?.fluxo?.ciFinalizada)));
   const reloadDailyScale = async () => {
     if (viewMode !== 'ALTERAR_CARRO_PROGRAMADO') return;
@@ -565,7 +573,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
   const scheduleKey = `${garagem}_${escalaTipo}_${escalaTipo === "SEG_SEX" ? turnoTipo : "PADRAO"}`;
   const permanentSchedules = permanentReady && sharedScale?.publicada ? customSchedules[scheduleKey] ?? defaultSchedules : defaultSchedules;
-  const releaseTemplate = releaseProgramming.data?.itens ?? defaultSchedules.map(row => ({ ...row, carroProgramado: '' }));
+  const releaseTemplate: SolturaItem[] = releaseLifecycle.data?.itens?.map(row => ({ ...row, status: 'PENDENTE' as const })) ?? releaseProgramming.data?.itens ?? defaultSchedules.map(row => ({ ...row, carroProgramado: '' }));
   const rawBaseSchedules = ['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode) ? releaseTemplate : garagem === 'VCG' ? defaultSchedules : permanentSchedules;
   const fixedRows = useMemo(() => fixedScheduleRows(scaleContext), [scaleContextKey]);
   const dailySchedules = useMemo(() => applyDailySchedule(fixedRows, dailyReady ? dailyScale : null), [fixedRows, dailyScale, dailyReady]);
@@ -1138,6 +1146,26 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     toast.success(`Linha ${item.linha} / Tab ${item.tabela} liberada às ${horaAtual}!`);
   };
 
+  const handleTrocarMoto = async (item: SolturaItem, codigo: string): Promise<boolean> => {
+    const current = dispatches[item.id];
+    if (!releaseUiAllowed || !current) { toast.error('Alteracao disponivel somente para viagem liberada com Soltura em andamento.'); return false; }
+    const clean = codigo.trim();
+    if (!clean || clean.length > 100) { toast.error('Informe um codigo MOTO valido.'); return false; }
+    const conflict = getOutraLinhaComMoto(clean, item.id);
+    if (conflict) { toast.error(`MOTO ${clean} ja esta na Linha ${conflict.linha} / Tab ${conflict.tabela}.`); return false; }
+    if (dispatchWritePending.current) { toast.error('Aguarde a gravacao pendente.'); return false; }
+    const record = { ...current, motoristaCodigo: clean, motoristaNome: drivers.find(driver => driver.code === clean)?.name || '' };
+    dispatchWritePending.current = true;
+    try {
+      await confirmedWrite(() => persistDispatchToApi(item, record), saved => saveDispatches({ ...dispatches, [item.id]: saved }));
+      toast.success('Motorista atualizado.');
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Motorista nao atualizado.');
+      return false;
+    } finally { dispatchWritePending.current = false; }
+  };
+
   // Alteração de carro com motivo e registro de histórico de trocas (Prints 2 e 3)
   const handleTrocarCarro = async (item: SolturaItem, novoCarro: string, motivo: ReleaseExchangeCommand['motivo'], descricaoDefeito?: string): Promise<boolean> => {
     const cleanNovo = novoCarro.trim();
@@ -1207,13 +1235,33 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   };
 
   // Imprimir folha A4
-  const handlePrint = () => {
-    window.print();
+  const handlePrint = async () => {
+    const reportWindow = window.open('', '_blank');
+    if (!reportWindow) { toast.error('Permita a abertura da janela do relatório.'); return; }
+    reportWindow.opener = null;
+    try {
+      const report = await loadReleaseReport(releaseContext);
+      reportWindow.addEventListener('load', () => { reportWindow.focus(); reportWindow.print(); }, { once: true });
+      reportWindow.document.open(); reportWindow.document.write(buildReleaseReportHtml(report)); reportWindow.document.close();
+    } catch (error) { reportWindow.close(); toast.error(error instanceof Error ? error.message : 'Relatório indisponível.'); }
+  };
+  const changeReleaseState = async (operation: 'iniciar' | 'finalizar' | 'reabrir') => {
+    if (dispatchWritePending.current) { toast.error('Aguarde a gravação do despacho.'); return; }
+    if (operation === 'finalizar' && Object.values(drafts).some(draft => draft.carro || draft.moto)) { toast.error('Confirme os rascunhos antes de finalizar.'); return; }
+    if (!window.confirm(operation === 'iniciar' ? 'Iniciar a Soltura desta data e período?' : operation === 'finalizar' ? 'Finalizar a Soltura? As alterações ficarão bloqueadas.' : 'Reabrir a Soltura para correções?')) return;
+    try { if (await releaseLifecycle.change(operation)) { await releaseProgramming.reload(); toast.success('Estado da Soltura atualizado.'); } }
+    catch (error) { toast.error(error instanceof Error ? error.message : 'Alteração não confirmada.'); }
   };
 
   // Renderização reutilizável do Card de Pendurados (para Painel Lateral Fixo e Impressão A4)
   // Renderização reutilizável do Card de Reserva da Garagem Central (Separado e Independente)
   // Renderização reutilizável do Card de Reserva Terminal (para Painel Lateral Fixo e Impressão A4)
+  const releaseLifecycleControl = (<ReleaseLifecycleBar state={releaseLifecycle.data} error={releaseLifecycle.error} pending={releaseLifecycle.pending || !dispatchLoaded || isSyncingDb}
+          allowed={canDispatch(user) && garagem === 'VCG'} admin={isAdmin} today={dataOperacao === operationalContext().today}
+          ready={Boolean(releaseProgramming.data && (independentRelease || (releaseProgramming.data.escalaFinalizada && releaseState?.fluxo?.ciFinalizada)))}
+          remaining={activeSchedules.filter(row => !['LIBERADO', 'SUBSTITUIDO'].includes(row.status)).length}
+          dirty={Object.values(drafts).some(draft => Boolean(draft.carro || draft.moto))}
+          onChange={operation => void changeReleaseState(operation)} onReload={() => void releaseLifecycle.reload()} />);
   const renderCardReservaTerminal = (isPrint: boolean = false) => (
     <div className={cn(
       "rounded-2xl border border-border/80 bg-card text-card-foreground p-4 sm:p-5 shadow-xs space-y-3",
@@ -1320,6 +1368,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         <ReleaseToolbar date={dataOperacao} garage={garagem} dayType={escalaTipo} period={turnoTipo} onDate={setDataOperacao}
           lineSearch={lineSearch} onLineSearch={setLineSearch}
           onGarage={isAdmin ? setGaragem : undefined} onDayType={setEscalaTipo} onPeriod={setTurnoTipo} onPrint={handlePrint} />
+        {releaseLifecycleControl}
         {dataOperacao !== operationalContext().today && <p className="text-xs text-muted-foreground print:hidden">Consulta por data: despachos disponíveis somente no dia da operação.</p>}
         {releaseProgramming.error && <p role="alert" className="rounded-xl border border-rose-200 p-3 text-xs text-rose-600">{releaseProgramming.error}</p>}
       </>}
@@ -1439,6 +1488,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                             onRelease={handleRelease}
                             onDraftChange={handleDraftChange}
                             onTrocarCarro={handleTrocarCarro}
+                            onTrocarMoto={handleTrocarMoto}
                             onPenduradoAlert={triggerPenduradoAlert}
                             getOutraLinhaComCarroRealiz={getOutraLinhaComCarroRealiz}
                             getOutraLinhaComMoto={getOutraLinhaComMoto}
@@ -1541,6 +1591,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                           onRelease={handleRelease}
                           onDraftChange={handleDraftChange}
                           onTrocarCarro={handleTrocarCarro}
+                          onTrocarMoto={handleTrocarMoto}
                           onPenduradoAlert={triggerPenduradoAlert}
                           getOutraLinhaComCarroRealiz={getOutraLinhaComCarroRealiz}
                           getOutraLinhaComMoto={getOutraLinhaComMoto}
@@ -1601,6 +1652,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                                 onRelease={handleRelease}
                                 onDraftChange={handleDraftChange}
                                 onTrocarCarro={handleTrocarCarro}
+                                onTrocarMoto={handleTrocarMoto}
                                 onPenduradoAlert={triggerPenduradoAlert}
                                 getOutraLinhaComCarroRealiz={getOutraLinhaComCarroRealiz}
                                 getOutraLinhaComMoto={getOutraLinhaComMoto}
@@ -1845,6 +1897,9 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       {/* VISUALIZAÇÃO: FORMULÁRIO PARA ALIMENTAR CARRO REALIZ. */}
       {/* ========================================================= */}
       {viewMode === "CARRO_REALIZADO" && (
+        <>
+        {releaseLifecycleControl}
+        <Button type="button" variant="outline" onClick={handlePrint}>Imprimir relatório</Button>
         <CarroRealizadoView
           garagem={garagem}
           setGaragem={setGaragem}
@@ -1862,6 +1917,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           scaleState={releaseState}
           readOnly={!releaseUiAllowed}
         />
+        </>
       )}
 
       {/* ========================================================= */}
@@ -2119,6 +2175,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 // COMPONENTE DE LINHA DA TABELA DA FOLHA DE SOLTURA (ESTILO PRANCHETA)
 // ----------------------------------------------------------------------
 interface FolhaTableRowProps {
+  onTrocarMoto?: (item: SolturaItem, codigo: string) => Promise<boolean>;
   hideProgrammedCar?: boolean;
   scaleState: DailyEscala | null;
   item: SolturaItem;
@@ -2136,6 +2193,7 @@ interface FolhaTableRowProps {
 }
 
 function FolhaTableRow({
+  onTrocarMoto,
   hideProgrammedCar = false,
   scaleState,
   item,
@@ -2359,7 +2417,7 @@ function FolhaTableRow({
         <span className="hidden print:inline font-mono font-bold text-[8pt] text-black">
           {motoValue || "—"}
         </span>
-        <input
+        {isDone ? <span className="print:hidden"><MotoristaTrocaPopover codigo={item.motoristaCodigo || ''} readOnly={isReadOnly || !onTrocarMoto} onSave={codigo => onTrocarMoto ? onTrocarMoto(item, codigo) : Promise.resolve(false)} /></span> : <input
           id={`moto-input-${item.id}`}
           type="text"
           placeholder=""
@@ -2404,7 +2462,7 @@ function FolhaTableRow({
               ? `Atenção: Motorista já escalado na Linha ${conflitoMoto.linha} / Tab ${conflitoMoto.tabela}!`
               : item.motoristaNome ? `Motorista: ${item.motoristaNome}` : "Digite o código MOTO"
           }
-        />
+        />}
       </td>
 
       {/* 7. Horário Saída Garagem */}

@@ -1,3 +1,5 @@
+import { currentScaleTemplate } from '../src/data/scheduleTemplates';
+import { programReleaseRows, releaseScaleContext } from '../src/services/releaseProgramming';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveReleaseContext, writeSafeRelease } from '../src/services/solturaAvailability';
@@ -19,6 +21,8 @@ function fixture(status = 'FINALIZADA') {
   const db: any = {
     user: { findUnique: async () => ({ role: 'soltura', garagem: 'VCG' }) },
     $queryRaw: async (parts: TemplateStringsArray) => { locks.push(parts.join('?')); },
+    folhaSoltura: { findUnique: async ({ where }: any) => ({ status: 'EM_ANDAMENTO', conteudo: JSON.stringify({ version: 1,
+      itens: programReleaseRows(where.garagem_escalaTipo_turno_dataOperacao, currentScaleTemplate(releaseScaleContext(where.garagem_escalaTipo_turno_dataOperacao)), []), eventos: [] }) }) },
     escalaDiaria: { findUnique: async () => ({ conteudo: scaleContent() }) },
     cicloOperacional: { findUnique: async () => cycle },
     folhaCI: { findUnique: async ({ where }: any) => {
@@ -41,11 +45,37 @@ function fixture(status = 'FINALIZADA') {
 }
 const reason = (code: string) => (e: any) => e.status === 409 && e.code === code;
 
+test('alteracao de MOTO preserva carro, liberacao e historico de troca salvo', async () => {
+ const f = fixture(), clock = () => eventInstant(target, 4);
+ const save = (request: unknown) => writeSafeRelease(f.db, 1, request, false, clock, () => ['VCG']);
+ await save({ ...body, horaLiberacao: '04:10' });
+ const exchanged: any = await save({ ...body, carroRealizado: '4001', horaLiberacao: '04:10', trocaCarro: { carroAnterior: '4000', motivo: 'Adicionado equivocadamente' } });
+ const saved: any = await save({ ...body, carroRealizado: '4001', horaLiberacao: exchanged.horaLiberacao, driverCode: '5422', driverName: 'Motorista teste', historicoTrocas: [] });
+ assert.equal(f.rows().length, 1);
+ assert.equal(saved.driverCode, '5422'); assert.equal(saved.driverName, 'Motorista teste');
+ assert.equal(saved.carroRealizado, exchanged.carroRealizado);
+ assert.equal(saved.carroProgramado, exchanged.carroProgramado);
+ assert.equal(saved.horaLiberacao, exchanged.horaLiberacao);
+ assert.equal(saved.historicoTrocas, exchanged.historicoTrocas);
+ f.db.folhaSoltura.findUnique = async () => ({ status: 'FINALIZADA' });
+ await assert.rejects(save({ ...body, carroRealizado: '4001', driverCode: '999' }), /finalizada/);
+ assert.equal(f.rows()[0].driverCode, '5422');
+});
+
+test('despacho individual e lote exigem Soltura iniciada e recusam finalizada', async () => {
+ for (const batch of [false, true]) for (const status of [null, 'FINALIZADA']) {
+  const f = fixture(); f.db.folhaSoltura.findUnique = async () => status ? { status } : null;
+  const request = batch ? { ...body, items: [item] } : body;
+  await assert.rejects(writeSafeRelease(f.db, 1, request, batch, () => eventInstant(target, 4), () => ['VCG']), (e: any) => e.status === 409 && /Soltura/.test(e.message));
+  assert.equal(f.rows().length, 0);
+ }
+});
+
 test('vespertino grava sem CI, manutencao ou escala e exige carro realizado da frota', async () => {
  const f = fixture();
  const forbid = async () => { throw Error('Dependencia proibida no vespertino'); };
  f.db.folhaCI.findUnique = forbid; f.db.cicloOperacional.findUnique = forbid;
- f.db.escalaDiaria.findUnique = forbid; f.db.$queryRaw = forbid;
+ f.db.escalaDiaria.findUnique = forbid; f.db.$queryRaw = async (sql: TemplateStringsArray) => { assert.match(sql.join('?'), /soltura_folha/); return []; };
  const evening = { ...context, turno: 'VESPERTINO' } as const;
  const row = currentReleaseTemplate(evening)[0];
  const request = { ...body, turno: 'VESPERTINO', scheduleId: row.id, linha: row.linha, tabela: row.tabela, carroProgramado: '9999' };

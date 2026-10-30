@@ -1,3 +1,4 @@
+import { assertReleaseStarted, lockReleaseSheet, parseReleaseSheet, releaseSheetWhere } from './releaseLifecycle';
 import { isIndependentRelease } from './independentRelease';
 import { officialFleet } from './escalaDiaria';
 import { officialGarageFleet } from './escalaAllocation';
@@ -56,6 +57,10 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
     const user = await tx.user.findUnique({ where: { id: userId }, include: { groups: true } });
     if (!canDispatch(user)) throw new MvpError(403, 'Sem permissao para despachar.');
     await assertC4Read(tx, userId, 'VCG');
+    await lockReleaseSheet(tx, releaseContext);
+    const releaseSheetRecord = await tx.folhaSoltura.findUnique({ where: releaseSheetWhere(releaseContext) });
+    assertReleaseStarted(releaseSheetRecord);
+    const releaseSheet = parseReleaseSheet(releaseSheetRecord!.conteudo);
     const checkTime = () => {
       const current = resolveReleaseContext(parsed.garagem, parsed.dataOperacao, clock());
       if ((!independent && !configured().includes('VCG')) || current.maintenanceDate !== context.maintenanceDate)
@@ -88,8 +93,9 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
       if (states.some(s => s.liberado && (s.bloqueado || s.emExecucao)) || new Set(states.map(s => s.prefixo)).size !== states.length)
         throw new AvailabilityError('MANUTENCAO_INCONSISTENTE');
     }
-    const programming = await finalizedReleaseRows(tx, releaseContext);
-    if (!programming) throw new AvailabilityError('ESCALA_NAO_FINALIZADA');
+    const liveProgramming = await finalizedReleaseRows(tx, releaseContext);
+    if (!liveProgramming) throw new AvailabilityError('ESCALA_NAO_FINALIZADA');
+    const programming = releaseSheet.itens;
     const dailyRecords = await tx.soltura.findMany({ where: { garagem: 'VCG', dataOperacao: context.ciDate } });
     const defects = new Set(garageDefects(dailyRecords).map(d => d.prefixo));
     const snapshots = new Map<string, { existing: Soltura | undefined; programmed: string | null; realized: string; history: ReturnType<typeof appendReleaseExchange>; row: typeof programming[number] }>();

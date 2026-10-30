@@ -68,6 +68,23 @@ model Abastecimento {
   @@map("abastecimentos")
 }
 
+model FolhaSoltura {
+  id            Int      @id @default(autoincrement())
+  garagem       String   @db.NVarChar(10)
+  escalaTipo    String   @map("escala_tipo") @db.NVarChar(10)
+  turno         String   @db.NVarChar(10)
+  dataOperacao  String   @map("data_operacao") @db.NVarChar(10)
+  status        String   @db.NVarChar(20)
+  revisao       Int      @default(1)
+  conteudo      String   @db.NVarChar(Max)
+  responsavelId Int      @map("responsavel_id")
+  createdAt     DateTime @default(dbgenerated("SYSUTCDATETIME()")) @map("created_at") @db.DateTime2
+  updatedAt     DateTime @default(dbgenerated("SYSUTCDATETIME()")) @updatedAt @map("updated_at") @db.DateTime2
+
+  @@unique([garagem, escalaTipo, turno, dataOperacao], map: "UQ_soltura_folha_contexto")
+  @@map("soltura_folha")
+}
+
 model Soltura {
   id              Int      @id @default(autoincrement())
   busId           Int?     @map("bus_id")

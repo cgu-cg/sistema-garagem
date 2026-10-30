@@ -27,13 +27,23 @@ function loadView() {
       Sidebar: require('../../web/src/pages/soltura/ScaleFleetSidebar').ScaleFleetSidebar,
       Lifecycle: require('../../web/src/pages/soltura/DailyScaleLifecycle').DailyScaleLifecycle,
       Notice: require('../../web/src/pages/soltura/CiVehicleNotice').CiVehicleNotice,
-      TrocaCarro: require('../../web/src/pages/soltura/CarroTrocaPopover').CarroTrocaPopover };
+      TrocaCarro: require('../../web/src/pages/soltura/CarroTrocaPopover').CarroTrocaPopover,
+      ReleaseCycle: require('../../web/src/pages/soltura/ReleaseLifecycleBar').ReleaseLifecycleBar,
+      Moto: require('../../web/src/pages/soltura/MotoristaTrocaPopover').MotoristaTrocaPopover };
   } finally {
     (Module as any)._resolveFilename = resolver;
     if (oldTSX) require.extensions['.tsx'] = oldTSX; else delete require.extensions['.tsx'];
   }
 }
-const { AlterarCarroProgramadoView: View, pickerOptions, Lifecycle, Toolbar, Sidebar, FleetInput, PreparationOverlay, releasePreparationMessage, Notice, TrocaCarro } = loadView();
+const { AlterarCarroProgramadoView: View, pickerOptions, Lifecycle, Toolbar, Sidebar, FleetInput, PreparationOverlay, releasePreparationMessage, Notice, TrocaCarro, ReleaseCycle, Moto } = loadView();
+
+test('MOTO salvo oferece edicao somente fora do modo consulta', () => {
+  const renderMoto = (readOnly: boolean) => renderToStaticMarkup(React.createElement(Moto, { codigo: '5422', readOnly, onSave: async () => true }));
+  assert.match(renderMoto(false), /aria-label="Alterar MOTO 5422"/);
+  const readonly = renderMoto(true);
+  assert.match(readonly, /5422/);
+  assert.doesNotMatch(readonly, /button|input|Alterar MOTO/);
+});
 const contexto = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'MATUTINO', dataOperacao: '2026-10-14' } as const;
 const rows = fixedScheduleRows(contexto).slice(0, 2);
 const official: DailyEscala = { contexto, revisao: 0, itens: [], cardsOrigem: 'salvo', omitidosPadrao: 0,
@@ -47,6 +57,17 @@ const render = (readOnly: boolean, overrides: Record<string, unknown> = {}) => r
   garagem: 'VCG', escalaTipo: 'SEG_SEX', schedules: rows, official, readOnly,
   readOnlyReason: 'Consulta indisponivel', onSaveSubstitution: async () => true, onSaveCard: async () => true, ...overrides,
 }));
+
+test('ciclo da Soltura bloqueia finalizar com pendencias e mostra reabrir somente para ADMIN', () => {
+ const props = { state: { status: 'EM_ANDAMENTO' }, error: '', pending: false, allowed: true, admin: false,
+  today: true, ready: true, remaining: 1, dirty: false, onChange() {}, onReload() {} };
+ const active = renderToStaticMarkup(React.createElement(ReleaseCycle, props));
+ assert.match(active, /disabled=""[^>]*>Finalizar Soltura/);
+ const closed = { ...props, state: { status: 'FINALIZADA' } };
+ assert.doesNotMatch(renderToStaticMarkup(React.createElement(ReleaseCycle, closed)), /Reabrir Soltura/);
+ assert.match(renderToStaticMarkup(React.createElement(ReleaseCycle, { ...closed, admin: true })), /Reabrir Soltura/);
+ assert.doesNotMatch(renderToStaticMarkup(React.createElement(ReleaseCycle, { ...closed, admin: true, today: false })), /Reabrir Soltura/);
+});
 
 test('Soltura mostra Defeito Garagem abaixo de Bloqueados CI, sem adicionar esse card na Escala', () => {
   const html = renderToStaticMarkup(React.createElement(Sidebar, { state: official, garage: 'VCG', defeitosGaragem: [
@@ -301,7 +322,7 @@ test('referencia provisoria identifica CI de origem sem confundir finalizacao da
  test('toolbar da Soltura tem historico por data e seletores sem emojis, preservando impressao A4', () => {
  const html = renderToStaticMarkup(React.createElement(Toolbar, { date:'2026-10-24', garage:'VCG', dayType:'SEG_SEX', period:'VESPERTINO',
  onDate:()=>{},onDayType:()=>{},onPeriod:()=>{},onPrint:()=>{} }));
- assert.match(html,/24\/10\/2026/); assert.match(html,/Data da Soltura/); assert.match(html,/Imprimir A4/);
+ assert.match(html,/24\/10\/2026/); assert.match(html,/Data da Soltura/); assert.match(html,/Imprimir relatório/);
  assert.match(html,/aria-pressed="true"[^>]*>Vespertino/);
  assert.doesNotMatch(html,/Exportar|Sincronizar|Total Programado|Controle de Soltura|[\u2600\u{1F319}]/u);
  });

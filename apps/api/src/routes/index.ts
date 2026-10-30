@@ -23,6 +23,7 @@ import * as busesController from "../controllers/buses";
 import * as abastecimentoController from "../controllers/abastecimento";
 import * as abastecimentoCarroController from "../controllers/abastecimentoCarro";
 import * as solturaController from "../controllers/soltura";
+import * as releaseLifecycleController from '../controllers/releaseLifecycle';
 import * as reservasTerminaisController from "../controllers/reservasTerminais";
 import * as catracasController from "../controllers/catracas";
 import * as controleOperacionalController from "../controllers/controleOperacional";
@@ -74,6 +75,9 @@ router.get("/abastecimento-carro/sessions/:id", authenticate, authorize("ADMIN",
 // Soltura
 router.get("/solturas", authenticate, operationalAccess('dispatch'), solturaController.list);
 router.get("/solturas/programacao", authenticate, operationalAccess('dispatch'), solturaController.programming);
+router.get('/solturas/estado', authenticate, operationalAccess('dispatch'), releaseLifecycleController.read);
+router.post('/solturas/estado', authenticate, operationalAccess('releaseLifecycle'), releaseLifecycleController.change);
+router.get('/solturas/relatorio', authenticate, operationalAccess('dispatch'), releaseLifecycleController.report);
 router.post("/solturas", authenticate, operationalAccess('dispatch'), validate(createSolturaSchema), solturaController.create);
 router.post("/solturas/batch-sync", authenticate, operationalAccess('dispatch'), validate(batchSyncSolturaSchema), solturaController.syncBatch);
 router.get("/solturas/reservas-terminais", authenticate, operationalAccess('reservations'), reservasTerminaisController.list);

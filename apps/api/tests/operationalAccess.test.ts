@@ -91,6 +91,20 @@ test('perfil atual prevalece sobre JWT antigo; grupo explicito permite apenas su
   assert.equal((await run('dispatch')).status, 403);
 });
 
+test('ciclo da soltura valida garagem aninhada sem aceitar garagem externa ao contexto', async () => {
+  const { state, run } = middlewareFixture();
+  const post = (body: unknown) => run('releaseLifecycle', { method: 'POST', body });
+  assert.equal((await post({ contexto: { garagem: 'VCG' } })).next, true);
+  assert.equal((await post({ contexto: { garagem: 'VCM' }, garagem: 'VCG' })).body.code, 'GARAGE_FORBIDDEN');
+  assert.equal((await post({ garagem: 'VCG' })).body.code, 'GARAGE_CONTEXT_REQUIRED');
+  state.user = { role: 'COLABORADOR', garagem: 'VCG' };
+  assert.equal((await post({ contexto: { garagem: 'VCG' } })).body.code, 'ACTION_FORBIDDEN');
+  state.user = { role: 'ADMIN' };
+  assert.equal((await post({ contexto: { garagem: 'VCG' } })).next, true);
+  assert.equal((await post({})).body.code, 'GARAGE_CONTEXT_REQUIRED');
+  assert.match(readFileSync('apps/api/src/routes/index.ts', 'utf8'), /router\.post\('\/solturas\/estado', authenticate, operationalAccess\('releaseLifecycle'\)/);
+});
+
 test('consulta e reservas preservam isolamento; ADMIN conserva acesso entre garagens', async () => {
   const { state, run } = middlewareFixture();
   state.user = { role: 'manutencao', garagem: 'VCM' };

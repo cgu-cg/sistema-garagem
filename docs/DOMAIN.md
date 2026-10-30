@@ -1,5 +1,31 @@
 # Domain model e entendimento operacional atual
 
+## Ciclo explicito da Soltura e relatorio - 30/10/2026
+
+Implementacao autorizada: Iniciar Soltura cria folha propria por garagem,
+data, tipo de escala e turno. Despacho individual/lote exige EM_ANDAMENTO.
+Finalizar exige todas as viagens do molde fotografado liberadas no banco,
+com carro e motorista; contadores e flags do cliente nao autorizam a acao.
+FINALIZADA bloqueia despachos; somente ADMIN reabre por comando auditado,
+sem apagar os despachos existentes. Escrita permanece restrita a VCG e ao
+dia da operacao; consultas e relatorios admitem outras datas. A independencia
+do vespertino e os requisitos de CI/Escala do matutino/PADRAO permanecem.
+
+A tabela independente soltura_folha guarda revisao, molde do inicio, eventos
+com usuario/horario reais e fotografia do relatorio na finalizacao. A tabela
+solturas continua guardando despachos. Inicio preserva despachos ja existentes;
+GET nao cria folhas. Inicio/finalizacao/despachos compartilham locks e transacao.
+Relatorio finalizado usa a fotografia salva, sem completar com dados atuais.
+Historico anterior sem folha usa somente os despachos persistidos e identifica
+a ausencia de fotografia de reservas/bloqueios, sem reconstruir esses dados.
+
+Imprimir relatorio gera documento A4, duas colunas em SEG_SEX e tres no fim
+de semana, com paginacao, programado/realizado (so realizado no vespertino),
+motorista, horarios e dados auxiliares registrados. Inclui todas as viagens,
+independentemente do filtro de busca. Dados administrativos/assinaturas das
+fotos de referencia nao sao inventados. SQL para revisao em
+docs/sql/2026-10-30-soltura-folha.sql; nao executado automaticamente.
+
 ## Soltura vespertina independente — confirmado em 29/10/2026
 
 No contexto SEG_SEX / VESPERTINO, a Soltura nao depende de CI, Controle de

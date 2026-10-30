@@ -33,6 +33,6 @@ export function ReleaseToolbar({ date, garage, dayType, period, onDate, onGarage
     <div className={group}>{(['VCG', 'VCM'] as const).filter(value => onGarage || value === garage).map(value => <button type="button" key={value} aria-pressed={value === garage} onClick={() => onGarage?.(value)} className={cn(button, value === garage ? selected : 'text-muted-foreground')}>{value}</button>)}</div>
     <div className={group}>{([['SEG_SEX', 'Seg-Sex'], ['SABADO', 'Sábado'], ['DOM_FER', 'Dom/Fer']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={value === dayType} className={cn(button, value === dayType ? selected : 'text-muted-foreground')} onClick={() => onDayType(value)}>{label}</button>)}</div>
     {dayType === 'SEG_SEX' && <div className={group}>{([['MATUTINO', 'Matutino'], ['VESPERTINO', 'Vespertino']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={value === period} className={cn(button, value === period ? selected : 'text-muted-foreground')} onClick={() => onPeriod(value)}>{label}</button>)}</div>}
-    <Button variant="outline" size="sm" onClick={onPrint} className="hidden ml-auto rounded-full gap-2 text-xs"><Printer className="h-3.5 w-3.5" />Imprimir A4</Button>
+    <Button variant="outline" size="sm" onClick={onPrint} className="ml-auto rounded-full gap-2 text-xs"><Printer className="h-3.5 w-3.5" />Imprimir relatório</Button>
   </div>;
 }
