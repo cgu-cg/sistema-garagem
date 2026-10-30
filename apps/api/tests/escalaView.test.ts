@@ -102,6 +102,24 @@ test('Portaria e erro de alocacao nao recebem triangulo de bloqueio CI', () => {
   assert.match(ciHtml, /data-ci-alert="bloqueado"/);
 });
 
+test('Substituidos fica entre reserva e CI; risco aparece apenas na coluna de fixos', () => {
+ const prefixo = rows[0].carroProgramado;
+ const html = render(false, { schedules: [{ ...rows[0], carroSubstituido: '5001' }], official: { ...official,
+  historicoTrocas: [{ id: '550e8400-e29b-41d4-a716-446655440000', linhaId: rows[0].id,
+    prefixo, substituto: '5001', destino: 'PENDENTE', motivo: '', usuarioId: 1, registradoEm: '2026-10-30T12:00:00Z' }] } });
+ assert.ok(html.indexOf('RESERVA GARAGEM') < html.indexOf('SUBSTITUIDOS'));
+ assert.ok(html.indexOf('SUBSTITUIDOS') < html.indexOf('BLOQUEADOS CI'));
+ assert.match(html, /Tratar carro substituido/);
+ assert.match(html, /<span class="font-bold [^"]*line-through decoration-current">/);
+ assert.equal((html.match(/line-through/g) ?? []).length, 1);
+ assert.doesNotMatch(render(false), /line-through/);
+ const twoColors = render(false, { schedules: [{ ...rows[0], carroSubstituido: '5001' }],
+  official: { ...official, coresFrota: { [prefixo]: 'VERMELHO/AZUL' } } });
+ assert.match(twoColors, /text-rose-600 dark:text-rose-400 line-through decoration-current/);
+ assert.match(twoColors, /text-sky-600 dark:text-sky-400 line-through decoration-current/);
+ assert.equal((twoColors.match(/line-through/g) ?? []).length, 2);
+});
+
 test('troca por equivoco nao recebe alerta de defeito de troca anterior', () => {
   const html = renderToStaticMarkup(React.createElement(TrocaCarro, { item: rows[0], scaleState: { ...official, bloqueados: [] }, carroAtual: '4002',
     historicoTrocas: [{ carroAnterior: '4000', novoCarro: '4001', motivo: 'Defeito Garagem', dataHora: '10:00' },

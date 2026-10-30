@@ -63,14 +63,28 @@ Usa historicoTrocas existente em Soltura; nenhuma alteracao de schema.
 
 ## Destino de carro substituido na Escala - confirmado em 27/10/2026
 
-Trocar o carro efetivo de uma linha exige escolher Reserva ou Bloquear e
-informar motivo. Na primeira troca, destina o fixo; nas seguintes, destina o
-substituto anterior. Bloquear coloca em Bloqueados Portaria; Reserva usa a
-reserva automatica existente. Bloqueados pela CI permanecem bloqueados e nao
-podem voltar a reserva pela Escala. A operacao nao modifica CI ou manutencao.
-Troca, destino e motivo sao atomicos, com usuario/horario reais do servidor.
-Cancelar nao grava; falha/conflito preserva rascunho para revisao. Historicos
-anteriores e fotografias finalizadas sao preservados. Ver ESCALA-MANUAL.md.
+Atualizacao confirmada em 30/10/2026: confirmar no botao da linha salva a
+substituicao diretamente. O carro retirado fica PENDENTE no card Substituidos,
+entre Reserva Garagem e Bloqueados CI, fora da reserva e das alocacoes ate
+ser tratado. Na primeira troca, retira o fixo; nas seguintes, o substituto
+anterior. Somente o numero na coluna Carro fixo fica riscado apos salvar.
+
+Clicar no carro pendente abre o popup de destino. Reserva nao exige motivo
+e oculta o campo; Bloquear exige Observacao / Defeito, digitado ou escolhido
+nos atalhos (incluindo PNEU FURADO).
+Reserva devolve a reserva automatica; Bloquear coloca em Bloqueados Portaria.
+Bloqueados pela CI nao podem ir para reserva. Cancelar/falhar mantem pendente.
+O comando de tratamento exige revisao atual e permissao ADMIN/Soltura da
+garagem; pode ocorrer em preparacao ou finalizada, no futuro ou no dia da
+operacao. Nao reabre a escala, nao altera linhas/confirmacoes/fonte CI e nao
+modifica CI ou manutencao. Datas anteriores permitem consulta, sem tratamento.
+
+Pendencia, destino e motivo ficam no JSON da escala_diaria, junto ao historico
+de trocas. A criacao registra autor/horario da troca; tratar preserva esses
+campos e registra tratadoPor/tratadoEm reais. Nao ha migration ou regravacao
+automatica de registros antigos; pendencias continuam visiveis nas consultas
+historicas. Historicos anteriores com destino ja informado permanecem validos.
+Ver ESCALA-MANUAL.md.
 
 ## Cadastro de Reforco e Inspecao por popup - 26/10/2026
 

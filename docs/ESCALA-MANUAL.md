@@ -1,5 +1,15 @@
 # Escala de Carros manual
 
+## Selecao do tipo de dia - 30/10/2026
+
+Ao abrir e ao mudar a data operacional, Escala e Soltura selecionam SEG_SEX,
+SABADO ou DOM_FER conforme o dia da semana. A troca manual continua disponivel,
+inclusive para usar SABADO em uma segunda por determinacao operacional. A
+escolha manual vale enquanto a data nao mudar; trocar a data retoma o padrao.
+Nao detecta feriados automaticamente e nao cadastra excecoes persistentes por
+data. Essa configuracao futura deve prevalecer sobre o padrao do calendario;
+nao altera moldes ou registros operacionais nesta implementacao.
+
 Regra confirmada em 23/10/2026, substituindo a edicao somente da escala de hoje.
 
 ## Operacao
@@ -47,28 +57,32 @@ continua revalidando todas as condicoes ao salvar.
 
 ## Persistencia e compatibilidade
 
-### Destino do carro retirado - 27/10/2026
+### Destino do carro retirado - atualizado em 30/10/2026
 
-Selecionar um substituto abre um popup com **Colocar carro na reserva** ou
-**Bloquear carro**, e motivo obrigatorio (ate 1000 caracteres). Digitacao manual
-abre o mesmo popup ao confirmar. O carro mostrado e o efetivo anterior da linha:
-o fixo na primeira troca ou o substituto atual em uma troca seguinte. Confirmar
-sem mudar de carro nao exige motivo; linha sem carro anterior nao destina um
-prefixo inexistente. Cancelar restaura o valor salvo, sem gravar a troca.
+Selecionar/digitar um substituto nao abre popup. Confirmar a linha grava a
+substituicao e coloca o carro efetivo anterior em **Substituidos**, entre
+Reserva Garagem e Bloqueados CI. O fixo recebe risco horizontal somente na
+coluna Carro fixo, apos a troca salva. Segunda troca retira o substituto atual.
+Sem troca, confirma normalmente, sem criar pendencia.
 
-Salvar grava substituicao, confirmacao, destino e motivo na mesma transacao e
-revisao. Reserva continua derivada da frota livre; Bloquear inclui o retirado em
-**Bloqueados Portaria**, impedindo sua reutilizacao. Nao libera nem modifica CI
-ou manutencao. Bloqueado pela CI nao pode ir para reserva; o popup desabilita
-essa escolha e o backend tambem recusa. Carro ainda ocupado em outra linha/card
-nao e movido automaticamente. Conflito ou falha mantem o formulario para revisao.
+Clicar no carro em Substituidos abre o popup de Reserva/Bloquear. Reserva
+oculta o campo e nao exige motivo. Bloquear exige Observacao / Defeito
+(ate 1000 caracteres), com digitacao livre e atalhos, incluindo PNEU FURADO.
+Pendentes nao entram na reserva e nao podem
+ser alocados em linhas/cards. Bloqueado pela CI nao pode ir para reserva;
+a validacao do backend tambem considera o bloqueio fotografado na escala.
+Cancelar ou falhar deixa o carro pendente. Tratamento com revisao antiga,
+carro divergente ou pendencia ja tratada e recusado sem gravacao parcial.
 
-O JSON existente em escala_diaria recebe historicoTrocas opcional, com prefixo
-retirado, substituto, linha, destino, motivo, usuarioId e registradoEm obtidos
-no servidor. Finalizar/reabrir preserva esse historico. Registros anteriores
-continuam legiveis sem criar motivos ficticios. O motivo mais recente do carro
-pode ser consultado nos cards de reserva e Portaria. Sem alteracao de schema,
-migration ou escrita operacional para validacao.
+ADMIN e Soltura da garagem podem tratar em preparacao ou finalizada, incluindo
+hoje. A operacao nao reabre a escala, nao altera linhas/confirmacoes/fonte CI
+nem modifica CI/manutencao. Datas anteriores permitem apenas consulta. Pendencias
+continuam visiveis ao consultar sua data, mesmo sem receber destino.
+
+O JSON existente em escala_diaria guarda historicoTrocas com destino PENDENTE,
+RESERVA ou BLOQUEAR. Mantem usuarioId/registradoEm da troca e adiciona
+tratadoPor/tratadoEm no tratamento. Historicos antigos ja destinados continuam
+legiveis; nenhuma conversao automatica ou migration e executada.
 
 Novos registros em escala_diaria usam conteudo version 3, com itens, cards,
 confirmacoes e fluxo (status, iniciadaEm, finalizadaEm e fonteCI). CI usa a mesma

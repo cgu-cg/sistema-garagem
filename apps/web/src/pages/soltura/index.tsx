@@ -50,8 +50,9 @@ import { AlterarFolhaView } from "./AlterarFolhaView";
 import { AlterarCarroProgramadoView } from "./AlterarCarroProgramadoView";
 import { CarroRealizadoView } from "./CarroRealizadoView";
 import { checkCarroBloqueado, subscribeCIUpdates, fetchCIBloqueiosFromApi, getGaragemFisicaByCarro } from "./ciManager";
-import { loadSharedEscala, saveSharedEscala, SharedEscala, EscalaContext, DailyEscala, loadDailyEscala, changeDailyScaleState, saveDailyEscala, saveDailyScaleCard, CardMutation, ScaleWithdrawal } from '@/lib/sharedEscala';
+import { loadSharedEscala, saveSharedEscala, SharedEscala, EscalaContext, DailyEscala, loadDailyEscala, changeDailyScaleState, saveDailyEscala, saveDailyScaleCard, treatDailySubstitution, CardMutation, ScaleWithdrawal } from '@/lib/sharedEscala';
 import { applyDailySchedule, fixedScheduleRows, fixedScheduleToken } from '@/lib/dailySchedule';
+import { defaultScheduleSelection, selectScheduleDate } from '@/lib/scheduleSelection';
 
 type GaragemType = "VCG" | "VCM";
 export type EscalaTipo = "SEG_SEX" | "SABADO" | "DOM_FER";
@@ -187,9 +188,12 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     }
   }, [isAdmin, userGaragem]);
 
-  const [escalaTipo, setEscalaTipo] = useState<EscalaTipo>("SEG_SEX");
+  const [scheduleSelection, setScheduleSelection] = useState(() => defaultScheduleSelection(getHojeLocal()));
+  const escalaTipo = scheduleSelection.dayType;
+  const dataOperacao = scheduleSelection.date;
+  const setEscalaTipo = useCallback((dayType: EscalaTipo) => setScheduleSelection(current => ({ ...current, dayType })), []);
+  const setDataOperacao = useCallback((date: string) => setScheduleSelection(current => selectScheduleDate(current, date)), []);
   const [turnoTipo, setTurnoTipo] = useState<TurnoTipo>("MATUTINO");
-  const [dataOperacao, setDataOperacao] = useState(() => getHojeLocal());
   // A CI nao altera a data compartilhada pelas telas de soltura e historico.
   const [ciDate, setCIDate] = useState<string | null>(null);
   const ciDateManual = useRef(false);
@@ -381,6 +385,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const dailyDateEditable = dataOperacao > operationalContext().today;
   useEffect(() => { if (viewMode === 'ALTERAR_CARRO_PROGRAMADO') setDataOperacao(operationalContext().tomorrow); }, [viewMode]);
   const canEditDailyScale = canWriteDailyScale(user, garagem) && dailyDateEditable && dailyScale?.fluxo?.status === 'EM_PREPARACAO' && dailyScale.fluxo.ciFinalizada && !dailyLifecyclePending;
+  const canTreatDailyScale = canWriteDailyScale(user, garagem) && dailyReady && dataOperacao >= operationalContext().today
+    && Boolean(dailyScale?.fluxo && ['EM_PREPARACAO', 'FINALIZADA'].includes(dailyScale.fluxo.status));
   const permanentReady = Boolean(sharedScale && JSON.stringify(sharedScale.contexto) === scaleContextKey && !scaleError);
   const releaseProgramming = useReleaseProgramming({ garagem, escalaTipo, turno: escalaTipo === 'SEG_SEX' ? turnoTipo : 'PADRAO', dataOperacao }, ['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode));
   const releaseAvailability = releaseProgramming.data?.disponibilidade;
@@ -480,6 +486,17 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Card nao gravado. Recarregue e revise.'); return false;
     } finally { dailyWritePending.current = false; dailyWriteContext.current = null; }
+  };
+  const persistDailyTreatment = async (id: string, retirada: ScaleWithdrawal) => {
+    if (!canTreatDailyScale || !dailyReady || !dailyScale || dailyWritePending.current) return false;
+    const key = dailyContextKey;
+    dailyWritePending.current = true; dailyWriteContext.current = key; ++dailyReadSequence.current;
+    try {
+      const saved = await treatDailySubstitution(dailyContext, dailyScale.revisao, id, retirada);
+      if (selectedDailyKey.current === key) { setDailyScale(saved); setDailyError(''); }
+      return true;
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Tratamento nao gravado.'); return false; }
+    finally { dailyWritePending.current = false; dailyWriteContext.current = null; }
   };
   const changeScaleLifecycle = async (operation: 'iniciar' | 'finalizar' | 'reabrir') => {
     if (!dailyScale || !dailyReady || dailyWritePending.current || !canWriteDailyScale(user, garagem)) return;
@@ -1986,6 +2003,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           official={dailyReady ? dailyScale : null}
           onSaveSubstitution={persistDailySchedule}
           onSaveCard={persistDailyCard}
+          onTreatSubstitution={persistDailyTreatment}
+          treatmentReadOnly={!canTreatDailyScale}
           onSelectGaragem={isAdmin ? setGaragem : undefined}
           onSelectEscalaTipo={setEscalaTipo}
         />

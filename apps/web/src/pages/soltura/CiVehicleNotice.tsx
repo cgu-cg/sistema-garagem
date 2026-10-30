@@ -76,8 +76,8 @@ export function CiVehicleNotice({ state, prefixo, warning, children, hideIcon = 
         {substitution.descricaoDefeito && <p>{substitution.descricaoDefeito}</p>}
       </div>}
       {troca && <div className="mt-2 space-y-1 border-t pt-2 text-xs">
-        <p className="font-semibold">Motivo da substituição: {troca.motivo}</p>
-        <p>Substituído pelo carro {troca.substituto}. Destino: {troca.destino === 'RESERVA' ? 'Reserva' : 'Bloqueados Portaria'}.</p>
+        {troca.motivo && <p className="font-semibold">Motivo da substituição: {troca.motivo}</p>}
+        <p>Substituído pelo carro {troca.substituto}. Destino: {troca.destino === 'PENDENTE' ? 'Aguardando tratamento da portaria' : troca.destino === 'RESERVA' ? 'Reserva' : 'Bloqueados Portaria'}.</p>
       </div>}
       <ul className="mt-2 space-y-2 text-xs">{notices.map((item, index) => <li key={index}>
         <p className="font-semibold">{sections[item.categoria]}</p>

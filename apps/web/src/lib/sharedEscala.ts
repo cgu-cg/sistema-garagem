@@ -18,7 +18,7 @@ export interface ScaleCardItem { id: string; prefixo: string; linha?: string; ta
 export interface ScaleCard { id: string; titulo: string; modo: 'lista' | 'unico' | 'rabicho'; itens: ScaleCardItem[] }
 export interface CardMutation { card: string; operacao: 'adicionar' | 'remover' | 'definir'; prefixo: string; itemId?: string; linha?: string; tabela?: string }
 export interface ScaleWithdrawal { prefixo: string; destino: 'RESERVA' | 'BLOQUEAR'; motivo: string }
-export interface ScaleExchange extends ScaleWithdrawal { id: string; linhaId: string; substituto: string; usuarioId: number; registradoEm: string }
+export interface ScaleExchange extends Omit<ScaleWithdrawal, 'destino'> { destino: 'PENDENTE' | 'RESERVA' | 'BLOQUEAR'; tratadoPor?: number; tratadoEm?: string; id: string; linhaId: string; substituto: string; usuarioId: number; registradoEm: string }
 export interface DailyEscala { contexto: EscalaContext & { dataOperacao: string }; revisao: number;
   // Anotacao de apresentacao da Soltura; nao altera a fotografia da Escala.
   defeitosGaragem?: { prefixo: string; descricao: string }[];
@@ -36,8 +36,9 @@ export interface DailyEscala { contexto: EscalaContext & { dataOperacao: string 
 const prefixSchema = z.string().regex(/^\d{1,10}$/);
 const dailyResponseSchema = z.object({
   historicoTrocas: z.array(z.object({ id: z.string().uuid(), linhaId: z.string().min(1).max(100),
-    prefixo: prefixSchema, substituto: prefixSchema, destino: z.enum(['RESERVA', 'BLOQUEAR']),
-    motivo: z.string().trim().min(1).max(1000), usuarioId: z.number().int().positive(), registradoEm: z.string().datetime() }).strict()).optional(),
+    prefixo: prefixSchema, substituto: prefixSchema, destino: z.enum(['PENDENTE', 'RESERVA', 'BLOQUEAR']), tratadoPor: z.number().int().positive().optional(), tratadoEm: z.string().datetime().optional(),
+    motivo: z.string().trim().max(1000), usuarioId: z.number().int().positive(), registradoEm: z.string().datetime() }).strict()
+    .refine(value => value.destino === 'PENDENTE' ? value.motivo === '' && !value.tratadoPor && !value.tratadoEm : value.destino === 'RESERVA' || Boolean(value.motivo))).optional(),
   ciProvisoria: z.boolean().optional(),
   fluxo: z.object({ status: z.enum(['NAO_INICIADA', 'EM_PREPARACAO', 'FINALIZADA', 'LEGADO']), ciFinalizada: z.boolean(),
     proximaIniciada: z.boolean(), iniciadaEm: z.string().datetime().nullable(), finalizadaEm: z.string().datetime().nullable() }).strict().optional(),
@@ -95,3 +96,6 @@ export const saveDailyScaleCard = async (contexto: DailyEscala['contexto'], revi
   validateDailyEscala(await api.post<DailyEscala>('/escala-carros/diaria', { contexto, revisao, ...mutation }), contexto);
 export const changeDailyScaleState = async (contexto: DailyEscala['contexto'], revisao: number, operacao: 'iniciar' | 'finalizar' | 'reabrir') =>
   validateDailyEscala(await api.post<DailyEscala>('/escala-carros/diaria', { contexto, revisao, operacao }), contexto);
+
+export const treatDailySubstitution = async (contexto: DailyEscala['contexto'], revisao: number, trocaId: string, retirada: ScaleWithdrawal) =>
+  validateDailyEscala(await api.post('/escala-carros/diaria', { contexto, revisao, operacao: 'tratar-substituido', trocaId, retirada }), contexto);

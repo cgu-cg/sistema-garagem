@@ -7,7 +7,7 @@ import path from 'node:path';
 import { readFileSync } from 'node:fs';
 
 // Avanca os hooks/handlers reais sem DOM, rede ou banco.
-function harness(kind: 'linha' | 'popup' = 'linha') {
+function harness(kind: 'linha' | 'popup' | 'view' = 'linha') {
   const loader = (Module as any)._load, resolver = (Module as any)._resolveFilename;
   const oldTSX = require.extensions['.tsx'];
   const memory: any[] = []; let cursor = 0;
@@ -29,10 +29,11 @@ function harness(kind: 'linha' | 'popup' = 'linha') {
     require.extensions['.tsx'] = (m: any, f: string) => m._compile(ts.transpileModule(readFileSync(f, 'utf8'), {
       fileName: f, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
     }).outputText, f);
-    const file = require.resolve(kind === 'linha' ? '../../web/src/pages/soltura/AlterarCarroProgramadoView' : '../../web/src/pages/soltura/ScaleSubstitutionDialog');
+    const file = require.resolve(kind !== 'popup' ? '../../web/src/pages/soltura/AlterarCarroProgramadoView' : '../../web/src/pages/soltura/ScaleSubstitutionDialog');
     delete require.cache[file];
     const exports = require(file);
-    if (kind === 'popup') Component = exports.ScaleSubstitutionDialog;
+    if (kind === 'view') Component = exports.AlterarCarroProgramadoView;
+    else if (kind === 'popup') Component = exports.ScaleSubstitutionDialog;
     else {
       const find = (node: any): any => Array.isArray(node) ? node.map(find).find(Boolean)
         : node && typeof node === 'object' ? node.type?.name === 'LineRow' ? node.type : find(node.props?.children) : undefined;
@@ -44,7 +45,12 @@ function harness(kind: 'linha' | 'popup' = 'linha') {
     if (oldTSX) require.extensions['.tsx'] = oldTSX; else delete require.extensions['.tsx'];
   }
   const calls: any[] = [], edits: any[] = [];
-  const props: any = kind === 'linha' ? {
+  const props: any = kind === 'view' ? {
+    schedules: [], readOnly: true, treatmentReadOnly: false, garagem: 'VCG', escalaTipo: 'SEG_SEX',
+    official: { bloqueados: [], cards: [], frota: ['3951', '2319'], ocupacoes: [], contexto: { garagem: 'VCG' },
+      historicoTrocas: [{ id: 'troca1', prefixo: '3951', substituto: '2319', destino: 'PENDENTE' }] },
+    onTreatSubstitution: async (...args: any[]) => { calls.push(args); return true; },
+  } : kind === 'linha' ? {
     item: { id: 'linha-1', linha: '302', tabela: '1', carroProgramado: '3951', saidaGaragem: '04:00' },
     official: { frota: ['3951', '2319', '2320'], bloqueados: [], cards: [], ocupacoes: [], contexto: { garagem: 'VCG' } },
     readOnly: false, drafts: new Map(), onEditingChange: (...args: any[]) => edits.push(args),
@@ -54,66 +60,83 @@ function harness(kind: 'linha' | 'popup' = 'linha') {
   const walk = (node: any): void => {
     if (Array.isArray(node)) { node.forEach(walk); return; }
     if (!node || typeof node !== 'object') return;
-    nodes.push(node); walk(node.props?.children);
+    nodes.push(node); walk(node.props?.children); walk(node.props?.betweenCards);
   };
   const render = () => { cursor = 0; nodes = []; walk(Component(props)); };
   const get = (predicate: (n: any) => boolean) => { const node = nodes.find(predicate); assert.ok(node, 'Elemento esperado ausente'); return node; };
   return { props, calls, edits, render, nodes: () => nodes, get,
     picker: () => get(n => n.type?.name === 'ScaleVehiclePicker'),
     modal: () => get(n => n.type?.name === 'ScaleSubstitutionDialog'),
-    select: (value: string) => { const p = get(n => n.type?.name === 'ScaleVehiclePicker').props; p.onChange(value); p.onSelect(value); },
+    select: (value: string) => { const p = get(n => n.type?.name === 'ScaleVehiclePicker').props; p.onChange(value); p.onSelect?.(value); },
   };
 }
 
-test('linha: selecionar substituto abre popup sem salvar; cancelar restaura carro e limpa rascunho', () => {
-  const h = harness(); h.render(); h.select('2319'); h.render();
-  assert.equal(h.modal().props.prefixo, '3951'); assert.equal(h.modal().props.substituto, '2319');
-  assert.deepEqual(h.calls, []);
-  h.modal().props.onCancel(); h.render();
-  assert.equal(h.picker().props.value, ''); assert.equal(h.props.drafts.size, 0);
-  assert.ok(!h.nodes().some(n => n.type?.name === 'ScaleSubstitutionDialog'));
-  assert.deepEqual(h.calls, []);
+test('linha: selecionar e digitar substituto nao abre popup nem grava antes de confirmar', async () => {
+ const h = harness(); h.render(); h.select('2319'); h.render();
+ assert.deepEqual(h.calls, []);
+ assert.ok(!h.nodes().some(n => n.type?.name === 'ScaleSubstitutionDialog'));
+ await h.picker().props.onConfirm(); h.render();
+ assert.deepEqual(h.calls, [['linha-1', '2319']]);
+ assert.equal(h.props.drafts.size, 0);
 });
 
-test('linha: salvar envia uma unica troca e motivo; falha conserva popup e rascunho', async () => {
-  const h = harness(); let success = false;
-  h.props.onSave = async (...args: any[]) => { h.calls.push(args); return success; };
-  h.render(); h.select('2319'); h.render();
-  const retirada = { prefixo: '3951', destino: 'BLOQUEAR', motivo: 'Falha mecanica' };
-  h.modal().props.onSave(retirada); await new Promise(resolve => setImmediate(resolve)); h.render();
-  assert.deepEqual(h.calls, [['linha-1', '2319', retirada]]);
-  assert.ok(h.modal()); assert.equal(h.props.drafts.get('linha-1'), '2319');
-  success = true; h.modal().props.onSave(retirada); await new Promise(resolve => setImmediate(resolve)); h.render();
-  assert.ok(!h.nodes().some(n => n.type?.name === 'ScaleSubstitutionDialog'));
-  assert.equal(h.props.drafts.size, 0);
+test('linha: falha conserva rascunho e permite tentar confirmar novamente sem popup', async () => {
+ const h = harness(); let success = false;
+ h.props.onSave = async (...args: any[]) => { h.calls.push(args); return success; };
+ h.render(); h.select('2319'); h.render(); await h.picker().props.onConfirm(); h.render();
+ assert.equal(h.props.drafts.get('linha-1'), '2319');
+ success = true; await h.picker().props.onConfirm(); h.render();
+ assert.equal(h.calls.length, 2); assert.equal(h.props.drafts.size, 0);
 });
 
-test('linha: segunda troca usa carro atual e CI bloqueada impede opcao reserva', () => {
-  const h = harness(); h.props.item.carroSubstituido = '2319'; h.props.official.bloqueados = ['2319'];
-  h.render(); h.select('2320'); h.render();
-  assert.equal(h.modal().props.prefixo, '2319');
-  assert.match(h.modal().props.reserveUnavailable, /bloqueado/);
+test('linha: segunda troca confirma diretamente o novo prefixo', async () => {
+ const h = harness(); h.props.item.carroSubstituido = '2319';
+ h.render(); h.select('2320'); h.render(); await h.picker().props.onConfirm(); h.render();
+ assert.deepEqual(h.calls, [['linha-1', '2320']]);
 });
 
-test('linha: confirmar sem trocar nao pede destino; digitacao pede popup ao confirmar', async () => {
-  const h = harness(); h.render(); await h.picker().props.onConfirm(); await new Promise(resolve => setImmediate(resolve));
-  assert.equal(h.calls.length, 1); assert.equal(h.calls[0][2], undefined);
-  h.picker().props.onChange('2319'); h.render(); h.picker().props.onConfirm(); h.render();
-  assert.ok(h.modal()); assert.equal(h.calls.length, 1);
+test('linha: confirmar sem trocar continua salvando a confirmacao', async () => {
+ const h = harness(); h.render(); await h.picker().props.onConfirm(); h.render();
+ assert.deepEqual(h.calls, [['linha-1', '']]);
 });
 
-test('popup: exige destino e motivo sem espacos e envia motivo normalizado', () => {
+test('popup: reserva oculta defeito e salva sem motivo', () => {
   const h = harness('popup'); h.render();
   const submit = () => h.get(n => n.type === 'form').props.onSubmit({ preventDefault() {} });
   const save = () => h.get(n => n.props.type === 'submit');
   assert.ok(save().props.disabled); submit(); assert.deepEqual(h.calls, []);
   h.get(n => n.type === 'input' && n.props.value === 'RESERVA').props.onChange(); h.render();
-  h.get(n => n.type === 'textarea').props.onChange({ target: { value: '  ' } }); h.render();
-  assert.ok(save().props.disabled); submit(); assert.deepEqual(h.calls, []);
-  h.get(n => n.type === 'textarea').props.onChange({ target: { value: '  Ajuste de frota  ' } }); h.render();
+  assert.ok(!h.nodes().some(n => n.props?.id === 'motivo-substituicao'));
   assert.equal(save().props.disabled, false); submit();
-  assert.deepEqual(h.calls, [{ prefixo: '3951', destino: 'RESERVA', motivo: 'Ajuste de frota' }]);
+  assert.deepEqual(h.calls, [{ prefixo: '3951', destino: 'RESERVA', motivo: '' }]);
   h.props.saving = true; h.render(); submit(); assert.equal(h.calls.length, 1);
+});
+
+test('popup: bloquear exige defeito e atalho PNEU FURADO preenche sem digitacao', () => {
+ const h = harness('popup'); h.render();
+ h.get(n => n.type === 'input' && n.props.value === 'BLOQUEAR').props.onChange(); h.render();
+ const submit = () => h.get(n => n.type === 'form').props.onSubmit({ preventDefault() {} });
+ const input = () => h.get(n => n.type === 'input' && n.props.id === 'motivo-substituicao');
+ input().props.onChange({ target: { value: '  ' } }); h.render(); submit(); assert.deepEqual(h.calls, []);
+ h.get(n => n.type === 'button' && n.props.children === 'PNEU FURADO').props.onClick(); h.render();
+ assert.equal(input().props.value, 'PNEU FURADO'); submit();
+ assert.deepEqual(h.calls, [{ prefixo: '3951', destino: 'BLOQUEAR', motivo: 'PNEU FURADO' }]);
+ h.get(n => n.type === 'input' && n.props.value === 'RESERVA').props.onChange(); h.render(); submit();
+ assert.equal(h.calls[1].motivo, '');
+});
+
+test('card: clicar pendente abre tratamento mesmo com linhas em consulta; falha mantem popup', async () => {
+ const h = harness('view'); let success = false;
+ h.props.onTreatSubstitution = async (...args: any[]) => { h.calls.push(args); return success; };
+ h.render();
+ const car = h.get(n => n.type === 'button' && n.props['aria-label'] === 'Tratar carro substituido 3951');
+ assert.equal(car.props.disabled, false); car.props.onClick(); h.render();
+ assert.equal(h.modal().props.prefixo, '3951'); assert.equal(h.modal().props.substituto, '2319');
+ const retirada = { prefixo: '3951', destino: 'RESERVA', motivo: 'Equivoco' };
+ await h.modal().props.onSave(retirada); h.render(); assert.ok(h.modal());
+ success = true; await h.modal().props.onSave(retirada); h.render();
+ assert.deepEqual(h.calls, [['troca1', retirada], ['troca1', retirada]]);
+ assert.ok(!h.nodes().some(n => n.type?.name === 'ScaleSubstitutionDialog'));
 });
 
 test('popup: reserva indisponivel nao permite salvar nem fechar durante gravacao', () => {

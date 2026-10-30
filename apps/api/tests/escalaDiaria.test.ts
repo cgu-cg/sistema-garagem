@@ -502,6 +502,74 @@ test('manual: primeira escala persiste revisao 1 e rejeita inicio repetido com r
   assert.equal((await readEscalaDiaria(f.db, contexto, 1)).revisao, 2);
 });
 
+test('troca pendente fica persistida fora da reserva e tratamento preserva autor original', async () => {
+ const f = fixture(); await lifecycle(f.db, 'iniciar');
+ const saved = await saveReal(f.db, 1, { ...command(), retirada: undefined }, async () => f.db.__fleet, async () => null, now);
+ const pending = saved.historicoTrocas[0];
+ assert.equal(pending.destino, 'PENDENTE'); assert.equal(pending.motivo, '');
+ assert.ok(!saved.reserva.includes(original.carroProgramado));
+ assert.ok(saved.cards.find(c => c.id === 'SUBSTITUIDOS')?.itens.some(i => i.id === pending.id));
+ const loaded = await readEscalaDiaria(f.db, contexto, 1);
+ assert.equal(validateDailyEscala(loaded, contexto).historicoTrocas![0].destino, 'PENDENTE');
+ const closed = await lifecycle(f.db, 'finalizar', saved.revisao);
+ const commandTreatment = { contexto, revisao: closed.revisao, operacao: 'tratar-substituido', trocaId: pending.id,
+  retirada: { prefixo: original.carroProgramado, destino: 'RESERVA', motivo: '  Equivoco  ' } };
+ const result = await saveReal(f.db, 2, commandTreatment, async () => f.db.__fleet, async () => null, now);
+ assert.equal(result.fluxo.status, 'FINALIZADA'); assert.ok(result.reserva.includes(original.carroProgramado));
+ assert.deepEqual(result.itens, closed.itens); assert.deepEqual(result.confirmadas, closed.confirmadas);
+ assert.equal(result.historicoTrocas[0].usuarioId, pending.usuarioId);
+ assert.equal(result.historicoTrocas[0].tratadoPor, 2); assert.equal(result.historicoTrocas[0].motivo, 'Equivoco');
+ assert.equal(result.cards.find(c => c.id === 'SUBSTITUIDOS')?.itens.length, 0);
+ await assert.rejects(saveReal(f.db, 2, { ...commandTreatment, revisao: result.revisao }, async () => f.db.__fleet, async () => null, now), /ja tratada/);
+});
+
+test('pendente permanece no historico e bloqueio CI nao pode virar reserva no tratamento', async () => {
+ const f = fixture(); f.db.__blocks = [original.carroProgramado]; await lifecycle(f.db, 'iniciar');
+ const saved = await saveReal(f.db, 1, { ...command(), retirada: undefined }, async () => f.db.__fleet, async () => null, now);
+ const pending = saved.historicoTrocas[0];
+ const request = { contexto, revisao: saved.revisao, operacao: 'tratar-substituido', trocaId: pending.id,
+  retirada: { prefixo: pending.prefixo, destino: 'RESERVA', motivo: 'Teste' } };
+ await assert.rejects(saveReal(f.db, 1, request, async () => f.db.__fleet, async () => null, now), /bloqueado/);
+ const loaded = await readEscalaDiaria(f.db, contexto, 1);
+ assert.equal(loaded.historicoTrocas[0].destino, 'PENDENTE');
+ const blocked = await saveReal(f.db, 1, { ...request, retirada: { ...request.retirada, destino: 'BLOQUEAR' } }, async () => f.db.__fleet, async () => null, now);
+ assert.ok(blocked.cards.find(c => c.id === 'PORTARIA')?.itens.some(i => i.prefixo === pending.prefixo));
+ assert.ok(!blocked.reserva.includes(pending.prefixo));
+});
+
+test('tratamento no dia da operacao nao reabre escala; dias anteriores preservam pendencia em consulta', async () => {
+ const f = fixture(); await lifecycle(f.db, 'iniciar');
+ const saved = await saveReal(f.db, 1, { ...command(), retirada: undefined }, async () => f.db.__fleet, async () => null, now);
+ const closed = await lifecycle(f.db, 'finalizar', saved.revisao);
+ const pending = saved.historicoTrocas[0];
+ const request = { contexto, revisao: closed.revisao, operacao: 'tratar-substituido', trocaId: pending.id,
+  retirada: { prefixo: pending.prefixo, destino: 'BLOQUEAR', motivo: 'Defeito' } };
+ const before = structuredClone([...f.records]);
+ await assert.rejects(saveReal(f.db, 1, request, async () => f.db.__fleet, async () => null, () => new Date('2026-10-15T16:00:00Z')), /anteriores/);
+ assert.deepEqual([...f.records], before);
+ assert.equal((await readEscalaDiaria(f.db, contexto, 1)).historicoTrocas[0].destino, 'PENDENTE');
+ await assert.rejects(saveReal(f.db, 1, { ...request, revisao: closed.revisao - 1 }, async () => f.db.__fleet, async () => null, now), /outro posto/);
+ f.role('COLABORADOR');
+ await assert.rejects(saveReal(f.db, 1, request, async () => f.db.__fleet, async () => null, now), (e: any) => e.status === 403);
+ f.role('soltura'); f.garage('VCG');
+ const result = await saveReal(f.db, 1, request, async () => f.db.__fleet, async () => null, () => new Date('2026-10-14T16:00:00Z'));
+ assert.equal(result.fluxo.status, 'FINALIZADA'); assert.deepEqual(result.itens, closed.itens);
+ assert.deepEqual(result.fluxo.finalizadaEm, closed.fluxo.finalizadaEm);
+ assert.equal(result.historicoTrocas[0].tratadoEm, '2026-10-14T16:00:00.000Z');
+});
+
+test('tratamento de reserva aceita motivo ausente, bloqueio exige descricao', async () => {
+ const f = fixture(); await lifecycle(f.db, 'iniciar');
+ const saved = await saveReal(f.db, 1, { ...command(), retirada: undefined }, async () => f.db.__fleet, async () => null, now);
+ const pending = saved.historicoTrocas[0];
+ const request = { contexto, revisao: saved.revisao, operacao: 'tratar-substituido', trocaId: pending.id,
+   retirada: { prefixo: pending.prefixo, destino: 'BLOQUEAR' } };
+ await assert.rejects(saveReal(f.db, 1, request, async () => f.db.__fleet, async () => null, now));
+ const result = await saveReal(f.db, 1, { ...request, retirada: { prefixo: pending.prefixo, destino: 'RESERVA' } }, async () => f.db.__fleet, async () => null, now);
+ assert.equal(result.historicoTrocas[0].motivo, ''); assert.ok(result.reserva.includes(pending.prefixo));
+ assert.equal(validateDailyEscala(result, contexto).historicoTrocas![0].destino, 'RESERVA');
+});
+
 test('troca: reserva salva motivo, autor e horario e preserva historico ao finalizar/reabrir', async () => {
   const f = fixture(); await lifecycle(f.db, 'iniciar');
   const saved = await saveReal(f.db, 1, { ...command(), retirada: { ...command().retirada, motivo: '  Ajuste operacional  ' } }, async () => f.db.__fleet, async () => null, now);
@@ -540,10 +608,10 @@ test('troca: falha ao persistir nao move carro nem registra motivo ou confirmaca
   assert.deepEqual([...f.records], before);
 });
 
-test('troca: motivo e destino obrigatorios, carro retirado correto e autor nao fornecido pelo cliente', async () => {
+test('troca: bloqueio exige motivo, destino valido, carro retirado correto e autor do servidor', async () => {
   const f = fixture(); await lifecycle(f.db, 'iniciar');
   const before = structuredClone([...f.records]);
-  for (const retirada of [undefined, { ...command().retirada, motivo: '  ' }, { ...command().retirada, motivo: 'x'.repeat(1001) },
+  for (const retirada of [{ ...command().retirada, destino: 'BLOQUEAR', motivo: '  ' }, { ...command().retirada, motivo: 'x'.repeat(1001) },
     { ...command().retirada, destino: 'OUTRO' }, { ...command().retirada, prefixo: '5002' }, { ...command().retirada, usuarioId: 99 }]) {
     await assert.rejects(saveReal(f.db, 1, { ...command(), retirada }, async () => f.db.__fleet, async () => null, now));
     assert.deepEqual([...f.records], before);

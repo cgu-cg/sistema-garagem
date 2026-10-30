@@ -1,5 +1,5 @@
 import { scaleLifecycleSchema, assertScaleDate, assertScaleOperation, type ScaleLifecycle } from './dailyScaleLifecycle';
-import { scaleWithdrawalSchema, scaleExchangeSchema, registerScaleWithdrawal } from './scaleSubstitution';
+import { scaleWithdrawalSchema, scaleExchangeSchema, registerScaleWithdrawal, treatScaleWithdrawal } from './scaleSubstitution';
 import { projectScaleCiNotices, type ScaleCiNotice } from './scaleCiNotices';
 import { notifyC4Updated } from './c4Events';
 import { groupReserveColors, isColorReserveCard } from './scaleReserveColors';
@@ -31,6 +31,7 @@ const itemsSchema = z.array(z.object({ id: z.string().min(1).max(100), carroSubs
 const header = { contexto: z.unknown(), revisao: z.number().int().nonnegative().max(2147483646) };
 const prefix = z.string().trim().regex(/^(\d{1,10})?$/);
 const commandSchema = z.union([
+  z.object({ ...header, operacao: z.literal('tratar-substituido'), trocaId: z.string().uuid(), retirada: scaleWithdrawalSchema }).strict(),
   z.object({ ...header, operacao: z.enum(['iniciar', 'finalizar', 'reabrir']) }).strict(),
   z.object({ ...header, id: z.string().min(1).max(100), carroSubstituido: prefix, base: z.string().min(1), retirada: scaleWithdrawalSchema.optional() }).strict(),
   z.object({ ...header, card: z.string().min(1).max(100), operacao: z.enum(['adicionar', 'remover', 'definir']),
@@ -133,8 +134,13 @@ export async function readEscalaDiaria(db: PrismaClient, value: unknown, userId:
 }
 export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefined, value: unknown, loadFleet: FleetLoader = officialFleet, loadColors: ColorLoader = loadColorCache, clock = () => new Date()) {
   const c = commandSchema.parse(value), contexto = parseDailyContext(c.contexto);
-  const operation = 'operacao' in c && !('card' in c) ? c.operacao : 'editar';
-  const assertDate = () => assertScaleDate(contexto.dataOperacao, operation, clock());
+  const treating = 'operacao' in c && c.operacao === 'tratar-substituido';
+  const operation = 'operacao' in c && !('card' in c) && c.operacao !== 'tratar-substituido' ? c.operacao : 'editar';
+  const assertDate = () => {
+    if (treating) {
+      if (contexto.dataOperacao < operationalContext(clock()).today) throw new MvpError(409, 'Tratamento de datas anteriores permite somente consulta.');
+    } else assertScaleDate(contexto.dataOperacao, operation, clock());
+  };
   assertDate();
   const userBefore = userId ? await db.user.findUnique({ where: { id: userId }, select: { role: true, garagem: true } }) : null;
   if (!canWriteDailyScale(userBefore, contexto.garagem)) throw new MvpError(403, 'Edicao exige ADMIN ou Soltura da propria garagem.');
@@ -156,9 +162,11 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
     if ((old?.revisao ?? 0) !== c.revisao) throw new MvpError(409, 'Escala do dia alterada em outro posto. Recarregue e revise antes de salvar.');
     const source = await ciBlocks(tx, contexto, frota), state = parseStoredDailyScale(old?.conteudo, contexto);
     const nextStarted = await nextScaleStarted(tx, contexto);
-    assertScaleOperation(operation, state.fluxo, Boolean(old), source.ciFinalizada, nextStarted);
+    if (treating) {
+      if (!state.fluxo || !old) throw new MvpError(409, 'Escala nao iniciada.');
+    } else assertScaleOperation(operation, state.fluxo, Boolean(old), source.ciFinalizada, nextStarted);
     const { ciFinalizada: _ciFinalizada, ...sourceSnapshot } = source;
-    if ('operacao' in c && !('card' in c)) {
+    if ('operacao' in c && !('card' in c) && c.operacao !== 'tratar-substituido') {
       const fluxo: ScaleLifecycle = c.operacao === 'iniciar'
         ? { status: 'EM_PREPARACAO', iniciadaEm: clock().toISOString(), finalizadaEm: null, fonteCI: sourceSnapshot }
         : { ...state.fluxo!, status: c.operacao === 'finalizar' ? 'FINALIZADA' : 'EM_PREPARACAO',
@@ -184,7 +192,10 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
     const cards = state.cards ?? defaultAllocations(garagem, frota, source.bloqueados, fixed, itens).cards;
     const used = occupations(fixed, itens, cards);
     const portaria = cards.find(card => card.id === 'PORTARIA')?.itens.map(i => i.prefixo).filter(Boolean) ?? [];
-    if ('id' in c) {
+    if ('trocaId' in c) {
+      treatScaleWithdrawal({ trocaId: c.trocaId, retirada: c.retirada, historico: historicoTrocas, cards, fixed, itens, frota,
+        bloqueadosCI: [...new Set([...source.bloqueados, ...(state.fluxo?.fonteCI.bloqueados ?? [])])], usuarioId: userId!, agora: clock() });
+    } else if ('id' in c) {
       const original = fixed.find(i => i.id === c.id);
       if (!original || c.base !== JSON.stringify(original)) throw new MvpError(409, 'Programacao fixa diferente da versao do servidor. Atualize a pagina e revise.');
       const effective = c.carroSubstituido || original.carroProgramado;
@@ -200,6 +211,7 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
     } else {
       const card = cards.find(card => card.id === c.card);
       if (!card) throw new MvpError(400, 'Card desconhecido.');
+      if (card.id === 'SUBSTITUIDOS') throw new MvpError(400, 'Use o tratamento da substituicao.');
       if (isColorReserveCard(card.id)) throw new MvpError(400, 'Reserva por cor e automatica; aloque o carro nas linhas ou demais cards.');
       if (card.modo === 'rabicho' && c.operacao === 'adicionar') throw new MvpError(400, 'As linhas e tabelas do Rabicho sao fixas. Defina apenas o carro.');
       const item = card.itens.find(i => i.id === c.itemId);
@@ -216,15 +228,16 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
         else throw new MvpError(400, 'Informe os dados da posicao.');
       }
     }
-    const payload = savedSchema.parse({ version: 3, itens, cards, confirmacoes, historicoTrocas, fluxo: { ...state.fluxo!, fonteCI: sourceSnapshot } });
+    const payload = savedSchema.parse({ version: 3, itens, cards, confirmacoes, historicoTrocas, fluxo: treating ? state.fluxo! : { ...state.fluxo!, fonteCI: sourceSnapshot } });
     const data = { revisao: c.revisao + 1, conteudo: JSON.stringify(payload), responsavelId: userId! };
     assertDate();
     if (old) await tx.escalaDiaria.update({ where: { id: old.id }, data });
     else await tx.escalaDiaria.create({ data: { ...contexto, ...data } });
     assertDate();
-    return { ...project(contexto, data.revisao, itens, cards, frota, source, 'salvo', 0, confirmacoes, colorCache),
+    const presentationSource = treating && state.fluxo?.status === 'FINALIZADA' ? state.fluxo.fonteCI : source;
+    return { ...project(contexto, data.revisao, itens, cards, frota, presentationSource, 'salvo', 0, confirmacoes, colorCache),
       historicoTrocas, fluxo: flowView(payload.fluxo!, true, source.ciFinalizada, nextStarted) };
   }, { isolationLevel: 'Serializable' });
-  if (operation !== 'editar') await notifyC4Updated(contexto.garagem, addDays(contexto.dataOperacao, -1));
+  if (operation !== 'editar' || treating) await notifyC4Updated(contexto.garagem, addDays(contexto.dataOperacao, -1));
   return result;
 }

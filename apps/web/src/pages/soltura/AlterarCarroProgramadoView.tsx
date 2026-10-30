@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import type { FixedScaleRow } from '@/lib/dailySchedule';
-import type { CardMutation, DailyEscala, ScaleCard, ScaleCardItem, ScaleWithdrawal } from '@/lib/sharedEscala';
+import type { CardMutation, DailyEscala, ScaleCard, ScaleCardItem, ScaleWithdrawal, ScaleExchange } from '@/lib/sharedEscala';
 
 interface Props {
   lifecycleControl?: ReactNode;
@@ -23,6 +23,8 @@ interface Props {
   official: DailyEscala | null;
   onSaveSubstitution: (id: string, prefixo: string, retirada?: ScaleWithdrawal) => Promise<boolean>;
   onSaveCard: (change: CardMutation) => Promise<boolean>;
+  onTreatSubstitution?: (id: string, retirada: ScaleWithdrawal) => Promise<boolean>;
+  treatmentReadOnly?: boolean;
   onSelectGaragem?: (garage: 'VCG' | 'VCM') => void;
   onSelectEscalaTipo?: (tipo: 'SEG_SEX' | 'SABADO' | 'DOM_FER') => void;
 }
@@ -44,10 +46,11 @@ export function pickerOptions(state: DailyEscala | null, ownKey: string) {
 }
 
 export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, readOnly = true, readOnlyReason, onEditingChange, garagem, escalaTipo,
-  schedules, official, onSaveSubstitution, onSaveCard, onSelectGaragem, onSelectEscalaTipo }: Props) {
+  schedules, official, onSaveSubstitution, onSaveCard, onTreatSubstitution, treatmentReadOnly = readOnly, onSelectGaragem, onSelectEscalaTipo }: Props) {
   const [search, setSearch] = useState(''), [extended, setExtended] = useState(false);
   const [modal, setModal] = useState<{ card: ScaleCard; item?: ScaleCardItem } | null>(null);
   const [prefixo, setPrefixo] = useState('');
+  const [treatment, setTreatment] = useState<ScaleExchange | null>(null);
   const [saving, setSaving] = useState(false); const pending = useRef(false);
   const drafts = useRef(new Map<string, string>());
   const open = (card: ScaleCard, item?: ScaleCardItem) => {
@@ -74,7 +77,7 @@ export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, read
   const completed = schedules.filter(item => item.confirmada).length;
   const remaining = schedules.length - completed;
   const colorIds = ['AZUL', 'VERMELHO', 'MICRO', 'VERMELHO_AZUL', 'PRATA', 'OUTRO'];
-  const otherCards = official?.cards.filter(c => !colorIds.includes(c.id) && !c.id.startsWith('TERMINAL_')) ?? [];
+  const otherCards = official?.cards.filter(c => !colorIds.includes(c.id) && c.id !== 'SUBSTITUIDOS' && !c.id.startsWith('TERMINAL_')) ?? [];
   const terminalCards = official?.cards.filter(c => c.id.startsWith('TERMINAL_')) ?? [];
   const ciPending = Boolean(official?.fluxo && official.fluxo.status !== 'LEGADO' && !official.fluxo.ciFinalizada);
   const renderCard = (card: ScaleCard) => {
@@ -106,7 +109,7 @@ export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, read
         <div className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-muted/50 p-1">{(['SEG_SEX', 'SABADO', 'DOM_FER'] as const).map(t => <button key={t} type="button" onClick={() => onSelectEscalaTipo?.(t)} aria-pressed={escalaTipo === t} className={cn('shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-[11px] leading-none transition-colors', escalaTipo === t ? 'bg-[#164E3A] font-semibold text-white shadow-xs' : 'text-muted-foreground hover:text-foreground')}>{t === 'SEG_SEX' ? 'Seg-Sex' : t === 'SABADO' ? 'Sabado' : 'Dom/Fer'}</button>)}</div>
       </div>
     </div>
-    {readOnly && !ciPending && <p role="status" className="text-sm text-muted-foreground">{readOnlyReason}</p>}
+    {readOnly && !ciPending && <p role="status" className="text-sm text-muted-foreground">{treatmentReadOnly ? readOnlyReason : 'As linhas estão em consulta. Os carros substituídos podem ser tratados pela portaria.'}</p>}
     {Boolean(official?.foraMolde?.length) && <details className="rounded-2xl border border-amber-300 bg-amber-50/40 p-3 text-xs dark:bg-amber-950/20">
       <summary className="cursor-pointer font-semibold">Substituicoes anteriores em linhas que nao fazem parte do molde atual ({official?.foraMolde?.length})</summary>
       <p className="mt-2">Estes registros foram preservados e nao sao aplicados a outras linhas.</p>
@@ -134,7 +137,12 @@ export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, read
         <div className="p-2"><Button type="button" variant="outline" className="w-full text-xs" onClick={() => setExtended(v => !v)}>{extended ? <ChevronUp className="h-3 w-3 mr-2" /> : <ChevronDown className="h-3 w-3 mr-2" />}{extended ? 'Recolher lista' : 'Estender toda a lista'} ({filtered.length} horarios)</Button></div>
       </div>
       <div className="min-w-0 space-y-4">
-        <ScaleFleetSidebar state={official} garage={garagem} />
+        <ScaleFleetSidebar state={official} garage={garagem} betweenCards={<div className={surface}>
+          <h3 className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide"><Bus className="h-3.5 w-3.5 text-[#164E3A]" />SUBSTITUIDOS ({official?.historicoTrocas?.filter(t => t.destino === 'PENDENTE').length ?? 0})</h3>
+          <div className="flex flex-wrap gap-1.5">{official?.historicoTrocas?.filter(t => t.destino === 'PENDENTE').map(t => <button key={t.id} type="button" disabled={treatmentReadOnly || saving} aria-label={'Tratar carro substituido ' + t.prefixo}
+            className="rounded-full border border-border bg-muted/30 px-2 py-0.5 text-xs font-mono disabled:cursor-default" onClick={() => { setTreatment(t); onEditingChange?.('modal-tratamento', true); }}><ScaleVehiclePrefix state={official} prefixo={t.prefixo} /></button>)}</div>
+          {!official?.historicoTrocas?.some(t => t.destino === 'PENDENTE') && <p className="text-[10px] italic text-muted-foreground">Nenhum carro aguardando tratamento.</p>}
+        </div>} />
         {otherCards.filter(card => card.id === 'PORTARIA').map(renderCard)}
         {terminalCards.length > 0 && <div className={surface}>
           <div className="flex items-center justify-between gap-2"><h3 className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide"><MapPin aria-hidden="true" className="h-3.5 w-3.5 text-[#164E3A] dark:text-emerald-400" />RESERVA TERMINAL</h3><span className="text-[9px] font-mono text-muted-foreground">Garagem {garagem}</span></div>
@@ -148,6 +156,15 @@ export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, read
       </div>
     </div>
     </PreparationOverlay>
+    {treatment && <ScaleSubstitutionDialog key={treatment.id} prefixo={treatment.prefixo} substituto={treatment.substituto} saving={saving}
+      reserveUnavailable={official && blocked(official, treatment.prefixo) ? 'Este carro esta bloqueado e nao pode ir para a reserva.' : undefined}
+      onCancel={() => { if (!pending.current) { setTreatment(null); onEditingChange?.('modal-tratamento', false); } }}
+      onSave={async retirada => {
+        if (treatmentReadOnly || pending.current || !onTreatSubstitution) return;
+        pending.current = true; setSaving(true);
+        try { if (await onTreatSubstitution(treatment.id, retirada)) { setTreatment(null); onEditingChange?.('modal-tratamento', false); } }
+        finally { pending.current = false; setSaving(false); }
+      }} />}
     <Dialog open={Boolean(modal)} onOpenChange={open => { if (!open) close(); }}><DialogContent className="sm:max-w-md rounded-2xl border-border bg-card p-5 shadow-2xl"><DialogHeader className="space-y-1.5 text-left"><DialogTitle className="flex items-center gap-2 pr-6 text-base font-bold"><Plus className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />{modal?.card.titulo}</DialogTitle><DialogDescription className="text-xs">Selecione o veiculo da garagem ativa para esta data da escala.</DialogDescription></DialogHeader>
       <div className="space-y-2"><div className="flex items-center justify-between gap-2"><span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase text-muted-foreground"><Bus className="h-3 w-3" />Prefixo do carro {modal?.card.modo !== 'unico' && <span className="text-rose-500">*</span>}</span><span className="text-[10px] text-muted-foreground">{official?.frota.length ?? 0} veiculos da Garagem {garagem}</span></div><ScaleVehiclePicker placeholder="Carro..." className="h-10 rounded-xl border-border text-left focus:outline-none focus:ring-2 focus:ring-emerald-700/30" label="Carro do card" value={prefixo} onChange={setPrefixo} garage={garagem} disabled={saving}
         renderPrefix={p => <ScaleVehiclePrefix state={official} prefixo={p} />} options={pickerOptions(official, modal?.item ? 'card:' + modal.card.id + ':' + modal.item.id : '')} onConfirm={() => void saveModal()} /></div>
@@ -158,47 +175,27 @@ export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, read
 function LineRow({ item, official, readOnly, onSave, onEditingChange, drafts }: { item: FixedScaleRow; official: DailyEscala | null; readOnly: boolean;
   onSave: (id: string, prefixo: string, retirada?: ScaleWithdrawal) => Promise<boolean>; onEditingChange?: (key: string, dirty: boolean) => void; drafts: Map<string, string> }) {
   const [prefixo, setPrefixo] = useState(drafts.get(item.id) ?? item.carroSubstituido ?? ''), [saving, setSaving] = useState(false);
-  const [exchange, setExchange] = useState<{ anterior: string; substituto: string; value: string } | null>(null);
   const dirty = useRef(drafts.has(item.id)), pending = useRef(false);
   useEffect(() => { if (!dirty.current) setPrefixo(item.carroSubstituido ?? ''); }, [item.carroSubstituido]);
   const ownKey = 'linha:' + item.id;
   const fixedAlert = official && item.carroProgramado ? allocationError(official, item.carroProgramado, ownKey) : '';
   const confirmed = Boolean(item.confirmada && !dirty.current && prefixo.trim() === (item.carroSubstituido ?? '')
     && !allocationError(official, prefixo.trim() || item.carroProgramado, ownKey));
-  const anterior = item.carroSubstituido || item.carroProgramado;
-  const requestExchange = (p: string) => {
-    const substituto = p || item.carroProgramado;
-    if (substituto === anterior || !/^\d{1,10}$/.test(anterior)) return false;
-    const error = allocationError(official, substituto, ownKey);
-    if (error) { toast.error(error); return true; }
-    setExchange({ anterior, substituto, value: p });
-    return true;
-  };
-  const cancelExchange = () => {
-    if (pending.current) return;
-    setExchange(null); setPrefixo(item.carroSubstituido ?? '');
-    dirty.current = false; drafts.delete(item.id); onEditingChange?.(item.id, false);
-  };
-  const confirm = async (retirada?: ScaleWithdrawal) => {
+  const confirm = async () => {
     if (readOnly || pending.current) return;
-    const p = retirada && exchange ? exchange.value : prefixo.trim(), error = allocationError(official, p || item.carroProgramado, ownKey);
+    const p = prefixo.trim(), error = allocationError(official, p || item.carroProgramado, ownKey);
     if (error) { toast.error(error); return; }
-    if (!retirada && requestExchange(p)) return;
-    if (retirada && retirada.prefixo !== anterior) { toast.error('O carro da linha mudou. Cancele e revise a troca.'); return; }
     pending.current = true; setSaving(true);
-    try { if (await onSave(item.id, p, retirada)) { setExchange(null); dirty.current = false; drafts.delete(item.id); onEditingChange?.(item.id, false); setPrefixo(p === item.carroProgramado ? '' : p); toast.success('Linha validada e escala salva.'); } }
+    try { if (await onSave(item.id, p)) { dirty.current = false; drafts.delete(item.id); onEditingChange?.(item.id, false); setPrefixo(p === item.carroProgramado ? '' : p); toast.success('Linha validada e escala salva.'); } }
     finally { pending.current = false; setSaving(false); }
   };
   return <><tr data-confirmada={confirmed ? 'true' : 'false'} className={cn('border-b border-border/60 font-mono', confirmed ? 'bg-emerald-100 hover:bg-emerald-200/70 dark:bg-emerald-900/40 dark:hover:bg-emerald-900/50' : 'hover:bg-muted/30')}><td className="p-3 font-bold">{item.linha}</td><td className="p-3">{item.tabela}</td><td className="p-3">{item.saidaGaragem}</td><td className="p-3">{item.chegadaGaragem || '\u2014'}</td>
-    <td className="p-3 font-bold"><CiVehicleNotice state={official} prefixo={item.carroProgramado || '\u2014'} warning={fixedAlert || undefined} /></td>
+    <td className="p-3 font-bold"><CiVehicleNotice state={official} prefixo={item.carroProgramado || '\u2014'} warning={fixedAlert || undefined}><ScaleVehiclePrefix state={official} prefixo={item.carroProgramado || '\u2014'} struck={Boolean(item.carroProgramado && item.carroSubstituido && item.carroSubstituido !== item.carroProgramado)} /></CiVehicleNotice></td>
     <td className="p-2"><div className="flex items-center gap-2"><CiVehicleNotice hideIcon state={official} prefixo={prefixo.trim()} warning={prefixo.trim() ? allocationError(official, prefixo.trim(), ownKey) || undefined : undefined}><ScaleVehiclePicker label={'Carro substituido da Linha ' + item.linha + ' Tabela ' + item.tabela} value={prefixo} disabled={readOnly || saving}
       garage={official?.contexto.garagem ?? ''} options={pickerOptions(official, ownKey)}
       onChange={value => { dirty.current = true; drafts.set(item.id, value); onEditingChange?.(item.id, true); setPrefixo(value); }} onConfirm={() => void confirm()}
-      onSelect={value => { if (!readOnly) requestExchange(value); }}
       renderPrefix={p => <span className="relative inline-flex"><ScaleVehiclePrefix state={official} prefixo={p} />{p === prefixo.trim() && <VehicleNoticeIcons {...vehicleNoticeFlags(official, p)} />}</span>} className="h-7 w-24 py-0 text-center" /></CiVehicleNotice>
       <button type="button" aria-label={(confirmed ? 'Linha confirmada ' : 'Confirmar linha ') + item.linha + ' tabela ' + item.tabela} title={confirmed ? 'Linha confirmada para esta data' : 'Confirmar linha'} disabled={readOnly || saving || confirmed} onClick={() => void confirm()} className={cn('h-7 w-7 inline-flex items-center justify-center rounded-full', 'bg-[#164E3A] text-white', (readOnly || saving || confirmed) && 'opacity-40 cursor-not-allowed')}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}</button>
     </div></td>
-  </tr>{exchange && <ScaleSubstitutionDialog prefixo={exchange.anterior} substituto={exchange.substituto} saving={saving}
-    reserveUnavailable={official && blocked(official, exchange.anterior) ? 'Este carro já está bloqueado e não pode ir para a reserva.' : undefined}
-    onCancel={cancelExchange} onSave={retirada => void confirm(retirada)} />}</>;
+  </tr></>;
 }
