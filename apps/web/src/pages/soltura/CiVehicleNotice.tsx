@@ -51,18 +51,21 @@ export function CiVehicleNotice({ state, prefixo, warning, children, hideIcon = 
   const source = [...new Set(origins)].join(' • ') || 'Escala';
   const text = children ?? <ScaleVehiclePrefix state={state} prefixo={prefixo} />;
   const Anchor = hoverOnly ? PopoverAnchor : PopoverTrigger;
-  if (!/^\d{1,10}$/.test(prefixo) || (!notices.length && !red && !troca && !blue && !description)) return <>{text}</>;
-  return <Popover open={open && !hoverDisabled} onOpenChange={value => { pinned.current = false; setOpen(value); }}>
-    <Anchor asChild><span tabIndex={hoverOnly ? undefined : 0} role={children ? undefined : 'button'} aria-label={'Ver ocorrencias do carro ' + prefixo + ' na ' + source}
+  const hasNotice = /^\d{1,10}$/.test(prefixo) && Boolean(notices.length || red || troca || blue || description);
+  // Um campo filho deve continuar na mesma arvore ao ganhar/perder avisos.
+  // Trocar Fragment por Popover desmonta o input e perde foco/posicao do cursor.
+  if (!children && !hasNotice) return <>{text}</>;
+  return <Popover open={open && hasNotice && !hoverDisabled} onOpenChange={value => { pinned.current = false; setOpen(value && hasNotice); }}>
+    <Anchor asChild><span tabIndex={hoverOnly || !hasNotice ? undefined : 0} role={children ? undefined : 'button'} aria-label={hasNotice ? 'Ver ocorrencias do carro ' + prefixo + ' na ' + source : undefined}
       className="relative inline-flex items-center font-bold"
-      onMouseEnter={() => setOpen(true)} onMouseLeave={() => { if (!pinned.current) setOpen(false); }}
-      onFocus={() => setOpen(true)} onBlur={() => { if (!pinned.current) setOpen(false); }}
+      onMouseEnter={() => setOpen(hasNotice)} onMouseLeave={() => { if (!pinned.current) setOpen(false); }}
+      onFocus={() => setOpen(hasNotice)} onBlur={() => { if (!pinned.current) setOpen(false); }}
       onKeyDown={event => { if (!hoverOnly && !children && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); pinned.current = !pinned.current; setOpen(pinned.current); } }}
       onClick={event => { if (hoverOnly || children) return; event.preventDefault(); pinned.current = !pinned.current; setOpen(pinned.current); }}>
       {text}
-      {!hideIcon && <VehicleNoticeIcons blocked={blockedCI} requested={notices.length > 0} defect={blue} />}
+      {hasNotice && !hideIcon && <VehicleNoticeIcons blocked={blockedCI} requested={notices.length > 0} defect={blue} />}
     </span></Anchor>
-    {open && !hoverDisabled && <PopoverContent align="start" className={'w-80 max-w-[calc(100vw-2rem)] bg-card text-card-foreground ' + (red ? 'border-rose-300' : blue ? 'border-blue-300' : 'border-amber-300')}
+    {open && hasNotice && !hoverDisabled && <PopoverContent align="start" className={'w-80 max-w-[calc(100vw-2rem)] bg-card text-card-foreground ' + (red ? 'border-rose-300' : blue ? 'border-blue-300' : 'border-amber-300')}
       onOpenAutoFocus={event => event.preventDefault()} onCloseAutoFocus={event => event.preventDefault()}>
       <p className={'text-xs font-bold ' + (red ? 'text-rose-600' : blue ? 'text-blue-600' : 'text-amber-600')}>Carro {prefixo} • {source}</p>
       {description && <p className="mt-2 text-xs">{description}</p>}

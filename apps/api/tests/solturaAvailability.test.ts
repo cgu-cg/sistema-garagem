@@ -41,6 +41,42 @@ function fixture(status = 'FINALIZADA') {
 }
 const reason = (code: string) => (e: any) => e.status === 409 && e.code === code;
 
+test('vespertino grava sem CI, manutencao ou escala e exige carro realizado da frota', async () => {
+ const f = fixture();
+ const forbid = async () => { throw Error('Dependencia proibida no vespertino'); };
+ f.db.folhaCI.findUnique = forbid; f.db.cicloOperacional.findUnique = forbid;
+ f.db.escalaDiaria.findUnique = forbid; f.db.$queryRaw = forbid;
+ const evening = { ...context, turno: 'VESPERTINO' } as const;
+ const row = currentReleaseTemplate(evening)[0];
+ const request = { ...body, turno: 'VESPERTINO', scheduleId: row.id, linha: row.linha, tabela: row.tabela, carroProgramado: '9999' };
+ const fleet = async () => ({ source: 'real', data: [{ prefixo: '4000', idCarro: '4000', garagem: 'VCG' }] });
+ const save = (value: unknown) => writeSafeRelease(f.db, 1, value, false, () => eventInstant(target, 14), () => [], fleet);
+ const saved: any = await save(request);
+ assert.equal(saved.carroProgramado, null); assert.equal(saved.carroRealizado, '4000'); assert.equal(saved.substituido, false);
+ await assert.rejects(save({ ...request, carroRealizado: '' }), reason('CARRO_REALIZADO_OU_PROGRAMADO_OBRIGATORIO'));
+ await assert.rejects(save({ ...request, carroRealizado: '9999' }), reason('VEICULO_FORA_DA_FROTA'));
+ await assert.rejects(save({ ...request, driverCode: '' }));
+ assert.equal(f.rows().length, 1);
+});
+
+test('vespertino mantem permissoes, data, molde e defeitos da propria Soltura', async () => {
+ const f = fixture(); const evening = { ...context, turno: 'VESPERTINO' } as const;
+ const [row, next] = currentReleaseTemplate(evening);
+ const request = { ...body, turno: 'VESPERTINO', scheduleId: row.id, linha: row.linha, tabela: row.tabela };
+ const fleet = async () => ({ source: 'real', data: ['4000', '4001'].map(prefixo => ({ prefixo, idCarro: prefixo, garagem: 'VCG' })) });
+ const save = (value: unknown, batch = false) => writeSafeRelease(f.db, 1, value, batch, () => eventInstant(target, 14), () => [], fleet);
+ await save(request);
+ const changed: any = await save({ ...request, carroRealizado: '4001', trocaCarro: { carroAnterior: '4000', motivo: 'Defeito Garagem', descricaoDefeito: 'Motor' } });
+ assert.equal(JSON.parse(changed.historicoTrocas)[0].usuarioId, 1);
+ const before = structuredClone(f.rows());
+ await assert.rejects(save({ ...request, scheduleId: next.id, linha: next.linha, tabela: next.tabela }), reason('VEICULO_COM_DEFEITO_GARAGEM'));
+ await assert.rejects(save({ ...request, linha: 'invalida' }), reason('VIAGEM_FORA_DO_MOLDE'));
+ await assert.rejects(save({ ...request, dataOperacao: day }), reason('DATA_FORA_DO_CONTEXTO'));
+ f.db.user.findUnique = async () => ({ role: 'COLABORADOR', garagem: 'VCG' });
+ await assert.rejects(save(request), (e: any) => e.status === 403);
+ assert.deepEqual(f.rows(), before);
+});
+
 test('carro realizado vazio usa programado oficial e exige motorista e disponibilidade', async () => {
  const f = fixture();
  const saved: any = await writeSafeRelease(f.db, 1, { ...body, carroRealizado: '', carroProgramado: '9999' }, false, () => eventInstant(target, 4), () => ['VCG']);

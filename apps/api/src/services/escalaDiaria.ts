@@ -55,11 +55,11 @@ export function parseStoredDailyScale(conteudo: string | undefined, contexto: Re
 }
 export type FleetLoader = () => Promise<{ source: string; data: unknown }>;
 export type ColorLoader = () => Promise<FleetColorCache | null>;
-const loadColorCache: ColorLoader = async () => {
+export const loadColorCache: ColorLoader = async () => {
   try { return await readColorCache(process.env.FLEET_COLORS_CACHE_PATH || path.resolve(__dirname, '../../uploads/.fleet-colors/cache.json')); }
   catch { return null; }
 };
-const officialFleet: FleetLoader = async () => (await import('./mssql')).queryVeiculosSelect();
+export const officialFleet: FleetLoader = async () => (await import('./mssql')).queryVeiculosSelect();
 async function ciBlocks(tx: Pick<PrismaClient, 'folhaCI'>, contexto: ReturnType<typeof parseDailyContext>, frota: string[], legacy = false) {
   const ciData = legacy ? addDays(contexto.dataOperacao, 1) : contexto.dataOperacao;
   const folha = await tx.folhaCI.findUnique({ where: { garagem_dataFolha: { garagem: contexto.garagem, dataFolha: dateValue(ciData) } }, include: { itens: true } });

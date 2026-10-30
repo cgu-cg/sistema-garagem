@@ -264,6 +264,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const [isListaEstendida, setIsListaEstendida] = useState(false);
 
   // Base de CIs Bloqueados sincronizada e persistida
+  const independentRelease = escalaTipo === 'SEG_SEX' && turnoTipo === 'VESPERTINO';
   const [ciList, setCiList] = useState<BloqueioCarro[]>([]);
 
   const [ciReadError, setCIReadError] = useState('');
@@ -272,6 +273,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
   // Carregar CIs Bloqueados diretamente do banco oficial SQL Server
   useEffect(() => {
+    if (independentRelease && ['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode)) { setCiList([]); setCIReadError(''); return; }
     let active = true;
     setCIReadError('');
     fetchCIBloqueiosFromApi({ garagem }).then((data) => {
@@ -280,9 +282,10 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       }
     }).catch(error => { if (active && ciReadGarage.current === garagem && !isReadInterrupted(error)) setCIReadError('Consulta oficial indisponivel; disponibilidade nao confirmada.'); });
     return () => { active = false; };
-  }, [garagem]);
+  }, [garagem, independentRelease, viewMode]);
 
   useEffect(() => {
+    if (independentRelease && ['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode)) return;
     let active = true;
     const unsubscribe = subscribeCIUpdates((updated, context) => {
       if (!active || ciReadGarage.current !== garagem) return;
@@ -306,7 +309,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       unsubscribe();
       window.removeEventListener("manutencao_updated", handleManutUpdate);
     };
-  }, [garagem]);
+  }, [garagem, independentRelease, viewMode]);
 
   // Chave de armazenamento por Turno e Escala (usada como cache de contingência)
   const getDispatchStorageKey = (g: string, e: string, t: TurnoTipo, d: string) => {
@@ -383,11 +386,38 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const releaseAvailability = releaseProgramming.data?.disponibilidade;
   const releaseState = useMemo(() => releaseProgramming.data ? { ...releaseProgramming.data.escala,
     ...(releaseAvailability ? { reserva: releaseAvailability.reserva, reservaPorCor: releaseAvailability.reservaPorCor, defeitosGaragem: releaseAvailability.defeitosGaragem } : {}) } : null, [releaseProgramming.data, releaseAvailability]);
-  const releasePendingMessage = releaseProgramming.data && dataOperacao >= operationalContext().today
+  const [eveningCI, setEveningCI] = useState<{ key: string; items: BloqueioCarro[]; error: string } | null>(null);
+  const eveningCIKey = `${garagem}:${dataOperacao}`;
+  useEffect(() => {
+    if (!independentRelease || !['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode)) return;
+    let active = true, sequence = 0;
+    setEveningCI(null);
+    const refresh = async () => {
+      const ticket = ++sequence;
+      try {
+        const items = await fetchCIBloqueiosFromApi({ garagem, data: dataOperacao });
+        if (!Array.isArray(items)) throw Error('Resposta invalida.');
+        if (active && ticket === sequence) setEveningCI({ key: eveningCIKey, items, error: '' });
+      } catch {
+        if (active && ticket === sequence) setEveningCI({ key: eveningCIKey, items: [], error: 'Consulta da CI indisponível. A Soltura vespertina permanece independente.' });
+      }
+    };
+    void refresh();
+    window.addEventListener('focus', refresh);
+    const stop = c4Realtime.subscribe(event => { if (!event || event.garagem === garagem) void refresh(); });
+    return () => { active = false; stop(); window.removeEventListener('focus', refresh); };
+  }, [independentRelease, eveningCIKey, viewMode]);
+  const eveningCIState = useMemo(() => releaseState ? { ...releaseState, ciData: dataOperacao,
+    bloqueados: [...new Set((eveningCI?.key === eveningCIKey ? eveningCI.items : []).filter(item =>
+      item.data === dataOperacao && item.garagem === garagem && item.status !== 'LIBERADO'
+      && item.categoriaPlanilha === 'BLOQUEADO').map(item => item.prefixo))] } : null,
+  [releaseState, eveningCI, eveningCIKey, dataOperacao, garagem]);
+  const eveningCIError = eveningCI?.key === eveningCIKey ? eveningCI.error : 'Consultando CI...';
+  const releasePendingMessage = !independentRelease && releaseProgramming.data && dataOperacao >= operationalContext().today
     ? releasePreparationMessage(Boolean(releaseState?.fluxo?.ciFinalizada), releaseProgramming.data.escalaFinalizada) : null;
   const [dispatchLoaded, setDispatchLoaded] = useState(false);
-  const releaseUiAllowed = canDispatch(user) && garagem === 'VCG' && Boolean(ciC4Enabled) && dataOperacao === operationalContext().today
-    && dispatchLoaded && !releaseProgramming.loading && Boolean(releaseProgramming.data?.escalaFinalizada && releaseState?.fluxo?.ciFinalizada);
+  const releaseUiAllowed = canDispatch(user) && garagem === 'VCG' && (independentRelease || Boolean(ciC4Enabled)) && dataOperacao === operationalContext().today
+    && dispatchLoaded && !releaseProgramming.loading && Boolean(releaseProgramming.data && (independentRelease || (releaseProgramming.data.escalaFinalizada && releaseState?.fluxo?.ciFinalizada)));
   const reloadDailyScale = async () => {
     if (viewMode !== 'ALTERAR_CARRO_PROGRAMADO') return;
     if ((dailyWritePending.current && dailyWriteContext.current === dailyContextKey) || dailyDirtyFields.current.size) return;
@@ -469,7 +499,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   selectedScaleKey.current = scaleContextKey;
   const reloadSharedScale = async () => {
     if (viewMode === 'ALTERAR_CARRO_PROGRAMADO') return;
-    if (garagem === 'VCG') return;
+    if (garagem === 'VCG' || independentRelease) return;
     if (dailyDirtyFields.current.size) return;
     if (scaleWritePending.current && scaleWriteContext.current === scaleContextKey) return;
     const request = ++scaleReadSequence.current;
@@ -622,7 +652,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         status: "LIBERADO",
         notes: record.observacoes || null,
       });
-      return { ...record, carroRealizado: saved.carroRealizado,
+      return { ...record, carroRealizado: saved.carroRealizado, carroProgramado: saved.carroProgramado ?? undefined, substituido: saved.substituido,
         historicoTrocas: typeof saved.historicoTrocas === 'string' ? JSON.parse(saved.historicoTrocas) : saved.historicoTrocas ?? [] };
   };
 
@@ -662,7 +692,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           const row = baseSchedules.find(item => item.id === id);
           const received = result.items.find((entry: any) => entry.scheduleId === id);
           const { trocaCarro: _troca, ...savedRecord } = record;
-          return [id, { ...savedRecord, carroRealizado: received.carroRealizado,
+          return [id, { ...savedRecord, carroRealizado: received.carroRealizado, substituido: received.substituido,
             historicoTrocas: typeof received.historicoTrocas === 'string' ? JSON.parse(received.historicoTrocas) : received.historicoTrocas ?? [], carroProgramado: dispatches[id]?.carroProgramado ?? row?.carroProgramado,
             scheduleSnapshot: dispatches[id]?.scheduleSnapshot ?? (row ? { ...row } : undefined) }];
         }))));
@@ -846,7 +876,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   // Reservas ativas (legado/fallback)
   const reservasAtivas = useMemo<TerminalReserva[]>(() => {
     return garagem === "VCG" ? terminaisReservaVCG : terminaisReservaVCM;
-  }, [garagem]);
+  }, [garagem, independentRelease, viewMode]);
 
   // Pendurados / Bloqueados na CI ativos oficiais (Filtrados estritamente pela garagem atual: VCG ou VCM)
   const penduradosAtivos = useMemo<BloqueioCarro[]>(() => {
@@ -880,14 +910,16 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   }, [ciList, garagem]);
 
   // Mapear itens mesclando programação base + despachos realizados
-  const activeSchedules = useMemo(() => applyReleaseRecords(baseSchedules, dispatches, dataOperacao < operationalContext().today || viewMode === 'HISTORICO'),
-    [baseSchedules, dispatches, viewMode, dataOperacao]);
+  const activeSchedules = useMemo(() => {
+    const rows = applyReleaseRecords(baseSchedules, dispatches, dataOperacao < operationalContext().today || viewMode === 'HISTORICO');
+    return independentRelease ? rows.map(row => ({ ...row, carroProgramado: '' })) : rows;
+  }, [baseSchedules, dispatches, viewMode, dataOperacao, independentRelease]);
 
   // Estatísticas operacionais
   const stats = useMemo(() => {
     const total = activeSchedules.length;
     const liberados = activeSchedules.filter(s => s.status === "LIBERADO" || s.status === "SUBSTITUIDO").length;
-    const substituidos = activeSchedules.filter(s => s.status === "SUBSTITUIDO" || (s.carroRealizado && s.carroRealizado !== s.carroProgramado)).length;
+    const substituidos = activeSchedules.filter(s => s.status === "SUBSTITUIDO" || (!independentRelease && s.carroRealizado && s.carroRealizado !== s.carroProgramado)).length;
     const pendentes = total - liberados;
     const percentual = total > 0 ? Math.round((liberados / total) * 100) : 0;
 
@@ -1053,7 +1085,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       motoristaCodigo: finalMoto,
       motoristaNome: finalNome,
       horaLiberacao: horaAtual,
-      substituido: finalCarro !== item.carroProgramado
+      substituido: !independentRelease && finalCarro !== item.carroProgramado
     };
 
     const updated = { ...dispatches, [item.id]: newRecord };
@@ -1316,7 +1348,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
             {/* 1. LADO ESQUERDO: TABELA ÚNICA DE HORÁRIOS (fixo no topo da tela com scroll) */}
             <div className="min-w-0 border rounded-2xl overflow-hidden shadow-2xs bg-card border-border/80 sticky top-4 self-start z-10">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 text-xs text-muted-foreground">
-                <div className="flex flex-wrap gap-3"><span className="inline-flex items-center gap-1.5"><VehicleAlertIcon className="h-3 w-3 text-rose-600" />Bloqueados CI</span><span className="inline-flex items-center gap-1.5"><VehicleAlertIcon className="h-3 w-3 text-amber-500" />Reforço</span><span className="inline-flex items-center gap-1.5"><VehicleAlertIcon className="h-3 w-3 text-blue-600" />Defeito Garagem</span></div>
+                <div className="flex flex-wrap gap-3">{!independentRelease && <><span className="inline-flex items-center gap-1.5"><VehicleAlertIcon className="h-3 w-3 text-rose-600" />Bloqueados CI</span><span className="inline-flex items-center gap-1.5"><VehicleAlertIcon className="h-3 w-3 text-amber-500" />Reforço</span></>}<span className="inline-flex items-center gap-1.5"><VehicleAlertIcon className="h-3 w-3 text-blue-600" />Defeito Garagem</span></div>
                 <div className="flex gap-3 font-mono"><span>Feito: <strong className="text-emerald-700">{String(stats.liberados).padStart(2, '0')}</strong></span><span>Falta: <strong>{String(stats.pendentes).padStart(2, '0')}</strong></span></div>
               </div>
 
@@ -1340,7 +1372,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                       <th className="py-2.5 px-2.5 w-12 text-center">Nº</th>
                       <th className="py-2.5 px-2.5 font-bold text-foreground">Linha</th>
                       <th className="py-2.5 px-2 text-center">Tab</th>
-                      <th className="py-2.5 px-2.5 text-center">Carro Prog.</th>
+                      {!independentRelease && <th className="py-2.5 px-2.5 text-center">Carro Prog.</th>}
                       <th className="py-2.5 px-2.5 bg-primary/5 text-primary font-bold text-center">Carro Realiz.</th>
                       <th className="py-2.5 px-2.5 text-center">MOTO</th>
                       <th className="py-2.5 px-2.5 text-center font-bold text-foreground">Saída Gar.</th>
@@ -1360,26 +1392,27 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                         <>
                           {isNewVespSection && (
                             <tr key={`sep-vesp-${item.id}`}>
-                              <td colSpan={9} className="py-2 px-3 bg-emerald-500/15 text-[11px] font-black uppercase tracking-wider text-emerald-900 dark:text-emerald-200 border-y border-emerald-500/30">
+                              <td colSpan={independentRelease ? 8 : 9} className="py-2 px-3 bg-emerald-500/15 text-[11px] font-black uppercase tracking-wider text-emerald-900 dark:text-emerald-200 border-y border-emerald-500/30">
                                 📍 SOLTURA VESPERTINA {item.observacoes}
                               </td>
                             </tr>
                           )}
                           {isFirstVCM && (
                             <tr key={`sep-vcm-${item.id}`}>
-                              <td colSpan={9} className="py-1.5 px-3 bg-blue-500/10 text-[10px] font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300 border-y border-blue-500/30">
+                              <td colSpan={independentRelease ? 8 : 9} className="py-1.5 px-3 bg-blue-500/10 text-[10px] font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300 border-y border-blue-500/30">
                                 Motoristas VCM que saem da VCG
                               </td>
                             </tr>
                           )}
                           {isFirstFrete && (
                             <tr key={`sep-frete-${item.id}`}>
-                              <td colSpan={9} className="py-1.5 px-3 bg-amber-500/10 text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300 border-y border-amber-500/30">
+                              <td colSpan={independentRelease ? 8 : 9} className="py-1.5 px-3 bg-amber-500/10 text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300 border-y border-amber-500/30">
                                 Especial Fretamento
                               </td>
                             </tr>
                           )}
                           <FolhaTableRow
+                            hideProgrammedCar={independentRelease}
                             key={item.id}
                             item={item}
                           scaleState={releaseState}
@@ -1400,7 +1433,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                     })}
                     {filteredSchedules.length === 0 && (
                       <tr>
-                        <td colSpan={9} className="py-12 text-center text-muted-foreground font-sans">
+                        <td colSpan={independentRelease ? 8 : 9} className="py-12 text-center text-muted-foreground font-sans">
                           {isSyncingDb ? (
                             <div className="flex flex-col items-center justify-center gap-2 py-4 animate-in fade-in">
                               <RefreshCw className="w-5 h-5 animate-spin text-emerald-600 dark:text-emerald-400" />
@@ -1440,7 +1473,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
             {/* 2. LADO DIREITO: COMPONENTE FIXO COM PENDURADOS, RESERVA GARAGEM E RESERVA TERMINAL */}
             <div className="min-w-0 xl:sticky xl:top-4 self-start space-y-4">
-              <ScaleFleetSidebar state={releaseState} garage={garagem} defeitosGaragem={releaseAvailability?.defeitosGaragem ?? []} reserve={releaseState?.reserva.filter(prefixo => !activeSchedules.some(row => row.carroRealizado === prefixo) && !reservasTerminais.some(row => TERMINAIS_PADRAO.includes(row.terminal) && row.carro === prefixo))} />
+              <ScaleFleetSidebar ciState={independentRelease ? eveningCIState : releaseState} ciError={independentRelease ? eveningCIError : undefined} state={releaseState} garage={garagem} defeitosGaragem={releaseAvailability?.defeitosGaragem ?? []} reserve={releaseState?.reserva.filter(prefixo => !activeSchedules.some(row => row.carroRealizado === prefixo) && !reservasTerminais.some(row => TERMINAIS_PADRAO.includes(row.terminal) && row.carro === prefixo))} />
               {dataOperacao === operationalContext().today && renderCardReservaTerminal(false)}
             </div>
 
@@ -1471,7 +1504,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                         <th className="py-2 px-2 w-10 text-center">Nº</th>
                         <th className="py-2 px-2 font-bold text-foreground">Linha</th>
                         <th className="py-2 px-1 text-center">Tab</th>
-                        <th className="py-2 px-2 text-center">Carro Prog.</th>
+                        {!independentRelease && <th className="py-2 px-2 text-center">Carro Prog.</th>}
                         <th className="py-2 px-2 text-center">Carro Realiz.</th>
                         <th className="py-2 px-2 text-center">MOTO</th>
                         <th className="py-2 px-2 text-center font-bold text-foreground">Saída Gar.</th>
@@ -1481,6 +1514,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                     <tbody className="divide-y divide-border/60 font-mono">
                       {colunaEsquerda.map((item, idx) => (
                         <FolhaTableRow
+                            hideProgrammedCar={independentRelease}
                           key={item.id}
                           item={item}
                           scaleState={releaseState}
@@ -1520,7 +1554,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                           <th className="py-2 px-2 w-10 text-center">Nº</th>
                           <th className="py-2 px-2 font-bold text-foreground">Linha</th>
                           <th className="py-2 px-1 text-center">Tab</th>
-                          <th className="py-2 px-2 text-center">Carro Prog.</th>
+                          {!independentRelease && <th className="py-2 px-2 text-center">Carro Prog.</th>}
                           <th className="py-2 px-2 text-center">Carro Realiz.</th>
                           <th className="py-2 px-2 text-center">MOTO</th>
                           <th className="py-2 px-2 text-center font-bold text-foreground">Saída Gar.</th>
@@ -1540,6 +1574,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                                 </tr>
                               )}
                               <FolhaTableRow
+                            hideProgrammedCar={independentRelease}
                                 key={item.id}
                                 item={item}
                           scaleState={releaseState}
@@ -1659,7 +1694,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
               <div className="grid grid-cols-10 gap-4 items-stretch">
                 <div className="col-span-3">
-                  <ScaleFleetSidebar state={releaseState} garage={garagem} defeitosGaragem={releaseAvailability?.defeitosGaragem ?? []} />
+                  <ScaleFleetSidebar ciState={independentRelease ? eveningCIState : releaseState} ciError={independentRelease ? eveningCIError : undefined} state={releaseState} garage={garagem} defeitosGaragem={releaseAvailability?.defeitosGaragem ?? []} />
                 </div>
                 <div className="col-span-7">
                   {dataOperacao === operationalContext().today && renderCardReservaTerminal(true)}
@@ -1685,7 +1720,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filteredSchedules.map(item => {
             const isDone = item.status === "LIBERADO" || item.status === "SUBSTITUIDO";
-            const isSub = item.status === "SUBSTITUIDO" || (item.carroRealizado && item.carroRealizado !== item.carroProgramado);
+            const isSub = item.status === "SUBSTITUIDO" || (!independentRelease && item.carroRealizado && item.carroRealizado !== item.carroProgramado);
             const finalCarro = item.carroRealizado || item.carroProgramado;
             const bloqueio = checkBloqueioCI(finalCarro);
 
@@ -1724,12 +1759,12 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
                   {/* Informações de Carro e Motorista */}
                   <div className="py-2.5 space-y-1.5 text-xs">
-                    <div className="flex items-center justify-between">
+                    {!independentRelease && <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">Carro Programado:</span>
                       <span className={cn("font-mono font-bold", isSub && "line-through text-rose-500")}>
                         {item.carroProgramado || "—"}
                       </span>
-                    </div>
+                    </div>}
 
                     {item.carroRealizado && (
                       <div className="flex items-center justify-between">
@@ -2065,6 +2100,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 // COMPONENTE DE LINHA DA TABELA DA FOLHA DE SOLTURA (ESTILO PRANCHETA)
 // ----------------------------------------------------------------------
 interface FolhaTableRowProps {
+  hideProgrammedCar?: boolean;
   scaleState: DailyEscala | null;
   item: SolturaItem;
   index: number;
@@ -2081,6 +2117,7 @@ interface FolhaTableRowProps {
 }
 
 function FolhaTableRow({
+  hideProgrammedCar = false,
   scaleState,
   item,
   index,
@@ -2096,7 +2133,7 @@ function FolhaTableRow({
   isReadOnly = false
 }: FolhaTableRowProps) {
   const isDone = item.status === "LIBERADO" || item.status === "SUBSTITUIDO";
-  const isSub = item.status === "SUBSTITUIDO" || (item.carroRealizado && item.carroRealizado !== item.carroProgramado);
+  const isSub = item.status === "SUBSTITUIDO" || (!hideProgrammedCar && item.carroRealizado && item.carroRealizado !== item.carroProgramado);
 
   const [carroValue, setCarroValue] = useState(item.carroRealizado || "");
   const [motoValue, setMotoValue] = useState(item.motoristaCodigo || "");
@@ -2209,7 +2246,7 @@ function FolhaTableRow({
         {item.tabela}
       </td>
 
-      <td className="py-2 px-2.5 whitespace-nowrap text-center text-xs font-mono"><CiVehicleNotice state={scaleState} prefixo={item.carroProgramado || '—'} /></td>
+      {!hideProgrammedCar && <td className="py-2 px-2.5 whitespace-nowrap text-center text-xs font-mono"><CiVehicleNotice state={scaleState} prefixo={item.carroProgramado || '—'} /></td>}
 
       {/* 5. Carro Realizado (P) - Com suporte a popover de Alteração e Histórico de Trocas (Prints 2 e 3) */}
       <td className={cn(

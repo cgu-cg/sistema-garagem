@@ -1,3 +1,4 @@
+import { isIndependentRelease, readIndependentReleaseFleet } from './independentRelease';
 import type { PrismaClient } from '@prisma/client';
 import { currentReleaseTemplate, type TemplateContext } from '../data/scheduleTemplates';
 import { fixedSchedule, parseDailyContext, parseStoredDailyScale, readEscalaDiaria } from './escalaDiaria';
@@ -19,12 +20,13 @@ export function programReleaseRows(context: TemplateContext, scale: { linha: str
   }
   return currentReleaseTemplate(context).map(row => {
     const matches = byLineTable.get(key(row)) ?? [];
-    const carroProgramado = matches.length === 1 ? cars.get(matches[0].id) ?? matches[0].carroProgramado : '';
+    const carroProgramado = !isIndependentRelease(context) && matches.length === 1 ? cars.get(matches[0].id) ?? matches[0].carroProgramado : '';
     return { ...row, carroProgramado, status: 'PENDENTE' as const };
   });
 }
 
 export async function finalizedReleaseRows(tx: Pick<PrismaClient, 'escalaDiaria'>, context: TemplateContext & { dataOperacao: string }) {
+  if (isIndependentRelease(context)) return programReleaseRows(context, [], []);
   const scaleContext = releaseScaleContext(context);
   const record = await tx.escalaDiaria.findUnique({ where: { garagem_escalaTipo_turno_dataOperacao: scaleContext } });
   if (!record) return null;
@@ -34,9 +36,10 @@ export async function finalizedReleaseRows(tx: Pick<PrismaClient, 'escalaDiaria'
 
 export async function readReleaseProgramming(db: PrismaClient, value: unknown, userId: number | undefined) {
   const context = parseDailyContext(value), scaleContext = releaseScaleContext(context);
-  const escala = await readEscalaDiaria(db, scaleContext, userId);
+  const independent = isIndependentRelease(context);
+  const escala = independent ? await readIndependentReleaseFleet(db, context, userId) : await readEscalaDiaria(db, scaleContext, userId);
   const escalaFinalizada = escala.fluxo.status === 'FINALIZADA';
-  const itens = programReleaseRows(context, escalaFinalizada ? fixedSchedule(scaleContext) : [], escala.itens);
+  const itens = programReleaseRows(context, !independent && escalaFinalizada ? fixedSchedule(scaleContext) : [], escala.itens);
   const records = await db.soltura.findMany({ where: { garagem: context.garagem, dataOperacao: context.dataOperacao } });
   return { contexto: context, escala, escalaFinalizada, itens,
     disponibilidade: releaseFleetProjection(escala, itens, records, context) };

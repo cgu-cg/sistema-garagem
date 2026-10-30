@@ -43,7 +43,7 @@ function harness(kind: 'troca' | 'notice' = 'troca') {
   if (!node || typeof node !== 'object') return;
   nodes.push(node); walk(node.props?.children);
  };
- const render = () => { cursor = 0; nodes = []; walk(Component(props)); };
+ const render = () => { cursor = 0; nodes = []; const tree = Component(props); walk(tree); return tree; };
  const get = (predicate: (n: any) => boolean) => { const found = nodes.find(predicate); assert.ok(found, 'Elemento esperado ausente'); return found; };
  const open = () => { get(n => n.type === 'button' && n.props['aria-label']?.includes('Clique para alterar')).props.onClick({ stopPropagation() {} }); render(); };
  const car = (value: string) => { get(n => n.type?.name === 'FleetVehicleInput').props.onChange({ target: { value } }); render(); };
@@ -51,6 +51,20 @@ function harness(kind: 'troca' | 'notice' = 'troca') {
  const submit = () => get(n => n.type === 'form').props.onSubmit({ preventDefault() {} });
  return { props, calls, render, get, open, car, reason, submit };
 }
+
+test('seletor filho mantem a mesma estrutura ao digitar prefixo e alternar avisos', () => {
+ const h = harness('notice'); h.props.defectDescription = undefined;
+ h.props.children = React.createElement('input', { 'aria-label': 'Carro substituido' });
+ const path = (tree: any) => [tree.type, tree.props.children[0].type,
+  tree.props.children[0].props.children.type, tree.props.children[0].props.children.props.children[0]];
+ h.props.prefixo = ''; const initial = path(h.render());
+ assert.equal(h.render().props.open, false);
+ for (const prefixo of ['2', '23', '231', '2319', '', '4000']) {
+  h.props.prefixo = prefixo;
+  h.props.warning = prefixo && prefixo !== '2319' ? 'Informe um carro valido.' : undefined;
+  assert.deepEqual(path(h.render()), initial);
+ }
+});
 
 test('troca exige escolha de motivo e descricao para Defeito Garagem', async () => {
  const h = harness(); h.render(); h.open(); h.car('4001');

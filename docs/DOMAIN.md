@@ -1,5 +1,25 @@
 # Domain model e entendimento operacional atual
 
+## Soltura vespertina independente — confirmado em 29/10/2026
+
+No contexto SEG_SEX / VESPERTINO, a Soltura nao depende de CI, Controle de
+Manutencao ou Escala de Carros, nem consulta seus bloqueios ou programados.
+Usa o molde vespertino para linha, tabela e horarios, e a frota oficial para
+selecao do Carro Realizado, obrigatorio junto do motorista. Nao exige CI ou
+Escala finalizada nem habilitacao do modulo CI. Matutino e PADRAO preservam
+as regras anteriores. A restricao existente de escrita para VCG permanece.
+
+Carro Programado e avisos de dependencia da CI nao aparecem no vespertino.
+O card Bloqueados CI permanece visivel com consulta separada, informativa,
+da garagem/data selecionadas. Falha nessa consulta e exibida no card sem
+impedir a Soltura ou alterar sua validacao independente no backend. Novos
+despachos vespertinos gravam programado nulo; historicos antigos nao sao
+migrados, e o programado antigo nao serve de preenchimento automatico.
+Permissoes, garagem, data operacional, molde, identidade do veiculo e
+historico de troca continuam validados no backend. Defeitos registrados na
+propria Soltura seguem impedindo reutilizacao na mesma garagem/data.
+Nao altera schema nem registros existentes automaticamente.
+
 ## Atualizacao da Soltura e estabilidade visual - 27/10/2026
 
 Recargas por foco e realtime sao agrupadas em 100 ms e executadas em serie.

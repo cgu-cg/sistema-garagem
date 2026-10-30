@@ -19,9 +19,10 @@ export async function loadReleaseProgramming(context: DailyEscala['contexto']): 
     itens: z.array(z.object({ id: z.string(), linha: z.string(), tabela: z.string(), carroProgramado: z.string().regex(/^\d{0,10}$/) }).passthrough()),
   }).strict().parse(await api.get('/solturas/programacao', { params: { ...context } }));
   if (Object.entries(context).some(([key, value]) => raw.contexto[key] !== value)) throw Error('Programacao de outra data ou garagem.');
-  const scaleContext = { ...context, turno: context.escalaTipo === 'SEG_SEX' ? 'MATUTINO' as const : 'PADRAO' as const };
+  const independent = context.escalaTipo === 'SEG_SEX' && context.turno === 'VESPERTINO';
+  const scaleContext = independent ? context : { ...context, turno: context.escalaTipo === 'SEG_SEX' ? 'MATUTINO' as const : 'PADRAO' as const };
   const escala = validateDailyEscala(raw.escala, scaleContext), template = currentReleaseTemplate(context);
-  if (raw.escalaFinalizada !== (escala.fluxo?.status === 'FINALIZADA') || raw.itens.length !== template.length
+  if ((independent && (raw.itens.some(row => row.carroProgramado !== '') || escala.bloqueados.length > 0 || escala.ciAvisos?.length || escala.cards.length > 0)) || raw.escalaFinalizada !== (escala.fluxo?.status === 'FINALIZADA') || raw.itens.length !== template.length
     || (!raw.escalaFinalizada && raw.itens.some(row => row.carroProgramado !== ''))
     || new Set(raw.itens.map(row => row.id)).size !== template.length) throw Error('Programacao inconsistente com a escala.');
   const byId = new Map(raw.itens.map(item => [item.id, item]));

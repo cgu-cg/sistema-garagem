@@ -23,25 +23,22 @@ test('equivalencias de codigo nao dependem de zeros, espacos ou separador, ambig
   assert.equal(programReleaseRows(context, [candidate, { ...candidate, id: 'second' }], [])[0].carroProgramado, '');
 });
 
-test('vespertino usa escala matutina da mesma data e deixa sem correspondencia em branco', () => {
-  const evening = { ...context, turno: 'VESPERTINO' } as const;
-  assert.deepEqual(releaseScaleContext(evening), context);
-  const scale = currentScaleTemplate(context);
-  const rows = programReleaseRows(evening, scale, []);
-  for (const row of rows) {
-    const matches = scale.filter(source => source.linha === row.linha && source.tabela === row.tabela);
-    if (!matches.length) assert.equal(row.carroProgramado, '');
-  }
-  assert.ok(rows.some(row => row.carroProgramado));
+test('vespertino ignora escala e substituicoes, mantendo apenas o molde sem programados', async () => {
+ const evening = { ...context, turno: 'VESPERTINO' } as const;
+ const scale = currentScaleTemplate(context);
+ assert.ok(programReleaseRows(evening, scale, [{ id: scale[0].id, carroSubstituido: '5001' }]).every(row => row.carroProgramado === ''));
+ const db: any = { escalaDiaria: { findUnique: async () => { throw Error('Nao deve consultar escala'); } } };
+ const rows = await finalizedReleaseRows(db, evening);
+ assert.equal(rows?.length, currentReleaseTemplate(evening).length);
+ assert.ok(rows?.every(row => row.carroProgramado === ''));
+ assert.deepEqual(releaseScaleContext(context), context);
 });
 
-test('leitura transacional do vespertino consulta somente escala matutina e exige finalizacao', async () => {
-  let received: unknown;
-  const db: any = { escalaDiaria: { findUnique: async (query: unknown) => { received = query; return null; } } };
-  assert.equal(await finalizedReleaseRows(db, { ...context, turno: 'VESPERTINO' }), null);
-  assert.deepEqual(received, { where: { garagem_escalaTipo_turno_dataOperacao: context } });
-  db.escalaDiaria.findUnique = async () => ({ conteudo: '[]' });
-  assert.equal(await finalizedReleaseRows(db, context), null);
+test('matutino continua exigindo escala finalizada', async () => {
+ const db: any = { escalaDiaria: { findUnique: async () => null } };
+ assert.equal(await finalizedReleaseRows(db, context), null);
+ db.escalaDiaria.findUnique = async () => ({ conteudo: '[]' });
+ assert.equal(await finalizedReleaseRows(db, context), null);
 });
 
 test('reprogramar pendentes preserva carro e identificacao da viagem ja despachada, inclusive programado vazio', () => {

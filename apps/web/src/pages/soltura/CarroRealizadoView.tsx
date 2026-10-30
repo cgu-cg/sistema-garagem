@@ -78,6 +78,8 @@ export function CarroRealizadoView({
   onAddSchedule
 }: CarroRealizadoViewProps) {
 
+  const independentRelease = escalaTipo === 'SEG_SEX' && turnoTipo === 'VESPERTINO';
+
   // Estado do Formulário de Lançamento Individual
   const [selectedScheduleId, setSelectedScheduleId] = useState<string>("");
   const [inputCarroRealizado, setInputCarroRealizado] = useState("");
@@ -120,10 +122,11 @@ export function CarroRealizadoView({
 
   // Itens mapeados com estado atual de despachos
   const mergedItems = useMemo(() => {
-    return schedules.map(item => {
+    return schedules.map(source => {
+      const item = independentRelease ? { ...source, carroProgramado: '' } : source;
       const disp = dispatches[item.id];
       const realizado = disp?.carroRealizado || item.carroRealizado || "";
-      const isSub = realizado !== "" && realizado !== item.carroProgramado;
+      const isSub = independentRelease ? Boolean(disp?.historicoTrocas?.length) : realizado !== "" && realizado !== item.carroProgramado;
       const isDone = !!disp || !!item.carroRealizado;
 
       return {
@@ -137,7 +140,7 @@ export function CarroRealizadoView({
         isPreenchido: isDone
       };
     });
-  }, [schedules, dispatches]);
+  }, [schedules, dispatches, independentRelease]);
 
   // Carregar primeiro item da lista ou manter selecionado
   useEffect(() => {
@@ -190,8 +193,8 @@ export function CarroRealizadoView({
   const isSubstituicao = useMemo(() => {
     if (!currentItem) return false;
     const finalCarro = inputCarroRealizado.trim();
-    return finalCarro !== "" && finalCarro !== currentItem.carroProgramado;
-  }, [currentItem, inputCarroRealizado]);
+    return !independentRelease && finalCarro !== "" && finalCarro !== currentItem.carroProgramado;
+  }, [currentItem, inputCarroRealizado, independentRelease]);
 
   // Salvar Formulário de Carro Realizado (P)
   const handleSaveForm = async (e: React.FormEvent) => {
@@ -567,7 +570,7 @@ export function CarroRealizadoView({
       {/* ========================================================= */}
       {/* CADASTRO DE CARROS PROGRAMADOS NO PADRÃO FOLHA DE SOLTURA */}
       {/* ========================================================= */}
-      <div className="bg-card border-2 border-emerald-500/30 dark:border-emerald-500/20 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3.5">
+      {!independentRelease && <div className="bg-card border-2 border-emerald-500/30 dark:border-emerald-500/20 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3.5">
         <div className="flex items-center justify-between pb-2.5 border-b border-border/80">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-[#164E3A] dark:text-emerald-400 flex items-center justify-center border border-emerald-500/20">
@@ -778,7 +781,7 @@ export function CarroRealizadoView({
             )}
           </div>
         )}
-      </div>
+      </div>}
 
       {/* ========================================================= */}
       {/* FORMULÁRIO DE LANÇAMENTO E ATRIBUIÇÃO DIRETA */}
@@ -816,14 +819,14 @@ export function CarroRealizadoView({
               >
                 {mergedItems.map(item => (
                   <option key={item.id} value={item.id}>
-                    Linha {item.linha} - Tab {item.tabela} | Prog: {item.carroProgramado} | Saída: {item.saidaGaragem} {item.isPreenchido ? `(Realiz: ${item.carroRealizado})` : "• PENDENTE"}
+                    Linha {item.linha} - Tab {item.tabela}{independentRelease ? '' : ` | Prog: ${item.carroProgramado}`} | Saída: {item.saidaGaragem} {item.isPreenchido ? `(Realiz: ${item.carroRealizado})` : "• PENDENTE"}
                   </option>
                 ))}
               </select>
             </div>
 
             {/* Carro Programado (Somente Leitura) */}
-            <div className="space-y-1.5">
+            {!independentRelease && <div className="space-y-1.5">
               <Label className="text-xs font-bold text-muted-foreground">
                 Carro Programado
               </Label>
@@ -831,7 +834,7 @@ export function CarroRealizadoView({
                 <span><ScaleVehiclePrefix state={scaleState} prefixo={currentItem?.carroProgramado || "---"} /></span>
                 <span className="text-[10px] text-muted-foreground/70 uppercase">Escala</span>
               </div>
-            </div>
+            </div>}
 
             {/* Campo Carro Realizado (P) */}
             <div className="space-y-1.5">
@@ -1010,7 +1013,7 @@ export function CarroRealizadoView({
               </button>
             </div>
 
-            <Button
+            {!independentRelease && <Button
               variant="outline"
               size="sm"
               onClick={handleBatchFillProgramados}
@@ -1019,7 +1022,7 @@ export function CarroRealizadoView({
             >
               <Sparkles className="w-3.5 h-3.5 text-primary" />
               Preencher rascunho
-            </Button>
+            </Button>}
           </div>
 
           <div className="relative w-full sm:w-64">
@@ -1043,7 +1046,7 @@ export function CarroRealizadoView({
                   <th className="py-2.5 px-3 w-12 text-center">N°</th>
                   <th className="py-2.5 px-3">Linha</th>
                   <th className="py-2.5 px-2">Tab</th>
-                  <th className="py-2.5 px-3">Carro Programado</th>
+                  {!independentRelease && <th className="py-2.5 px-3">Carro Programado</th>}
                   <th className="py-2.5 px-3 w-40">Carro Realiz.</th>
                   <th className="py-2.5 px-2">Status</th>
                   <th className="py-2.5 px-3 w-32">MOTO (Matrícula)</th>
@@ -1082,14 +1085,14 @@ export function CarroRealizadoView({
                       </td>
 
                       {/* Carro Programado */}
-                      <td className="py-2 px-3">
+                      {!independentRelease && <td className="py-2 px-3">
                         <span className={cn(
                           "font-mono px-2 py-0.5 rounded text-xs font-semibold",
                           "bg-muted"
                         )}>
                           <ScaleVehiclePrefix state={scaleState} prefixo={item.carroProgramado} />
                         </span>
-                      </td>
+                      </td>}
 
                       {/* Carro Realizado (P) - Input Inline de Alta Agilidade */}
                       <td className="py-2 px-3">

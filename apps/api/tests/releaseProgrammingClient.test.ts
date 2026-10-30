@@ -4,7 +4,7 @@ import { api } from '../../web/src/lib/api';
 import { loadReleaseProgramming } from '../../web/src/lib/releaseProgramming';
 import { currentReleaseTemplate } from '../../web/src/data/scheduleTemplates';
 
-const context = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'VESPERTINO', dataOperacao: '2026-10-24' } as const;
+const context = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'MATUTINO', dataOperacao: '2026-10-24' } as const;
 function response() {
   return { contexto: context, escalaFinalizada: true, itens: currentReleaseTemplate(context).map(row => ({ ...row, carroProgramado: '4001' })),
     escala: { contexto: { ...context, turno: 'MATUTINO' }, revisao: 2, itens: [], cards: [], confirmadas: [],
@@ -52,4 +52,19 @@ test('sem escala finalizada cliente aceita somente programacao vazia, sem recorr
     value.itens.forEach(row => { row.carroProgramado = ''; });
     assert.ok((await loadReleaseProgramming(context)).itens.every(row => row.carroProgramado === ''));
   } finally { api.get = original; }
+});
+
+test('vespertino aceita frota independente sem CI ou escala finalizada e recusa programados', async () => {
+ const original = api.get;
+ try {
+  const evening = { ...context, turno: 'VESPERTINO' as const };
+  const value = { ...response(), contexto: evening, escalaFinalizada: false,
+    itens: currentReleaseTemplate(evening).map(row => ({ ...row, carroProgramado: '' })),
+    escala: { ...response().escala, contexto: evening, fluxo: { status: 'NAO_INICIADA', ciFinalizada: false,
+      proximaIniciada: false, iniciadaEm: null, finalizadaEm: null } } };
+  api.get = (async () => value) as typeof api.get;
+  assert.ok((await loadReleaseProgramming(evening)).itens.every(row => row.carroProgramado === ''));
+  value.itens[0].carroProgramado = '4001';
+  await assert.rejects(loadReleaseProgramming(evening));
+ } finally { api.get = original; }
 });

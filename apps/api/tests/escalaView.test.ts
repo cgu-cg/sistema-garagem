@@ -57,6 +57,11 @@ test('Soltura mostra Defeito Garagem abaixo de Bloqueados CI, sem adicionar esse
   assert.doesNotMatch(html, /title="Pneu furado"/);
   assert.doesNotMatch(html, />Pneu furado</);
   assert.doesNotMatch(render(false), /DEFEITO GARAGEM/);
+  const independent = renderToStaticMarkup(React.createElement(Sidebar, { state: { ...official, bloqueados: [] }, ciState: official, garage: 'VCG',
+    defeitosGaragem: [{ prefixo: '4000', descricao: 'Motor', registradoEm: null }] }));
+  assert.match(independent, /BLOQUEADOS CI/);
+  assert.match(independent, /Ver ocorrencias do carro/);
+  assert.match(independent, /DEFEITO GARAGEM/);
 });
 
 test('carro realizado substituido por defeito mostra alertas simultaneos sem fundo azul no botao', () => {
