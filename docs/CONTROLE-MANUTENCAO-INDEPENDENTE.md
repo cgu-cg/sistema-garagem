@@ -32,6 +32,16 @@ na data atual. As restricoes sao verificadas novamente na transacao.
 
 ## Offline e conflitos
 
+O endereco de producao HTTP por IP de rede nao e um contexto seguro para
+Service Worker. O Controle aberto funciona sem `crypto.subtle` ou
+`crypto.randomUUID`: o hash de revisao usa SHA-256 compativel com o servidor
+e os UUIDs usam `crypto.getRandomValues` quando a API nativa nao existe.
+Isso corrige o carregamento/gravacao em HTTP, mas nao habilita instalacao e
+reabertura offline do PWA. Para essas funcionalidades, disponibilizar HTTPS
+com certificado confiavel nos aparelhos. Nenhuma infraestrutura foi alterada.
+Testes em localhost nao substituem esse caso: localhost e tratado como
+contexto seguro pelo navegador, ao contrario de HTTP por IP da rede.
+
 O PWA e a sessao devem estar disponiveis no aparelho. O PWA existente guarda
 os arquivos acessados; o Controle usa IndexedDB para uma fotografia e fila
 por usuario, garagem e data. O cadastro `inventoryCars.ts`, embarcado no

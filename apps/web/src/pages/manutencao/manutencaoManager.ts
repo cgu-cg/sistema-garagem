@@ -5,6 +5,7 @@ import { useAuth } from '@/stores/auth';
 import { getCache, compareAndSaveCache, getCacheEntries } from '@/lib/offline-db';
 import { createMaintenanceOffline, type MaintenanceLocal } from '@/lib/maintenanceOffline';
 import { localMaintenanceSnapshot } from '@/lib/maintenanceLocalDefaults';
+import { maintenanceOperationId } from '@/lib/maintenanceCompatibility';
 type C4Garage = 'VCG' | 'VCM';
 export interface ManutencaoCarroItem {
   id: string;
@@ -196,7 +197,7 @@ function client(data: string, garagem: C4Garage) {
     send: command => {
       if (useAuth.getState().user?.id !== owner) throw Object.assign(Error('Entre com o usuario que criou a pendencia.'), { status: 403 });
       return api.post('/manutencao/sync', command, { timeoutMs: 5000 });
-    }, online: () => navigator.onLine, uuid: () => crypto.randomUUID(), today: getTodayString,
+    }, online: () => navigator.onLine, uuid: maintenanceOperationId, today: getTodayString,
     seed: async () => {
       if (data !== getTodayString()) return localMaintenanceSnapshot(garagem, data);
       const entries = await getCacheEntries(`maintenance-independent:v1:${owner}:${garagem}:`);

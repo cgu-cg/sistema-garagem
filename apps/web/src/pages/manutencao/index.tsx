@@ -857,6 +857,9 @@ export function ManutencaoPage() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-16">
+      {typeof window !== 'undefined' && window.isSecureContext === false && <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 print:hidden">
+        Acesso por HTTP: para instalar o PWA e reabrir o aplicativo sem rede, use um endereço HTTPS.
+      </p>}
       {saving && <p role="status">Salvando alteracao...</p>}
       <div className="flex flex-wrap items-center gap-3 rounded-2xl border bg-card p-3 text-xs print:hidden" role="status">
         <span className={cn(syncStatus.offline || syncStatus.pending ? 'text-amber-700' : 'text-emerald-700')}>

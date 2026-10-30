@@ -1,6 +1,7 @@
 import { INVENTORY_CARS } from '@/data/inventoryCars';
 import type { InventoryVehicle } from './api';
 import type { MaintenanceSnapshot } from './maintenanceOffline';
+import { maintenanceRevisionHash } from './maintenanceCompatibility';
 
 // Cadastro embarcado para selecao offline; consulta oficial pode atualizar a garagem.
 // Convencao local ja usada pelo sistema: 1xxx/2002 VCM; demais VCG.
@@ -13,7 +14,6 @@ export async function localMaintenanceSnapshot(garagem: 'VCG' | 'VCM', data: str
   const source = previous?.garagem === garagem && previous.data < data && previous.origem === 'PERSISTIDA' ? previous : undefined;
   const items = source ? source.items.filter(item => item.bloqueado).map(item => ({ ...item,
     id: `manut-${data}-${item.prefixo}`, data, bloqueado: true, emExecucao: false, liberado: false })) : [];
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(source ? [source.data, source.revisao, items] : [])));
-  const base = '0:' + Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+  const base = '0:' + maintenanceRevisionHash(JSON.stringify(source ? [source.data, source.revisao, items] : []));
   return { garagem, data, revisao: 0, base, items, origem: source ? 'VIRADA' : 'VAZIA' };
 }
