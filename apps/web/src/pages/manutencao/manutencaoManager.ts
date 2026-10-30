@@ -1,12 +1,11 @@
-import { BloqueioCarro } from "@/data/solturaTypes";
-import { getInitialCIBloqueios, fetchCIBloqueiosFromApi, getCurrentCIGarage } from "@/pages/soltura/ciManager";
-import { api } from "@/lib/api";
-import { c4Context, c4Enabled, c4SnapshotRevision, fetchC4Context, storeC4Context, C4Garage } from '@/lib/c4';
-import { operationalContext, canMutate, revision, beginMutation, endMutation, requireRefresh, SavedRefreshRequired, getMutationState, readTicket, assertReadTicket } from "@/lib/mvpTemporal";
-import { ReadInterrupted } from '@/lib/readCoordination';
-const official = new Map<string, ManutencaoCarroItem[]>();
-let requestNumber = 0;
-
+import type { BloqueioCarro } from '@/data/solturaTypes';
+import { api } from '@/lib/api';
+import { operationalContext } from '@/lib/mvpTemporal';
+import { useAuth } from '@/stores/auth';
+import { getCache, compareAndSaveCache, getCacheEntries } from '@/lib/offline-db';
+import { createMaintenanceOffline, type MaintenanceLocal } from '@/lib/maintenanceOffline';
+import { localMaintenanceSnapshot } from '@/lib/maintenanceLocalDefaults';
+type C4Garage = 'VCG' | 'VCM';
 export interface ManutencaoCarroItem {
   id: string;
   prefixo: string;
@@ -173,131 +172,90 @@ export function isRealBloqueadoCI(ci: BloqueioCarro): boolean {
 
 // Consultas nunca reconciliam a fotografia com a CI atual.
 export function syncItemsWithCI(items: ManutencaoCarroItem[], _ciList: BloqueioCarro[], _data: string): ManutencaoCarroItem[] { return items; }
-export function getManutencaoData(data: string = getTodayString()): ManutencaoCarroItem[] {
-  if (data !== getTodayString()) return []; // Historicos aguardam consulta oficial, sem cache reconstruido legado.
-  try { const items = JSON.parse(localStorage.getItem(STORAGE_KEY_MANUTENCAO_PREFIX + data) || '[]'); return Array.isArray(items) ? items : []; } catch { return []; }
+
+const localStates = new Map<string, MaintenanceLocal>();
+const clients = new Map<string, ReturnType<typeof createMaintenanceOffline>>();
+function identity(data: string, garagem: C4Garage) {
+  const owner = useAuth.getState().user?.id;
+  if (!owner) throw Error('Sessao obrigatoria.');
+  return { owner, key: `maintenance-independent:v1:${owner}:${garagem}:${data}` };
+}
+function client(data: string, garagem: C4Garage) {
+  const { owner, key } = identity(data, garagem);
+  if (!clients.has(key)) {
+    let storedVersion: string | null = null;
+    clients.set(key, createMaintenanceOffline(key, garagem, data, {
+    get: async k => { const value = await getCache(k); storedVersion = value === null ? null : JSON.stringify(value); return value; },
+    put: async (k, value) => { await compareAndSaveCache(k, value, storedVersion); storedVersion = JSON.stringify(value); publish(k, value); },
+    read: async () => {
+      if (useAuth.getState().user?.id !== owner) throw Object.assign(Error('Sessao alterada.'), { status: 403 });
+      const result = await api.get('/manutencao', { params: { garagem, data }, timeoutMs: 5000 });
+      if (useAuth.getState().user?.id !== owner) throw Object.assign(Error('Sessao alterada.'), { status: 403 });
+      return result;
+    },
+    send: command => {
+      if (useAuth.getState().user?.id !== owner) throw Object.assign(Error('Entre com o usuario que criou a pendencia.'), { status: 403 });
+      return api.post('/manutencao/sync', command, { timeoutMs: 5000 });
+    }, online: () => navigator.onLine, uuid: () => crypto.randomUUID(), today: getTodayString,
+    seed: async () => {
+      if (data !== getTodayString()) return localMaintenanceSnapshot(garagem, data);
+      const entries = await getCacheEntries(`maintenance-independent:v1:${owner}:${garagem}:`);
+      const snapshots = entries.map(entry => entry.data?.confirmed ?? (entry.data?.queue?.length ? null : entry.data?.snapshot))
+        .filter(snapshot => snapshot?.origem === 'PERSISTIDA' && snapshot.garagem === garagem && snapshot.data < data)
+        .sort((a, b) => b.data.localeCompare(a.data));
+      return localMaintenanceSnapshot(garagem, data, snapshots[0]);
+    },
+  }));
+  }
+  return { key, engine: clients.get(key)! };
+}
+function publish(key: string, value: MaintenanceLocal) {
+  localStates.set(key, value);
+  window.dispatchEvent(new CustomEvent('manutencao_updated', { detail: {
+    userId: Number(key.split(':')[2]), data: value.snapshot.data, garagem: value.snapshot.garagem, items: value.snapshot.items,
+  } }));
+}
+export function getMaintenanceSyncStatus(data: string, garagem: C4Garage) {
+  try { const value = localStates.get(identity(data, garagem).key); return { pending: value?.queue.length ?? 0, issue: value?.issue ?? '', notice: value?.notice ?? '', offline: value?.offline ?? !navigator.onLine }; }
+  catch { return { pending: 0, issue: '', notice: '', offline: !navigator.onLine }; }
+}
+export async function listMaintenancePendingDates(garagem: C4Garage): Promise<{ data: string; count: number }[]> {
+  const owner = useAuth.getState().user?.id;
+  if (!owner) return [];
+  const entries = await getCacheEntries(`maintenance-independent:v1:${owner}:${garagem}:`);
+  return entries.filter(entry => entry.data?.queue?.length).map(entry => ({ data: entry.data.snapshot.data, count: entry.data.queue.length }));
+}
+export function getManutencaoData(data = getTodayString(), garagem: C4Garage = 'VCG'): ManutencaoCarroItem[] {
+  try { return localStates.get(identity(data, garagem).key)?.snapshot.items ?? []; } catch { return []; }
 }
 export async function fetchManutencaoDataFromApi(data = getTodayString(), garagem?: string): Promise<ManutencaoCarroItem[]> {
-  if (getMutationState().pending) throw new ReadInterrupted('MUTATION', 'Gravacao pendente; aguarde antes de consultar.');
-  const ticket = readTicket(), number = ++requestNumber;
-  const scope = (garagem && garagem !== 'TODAS' ? garagem : 'VCG') as C4Garage;
-  const context = await fetchC4Context(scope, data);
-  const records = context.mode === 'C4' ? context.maintenance! : await api.get<ManutencaoCarroItem[]>('/manutencao', { params: { data, ...(context.garages?.length ? { garagem: scope } : garagem && garagem !== 'TODAS' ? { garagem } : {}) } });
-  assertReadTicket(ticket);
-  if (number !== requestNumber) throw new ReadInterrupted('SUPERSEDED', 'Consulta substituida por uma mais recente.');
-  if (!Array.isArray(records)) throw new Error('Resposta invalida ao consultar manutencao.');
-  storeC4Context(context, data);
-  official.set(data, records);
-  cache(data, records, scope);
-  return records;
+  if (garagem !== 'VCG' && garagem !== 'VCM') throw Error('Selecione uma garagem explicitamente.');
+  const { owner } = identity(data, garagem);
+  const entries = await getCacheEntries(`maintenance-independent:v1:${owner}:${garagem}:`);
+  let expired = 0;
+  for (const entry of entries) if (entry.data?.queue?.length && entry.data.snapshot.data < getTodayString())
+    expired += await client(entry.data.snapshot.data, garagem).engine.expire();
+  const { key, engine } = client(data, garagem);
+  const value = await engine.load();
+  if (expired) value.notice = `${expired} alteracao(oes) de dias anteriores nao sincronizada(s) foram descartadas.`;
+  publish(key, value); return value.snapshot.items;
 }
-function cache(data: string, items: ManutencaoCarroItem[], garagem?: C4Garage) {
-  try { localStorage.setItem(STORAGE_KEY_MANUTENCAO_PREFIX + data, JSON.stringify(items)); } catch { /* Cache nao e autoridade operacional. */ }
-  window.dispatchEvent(new CustomEvent('manutencao_updated', { detail: { data, garagem, items, fromCISync: true } }));
+export async function saveManutencaoData(data: string, items: ManutencaoCarroItem[], confirmRelease: boolean,
+  baseline: ManutencaoCarroItem[], _removeBlocked: string[] = [], garagem: C4Garage = 'VCG'): Promise<ManutencaoCarroItem[]> {
+  if (data !== getTodayString() || !operationalContext(new Date(), 72000).open) throw Error('Controle fora do dia/janela 03:00 ate 20:00.');
+  const { key, engine } = client(data, garagem);
+  const value = await engine.save(items, confirmRelease, baseline); publish(key, value); return value.snapshot.items;
 }
-export async function saveManutencaoData(data: string, items: ManutencaoCarroItem[], confirmRelease: boolean, baseline: ManutencaoCarroItem[], removeBlocked: string[] = [], garagem: C4Garage = 'VCG'): Promise<ManutencaoCarroItem[]> {
-  if (!canMutate(data, 'manutencao', c4Enabled(garagem))) throw new Error('Controle fora da janela operacional.');
-  const base = official.get(data);
-  if (!base) throw new Error('Carregue o Controle oficial antes de alterar.');
-  const vcg = (i: ManutencaoCarroItem) => !i.prefixo.startsWith('1') && i.prefixo !== '2002';
-  beginMutation();
-  let saved = false;
-  try {
-    const active = c4Enabled(garagem);
-    const snapshot = active ? c4SnapshotRevision(baseline, garagem, data, 'manutencao') : undefined;
-    const mapped = items.map(i => {
-      const old = baseline.find(b => b.id === i.id);
-      return !old || old.observacao === i.observacao ? i : { ...i, ...(i.bloqueado ? { observacaoBloqueio: i.observacao } : { observacaoOficina: i.observacao }) };
-    });
-    const response = await api.post<{ records: ManutencaoCarroItem[] }>('/manutencao/sync', { garagem, data, items: active ? mapped : items.filter(vcg), base: revision(active ? baseline : baseline.filter(vcg)), confirmRelease, removeBlocked,
-      ...(snapshot ?? {}) });
-    saved = true;
-    if (!active) {
-      official.set(data, response.records);
-      cache(data, response.records, garagem);
-    }
-    await fetchCIBloqueiosFromApi({ garagem }, true);
-    if (!active) return response.records;
-    const records = c4Context(garagem, data)?.maintenance;
-    if (!records) throw new Error('Controle oficial indisponivel apos gravacao.');
-    official.set(data, records);
-    cache(data, records, garagem);
-    return records;
-  } catch (error) {
-    requireRefresh();
-    if (saved) throw new SavedRefreshRequired();
-    throw error;
-  } finally { endMutation(); }
+export async function discardMaintenancePending(data: string, garagem: C4Garage) {
+  const { key, engine } = client(data, garagem);
+  const value = await engine.discard(); publish(key, value); return value.snapshot.items;
 }
-export async function deleteManutencaoCarroApi(_id: string): Promise<void> { throw new Error('Use o comando de manutencao com contexto.'); }
-export async function resetManutencaoSeedApi(data: string, garagem?: string): Promise<ManutencaoCarroItem[]> { return fetchManutencaoDataFromApi(data, garagem); }
-
-export function checkCarroStatusManutencao(prefixo: string, data?: string): {
-  isBloqueado: boolean;
-  isEmExecucao: boolean;
-  isLiberado: boolean;
-  observacao?: string | null;
-  origem: "MANUTENCAO" | "CI" | "LIVRE";
-} {
-  if (!prefixo) return { isBloqueado: false, isEmExecucao: false, isLiberado: true, origem: "LIVRE" };
-  const clean = prefixo.replace(/\D/g, "");
-  if (c4Enabled(getCurrentCIGarage())) {
-    const current = c4Context(getCurrentCIGarage(), data || getTodayString())?.maintenance?.find(i => i.prefixo === clean);
-    return { isBloqueado: current?.bloqueado || false, isEmExecucao: current?.emExecucao || false, isLiberado: current?.liberado || false, observacao: current?.observacao, origem: current ? 'MANUTENCAO' : 'LIVRE' };
-  }
-
-  // 1. Checa a folha de manutenção do dia (já sincronizada com a CI)
-  const refDate = data || new Date().toISOString().split("T")[0];
-  const manutList = getManutencaoData(refDate);
-  const foundManut = manutList.find(m => m.prefixo === clean);
-
-  if (foundManut) {
-    if (foundManut.liberado) {
-      return { isBloqueado: false, isEmExecucao: false, isLiberado: true, observacao: foundManut.observacao, origem: "MANUTENCAO" };
-    }
-    if (foundManut.bloqueado || foundManut.emExecucao) {
-      return {
-        isBloqueado: foundManut.bloqueado,
-        isEmExecucao: foundManut.emExecucao,
-        isLiberado: false,
-        observacao: foundManut.observacao,
-        origem: "MANUTENCAO"
-      };
-    }
-  }
-
-  // 2. Fallback na base de CI
-  const ciList = getInitialCIBloqueios();
-  const foundCI = ciList.find(c => c.prefixo === clean);
-  if (foundCI) {
-    if (foundCI.status === "LIBERADO") {
-      return { isBloqueado: false, isEmExecucao: false, isLiberado: true, observacao: foundCI.motivo, origem: "CI" };
-    }
-    return {
-      isBloqueado: foundCI.status === "BLOQUEADO" || !foundCI.status,
-      isEmExecucao: foundCI.status === "EM_MANUTENCAO",
-      isLiberado: false,
-      observacao: foundCI.motivo,
-      origem: "CI"
-    };
-  }
-
-  return { isBloqueado: false, isEmExecucao: false, isLiberado: true, origem: "LIVRE" };
-}
-
-/**
- * Escuta atualizações da tela de manutenção
- */
-export function subscribeManutencaoUpdates(callback: (data: { data: string; garagem?: C4Garage; items: ManutencaoCarroItem[] }) => void): () => void {
-  const handler = (event: Event) => {
-    const customEvent = event as CustomEvent<{ data: string; garagem?: C4Garage; items: ManutencaoCarroItem[] }>;
-    if (customEvent.detail) {
-      callback(customEvent.detail);
-    }
+export async function deleteManutencaoCarroApi(_id: string): Promise<void> { throw Error('Use o comando com contexto.'); }
+export const resetManutencaoSeedApi = fetchManutencaoDataFromApi;
+export function subscribeManutencaoUpdates(callback: (data: { data: string; garagem?: C4Garage; items: ManutencaoCarroItem[] }) => void) {
+  const handler = (event: Event) => { const detail = (event as CustomEvent).detail;
+    if (detail.userId === useAuth.getState().user?.id) callback(detail);
   };
-
-  window.addEventListener("manutencao_updated", handler);
-  return () => {
-    window.removeEventListener("manutencao_updated", handler);
-  };
+  window.addEventListener('manutencao_updated', handler);
+  return () => window.removeEventListener('manutencao_updated', handler);
 }

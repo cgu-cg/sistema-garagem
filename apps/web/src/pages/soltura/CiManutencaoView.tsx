@@ -10,7 +10,6 @@ import { CIRegularizationNotice } from './CIRegularizationNotice';
 import { canWriteC4 } from '@/lib/c4Authorization';
 import { canMutate, getMutationState, subscribeMutationState, confirmRefresh, requireRefresh, SavedRefreshRequired, readTicket } from '@/lib/mvpTemporal';
 import { useReadCoordinator } from '@/lib/readCoordination';
-import { fetchManutencaoDataFromApi } from '../manutencao/manutencaoManager';
 import { saveCISnapshot, changeCIState } from './ciManager';
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { BloqueioCarro } from "@/data/solturaTypes";
@@ -512,7 +511,6 @@ export function CiManutencaoView({
   useC4RealtimeReload(activeGaragemScope, normalizeIsoDate(dataOperacao), 'ci', reload,
     () => Promise.all([
       fetchCIBloqueiosFromApi({ garagem: activeGaragemScope === 'TODAS' ? undefined : activeGaragemScope, data: dataOperacao }),
-      fetchManutencaoDataFromApi(operationalContext().today, activeGaragemScope === 'VCM' ? 'VCM' : 'VCG'),
     ]), ([records]) => { setCiList(records); setReady(true); confirmRefresh(); },
     () => toast.warning('Nao foi possivel atualizar a CI em segundo plano. Dados e rascunhos foram mantidos.'));
 
@@ -990,7 +988,7 @@ export function CiManutencaoView({
   const handleRefreshData = async () => {
     if (getMutationState().pending) return;
     setReady(false);
-    await reload.run(() => Promise.all([fetchCIBloqueiosFromApi({ garagem: activeGaragemScope === 'TODAS' ? undefined : activeGaragemScope, data: dataOperacao }), fetchManutencaoDataFromApi(operationalContext().today, activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')]), ([records]) => {
+    await reload.run(() => Promise.all([fetchCIBloqueiosFromApi({ garagem: activeGaragemScope === 'TODAS' ? undefined : activeGaragemScope, data: dataOperacao })]), ([records]) => {
       setCiList(records); setReady(true); confirmRefresh();
       toast.success('Dados oficiais atualizados.');
     }, error => { setReady(false); requireRefresh(); toast.error(error instanceof Error ? error.message : 'Consulta indisponivel.'); });
@@ -999,7 +997,7 @@ export function CiManutencaoView({
   useEffect(() => {
     let active = true;
     setReady(false);
-    void reload.run(() => Promise.all([fetchCIBloqueiosFromApi({ garagem: activeGaragemScope === 'TODAS' ? undefined : activeGaragemScope, data: dataOperacao }), fetchManutencaoDataFromApi(operationalContext().today, activeGaragemScope === 'VCM' ? 'VCM' : 'VCG')]),
+    void reload.run(() => Promise.all([fetchCIBloqueiosFromApi({ garagem: activeGaragemScope === 'TODAS' ? undefined : activeGaragemScope, data: dataOperacao })]),
       ([records]) => { if (active) { if (activeGaragemScope === 'TODAS' && c4Enabled('VCG')) setAdminGaragemFiltro('VCG'); setCiList(records); setReady(true); confirmRefresh(); } },
       error => { if (active && !getMutationState().pending) { requireRefresh(); toast.error(error instanceof Error ? error.message : 'Consulta indisponivel.'); } });
     return () => { active = false; };

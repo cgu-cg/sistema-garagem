@@ -8,7 +8,7 @@ import { createReadCoordinator, ReadInterrupted } from '../../web/src/lib/readCo
 const day = '2026-10-07', tomorrow = '2026-10-08';
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 const sourceCI = readFileSync('apps/web/src/pages/soltura/CiManutencaoView.tsx', 'utf8');
-const sourceMaintenance = readFileSync('apps/web/src/pages/manutencao/index.tsx', 'utf8');
+// O Controle independente tem cobertura em maintenanceOffline/maintenanceBoard; C4 protege somente a CI.
 
 test('recargas dos callbacks React com managers e eventos reais, API simulada', async t => {
   const RealDate = Date;
@@ -38,14 +38,13 @@ test('recargas dos callbacks React com managers e eventos reais, API simulada', 
     },
   };
   const loader = (Module as any)._load;
-  let ci: any, maintenance: any, temporal: any, c4: any;
+  let ci: any, temporal: any, c4: any;
   try {
     (Module as any)._load = function(request: string, parent: any, main: boolean) {
       if (request === '@/lib/api' || (request === './api' && parent.filename.endsWith(path.join('lib', 'c4.ts')))) return { api };
       return loader.call(this, request.startsWith('@/') ? path.resolve('apps/web/src', request.slice(2) + '.ts') : request, parent, main);
     };
     ci = require('../../web/src/pages/soltura/ciManager');
-    maintenance = require('../../web/src/pages/manutencao/manutencaoManager');
     temporal = require('../../web/src/lib/mvpTemporal');
     c4 = require('../../web/src/lib/c4');
   } finally { (Module as any)._load = loader; }
@@ -59,15 +58,12 @@ test('recargas dos callbacks React com managers e eventos reais, API simulada', 
       activeContextRef: { current: key },
       setReady: (value: boolean) => { state.ready = value; }, setItems: (value: any[]) => { state.items = value; },
       setCiList: (value: any[]) => { state.items = value; }, setAdminGaragemFiltro() {}, setActiveGaragem() {},
-      getManutencaoData: () => [], getInitialCIBloqueios: () => [], syncItemsWithCI: maintenance.syncItemsWithCI,
-      fetchManutencaoDataFromApi: maintenance.fetchManutencaoDataFromApi, resetManutencaoSeedApi: maintenance.resetManutencaoSeedApi,
       fetchCIBloqueiosFromApi: ci.fetchCIBloqueiosFromApi, subscribeCIUpdates: ci.subscribeCIUpdates,
-      subscribeManutencaoUpdates: maintenance.subscribeManutencaoUpdates,
       getMutationState: temporal.getMutationState, confirmRefresh: temporal.confirmRefresh, requireRefresh: temporal.requireRefresh,
-      operationalContext: temporal.operationalContext, getTodayString: maintenance.getTodayString, c4Enabled: c4.c4Enabled,
+      operationalContext: temporal.operationalContext, getTodayString: () => day, c4Enabled: c4.c4Enabled,
       STORAGE_KEY_MANUTENCAO_PREFIX: 'cache', toast: { success: (s: string) => state.messages.push('success:' + s), error: (s: string) => state.messages.push('error:' + s) },
     };
-    const source = kind === 'ci' ? sourceCI : sourceMaintenance;
+    const source = sourceCI;
     const handler = kind === 'ci' ? 'handleRefreshData' : 'handleResetSeed';
     const body = source.match(new RegExp(`const ${handler} = async \\(\\) => \\{([\\s\\S]*?)\\n  \\};`))?.[1];
     assert.ok(body);
@@ -91,30 +87,10 @@ test('recargas dos callbacks React com managers e eventos reais, API simulada', 
       try {
         const interrupted = (error: any) => error instanceof ReadInterrupted && error.reason === 'MUTATION';
         await assert.rejects(ci.fetchCIBloqueiosFromApi({ garagem: 'VCG' }), interrupted);
-        await assert.rejects(maintenance.fetchManutencaoDataFromApi(day, 'VCG'), interrupted);
         assert.equal(temporal.getMutationState().refreshRequired, false);
       } finally { temporal.endMutation(); }
     });
-    await t.test('Controle: recarga manual coordenada, listener reage depois a CI e ignora outra garagem', async () => {
-      const h = harness('manutencao'); h.mount(); await tick(); calls.length = 0;
-      await h.refresh(); await tick();
-      assert.equal(calls.length, 1); assert.equal(h.state.ready, true);
-      calls.length = 0;
-      await ci.fetchCIBloqueiosFromApi({ garagem: 'VCG' }); await tick();
-      assert.equal(calls.length, 2); // Consulta externa CI + reacao legitima do Controle.
-      const baseline = h.state.items;
-      calls.length = 0;
-      await ci.fetchCIBloqueiosFromApi({ garagem: 'VCM' }); await tick();
-      assert.equal(calls.length, 1); assert.equal(h.state.items, baseline);
-      calls.length = 0;
-      await maintenance.fetchManutencaoDataFromApi(day, 'VCM'); await tick();
-      assert.equal(calls.length, 1); assert.equal(h.state.items, baseline);
-      calls.length = 0;
-      ci.saveCIBloqueiosToStorage([], false, { garagem: 'VCG', day: '2026-10-06' }); await tick();
-      assert.equal(calls.length, 0); assert.equal(h.state.items, baseline);
-      h.destroy();
-    });
-    for (const kind of ['ci', 'manutencao'] as const) {
+    for (const kind of ['ci'] as const) {
       await t.test(`${kind}: duas atualizacoes sobrepostas terminam sem erro ou bloqueio`, async () => {
         const h = harness(kind); deferred = true; calls.length = 0;
         const first = h.refresh(), second = h.refresh(); settle();
@@ -175,8 +151,7 @@ test('recargas dos callbacks React com managers e eventos reais, API simulada', 
       });
       await t.test(`${kind}: 409 e POST salvo/GET falho mantem protecao e recuperacao oficial`, async () => {
         const h = harness(kind); await h.refresh();
-        const save = () => kind === 'ci' ? ci.saveCISnapshot(h.state.items, tomorrow, h.state.items)
-          : maintenance.saveManutencaoData(day, h.state.items, false, h.state.items, [], 'VCG');
+        const save = () => ci.saveCISnapshot(h.state.items, tomorrow, h.state.items);
         conflict = true; await assert.rejects(save(), /desatualizado/); conflict = false;
         assert.equal(temporal.getMutationState().refreshRequired, true);
         await h.refresh(); assert.equal(temporal.getMutationState().refreshRequired, false);

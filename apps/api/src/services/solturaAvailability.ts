@@ -4,7 +4,7 @@ import { officialFleet } from './escalaDiaria';
 import { officialGarageFleet } from './escalaAllocation';
 import type { PrismaClient, Soltura } from '@prisma/client';
 import { z } from 'zod';
-import { lockManualCI, bundle } from './c4Flow';
+import { lockManualCI } from './c4Flow';
 import { finalizedReleaseRows, releaseScaleContext } from './releaseProgramming';
 import { parseDailyContext } from './escalaDiaria';
 import { canDispatch } from './operationalAccess';
@@ -68,10 +68,7 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
     };
     checkTime();
     let folha: { itens: { prefixo: string; categoria: string; statusItem: string | null }[] } | null = null;
-    let states: Awaited<ReturnType<typeof bundle>>['states'] = [];
     if (!independent) {
-      const cycle = await tx.cicloOperacional.findUnique({ where: { garagem_dataOperacional: { garagem: 'VCG', dataOperacional: dateValue(context.maintenanceDate) } } });
-      if (cycle && cycle.origem !== 'NORMAL') throw new AvailabilityError('MANUTENCAO_ATUAL_NAO_COMPROVADA');
       const sourceFolha = await tx.folhaCI.findUnique({ where: { garagem_dataFolha: { garagem: 'VCG', dataFolha: dateValue(context.ciDate) } }, include: { itens: true } });
       if (!sourceFolha) throw new AvailabilityError('CI_OPERACIONAL_AUSENTE');
       if (sourceFolha.status !== 'FINALIZADA') throw new AvailabilityError('CI_EM_PREPARACAO_NAO_AUTORIZA_SOLTURA');
@@ -89,9 +86,7 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
           throw new AvailabilityError('ORIGEM_CI_NAO_CERTIFICADA');
         ancestor = parent;
       }
-      states = cycle ? (await bundle(tx, 'VCG', context.maintenanceDate, clock())).states : [];
-      if (states.some(s => s.liberado && (s.bloqueado || s.emExecucao)) || new Set(states.map(s => s.prefixo)).size !== states.length)
-        throw new AvailabilityError('MANUTENCAO_INCONSISTENTE');
+
     }
     const liveProgramming = await finalizedReleaseRows(tx, releaseContext);
     if (!liveProgramming) throw new AvailabilityError('ESCALA_NAO_FINALIZADA');
@@ -117,8 +112,6 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
       snapshots.set(i.scheduleId, { existing: existing[0], programmed, realized, history, row });
       if (folha?.itens.some(row => row.prefixo === realized && row.categoria === 'BLOQUEADO' && row.statusItem !== 'LIBERADO'))
         throw new AvailabilityError('VEICULO_BLOQUEADO_NA_CI');
-      if (states.some(s => s.prefixo === realized && (s.bloqueado || s.emExecucao)))
-        throw new AvailabilityError('VEICULO_BLOQUEADO_OU_EM_EXECUCAO');
       // IDs auxiliares nao podem apontar para outro veiculo que o checado.
       if (i.busId) {
         const bus = await tx.bus.findUnique({ where: { id: i.busId } });

@@ -240,6 +240,20 @@ model CiBloqueio {
   @@map("ci_bloqueios")
 }
 
+model ControleManutencaoFolha {
+  id            Int      @id @default(autoincrement())
+  garagem       String   @db.NVarChar(10)
+  dataOperacao  String   @map("data_operacao") @db.NVarChar(10)
+  revisao       Int      @default(1)
+  conteudo      String   @db.NVarChar(Max)
+  responsavelId Int      @map("responsavel_id")
+  createdAt     DateTime @default(dbgenerated("SYSUTCDATETIME()")) @map("created_at") @db.DateTime2
+  updatedAt     DateTime @default(dbgenerated("SYSUTCDATETIME()")) @updatedAt @map("updated_at") @db.DateTime2
+
+  @@unique([garagem, dataOperacao], map: "UQ_controle_manutencao_folha_contexto")
+  @@map("controle_manutencao_folha")
+}
+
 model ManutencaoCarro {
   id          String   @id @map("id") @db.NVarChar(100)
   prefixo     String   @map("prefixo") @db.NVarChar(10)

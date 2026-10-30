@@ -57,28 +57,27 @@ test('snapshots C4 nos managers, sem rede ou banco', async t => {
     },
   };
   const loader = (Module as any)._load;
-  let ci: any, maintenance: any, c4: any, temporal: any;
+  let ci: any, c4: any, temporal: any;
   try {
     (Module as any)._load = function(request: string, parent: any, main: boolean) {
       if (request === '@/lib/api' || (request === './api' && parent.filename.endsWith(path.join('lib', 'c4.ts')))) return { api };
       return loader.call(this, request.startsWith('@/') ? path.resolve('apps/web/src', request.slice(2) + '.ts') : request, parent, main);
     };
     ci = require('../../web/src/pages/soltura/ciManager');
-    maintenance = require('../../web/src/pages/manutencao/manutencaoManager');
     c4 = require('../../web/src/lib/c4');
     temporal = require('../../web/src/lib/mvpTemporal');
   } finally { (Module as any)._load = loader; }
   try {
-    await t.test('CI e Controle simultaneos compartilham uma leitura oficial', async () => {
+    await t.test('CI e contexto legado simultaneos compartilham uma leitura oficial', async () => {
       const wait = deferred<any>(); getOverride = () => wait.promise;
       const count = gets;
       const a = ci.fetchCIBloqueiosFromApi({ garagem: 'VCG' });
-      const b = maintenance.fetchManutencaoDataFromApi(day, 'VCG');
+      const b = c4.fetchC4Context('VCG', day);
       assert.equal(gets - count, 1);
       wait.resolve(context());
       const [items, states] = await Promise.all([a, b]);
       assert.equal(c4.c4SnapshotRevision(items, 'VCG', target, 'ci').baseC4,
-        c4.c4SnapshotRevision(states, 'VCG', day, 'manutencao').baseC4);
+        states.baseC4);
       getOverride = undefined;
     });
 
@@ -110,9 +109,9 @@ test('snapshots C4 nos managers, sem rede ou banco', async t => {
       assert.equal(sent.confirmRelease, true); assert.ok(sent.baseC4); assert.equal(sent.base, revision(baseline));
     });
 
-    for (const kind of ['ci', 'manutencao'] as const) {
+    for (const kind of ['ci'] as const) {
       await t.test(`${kind}: realtime atualiza lista com formulario aberto; baseline original gera 409 somente ao salvar`, async () => {
-        const load = () => kind === 'ci' ? ci.fetchCIBloqueiosFromApi({ garagem: 'VCG' }) : maintenance.fetchManutencaoDataFromApi(day, 'VCG');
+        const load = () => ci.fetchCIBloqueiosFromApi({ garagem: 'VCG' });
         const baseline = await load(); temporal.confirmRefresh();
         const edits = createEditBaselines<any>(); edits.begin('modal', 'VCG', baseline);
         const originalTokens = c4.c4SnapshotRevision(baseline, 'VCG', kind === 'ci' ? target : day, kind);
@@ -128,27 +127,23 @@ test('snapshots C4 nos managers, sem rede ou banco', async t => {
         assert.deepEqual(c4.c4SnapshotRevision(baseline, 'VCG', kind === 'ci' ? target : day, kind), originalTokens);
         const before = wire([serverCI, serverMaintenance]);
         const next = baseline.map((i: any) => ({ ...i, ...(kind === 'ci' ? { motivo: form.text } : { observacao: form.text }) }));
-        await assert.rejects(kind === 'ci' ? ci.saveCISnapshot(next, target, edits.read('modal', displayed), [], 'save', 'VCG')
-          : maintenance.saveManutencaoData(day, next, false, edits.read('modal', displayed), [], 'VCG'), (error: any) => error.status === 409);
+        await assert.rejects(ci.saveCISnapshot(next, target, edits.read('modal', displayed), [], 'save', 'VCG'), (error: any) => error.status === 409);
         assert.equal(posts.length, beforePosts + 1); assert.deepEqual([serverCI, serverMaintenance], before);
         assert.deepEqual(form, { open: true, text: 'MEU RASCUNHO', selection: '4000' });
         await load(); temporal.confirmRefresh(); assert.equal(posts.length, beforePosts + 1);
       });
     }
 
-    for (const kind of ['ci', 'manutencao'] as const) {
-      const load = () => kind === 'ci' ? ci.fetchCIBloqueiosFromApi({ garagem: 'VCG' }) : maintenance.fetchManutencaoDataFromApi(day, 'VCG');
-      const save = (next: any[], baseline: any[]) => kind === 'ci'
-        ? ci.saveCISnapshot(next, target, baseline, [], 'save', 'VCG')
-        : maintenance.saveManutencaoData(day, next, false, baseline, [], 'VCG');
+    for (const kind of ['ci'] as const) {
+      const load = () => ci.fetchCIBloqueiosFromApi({ garagem: 'VCG' });
+      const save = (next: any[], baseline: any[]) => ci.saveCISnapshot(next, target, baseline, [], 'save', 'VCG');
       await t.test(`${kind}: lista antiga conserva token antigo, conflito protege outro usuario e recarga recupera`, async () => {
         const old = await load(), oldToken = c4.c4Context('VCG', day).baseC4;
         // Outro posto grava entre as consultas; o outro manager atualiza o mapa compartilhado.
         version++;
         serverCI = serverCI.map(i => ({ ...i, motivo: 'OUTRO USUARIO' }));
         serverMaintenance = serverMaintenance.map(i => ({ ...i, observacao: 'OUTRO USUARIO', observacaoBloqueio: 'OUTRO USUARIO' }));
-        if (kind === 'ci') await maintenance.fetchManutencaoDataFromApi(day, 'VCG');
-        else await ci.fetchCIBloqueiosFromApi({ garagem: 'VCG' });
+        await ci.fetchCIBloqueiosFromApi({ garagem: 'VCG' });
         const before = wire([serverCI, serverMaintenance]);
         await assert.rejects(save(old.map(i => ({ ...i, motivo: 'MINHA EDICAO' })), old), /desatualizado/);
         assert.equal(posts.at(-1)!.body.baseC4, oldToken);
@@ -224,7 +219,7 @@ test('snapshots C4 nos managers, sem rede ou banco', async t => {
       failReload = false;
       await ci.fetchCIBloqueiosFromApi({ garagem: 'VCG' }); temporal.confirmRefresh();
       assert.ok(events.includes('ci_bloqueios_updated'));
-      assert.ok(events.includes('manutencao_updated'));
+      assert.equal(events.includes('manutencao_updated'), false); // Sem manager do Controle vinculado a consulta CI.
     });
   } finally { Object.assign(globalThis, previous); }
 });

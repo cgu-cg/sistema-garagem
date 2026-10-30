@@ -312,7 +312,7 @@ export const api = {
     request("/manutencao/reset", { method: "POST", body: JSON.stringify({ data }) }),
 
   // Generic HTTP helpers
-  get: <T = any>(path: string, options?: { params?: Record<string, string> } & RequestInit): Promise<T> => {
+  get: <T = any>(path: string, options?: { params?: Record<string, string> } & RequestCustomOptions): Promise<T> => {
     let url = path;
     if (options?.params) {
       const search = new URLSearchParams(options.params).toString();
@@ -320,7 +320,7 @@ export const api = {
     }
     return request(url, { ...options, method: "GET" });
   },
-  post: <T = any>(path: string, body?: any, options?: RequestInit): Promise<T> =>
+  post: <T = any>(path: string, body?: any, options?: RequestCustomOptions): Promise<T> =>
     request(path, { ...options, method: "POST", body: body instanceof FormData ? body : JSON.stringify(body) }),
   put: <T = any>(path: string, body?: any, options?: RequestInit): Promise<T> =>
     request(path, { ...options, method: "PUT", body: body instanceof FormData ? body : JSON.stringify(body) }),

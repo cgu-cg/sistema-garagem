@@ -199,13 +199,14 @@ test('tarde: preparacao nao autoriza; noite: CI finalizada e manutencao oficial 
   assert.match(ready.locks[0], /ciclo_operacional.*UPDLOCK, HOLDLOCK/);
   assert.match(ready.locks[1], /folha_ci.*UPDLOCK, HOLDLOCK/);
 });
-test('bloqueio CI e manutencao impeditiva recusam lote inteiro antes das escritas', async () => {
+test('matutino considera bloqueio da CI; Controle independente nao impede lote', async () => {
   for (const source of ['CI', 'BLOQUEADO', 'EXECUCAO']) {
     const f = fixture();
     if (source === 'CI') f.ci.push({ prefixo: '4001', categoria: 'BLOQUEADO' });
     else f.states.push({ prefixo: '4001', bloqueado: source === 'BLOQUEADO', emExecucao: source === 'EXECUCAO', liberado: false });
-    await assert.rejects(writeSafeRelease(f.db, 1, { ...body, items: [item, secondItem] }, true, () => eventInstant(target, 22), () => ['VCG']));
-    assert.equal(f.rows().length, 0);
+    const save = () => writeSafeRelease(f.db, 1, { ...body, items: [item, secondItem] }, true, () => eventInstant(target, 22), () => ['VCG']);
+    if (source === 'CI') { await assert.rejects(save(), reason('VEICULO_BLOQUEADO_NA_CI')); assert.equal(f.rows().length, 0); }
+    else { await save(); assert.equal(f.rows().length, 2); }
   }
 });
 test('falha de consulta e erro na segunda escrita nunca deixam lote parcial', async () => {
@@ -237,7 +238,7 @@ test('virada de dia antes do commit desfaz a soltura', async () => {
     () => f.rows().length ? eventInstant('2026-10-10', 1) : eventInstant(target, 23), () => ['VCG']));
   assert.equal(f.rows().length, 0);
 });
-test('copia NORMAL de origem RECUPERACAO nao autoriza e manutencao bloqueada recusa', async () => {
+test('copia NORMAL de origem RECUPERACAO nao autoriza; manutencao deixou de ser fonte', async () => {
   const f = fixture(); const original = f.db.folhaCI.findUnique;
   f.db.folhaCI.findUnique = async (q: any) => {
     const record = await original(q);
@@ -246,7 +247,10 @@ test('copia NORMAL de origem RECUPERACAO nao autoriza e manutencao bloqueada rec
   await assert.rejects(writeSafeRelease(f.db, 1, body, false, () => eventInstant(target, 22), () => ['VCG']), reason('ORIGEM_CI_NAO_CERTIFICADA'));
   assert.equal(f.rows().length, 0);
   const divergent = fixture(); divergent.states.push({ prefixo: '4000', bloqueado: true, emExecucao: false, liberado: false });
-  await assert.rejects(writeSafeRelease(divergent.db, 1, body, false, () => eventInstant(target, 22), () => ['VCG']), reason('VEICULO_BLOQUEADO_OU_EM_EXECUCAO'));
+  divergent.db.estadoManutencao.findMany = async () => { throw Error('Soltura nao deve consultar manutencao'); };
+  divergent.db.cicloOperacional.findUnique = async () => { throw Error('Soltura nao deve consultar ciclo de manutencao'); };
+  await writeSafeRelease(divergent.db, 1, body, false, () => eventInstant(target, 22), () => ['VCG']);
+  assert.equal(divergent.rows().length, 1);
 });
 
 

@@ -1,5 +1,46 @@
 # Domain model e entendimento operacional atual
 
+## Controle de Manutencao independente e offline - 30/10/2026
+
+Decisao confirmada pelo usuario: o Controle continua neste sistema, com
+Bloqueados, Em Manutencao e Liberados persistidos na folha propria
+`controle_manutencao_folha`, sem sincronizar estados ou observacoes com a CI.
+Esta decisao substitui a sincronizacao bidirecional descrita nas entradas
+historicas abaixo. A CI conserva suas fotografias e seu ciclo. A Soltura
+matutina/PADRAO considera os bloqueios da CI, sem consultar estados de
+manutencao; requisitos de CI/Escala, frota e defeitos proprios permanecem.
+
+Atualizacao confirmada: na mudanca de data civil America/Campo_Grande,
+somente Bloqueados permanecem. Em Manutencao e Liberados comecam vazios.
+Nao se transportam os demais carros nem se inclui a frota automaticamente.
+GET projeta a virada sem gravar, e o primeiro comando persiste a nova folha.
+Datas intermediarias sem folha nao sao reconstruidas; folhas anteriores
+permanecem consultaveis. Folha vazia salva impede ressuscitar carros excluidos.
+Nao ha limpeza destrutiva de historico nem dependencia de scheduler/CI.
+
+O cadastro de veiculos ja embarcado no frontend fornece o seletor offline;
+a consulta oficial pode atualizar essa lista e a garagem. Sem folha local do
+dia, o app inicia vazio, ou com somente bloqueados da ultima folha confirmada
+em cache. Essa projecao e identificada como copia local, sem autoridade sobre
+o banco. Conflitos de revisao e frota continuam verificados ao sincronizar.
+O PWA e a sessao ainda precisam ter sido disponibilizados no aparelho.
+Alteracoes
+e fila sao gravadas juntas no IndexedDB, com identificador idempotente por
+comando, sem guardar credenciais. Reconexao com a tela aberta ou nova entrada
+sincroniza na sessao de origem. Revisao, perfil, garagem, frota, exclusividade
+dos estados e confirmacao de liberacao de bloqueado sao revalidados na API.
+Conflitos do mesmo dia e sessao revogada preservam a fila para revisao.
+Por decisao explicita do usuario, pendencias locais de dias anteriores sao
+descartadas automaticamente na proxima entrada/consulta, sem envio para a API
+e sem apagar registros ja salvos no banco. O colaborador deve sincronizar no
+Wi-Fi no mesmo dia, dentro da janela de manutencao. A tela informa o descarte.
+
+Permissoes existentes preservadas: ADMIN; perfil manutencao vinculado a VCG.
+Edicao no dia da operacao, 03:00 ate 20:00; historico somente consulta.
+Arraste no desktop chama a mesma transicao dos menus; liberar bloqueado
+continua exigindo confirmacao. Menus permanecem como alternativa ao arraste.
+Detalhes e implantacao em `docs/CONTROLE-MANUTENCAO-INDEPENDENTE.md`.
+
 ## Ciclo explicito da Soltura e relatorio - 30/10/2026
 
 Implementacao autorizada: Iniciar Soltura cria folha propria por garagem,

@@ -1,4 +1,5 @@
 import { operationalAccess } from '../middleware/operationalAccess';
+import * as maintenanceBoardController from '../controllers/maintenanceBoard';
 import { Router } from "express";
 import { authenticate, authorize, requireRole } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -113,13 +114,13 @@ router.post("/ci-bloqueios/sync", authenticate, operationalAccess('read'), ciBlo
 router.delete("/ci-bloqueios/:id", authenticate, operationalAccess('read'), ciBloqueiosController.remove);
 
 // Manutenção (Controle de Frota)
-router.get("/manutencao", authenticate, operationalAccess('read'), manutencaoController.list);
+router.get("/manutencao", authenticate, operationalAccess('read'), maintenanceBoardController.list);
 router.post("/manutencao", authenticate, operationalAccess('read'), manutencaoController.createOrUpdate);
 router.put("/manutencao/:id", authenticate, operationalAccess('read'), manutencaoController.update);
 router.delete("/manutencao/:id", authenticate, operationalAccess('read'), manutencaoController.remove);
-router.post("/manutencao/sync", authenticate, operationalAccess('read'), manutencaoController.sync);
+router.post("/manutencao/sync", authenticate, operationalAccess('read'), maintenanceBoardController.save);
 router.post("/manutencao/clear-list", authenticate, operationalAccess('read'), manutencaoController.clearList);
-router.post("/manutencao/reset", authenticate, operationalAccess('read'), manutencaoController.reset);
+router.post("/manutencao/reset", authenticate, operationalAccess('read'), maintenanceBoardController.list);
 
 export default router;
 

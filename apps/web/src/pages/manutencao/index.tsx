@@ -1,29 +1,27 @@
 import { explicitGarage } from '@/lib/operationalAccess';
 import { canWriteC4 } from '@/lib/c4Authorization';
-import { canMutate, getMutationState, subscribeMutationState, confirmRefresh, requireRefresh, SavedRefreshRequired, readTicket } from '@/lib/mvpTemporal';
+import { operationalContext } from '@/lib/mvpTemporal';
+import { getCache, saveCache } from '@/lib/offline-db';
+import { LOCAL_MAINTENANCE_FLEET } from '@/lib/maintenanceLocalDefaults';
+import { createRefreshScheduler } from '@/lib/refreshScheduler';
 import { useReadCoordinator } from '@/lib/readCoordination';
-import { useC4RealtimeReload } from '@/lib/useC4Realtime';
+
 import { createEditBaselines } from '@/lib/editBaselines';
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { c4Enabled, c4Context, c4Configured } from '@/lib/c4';
+
 import {
   ManutencaoCarroItem, 
   getManutencaoData, 
   saveManutencaoData, 
   subscribeManutencaoUpdates,
-  syncItemsWithCI,
+  getMaintenanceSyncStatus,
+  discardMaintenancePending,
+  listMaintenancePendingDates,
   getConsorciadaByPrefix,
   fetchManutencaoDataFromApi,
   resetManutencaoSeedApi,
   getTodayString,
-  STORAGE_KEY_MANUTENCAO_PREFIX
 } from "./manutencaoManager";
-import { 
-  getInitialCIBloqueios, 
-  subscribeCIUpdates,
-  getGaragemFisicaByCarro,
-  fetchCIBloqueiosFromApi,
-} from "@/pages/soltura/ciManager";
 import { useAuth } from "@/stores/auth";
 import { garageVehiclePrefixes, addMaintenanceSelection, removeMaintenanceSelection } from './maintenanceSelection';
 import { api, type InventoryVehicle } from "@/lib/api";
@@ -77,10 +75,10 @@ export function ManutencaoPage() {
   // Identificação da Garagem Física do Usuário Logado:
   // - VCM (Garagem 1)
   // - VCG (Garagem 2)
-  const hasC4Configuration = c4Configured();
+
   const userGaragemFixa: "VCM" | "VCG" | undefined = useMemo(() => {
     return user?.role === 'ADMIN' ? undefined : explicitGarage(user);
-  }, [user, hasC4Configuration]);
+  }, [user]);
 
   // Seletor de Garagem:
   // Usuário de garagem fixa fica travado em sua garagem (ex: VCG).
@@ -97,19 +95,22 @@ export function ManutencaoPage() {
   }, [userGaragemFixa]);
 
   // Data selecionada (inicia sempre na data atual do dia)
-  const [writeState, setWriteState] = useState(getMutationState);
+  const [saving, setSaving] = useState(false);
+  const writing = useRef(false);
+  const [syncStatus, setSyncStatus] = useState({ pending: 0, issue: '', notice: '', offline: !navigator.onLine });
+  const [pendingDates, setPendingDates] = useState<{ data: string; count: number }[]>([]);
   const [ready, setReady] = useState(false);
   const [removalIds, setRemovalIds] = useState<string[]>([]);
 
-  useEffect(() => subscribeMutationState(() => setWriteState(getMutationState())), []);
+
   const [clock, setClock] = useState(Date.now());
   useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
   const [dataOperacao, setDataOperacao] = useState<string>(getTodayString);
-  const activeContextRef = useRef(dataOperacao + "|" + activeGaragem);
-  activeContextRef.current = dataOperacao + "|" + activeGaragem;
-  const reload = useReadCoordinator(activeContextRef.current, readTicket);
+  const activeContextRef = useRef(`${user?.id}|${dataOperacao}|${activeGaragem}`);
+  activeContextRef.current = `${user?.id}|${dataOperacao}|${activeGaragem}`;
+  const reload = useReadCoordinator(activeContextRef.current, () => 0);
   const c4Scope = activeGaragem === 'VCM' ? 'VCM' : 'VCG';
-  const mutationAllowed = Boolean(clock && ready && !writeState.pending && !writeState.refreshRequired && (c4Enabled(c4Scope) ? canWriteC4(user, c4Scope) : user?.role === 'ADMIN') && (c4Enabled(c4Scope) ? activeGaragem !== 'TODAS' && c4Context(c4Scope, dataOperacao)?.mutable : activeGaragem !== 'VCM') && canMutate(dataOperacao, 'manutencao', c4Enabled(c4Scope)));
+  const mutationAllowed = Boolean(clock && ready && !saving && !(syncStatus.issue && !syncStatus.offline) && canWriteC4(user, c4Scope) && activeGaragem !== 'TODAS' && dataOperacao === getTodayString() && operationalContext(new Date(clock), 72000).open);
   const dateInputRef = useRef<HTMLInputElement>(null);
   const relatorioManutencaoRef = useRef<HTMLDivElement>(null);
   
@@ -118,12 +119,6 @@ export function ManutencaoPage() {
   const [maintenanceEdits] = useState(() => createEditBaselines<ManutencaoCarroItem>());
   const beginMaintenanceEdit = () => maintenanceEdits.begin('modal', activeContextRef.current, items, true);
   const maintenanceBaseline = () => maintenanceEdits.read('modal', items);
-  useC4RealtimeReload(activeGaragem, dataOperacao, 'manutencao', reload,
-    () => Promise.all([
-      fetchManutencaoDataFromApi(dataOperacao, activeGaragem),
-      fetchCIBloqueiosFromApi({ garagem: activeGaragem === 'TODAS' ? undefined : activeGaragem }),
-    ]), ([records]) => { setItems(records); setReady(true); confirmRefresh(); },
-    () => toast.warning('Nao foi possivel atualizar o Controle em segundo plano. Dados e rascunhos foram mantidos.'));
 
   // Filtro de Empresa / Consorciada (Todas, VCG, JTU, VSF, VCM)
   const [selectedEmpresa, setSelectedEmpresa] = useState<string>("TODAS");
@@ -134,19 +129,25 @@ export function ManutencaoPage() {
   const [modalStatusOrigem, setModalStatusOrigem] = useState<"BLOQUEADO" | "EM_EXECUCAO" | "LIBERADO">("BLOQUEADO");
   const [newPrefixo, setNewPrefixo] = useState("");
   const [selectedCars, setSelectedCars] = useState<string[]>([]);
-  const [fleet, setFleet] = useState<InventoryVehicle[]>([]);
+  const [fleet, setFleet] = useState<InventoryVehicle[]>(LOCAL_MAINTENANCE_FLEET);
   const [fleetError, setFleetError] = useState('');
   const [savingCars, setSavingCars] = useState(false);
   const addSaving = useRef(false);
   useEffect(() => {
     let active = true;
-    api.getBusesInventory().then(result => {
+    let loadedCurrent = false;
+    const cacheKey = `maintenance-fleet:${user?.id}`;
+    setFleet(LOCAL_MAINTENANCE_FLEET);
+    void getCache(cacheKey).then(cached => { if (active && !loadedCurrent && Array.isArray(cached)) setFleet(cached); }).catch(() => {});
+    api.getBusesInventory().then(async result => {
       if (!active) return;
       if (result.source !== 'real') throw new Error('Frota oficial indisponivel.');
+      loadedCurrent = true;
       setFleet(result.data); setFleetError('');
-    }).catch(() => { if (active) { setFleet([]); setFleetError('Nao foi possivel consultar a frota oficial. Reabra a tela para tentar novamente.'); } });
+      await saveCache(cacheKey, result.data);
+    }).catch(() => { if (active) setFleetError('Usando o cadastro local de veiculos. Inclusoes serao conferidas ao sincronizar.'); });
     return () => { active = false; };
-  }, []);
+  }, [user?.id]);
   const [newObservacao, setNewObservacao] = useState("");
 
   // Estados do seletor moderno de veículos no modal
@@ -293,79 +294,53 @@ export function ManutencaoPage() {
     };
   }, [editItem]);
 
-  // Sincronização em tempo real via storage, banco de dados (API) e custom events (Manutenção e CI)
+  // Atualiza somente o Controle independente. A fila e serializada por usuario/garagem/data.
   useEffect(() => {
-    let isMounted = true;
-    setReady(false);
-
-    // 1. Carrega imediatamente os dados locais disponíveis
-    const localList = getManutencaoData(dataOperacao);
-    setItems(localList);
-
-    // 2. Consulta coordenada à API oficial da Manutenção e CI
-    void reload.run(() => Promise.all([
-      fetchManutencaoDataFromApi(dataOperacao, activeGaragem),
-      fetchCIBloqueiosFromApi({ garagem: activeGaragem === "TODAS" ? undefined : activeGaragem })
-    ]), ([apiList, latestCI]) => {
-      if (!isMounted) return;
-
-      const ciSource = (Array.isArray(latestCI) && latestCI.length > 0)
-        ? latestCI
-        : getInitialCIBloqueios();
-
-      const baseList = Array.isArray(apiList)
-        ? apiList
-        : localList;
-
-      const synced = syncItemsWithCI(baseList, ciSource, dataOperacao);
-      setItems(synced);
-      if (activeGaragem === 'TODAS' && c4Enabled('VCG')) setActiveGaragem('VCG');
-      setReady(true); if (dataOperacao === getTodayString()) confirmRefresh();
-
-      // Atualiza o cache da data no localStorage silenciosamente
-      try {
-        localStorage.setItem(`${STORAGE_KEY_MANUTENCAO_PREFIX}${dataOperacao}`, JSON.stringify(synced));
-      } catch {}
-    }, err => {
-      if (isMounted && !getMutationState().pending) { setReady(false); requireRefresh(); toast.error(err instanceof Error ? err.message : "Consulta indisponivel."); }
+    let active = true;
+    setReady(false); setItems(getManutencaoData(dataOperacao, c4Scope));
+    const refreshDates = () => { void listMaintenancePendingDates(c4Scope).then(dates => { if (active) setPendingDates(dates); }).catch(() => {}); };
+    setPendingDates([]); refreshDates();
+    const scheduler = createRefreshScheduler(async () => {
+      if (writing.current) return;
+      await reload.run(() => fetchManutencaoDataFromApi(dataOperacao, c4Scope), records => {
+        if (!active) return;
+        setItems(records); setReady(true); setSyncStatus(getMaintenanceSyncStatus(dataOperacao, c4Scope));
+      }, error => {
+        if (!active) return;
+        setReady(false); toast.error(error instanceof Error ? error.message : 'Controle indisponivel.');
+      });
     });
-
-    const unsubscribeManut = subscribeManutencaoUpdates((detail) => {
-      if (!reload.isActive(dataOperacao + '|' + activeGaragem)) return;
-      if (isMounted && !reload.pending && !getMutationState().pending && detail.data === dataOperacao && (!detail.garagem || detail.garagem === c4Scope)) {
-        setItems(detail.items);
-      }
+    void scheduler.refresh();
+    const stop = subscribeManutencaoUpdates(detail => {
+      if (!active || detail.garagem !== c4Scope) return;
+      refreshDates();
+      if (detail.data !== dataOperacao) return;
+      setItems(detail.items); setSyncStatus(getMaintenanceSyncStatus(dataOperacao, c4Scope));
     });
-
-    const unsubscribeCI = subscribeCIUpdates((updatedCI, context) => {
-      if (!reload.isActive(dataOperacao + '|' + activeGaragem)) return;
-      if (context && (context.garagem !== c4Scope || context.day !== dataOperacao)) return;
-      if (isMounted && !reload.pending && !getMutationState().pending && !getMutationState().refreshRequired && Array.isArray(updatedCI)) {
-        setReady(false);
-        void reload.run(() => fetchManutencaoDataFromApi(dataOperacao, activeGaragem), data => {
-          setItems(data); setReady(true);
-        }, () => { setReady(false); requireRefresh(); toast.error('Controle nao atualizado. Recarregue antes de alterar.'); });
-      }
-    });
-
-    return () => {
-      isMounted = false;
-      unsubscribeManut();
-      unsubscribeCI();
-    };
-  }, [dataOperacao, activeGaragem]);
+    const online = () => { setSyncStatus(previous => ({ ...previous, offline: !navigator.onLine })); scheduler.schedule(); };
+    window.addEventListener('online', online); window.addEventListener('offline', online);
+    window.addEventListener('focus', scheduler.schedule);
+    const timer = window.setInterval(scheduler.schedule, 30000);
+    return () => { active = false; stop(); scheduler.dispose(); window.clearInterval(timer);
+      window.removeEventListener('online', online); window.removeEventListener('offline', online); window.removeEventListener('focus', scheduler.schedule); };
+  }, [dataOperacao, activeGaragem, user?.id]);
+  const lastToday = useRef(getTodayString());
+  useEffect(() => {
+    const today = getTodayString();
+    if (today !== lastToday.current) {
+      const previous = lastToday.current;
+      setDataOperacao(selected => selected === previous ? today : selected);
+      lastToday.current = today;
+    }
+  }, [clock]);
 
   // 1. Filtragem estrita por Garagem Física do Usuário (VCG: frotas 2xxx exceto 2002, 3xxx e 4xxx / VCM: frotas 1xxx e 2002)
-  const itemsByGaragem = useMemo(() => {
-    if (c4Enabled(activeGaragem === 'VCM' ? 'VCM' : 'VCG')) return items.filter(i => i.bloqueado || i.emExecucao || i.liberado);
-    if (activeGaragem === "TODAS") return items;
-    return items.filter(it => getGaragemFisicaByCarro(it.prefixo) === activeGaragem);
-  }, [items, activeGaragem]);
+  const itemsByGaragem = useMemo(() => items.filter(item => item.bloqueado || item.emExecucao || item.liberado), [items]);
 
   // Empresas disponíveis na garagem ativa
   const empresasDisponiveis = useMemo(() => {
     if (activeGaragem === "VCG") {
-      return c4Enabled('VCG') ? ["TODAS", "VCG", "JTU", "VSF", "VCM"] as const : ["TODAS", "VCG", "JTU", "VSF"] as const;
+      return ["TODAS", "VCG", "JTU", "VSF", "VCM"] as const;
     }
     if (activeGaragem === "VCM") {
       return ["TODAS", "VCM"] as const;
@@ -381,41 +356,12 @@ export function ManutencaoPage() {
   }, [activeGaragem, empresasDisponiveis, selectedEmpresa]);
 
   // Auxiliar para verificar se o carro pertence à empresa selecionada
-  const matchesEmpresa = (item: ManutencaoCarroItem, emp: string) => {
-    if (emp === "TODAS") return true;
-    const cons = item.consorciada || getConsorciadaByPrefix(item.prefixo);
-    if (c4Enabled(c4Scope)) return cons === emp;
-    if (emp === "VCG") {
-      return cons === "VCG" || (!cons && item.prefixo.startsWith("4"));
-    }
-    if (emp === "JTU") {
-      return cons === "JTU" || item.prefixo.startsWith("3");
-    }
-    if (emp === "VSF") {
-      return cons === "VSF" || item.prefixo.startsWith("2");
-    }
-    if (emp === "VCM") {
-      return cons === "VCM" || item.prefixo.startsWith("1");
-    }
-    return true;
-  };
+  const matchesEmpresa = (item: ManutencaoCarroItem, emp: string) => emp === 'TODAS' || (item.consorciada || getConsorciadaByPrefix(item.prefixo)) === emp;
 
   // Contagem de veículos por empresa no dia dentro da garagem ativa
   const empresaCounts = useMemo(() => {
     const counts: Record<string, number> = { TODAS: itemsByGaragem.length, VCG: 0, JTU: 0, VSF: 0, VCM: 0 };
-    itemsByGaragem.forEach(it => {
-      const cons = it.consorciada || getConsorciadaByPrefix(it.prefixo);
-      if (c4Enabled(c4Scope)) { counts[cons] = (counts[cons] || 0) + 1; return; }
-      if (cons === "VCG" || it.prefixo.startsWith("4")) {
-        counts.VCG = (counts.VCG || 0) + 1;
-      } else if (cons === "JTU" || it.prefixo.startsWith("3")) {
-        counts.JTU = (counts.JTU || 0) + 1;
-      } else if (cons === "VSF" || it.prefixo.startsWith("2")) {
-        counts.VSF = (counts.VSF || 0) + 1;
-      } else if (cons === "VCM" || it.prefixo.startsWith("1")) {
-        counts.VCM = (counts.VCM || 0) + 1;
-      }
-    });
+    itemsByGaragem.forEach(it => { const cons = it.consorciada || getConsorciadaByPrefix(it.prefixo); counts[cons] = (counts[cons] || 0) + 1; });
     return counts;
   }, [itemsByGaragem]);
 
@@ -463,15 +409,14 @@ export function ManutencaoPage() {
 
   // Confirmar liberação de bloqueio na CI a partir do popup do Quadro 1 (Bloqueados)
   const commitMaintenance = async (next: ManutencaoCarroItem[], confirmed = false, removeBlocked: string[] = []): Promise<boolean> => {
-    const vcg = (i: ManutencaoCarroItem) => getGaragemFisicaByCarro(i.prefixo) === 'VCG';
-    if (!c4Enabled(c4Scope) && JSON.stringify(next.filter(i => !vcg(i))) !== JSON.stringify(items.filter(i => !vcg(i)))) { toast.error('MVP permite alteracoes somente na VCG.'); return false; }
-    if (!mutationAllowed) {
-      toast.error(`Controle somente leitura: permissao de manutencao e janela 03:00 ate ${c4Enabled(c4Scope) ? '20:00' : '18:30'} sao obrigatorios.`); return false;
+    if (!mutationAllowed || writing.current) {
+      toast.error('Controle somente leitura: confira permissao, data atual e janela 03:00 ate 20:00.'); return false;
     }
     const baseline = modalAddOpen || !!editItem || liberarBloqueioModal.isOpen || !!confirmLiberarBloqueadoAoLiberarModal || !!confirmTransferModal ? maintenanceBaseline() : items;
     const removedForExecution = baseline.filter(old => old.bloqueado && next.some(i => i.prefixo === old.prefixo && i.emExecucao && !i.bloqueado)).map(i => i.prefixo);
     removeBlocked = [...new Set([...removeBlocked, ...removedForExecution])];
     const context = activeContextRef.current;
+    writing.current = true; setSaving(true);
     try {
       const editing = modalAddOpen || !!editItem || liberarBloqueioModal.isOpen || !!confirmLiberarBloqueadoAoLiberarModal || !!confirmTransferModal;
       if (editing) maintenanceEdits.assertContext('modal', context);
@@ -479,7 +424,8 @@ export function ManutencaoPage() {
       if (!reload.isActive(context)) return false;
       if (editing) maintenanceEdits.end('modal'); setItems(records); return true;
     }
-    catch (error) { if (!reload.isActive(context)) return false; if (error instanceof SavedRefreshRequired) toast.warning(error.message); else toast.error(error instanceof Error ? error.message : 'Operacao nao confirmada. Recarregue.'); return false; }
+    catch (error) { if (!reload.isActive(context)) return false; toast.error(error instanceof Error ? error.message : 'Operacao nao confirmada.'); return false; }
+    finally { writing.current = false; setSaving(false); }
   };
   useEffect(() => { setRemovalIds([]); }, [dataOperacao, activeGaragem]);
   const handleDeleteMaintenance = async (ids: string[]) => {
@@ -487,7 +433,7 @@ export function ManutencaoPage() {
     const selected = items.filter(item => ids.includes(item.id));
     if (!selected.length) return;
     const prefixes = [...new Set(selected.map(item => item.prefixo))];
-    if (!window.confirm(`Excluir ${prefixes.join(', ')} do Controle de Manutenção? Não serão movidos para Liberado. Bloqueios correspondentes também serão retirados da CI de amanhã.`)) return;
+    if (!window.confirm(`Excluir ${prefixes.join(', ')} do Controle de Manutenção? Não serão movidos para Liberado. A CI não será alterada.`)) return;
     const removal = removeMaintenanceSelection(items, ids);
     if (!(await commitMaintenance(removal.items, false, removal.removeBlocked))) return;
     setRemovalIds([]);
@@ -503,13 +449,13 @@ export function ManutencaoPage() {
     if (!(await commitMaintenance(updated, true, [targetItem.prefixo]))) return;
 
     setLiberarBloqueioModal({ isOpen: false, item: null });
-    toast.success(`Bloqueio do veículo ${targetItem.prefixo} liberado na CI.`);
+    toast.success(`Bloqueio do veículo ${targetItem.prefixo} liberado no Controle.`);
   };
 
   const handleMoverParaEmManutencao = async (item: ManutencaoCarroItem) => {
-    const next = addMaintenanceSelection(items, [item.prefixo], 'EM_EXECUCAO', item.observacao || '', dataOperacao, c4Enabled(c4Scope), getConsorciadaByPrefix);
+    const next = addMaintenanceSelection(items, [item.prefixo], 'EM_EXECUCAO', item.observacao || '', dataOperacao, true, getConsorciadaByPrefix);
     if (!(await commitMaintenance(next))) return;
-    toast.success('Carro em manutencao e retirado dos bloqueados do Controle e da CI.');
+    toast.success('Carro em manutencao e retirado dos bloqueados do Controle.');
   };
 
   // Confirmar liberação na CI ao adicionar/transferir para Liberados um veículo que consta em Bloqueados
@@ -520,11 +466,11 @@ export function ManutencaoPage() {
     const clean = prefixo.replace(/\D/g, "");
 
     // Um comando confirmado libera no Controle e retira o bloqueio na CI D+1.
-    const old = items.find(it => it.prefixo === prefixo && (c4Enabled(c4Scope) || it.emExecucao || it.liberado));
+    const old = items.find(it => it.prefixo === prefixo && (it.bloqueado || it.emExecucao || it.liberado));
     const released: ManutencaoCarroItem = {
       id: old?.id || 'manut-' + clean + '-' + Date.now(), prefixo,
-      consorciada: old?.consorciada || getConsorciadaByPrefix(prefixo), observacao: c4Enabled(c4Scope) ? novaObservacao || (old?.observacao ?? null) : novaObservacao || old?.observacao || '',
-      observacaoOficina: c4Enabled(c4Scope) ? novaObservacao || (old?.observacaoOficina ?? null) : novaObservacao || old?.observacaoOficina || old?.observacao || '',
+      consorciada: old?.consorciada || getConsorciadaByPrefix(prefixo), observacao: novaObservacao || old?.observacao || null,
+      observacaoOficina: novaObservacao || old?.observacaoOficina || old?.observacao || null,
       bloqueado: false, emExecucao: false, liberado: true, data: dataOperacao,
     };
     const updated = [...items.filter(it => it.prefixo !== prefixo), released];
@@ -534,7 +480,7 @@ export function ManutencaoPage() {
     setModalAddOpen(false);
     setNewPrefixo("");
     setNewObservacao("");
-    toast.success(`Veículo ${prefixo} liberado na oficina e desimpedido da CI com sucesso!`);
+    toast.success(`Veículo ${prefixo} liberado no Controle de Manutencao!`);
   };
 
   // Transição de status a partir do menu de 3 pontinhos
@@ -558,7 +504,7 @@ export function ManutencaoPage() {
       }
     }
 
-    const updated = addMaintenanceSelection(items, [targetItem.prefixo], newStatus, targetItem.observacao || '', dataOperacao, c4Enabled(c4Scope), getConsorciadaByPrefix);
+    const updated = addMaintenanceSelection(items, [targetItem.prefixo], newStatus, targetItem.observacao || '', dataOperacao, true, getConsorciadaByPrefix);
     if (!(await commitMaintenance(updated))) return;
     toast.success('Carro movido para ' + getStatusLabel(newStatus) + '.');
   };
@@ -581,17 +527,17 @@ export function ManutencaoPage() {
   const handleSaveObservacao = async () => {
     const items = maintenanceBaseline();
     if (!editItem) return;
-    const cleanObs = c4Enabled(c4Scope) ? editObs === (editItem.observacao ?? '') ? editItem.observacao : editObs.trim().toUpperCase() || null : editObs.trim().toUpperCase();
+    const cleanObs = editObs.trim().toUpperCase() || null;
     const updated = items.map(it => {
       if (it.id === editItem.id) {
-        return c4Enabled(c4Scope) ? { ...it, ...(editItem.campoObservacao === 'oficina' || !editItem.bloqueado ? { observacaoOficina: cleanObs } : { observacaoBloqueio: cleanObs }) } : { ...it, observacao: cleanObs };
+        return { ...it, observacao: cleanObs, ...(editItem.campoObservacao === 'oficina' || !editItem.bloqueado ? { observacaoOficina: cleanObs } : { observacaoBloqueio: cleanObs }) };
       }
       return it;
     });
 
     if (!(await commitMaintenance(updated))) return;
 
-    // A atualizacao de Bloqueados na CI ocorre na mesma transacao do Controle.
+    // Alteracao exclusiva do Controle, sem escrita na CI.
 
     setEditItem(null);
     toast.success(`Observação do carro ${editItem.prefixo} atualizada.`);
@@ -624,9 +570,9 @@ export function ManutencaoPage() {
       const blockedPrefixes = modalStatusOrigem !== 'BLOQUEADO' ? prefixes.filter(p => baseline.some(i => i.prefixo === p && i.bloqueado)) : [];
       const releasingBlocked = modalStatusOrigem === 'LIBERADO' ? blockedPrefixes : [];
       const transfers = prefixes.filter(p => baseline.some(i => i.prefixo === p && i.liberado && modalStatusOrigem !== 'LIBERADO'));
-      if (blockedPrefixes.length && !window.confirm('Os carros ' + blockedPrefixes.join(', ') + ' estão bloqueados. Adicionar mesmo assim em ' + getStatusLabel(modalStatusOrigem) + '? Ao confirmar, os bloqueios do Controle e da CI em preparação serão retirados.')) return;
+      if (blockedPrefixes.length && !window.confirm('Os carros ' + blockedPrefixes.join(', ') + ' estão bloqueados. Mover para ' + getStatusLabel(modalStatusOrigem) + '? O bloqueio será retirado somente do Controle.')) return;
       if (transfers.length && !window.confirm('Transferir os carros liberados ' + transfers.join(', ') + ' para ' + getStatusLabel(modalStatusOrigem) + '?')) return;
-      const next = addMaintenanceSelection(baseline, prefixes, modalStatusOrigem, newObservacao, dataOperacao, c4Enabled(c4Scope), getConsorciadaByPrefix);
+      const next = addMaintenanceSelection(baseline, prefixes, modalStatusOrigem, newObservacao, dataOperacao, true, getConsorciadaByPrefix);
       if (!(await commitMaintenance(next, releasingBlocked.length > 0, releasingBlocked))) return;
       setModalAddOpen(false); setSelectedCars([]); setNewPrefixo(''); setNewObservacao('');
       toast.success('Carros selecionados salvos.');
@@ -639,7 +585,7 @@ export function ManutencaoPage() {
     if (!confirmTransferModal) return;
     const { prefixo, toStatus, novaObservacao } = confirmTransferModal;
 
-    const updated = addMaintenanceSelection(items, [prefixo], toStatus, novaObservacao, dataOperacao, c4Enabled(c4Scope), getConsorciadaByPrefix);
+    const updated = addMaintenanceSelection(items, [prefixo], toStatus, novaObservacao, dataOperacao, true, getConsorciadaByPrefix);
     const removed = toStatus === 'EM_EXECUCAO' && items.some(i => i.prefixo === prefixo && i.bloqueado) ? [prefixo] : [];
     if (!(await commitMaintenance(updated, false, removed))) return;
 
@@ -656,11 +602,14 @@ export function ManutencaoPage() {
 
   // Restaurar / Sincronizar dados oficiais diretamente do SQL Server
   const handleResetSeed = async () => {
-    if (getMutationState().pending) return;
+    if (writing.current) return;
     setReady(false);
-    await reload.run(() => Promise.all([resetManutencaoSeedApi(dataOperacao, activeGaragem), fetchCIBloqueiosFromApi({ garagem: activeGaragem })]), ([records]) => {
-      setItems(records); setReady(true); if (dataOperacao === getTodayString()) confirmRefresh(); toast.success('Dados oficiais atualizados.');
-    }, () => { setReady(false); requireRefresh(); toast.error('Nao foi possivel atualizar os dados oficiais.'); });
+    await reload.run(() => resetManutencaoSeedApi(dataOperacao, c4Scope), records => {
+      const status = getMaintenanceSyncStatus(dataOperacao, c4Scope);
+      setItems(records); setSyncStatus(status); setReady(true);
+      if (status.pending || status.offline) toast.warning('Copia local mantida. Confira as pendencias de sincronizacao.');
+      else toast.success('Dados oficiais atualizados.');
+    }, () => { setReady(false); toast.error('Nao foi possivel atualizar os dados oficiais.'); });
   };
 
   // Filtragem por empresa e busca textual
@@ -682,14 +631,14 @@ export function ManutencaoPage() {
   const sortedBloqueados = useMemo(() => {
     return filteredItems
       .filter(it => it.bloqueado && !it.liberado)
-      .map(it => c4Enabled(c4Scope) ? { ...it, campoObservacao: 'bloqueio' as const, observacao: it.observacaoBloqueio ?? null } : it)
+      .map(it => ({ ...it, campoObservacao: 'bloqueio' as const, observacao: it.observacaoBloqueio ?? it.observacao }))
       .sort((a, b) => a.prefixo.localeCompare(b.prefixo, undefined, { numeric: true }));
   }, [filteredItems]);
 
   const sortedEmExecucao = useMemo(() => {
     return filteredItems
       .filter(it => it.emExecucao && !it.liberado)
-      .map(it => c4Enabled(c4Scope) ? { ...it, campoObservacao: 'oficina' as const, observacao: it.observacaoOficina ?? null } : it)
+      .map(it => ({ ...it, campoObservacao: 'oficina' as const, observacao: it.observacaoOficina ?? it.observacao }))
       .sort((a, b) => a.prefixo.localeCompare(b.prefixo, undefined, { numeric: true }));
   }, [filteredItems]);
 
@@ -908,11 +857,24 @@ export function ManutencaoPage() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-16">
-      {writeState.pending && <p role="status">Salvando. Aguarde antes de outra operacao.</p>}
-      {writeState.refreshRequired && <p role="alert">Atualize os dados oficiais antes de continuar.</p>}
-      {!mutationAllowed && <p role="status" className="p-3 text-sm">{c4Enabled(c4Scope) ? 'Somente leitura. Alteracoes exigem data atual, permissao, CI de amanha iniciada e janela 03:00 ate 20:00 (America/Campo_Grande).' : 'Somente leitura. Alteracoes exigem permissao e janela 03:00 ate 18:30 (America/Campo_Grande).'}</p>}
-      {c4Enabled(c4Scope) && c4Context(c4Scope, dataOperacao)?.folha?.status === 'FINALIZADA' && <p role="status" className="p-3 text-sm text-amber-700">A CI de amanha esta finalizada. Para alterar os bloqueios, reabra essa CI. Se a proxima ja foi iniciada, a reabertura nao sera permitida.</p>}
-
+      {saving && <p role="status">Salvando alteracao...</p>}
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border bg-card p-3 text-xs print:hidden" role="status">
+        <span className={cn(syncStatus.offline || syncStatus.pending ? 'text-amber-700' : 'text-emerald-700')}>
+          {syncStatus.offline ? 'Offline / cópia local' : 'Conectado'} · {syncStatus.pending} alteração(ões) pendente(s)
+        </span>
+        <Button variant="outline" size="sm" disabled={saving} onClick={() => void handleResetSeed()}>Sincronizar</Button>
+        {!!syncStatus.pending && <Button variant="outline" size="sm" disabled={saving || !navigator.onLine} onClick={async () => {
+          if (!window.confirm('Descartar todas as pendencias locais desta garagem/data e carregar o servidor? Alteracoes ja recebidas pelo servidor permanecem.')) return;
+          try { const records = await discardMaintenancePending(dataOperacao, c4Scope); setItems(records); setSyncStatus(getMaintenanceSyncStatus(dataOperacao, c4Scope)); setReady(true); }
+          catch (error) { toast.error(error instanceof Error ? error.message : 'Pendencias mantidas.'); }
+        }}>Descartar pendencias locais</Button>}
+        {syncStatus.issue && <span className="text-amber-700">{syncStatus.issue}</span>}
+        {syncStatus.notice && <span className="text-amber-700">{syncStatus.notice}</span>}
+        {pendingDates.filter(pending => pending.data !== dataOperacao).map(pending => <Button key={pending.data} variant="outline" size="sm" onClick={() => setDataOperacao(pending.data)}>
+          Pendências de {pending.data.split('-').reverse().join('/')} ({pending.count})
+        </Button>)}
+      </div>
+      {!mutationAllowed && <p role="status" className="p-3 text-sm">Somente leitura. Alteracoes exigem permissao, copia carregada, data atual e janela 03:00 ate 20:00 (America/Campo_Grande).</p>}
       {/* ==========================================================
           1. HEADER PRINCIPAL (ESTILO DONEZO / BENTO GRID)
           ========================================================== */}
@@ -965,7 +927,7 @@ export function ManutencaoPage() {
           <div className="flex items-center gap-2">
             {isAdmin && !userGaragemFixa && (
               <div className="inline-flex items-center p-0.5 rounded-full bg-gray-100 dark:bg-slate-900 border border-gray-200 dark:border-slate-800 mr-2 shadow-2xs">
-                {(["VCG", "VCM", "TODAS"] as const).map((g) => (
+                {(["VCG", "VCM"] as const).map((g) => (
                   <button
                     key={g}
                     type="button"
@@ -977,7 +939,7 @@ export function ManutencaoPage() {
                         : "text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white"
                     )}
                   >
-                    {g === "TODAS" ? "Todas" : g}
+                    {g}
                   </button>
                 ))}
               </div>
@@ -1096,7 +1058,7 @@ export function ManutencaoPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
           
           {/* QUADRO 1: BLOQUEADOS (ROSE / VERMELHO) */}
-          <div className="rounded-2xl border border-rose-500/40 dark:border-rose-500/30 bg-rose-500/[0.02] dark:bg-rose-950/10 overflow-hidden flex flex-col shadow-2xs">
+          <div onDragOver={event => { if (mutationAllowed) event.preventDefault(); }} onDrop={event => { event.preventDefault(); const id = event.dataTransfer.getData("application/x-maintenance-car"); if (mutationAllowed && items.some(item => item.id === id)) void handleSetStatus(id, "BLOQUEADO"); }} className="rounded-2xl border border-rose-500/40 dark:border-rose-500/30 bg-rose-500/[0.02] dark:bg-rose-950/10 overflow-hidden flex flex-col shadow-2xs">
             {/* Header do Quadro */}
             <div className="p-3.5 border-b border-rose-200/80 dark:border-rose-900/40 flex items-center justify-between bg-rose-50/70 dark:bg-rose-950/30">
               <div className="flex items-center gap-2">
@@ -1136,7 +1098,7 @@ export function ManutencaoPage() {
                     </tr>
                   ) : (
                     sortedBloqueados.map((item) => (
-                      <tr key={item.id} className="hover:bg-rose-50/50 dark:hover:bg-rose-950/20 transition-colors">
+                      <tr key={item.id} draggable={mutationAllowed} onDragStart={event => { event.dataTransfer.setData("application/x-maintenance-car", item.id); event.dataTransfer.effectAllowed = "move"; }} className="hover:bg-rose-50/50 dark:hover:bg-rose-950/20 transition-colors">
                         <td className="py-2 px-3 text-center">
                           <div className="inline-flex items-center gap-2 whitespace-nowrap">
 <input type="checkbox" aria-label={`Selecionar carro ${item.prefixo} para excluir`} disabled={!mutationAllowed} checked={removalIds.includes(item.id)} onChange={event => setRemovalIds(previous => event.target.checked ? [...new Set([...previous, item.id])] : previous.filter(id => id !== item.id))} className="shrink-0 cursor-pointer disabled:cursor-not-allowed accent-emerald-700 print:hidden" />
@@ -1189,7 +1151,7 @@ export function ManutencaoPage() {
           </div>
 
           {/* QUADRO 2: EM MANUTENÇÃO (ÂMBAR / LARANJA) */}
-          <div className="rounded-2xl border border-amber-500/40 dark:border-amber-500/30 bg-amber-500/[0.02] dark:bg-amber-950/10 overflow-hidden flex flex-col shadow-2xs">
+          <div onDragOver={event => { if (mutationAllowed) event.preventDefault(); }} onDrop={event => { event.preventDefault(); const id = event.dataTransfer.getData("application/x-maintenance-car"); if (mutationAllowed && items.some(item => item.id === id)) void handleSetStatus(id, "EM_EXECUCAO"); }} className="rounded-2xl border border-amber-500/40 dark:border-amber-500/30 bg-amber-500/[0.02] dark:bg-amber-950/10 overflow-hidden flex flex-col shadow-2xs">
             {/* Header do Quadro */}
             <div className="p-3.5 border-b border-amber-200/80 dark:border-amber-900/40 flex items-center justify-between bg-amber-50/70 dark:bg-amber-950/30">
               <div className="flex items-center gap-2">
@@ -1229,7 +1191,7 @@ export function ManutencaoPage() {
                     </tr>
                   ) : (
                     sortedEmExecucao.map((item) => (
-                      <tr key={item.id} className="hover:bg-amber-50/50 dark:hover:bg-amber-950/20 transition-colors">
+                      <tr key={item.id} draggable={mutationAllowed} onDragStart={event => { event.dataTransfer.setData("application/x-maintenance-car", item.id); event.dataTransfer.effectAllowed = "move"; }} className="hover:bg-amber-50/50 dark:hover:bg-amber-950/20 transition-colors">
                         <td className="py-2 px-3 text-center">
                           <div className="inline-flex items-center gap-2 whitespace-nowrap">
 <input type="checkbox" aria-label={`Selecionar carro ${item.prefixo} para excluir`} disabled={!mutationAllowed} checked={removalIds.includes(item.id)} onChange={event => setRemovalIds(previous => event.target.checked ? [...new Set([...previous, item.id])] : previous.filter(id => id !== item.id))} className="shrink-0 cursor-pointer disabled:cursor-not-allowed accent-emerald-700 print:hidden" />
@@ -1279,7 +1241,7 @@ export function ManutencaoPage() {
           </div>
 
           {/* QUADRO 3: LIBERADO (ESMERALDA / VERDE) */}
-          <div className="rounded-2xl border border-emerald-500/40 dark:border-emerald-500/30 bg-emerald-500/[0.02] dark:bg-emerald-950/10 overflow-hidden flex flex-col shadow-2xs">
+          <div onDragOver={event => { if (mutationAllowed) event.preventDefault(); }} onDrop={event => { event.preventDefault(); const id = event.dataTransfer.getData("application/x-maintenance-car"); if (mutationAllowed && items.some(item => item.id === id)) void handleSetStatus(id, "LIBERADO"); }} className="rounded-2xl border border-emerald-500/40 dark:border-emerald-500/30 bg-emerald-500/[0.02] dark:bg-emerald-950/10 overflow-hidden flex flex-col shadow-2xs">
             {/* Header do Quadro */}
             <div className="p-3.5 border-b border-emerald-200/80 dark:border-emerald-900/40 flex items-center justify-between bg-emerald-50/70 dark:bg-emerald-950/30">
               <div className="flex items-center gap-2">
@@ -1319,7 +1281,7 @@ export function ManutencaoPage() {
                     </tr>
                   ) : (
                     sortedLiberados.map((item) => (
-                      <tr key={item.id} className="hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 transition-colors">
+                      <tr key={item.id} draggable={mutationAllowed} onDragStart={event => { event.dataTransfer.setData("application/x-maintenance-car", item.id); event.dataTransfer.effectAllowed = "move"; }} className="hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 transition-colors">
                         <td className="py-2 px-3 text-center">
                           <div className="inline-flex items-center gap-2 whitespace-nowrap">
 <input type="checkbox" aria-label={`Selecionar carro ${item.prefixo} para excluir`} disabled={!mutationAllowed} checked={removalIds.includes(item.id)} onChange={event => setRemovalIds(previous => event.target.checked ? [...new Set([...previous, item.id])] : previous.filter(id => id !== item.id))} className="shrink-0 cursor-pointer disabled:cursor-not-allowed accent-emerald-700 print:hidden" />
@@ -1457,7 +1419,7 @@ export function ManutencaoPage() {
                       Filtrar por Empresa:
                     </span>
                     <div className="flex items-center gap-1">
-                      {(activeGaragem === "VCG" && !c4Enabled('VCG') ? ["TODAS", "VCG", "JTU", "VSF"] : activeGaragem === "VCM" ? ["TODAS", "VCM"] : ["TODAS", "VCG", "JTU", "VSF", "VCM"]).map(emp => (
+                      {(activeGaragem === "VCM" ? ["TODAS", "VCM"] : ["TODAS", "VCG", "JTU", "VSF", "VCM"]).map(emp => (
                         <button
                           key={emp}
                           type="button"
@@ -1634,7 +1596,7 @@ export function ManutencaoPage() {
                     </span>
                   </div>
                   <span className="text-xs text-gray-400">
-                    Garagem {getGaragemFisicaByCarro(confirmTransferModal.prefixo)}
+                    Garagem {activeGaragem}
                   </span>
                 </div>
 
@@ -1661,7 +1623,7 @@ export function ManutencaoPage() {
                   O veículo <strong className="text-gray-900 dark:text-white">{confirmTransferModal.prefixo}</strong> já está registrado como <strong className="text-amber-700 dark:text-amber-400 font-bold">{getStatusLabel(confirmTransferModal.fromStatus)}</strong>.
                   <p className="mt-1 font-medium">
                     {confirmTransferModal.fromStatus === 'BLOQUEADO'
-                      ? 'O carro está bloqueado. Adicionar mesmo assim? Ao confirmar, será movido para Em Manutenção e retirado dos bloqueios do Controle e da CI em preparação.'
+                      ? 'O carro está bloqueado. Ao confirmar, será movido para Em Manutenção somente neste Controle.'
                       : <>Deseja retirar o veículo de <u>{getStatusLabel(confirmTransferModal.fromStatus)}</u> e transferi-lo para <u>{getStatusLabel(confirmTransferModal.toStatus)}</u>?</>}
                   </p>
                 </div>
@@ -2035,9 +1997,9 @@ export function ManutencaoPage() {
           <div className="space-y-3 pt-2">
             <div className="p-3.5 rounded-2xl bg-rose-50/80 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 text-xs text-rose-900 dark:text-rose-200 leading-relaxed">
               <strong className="block mb-1 text-sm font-bold text-rose-700 dark:text-rose-300">
-                Atenção: Liberação Oficial na CI
+                Atenção: liberação no Controle
               </strong>
-              Ao confirmar, este veículo sairá dos <strong>Bloqueados</strong> do Controle atual e da <strong>CI em preparação</strong>, encerrará eventual execução e entrará na lista de <strong>Liberados</strong> do Controle.
+              Ao confirmar, este veículo sairá dos <strong>Bloqueados</strong>, encerrará eventual execução e entrará na lista de <strong>Liberados</strong> do Controle. A CI não será alterada.
             </div>
 
             {liberarBloqueioModal.item?.observacao && (
@@ -2062,7 +2024,7 @@ export function ManutencaoPage() {
               className="rounded-full w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-md cursor-pointer"
             >
               <Check className="w-4 h-4 mr-1.5" />
-              Sim, Liberar da CI
+              Confirmar liberacao
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2079,7 +2041,7 @@ export function ManutencaoPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base font-bold text-emerald-700 dark:text-emerald-400">
               <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-              Veículo {confirmLiberarBloqueadoAoLiberarModal?.prefixo} está Bloqueado na CI
+              Veículo {confirmLiberarBloqueadoAoLiberarModal?.prefixo} está bloqueado no Controle
             </DialogTitle>
           </DialogHeader>
 
@@ -2090,7 +2052,7 @@ export function ManutencaoPage() {
               </strong>
               O veículo <strong>{confirmLiberarBloqueadoAoLiberarModal?.prefixo}</strong> consta atualmente na lista de <strong>BLOQUEADOS</strong>. {confirmLiberarBloqueadoAoLiberarModal?.fromAction === 'ADD_MODAL' ? 'Adicionar mesmo assim em Liberados?' : 'Deseja realmente liberá-lo para a pista?'}
               <p className="mt-1 font-semibold text-rose-700 dark:text-rose-400">
-                Ao confirmar, o veículo sairá da lista de bloqueios e será desimpedido inclusive da CI.
+                Ao confirmar, o veículo sairá da lista de bloqueios somente neste Controle.
               </p>
             </div>
           </div>
@@ -2110,7 +2072,7 @@ export function ManutencaoPage() {
               className="rounded-full w-full sm:w-auto bg-[#164E3A] hover:bg-[#113C2D] text-white font-bold shadow-md cursor-pointer"
             >
               <Check className="w-4 h-4 mr-1.5" />
-              Confirmar e Liberar da CI
+              Confirmar liberacao
             </Button>
           </DialogFooter>
         </DialogContent>

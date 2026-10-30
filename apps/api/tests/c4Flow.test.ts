@@ -566,7 +566,7 @@ test('release concorrente com inclusao usa snapshot comum: apenas um comando ven
   assert.equal(ctx.maintenance[0].liberado, true); assert.equal(ctx.ci.filter(i => i.data === target && i.categoriaPlanilha === 'BLOQUEADO').length, 0);
 });
 
-test('managers preservam TODAS com flag off, reset VCM e erro C4 sem fallback', async () => {
+test('manager CI preserva TODAS no legado e erro C4 sem fallback', async () => {
   const loader = (Module as any)._load;
   const calls: { url: string; params: any }[] = [];
   let mode = 'LEGADO', fail = false;
@@ -581,25 +581,22 @@ test('managers preservam TODAS com flag off, reset VCM e erro C4 sem fallback', 
     },
     listCiBloqueios: async (params: any) => { calls.push({ url: '/ci-bloqueios', params }); return []; },
   };
-  let ci: any, maintenance: any;
+  let ci: any;
   try {
     (Module as any)._load = function(request: string, parent: any, main: boolean) {
       if (request === '@/lib/api' || (request === './api' && parent.filename.endsWith(path.join('lib', 'c4.ts')))) return { api };
       return loader.call(this, request.startsWith('@/') ? path.resolve('apps/web/src', request.slice(2) + '.ts') : request, parent, main);
     };
     ci = require('../../web/src/pages/soltura/ciManager');
-    maintenance = require('../../web/src/pages/manutencao/manutencaoManager');
   } finally { (Module as any)._load = loader; }
   const previousWindow = (globalThis as any).window, previousStorage = (globalThis as any).localStorage, previousEvent = (globalThis as any).CustomEvent;
   Object.assign(globalThis, { window: { dispatchEvent: () => true }, localStorage: { setItem: () => undefined }, CustomEvent: class { constructor(public name: string, public options: unknown) {} } });
   try {
     await ci.fetchCIBloqueiosFromApi({ garagem: 'TODAS' });
-    await maintenance.fetchManutencaoDataFromApi(day, 'TODAS');
     assert.equal(require('../../web/src/lib/c4').c4Configured(), false);
     assert.equal(calls.find(c => c.url === '/ci-bloqueios')!.params.garagem, undefined);
-    assert.equal(calls.find(c => c.url === '/manutencao')!.params.garagem, undefined);
     calls.length = 0; mode = 'C4';
-    await maintenance.resetManutencaoSeedApi(day, 'VCM');
+    await ci.fetchCIBloqueiosFromApi({ garagem: 'VCM', data: addDays(day, 1) });
     assert.equal(require('../../web/src/lib/c4').c4Configured(), true);
     assert.deepEqual(calls, [{ url: '/c4/contexto', params: { garagem: 'VCM', data: day } }]);
     calls.length = 0; fail = true;
