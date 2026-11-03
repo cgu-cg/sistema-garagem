@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { MvpError, operationalContext } from './mvpTemporal';
+import { MvpError } from './mvpTemporal';
+import { canEditScaleDate } from './dailyScaleWindow';
 
 export const scaleCiSourceSchema = z.object({
   ciData: z.string(), bloqueados: z.array(z.string()),
@@ -14,8 +15,8 @@ export type ScaleLifecycle = z.infer<typeof scaleLifecycleSchema>;
 export type ScaleOperation = 'iniciar' | 'finalizar' | 'reabrir';
 
 export function assertScaleDate(date: string, operation: ScaleOperation | 'editar', now: Date) {
-  if (operation !== 'finalizar' && date <= operationalContext(now).today)
-    throw new MvpError(409, 'Escala de hoje ou anterior permite apenas consulta e finalizacao pendente.');
+  if (operation !== 'finalizar' && !canEditScaleDate(date, now))
+    throw new MvpError(409, 'Escala permite alterações até as 06h do dia da operação (America/Campo_Grande). Depois, somente consulta e finalização pendente.');
 }
 
 export function assertScaleOperation(operation: ScaleOperation | 'editar', lifecycle: ScaleLifecycle | null,

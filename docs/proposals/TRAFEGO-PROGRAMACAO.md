@@ -1,5 +1,11 @@
 # Tráfego: exceções de escalas e solturas por data
 
+Atualização de 03/11/2026: o menu passou a Portaria → Editar Escalas e
+Solturas. A limitação abaixo a exceções por data foi ampliada, com aprovação,
+para edição direta de modelos recorrentes. A edição da data de uma exceção
+antes do uso também passa a ser permitida. Ver a especificação vigente em
+`PORTARIA-MODELOS-RECORRENTES.md`; as demais salvaguardas permanecem.
+
 ## Decisões confirmadas pelo usuário
 
 - Menu Tráfego, submenu Alterar escalas e solturas.

@@ -1,5 +1,115 @@
 # Domain model e entendimento operacional atual
 
+## Seleção inicial do turno da Soltura — 03/11/2026
+
+No contexto Seg–Sex, abrir a Folha de Soltura a partir das 12h de
+America/Campo_Grande sugere Vespertino; antes disso, Matutino. A sugestão
+também é aplicada ao mudar a data ou o tipo de dia na Folha. O seletor manual
+continua disponível e sua escolha permanece enquanto esses dados não mudarem.
+Não troca automaticamente uma folha já aberta ao chegar meio-dia. Sábado e
+Dom/Fer mantêm o turno PADRÃO, sem novo turno ou alteração de programação.
+Trata-se de seleção na interface: não inicia, finaliza ou modifica folhas.
+
+## Atualização dos vínculos e edição de linhas confirmadas — 03/11/2026
+
+CONFIRMADO pelo usuário: CI corrigida deve ser refletida na Escala em
+preparação; Escala corrigida deve atualizar os carros vinculados da Soltura
+em andamento. Não alterar automaticamente viagens liberadas/substituídas
+nem folhas finalizadas. Esta decisão substitui o congelamento integral dos
+carros programados na Soltura iniciada descrito nas entradas anteriores.
+
+Escala em preparação já projeta os bloqueios/avisos atuais da CI, sem escrita
+em GET; correções na CI podem invalidar a confirmação de um carro bloqueado.
+Escala finalizada mantém sua fonte CI fotografada. Correções operacionais
+continuam exigindo reabertura/finalização e respeitando permissões e horários.
+
+Novas folhas de Soltura guardam `escalaVinculadaIds` no JSON, com as viagens
+que herdavam carro da Escala ao iniciar. A política não é recalculada a partir
+de modelos posteriormente editados. Ao finalizar novamente a Escala corrigida,
+consultas da Soltura aberta reavaliam somente esses carros pendentes, pela
+linha/tabela da fotografia original. Linhas, horários, realizados e motoristas
+não são copiados da origem. Sem correspondência única, o programado fica vazio.
+Carros explícitos do modelo e vespertino permanecem independentes.
+
+Despacho revalida a programação dentro da transação e recusa cliente com
+programado divergente no vínculo pendente. Se necessário, persiste o novo
+conteúdo da folha e incrementa sua revisão junto do despacho, com rollback
+integral em caso de erro. GET não grava. Relatório em andamento usa a projeção;
+relatório e folha finalizados mantêm sua fotografia. Folhas anteriores sem
+`escalaVinculadaIds` conservam o comportamento congelado, pois não há informação
+segura para reconstruir quais carros eram herdados. Não há migração automática.
+
+O lápis ao lado do ✓ na Escala inicia uma edição local do carro, cancelável,
+sem apagar a confirmação oficial antes de salvar. Na Soltura, o lápis oferece
+as correções manuais existentes de carro/motorista; não desfaz a liberação.
+Correção de carro mantém motivo/histórico obrigatórios. Folhas finalizadas e
+datas sem permissão não habilitam esses controles; backend continua validando.
+
+Validação: 146 testes locais passaram em Escala diária, programação de
+Tráfego/Soltura, atualização de vínculos, disponibilidade e ciclo da Soltura,
+incluindo validação do cliente. Persistência simulada e rede bloqueada.
+Builds da API/frontend e typecheck passaram. Componentes React reais no
+navegador validaram editar/cancelar/confirmar na Escala, corrigir MOTO pelo
+menu da Soltura e ocultar edição em consulta. Sem acesso ao banco ou produção.
+
+## Escala de Carros até as 06h — 03/11/2026
+
+CONFIRMADO pelo usuário: a Escala de D, preparada em D-1, continua podendo
+ser iniciada, editada ou reaberta durante D antes das 06:00 em
+America/Campo_Grande. Às 06:00 esses comandos ficam indisponíveis para D.
+Datas anteriores continuam em consulta; finalizar pendência permanece permitido.
+Esta regra substitui o limite da meia-noite descrito nos registros anteriores.
+Permissões, revisão, CI finalizada, reabertura explícita e impedimento de
+reabrir após iniciar a próxima Escala permanecem obrigatórios no backend.
+
+Ao entrar na Escala de Carros, a data sugerida é hoje antes das 06h e amanhã
+a partir das 06h. A tela aberta acompanha essa passagem quando está na data
+sugerida e sem rascunho/gravação pendente. Uma data histórica escolhida
+manualmente não é trocada. Rascunhos não são descartados automaticamente;
+o backend recusa gravar após o limite, inclusive se a transação atravessá-lo.
+A mudança de data seleciona o tipo de dia pelo calendário existente.
+Não há finalização automática, cópia ou exclusão de folhas na virada.
+Fotografias de viagens liberadas e relatórios finalizados não são atualizados
+pelas edições posteriores da Escala. Pendentes vinculadas em folha aberta
+seguem a regra de atualização acima. A data civil da CI e Soltura não muda.
+
+## Soltura vinculada à Escala — 03/11/2026
+
+CONFIRMADO pelo usuário: Soltura vinculada mantém suas próprias linhas e
+horários e busca todos os carros na Escala finalizada da mesma data, garagem
+e contexto de tipo de dia, por linha e tabela. Usa substitutos quando definidos;
+sem correspondência única, não atribui carro programado. A opção é explícita no
+editor da Soltura matutina/PADRÃO; vespertino mantém operação independente.
+Persistência `origemCarros: "ESCALA"` no conteúdo JSON da programação/modelo,
+incluindo suas versões de vigência, sem nova tabela ou coluna. Sem essa opção,
+mantém-se o comportamento anterior. Exceções por data continuam prioritárias;
+o vínculo não cria automaticamente uma exceção de Soltura nem copia linhas.
+Folhas finalizadas e viagens liberadas conservam os carros registrados.
+Nas folhas abertas, pendentes vinculadas seguem a atualização descrita acima.
+
+## Vigência histórica dos modelos — 03/11/2026
+
+CONFIRMADO pelo usuário: editar Escala ou Soltura recorrente vale a partir
+da data da gravação (America/Campo_Grande), sem alterar datas anteriores ou
+folhas já iniciadas/finalizadas. `trafego_modelo_versao` preserva revisões;
+consultas sem folha escolhem a última revisão vigente na data selecionada.
+Exceção por data continua prioritária. Fotografias operacionais prevalecem.
+Versões antigas já sobrescritas não são recuperáveis; não reconstruir folhas
+com o presente. Implantação e limites em
+`proposals/TRAFEGO-VIGENCIA-HISTORICA.md`. SQL apenas preparado, não executado.
+
+## Portaria: recorrência e edição direta — 03/11/2026
+
+CONFIRMADO pelo usuário: os cards abrem diretamente o editor de linhas e
+funcionamento. Modelos recorrentes Seg–Sex, Sábado e Dom/Fer são editáveis
+no banco (`trafego_modelo`); uma exceção por data tem prioridade sobre eles.
+Sem exceção/modelo salvo, usam-se os padrões JSON. Fotografia operacional
+iniciada permanece preservada, inclusive na consulta de disponibilidade.
+Exceção ainda não utilizada pode mudar de data no mesmo cadastro, com revisão
+e proteção contra colisões e operação iniciada na origem/destino. Detalhes
+em `proposals/PORTARIA-MODELOS-RECORRENTES.md`. Substitui a limitação anterior
+do editor somente a exceções; não introduz calendário de feriados.
+
 ## Exceções de Tráfego por data — 02/11/2026
 
 CONFIRMADO pelo usuário: Escalas e Solturas especiais valem para uma data

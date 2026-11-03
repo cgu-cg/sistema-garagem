@@ -1,5 +1,72 @@
 # Moldes VCG em JSON - 21/10/2026
 
+## Atualização de carros vinculados em operação — 03/11/2026
+
+Nova regra autorizada: novas Solturas fotografam no JSON quais viagens herdam
+carros da Escala. Enquanto em andamento, apenas essas viagens pendentes
+acompanham a Escala operacional corrigida e novamente finalizada. Modelo,
+linhas e horários continuam fotografados; viagens liberadas e folhas finalizadas
+não mudam automaticamente. Folhas antigas sem essa informação continuam
+congeladas, sem inferência retroativa. Não exige nova tabela nem SQL.
+Correções manuais de carro/motorista estão acessíveis pelo lápis ao lado do ✓,
+respeitando as validações de histórico, motivos e estado da folha existentes.
+
+## Vínculo de carros com a Escala — 03/11/2026
+
+Atualização de interface: a opção agora é o select “Escala de vinculação”,
+com o nome da Escala compatível. Soltura Seg–Sex não oferece Sábado ou Dom/Fer.
+A lista também respeita a garagem e o turno da Escala (matutino/PADRÃO).
+Para uma Soltura com funcionamento por data, a Escala especial do mesmo dia
+aparece no lugar da recorrente, respeitando a prioridade existente. Para usar
+uma especial, primeiro escolher “Uma data específica” e informar seu dia.
+No funcionamento recorrente, o vínculo acompanha a Escala utilizada em cada
+data, inclusive uma exceção compatível. O select não permite forçar um modelo
+recorrente quando ele seria sobreposto pela exceção da data. A persistência
+continua no JSON existente; não há novo identificador de vínculo nem SQL.
+Sem vínculo mantém o comportamento anterior, inclusive a herança de carros
+em branco nos recorrentes. Nomes são rótulos do catálogo; os carros são os
+da folha operacional finalizada, cuja fotografia continua preservada.
+
+No editor da Soltura, selecionar a Escala em “Escala de vinculação”
+para manter o molde de viagens/horários e usar os carros da Escala operacional
+finalizada do mesmo contexto. A Escala operacional já seleciona sua exceção
+por data ou modelo vigente. O vínculo não aponta para um nome de cadastro:
+segue a Escala efetivamente utilizada na data, garagem e tipo de dia da Soltura.
+Não consulta nem herda outra data ou garagem. A correspondência é linha E tabela;
+substitutos prevalecem. Ausência ou ambiguidade deixa carro em branco.
+
+A opção vale para recorrentes e exceções matutinas/PADRÃO e é versionada no JSON.
+Vespertino não aceita vínculo no backend. O editor oculta o carro programado
+enquanto vinculado; valores cadastrados são preservados, mas ignorados nesse
+modo, e voltam a valer ao selecionar “Sem vínculo”. Sem vínculo mantém a regra anterior.
+Finalização da Escala continua obrigatória para iniciar a Soltura dependente.
+Folhas já iniciadas preservam o conteúdo fotografado. Não exige SQL adicional.
+
+Validação local: 35 testes passaram em programação/editor, programação e ciclo
+da Soltura, com rede bloqueada e persistência simulada. Cobrem persistência do
+vínculo, vigência, rejeição de contextos incompatíveis, correspondência,
+substitutos, horários preservados e fotografia operacional.
+
+## Vigência histórica — 03/11/2026
+
+Edições recorrentes passam a gerar versões em `trafego_modelo_versao`, com
+vigência desde a data da gravação. Datas anteriores sem folha usam a revisão
+vigente naquele dia, ou o JSON de compatibilidade se não houver versão conhecida.
+Folhas iniciadas e finalizadas preservam sua fotografia. Exceções por data
+mantêm prioridade. Aplicar o SQL de versões antes da API; detalhes e limites
+em `proposals/TRAFEGO-VIGENCIA-HISTORICA.md`.
+
+## Editor de recorrentes e exceções — 03/11/2026
+
+Portaria → Editar Escalas e Solturas abre diretamente as linhas do card e
+permite editar funcionamento recorrente ou uma data específica. Modelos
+recorrentes são guardados em `trafego_modelo`; exceções continuam na tabela
+`trafego_programacao`. Prioridade para operação ainda não iniciada: data
+específica, recorrente salvo, JSON original. Nenhum JSON é alterado em disco.
+Fotografias já iniciadas/finalizadas não mudam. A exceção por data pode ter
+a data alterada antes do uso, sem sobrescrever outro cadastro no destino.
+Ver implantação em `proposals/PORTARIA-MODELOS-RECORRENTES.md`.
+
 ## Exceções por data — 02/11/2026
 
 O menu Tráfego permite criar exceções de Escala ou Soltura para uma data,

@@ -451,3 +451,37 @@ model TrafegoProgramacao {
   @@unique([tipo, garagem, escalaTipo, turno, dataOperacao], map: "UQ_trafego_programacao_contexto")
   @@map("trafego_programacao")
 }
+
+model TrafegoModelo {
+  versoes       TrafegoModeloVersao[]
+  id            Int                   @id @default(autoincrement())
+  tipo          String                @db.NVarChar(10)
+  nome          String                @db.NVarChar(150)
+  garagem       String                @db.NVarChar(10)
+  escalaTipo    String                @map("escala_tipo") @db.NVarChar(10)
+  turno         String                @db.NVarChar(10)
+  revisao       Int                   @default(1)
+  conteudo      String                @db.NVarChar(Max)
+  responsavelId Int                   @map("responsavel_id")
+  createdAt     DateTime              @default(dbgenerated("SYSUTCDATETIME()")) @map("created_at") @db.DateTime2
+  updatedAt     DateTime              @default(dbgenerated("SYSUTCDATETIME()")) @updatedAt @map("updated_at") @db.DateTime2
+
+  @@unique([tipo, garagem, escalaTipo, turno], map: "UQ_trafego_modelo_contexto")
+  @@map("trafego_modelo")
+}
+
+model TrafegoModeloVersao {
+  id            Int           @id @default(autoincrement())
+  modeloId      Int           @map("modelo_id")
+  modelo        TrafegoModelo @relation(fields: [modeloId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  revisao       Int
+  vigenteDesde  String        @map("vigente_desde") @db.NVarChar(10)
+  nome          String        @db.NVarChar(150)
+  conteudo      String        @db.NVarChar(Max)
+  responsavelId Int           @map("responsavel_id")
+  createdAt     DateTime      @default(dbgenerated("SYSUTCDATETIME()")) @map("created_at") @db.DateTime2
+
+  @@unique([modeloId, revisao], map: "UQ_trafego_modelo_versao_revisao")
+  @@index([modeloId, vigenteDesde, revisao], map: "IX_trafego_modelo_versao_vigencia")
+  @@map("trafego_modelo_versao")
+}

@@ -6,7 +6,7 @@ import { CiVehicleNotice, VehicleNoticeIcons, vehicleNoticeFlags } from './CiVeh
 import { ScaleVehiclePicker } from './ScaleVehiclePicker';
 import { ScaleSubstitutionDialog } from './ScaleSubstitutionDialog';
 import { useState, useEffect, useRef, type ReactNode } from 'react';
-import { Search, Plus, Bus, Check, Loader2, X, ChevronDown, ChevronUp, MapPin, ShieldAlert, Route } from 'lucide-react';
+import { Search, Plus, Bus, Pencil, Check, Loader2, X, ChevronDown, ChevronUp, MapPin, ShieldAlert, Route } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
@@ -175,6 +175,7 @@ export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, read
 function LineRow({ item, official, readOnly, onSave, onEditingChange, drafts }: { item: FixedScaleRow; official: DailyEscala | null; readOnly: boolean;
   onSave: (id: string, prefixo: string, retirada?: ScaleWithdrawal) => Promise<boolean>; onEditingChange?: (key: string, dirty: boolean) => void; drafts: Map<string, string> }) {
   const [prefixo, setPrefixo] = useState(drafts.get(item.id) ?? item.carroSubstituido ?? ''), [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(false);
   const dirty = useRef(drafts.has(item.id)), pending = useRef(false);
   useEffect(() => { if (!dirty.current) setPrefixo(item.carroSubstituido ?? ''); }, [item.carroSubstituido]);
   const ownKey = 'linha:' + item.id;
@@ -186,7 +187,7 @@ function LineRow({ item, official, readOnly, onSave, onEditingChange, drafts }: 
     const p = prefixo.trim(), error = allocationError(official, p || item.carroProgramado, ownKey);
     if (error) { toast.error(error); return; }
     pending.current = true; setSaving(true);
-    try { if (await onSave(item.id, p)) { dirty.current = false; drafts.delete(item.id); onEditingChange?.(item.id, false); setPrefixo(p === item.carroProgramado ? '' : p); toast.success('Linha validada e escala salva.'); } }
+    try { if (await onSave(item.id, p)) { dirty.current = false; setEditing(false); drafts.delete(item.id); onEditingChange?.(item.id, false); setPrefixo(p === item.carroProgramado ? '' : p); toast.success('Linha validada e escala salva.'); } }
     finally { pending.current = false; setSaving(false); }
   };
   return <><tr data-confirmada={confirmed ? 'true' : 'false'} className={cn('border-b border-border/60 font-mono', confirmed ? 'bg-emerald-100 hover:bg-emerald-200/70 dark:bg-emerald-900/40 dark:hover:bg-emerald-900/50' : 'hover:bg-muted/30')}><td className="p-3 font-bold">{item.linha}</td><td className="p-3">{item.tabela}</td><td className="p-3">{item.saidaGaragem}</td><td className="p-3">{item.chegadaGaragem || '\u2014'}</td>
@@ -196,6 +197,13 @@ function LineRow({ item, official, readOnly, onSave, onEditingChange, drafts }: 
       onChange={value => { dirty.current = true; drafts.set(item.id, value); onEditingChange?.(item.id, true); setPrefixo(value); }} onConfirm={() => void confirm()}
       renderPrefix={p => <span className="relative inline-flex"><ScaleVehiclePrefix state={official} prefixo={p} />{p === prefixo.trim() && <VehicleNoticeIcons {...vehicleNoticeFlags(official, p)} />}</span>} className="h-7 w-24 py-0 text-center" /></CiVehicleNotice>
       <button type="button" aria-label={(confirmed ? 'Linha confirmada ' : 'Confirmar linha ') + item.linha + ' tabela ' + item.tabela} title={confirmed ? 'Linha confirmada para esta data' : 'Confirmar linha'} disabled={readOnly || saving || confirmed} onClick={() => void confirm()} className={cn('h-7 w-7 inline-flex items-center justify-center rounded-full', 'bg-[#164E3A] text-white', (readOnly || saving || confirmed) && 'opacity-40 cursor-not-allowed')}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}</button>
+      {confirmed && !readOnly && <button type="button" className="h-7 w-7 inline-flex items-center justify-center rounded-full border border-border hover:bg-muted" aria-label={'Editar linha ' + item.linha + ' tabela ' + item.tabela} title="Editar carro desta linha" disabled={saving} onClick={event => {
+        dirty.current = true; drafts.set(item.id, prefixo); onEditingChange?.(item.id, true); setEditing(true);
+        const input = event.currentTarget.closest('tr')?.querySelector<HTMLInputElement>('input[role="combobox"]'); input?.focus(); input?.click();
+      }}><Pencil className="h-3.5 w-3.5" /></button>}
+      {editing && !readOnly && <button type="button" className="h-7 w-7 inline-flex items-center justify-center rounded-full border border-border hover:bg-muted" aria-label={'Cancelar edição da linha ' + item.linha} disabled={saving} onClick={() => {
+        dirty.current = false; drafts.delete(item.id); onEditingChange?.(item.id, false); setPrefixo(item.carroSubstituido ?? ''); setEditing(false);
+      }}><X className="h-3.5 w-3.5" /></button>}
     </div></td>
   </tr></>;
 }

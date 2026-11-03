@@ -5,7 +5,7 @@ import { officialGarageFleet } from './escalaAllocation';
 import type { PrismaClient, Soltura } from '@prisma/client';
 import { z } from 'zod';
 import { lockManualCI } from './c4Flow';
-import { finalizedReleaseRows, releaseScaleContext } from './releaseProgramming';
+import { finalizedReleaseRows, releaseScaleContext, updatedReleaseSheetRows } from './releaseProgramming';
 import { parseDailyContext } from './escalaDiaria';
 import { canDispatch } from './operationalAccess';
 import { assertC4Read } from './c4Authorization';
@@ -90,8 +90,9 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
     }
     const liveProgramming = await finalizedReleaseRows(tx, releaseContext);
     if (!liveProgramming) throw new AvailabilityError('ESCALA_NAO_FINALIZADA');
-    const programming = releaseSheet.itens;
     const dailyRecords = await tx.soltura.findMany({ where: { garagem: 'VCG', dataOperacao: context.ciDate } });
+    const programming = await updatedReleaseSheetRows(tx, releaseContext, releaseSheet,
+      dailyRecords.filter(record => record.escalaTipo === releaseContext.escalaTipo && record.turno === releaseContext.turno));
     const defects = new Set(garageDefects(dailyRecords).map(d => d.prefixo));
     const snapshots = new Map<string, { existing: Soltura | undefined; programmed: string | null; realized: string; history: ReturnType<typeof appendReleaseExchange>; row: typeof programming[number] }>();
     for (const i of items) {
@@ -100,7 +101,10 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
       if (!row.tabela.trim() && row.tipo !== 'FRETAMENTO') throw new AvailabilityError('TABELA_OBRIGATORIA');
       const existing = dailyRecords.filter(r => r.scheduleId === i.scheduleId && r.turno === releaseContext.turno && r.escalaTipo === releaseContext.escalaTipo);
       if (existing.length > 1) throw new AvailabilityError('SOLTURA_DUPLICADA_EXISTENTE');
-      const programmed = independent ? null : existing[0] ? existing[0].carroProgramado : row.carroProgramado || null;
+      const released = existing[0] && ['LIBERADO', 'SUBSTITUIDO'].includes(existing[0].status ?? '');
+      const programmed = independent ? null : released ? existing[0].carroProgramado : row.carroProgramado || null;
+      if (!released && releaseSheet.escalaVinculadaIds?.includes(row.id) && i.carroProgramado !== undefined
+        && (i.carroProgramado || null) !== programmed) throw new AvailabilityError('CARRO_PROGRAMADO_ALTERADO_RECARREGUE');
       const realized = i.carroRealizado || programmed;
       if (!realized || !/^\d{1,10}$/.test(realized)) throw new AvailabilityError('CARRO_REALIZADO_OU_PROGRAMADO_OBRIGATORIO');
       if (fleet && !fleet.includes(realized)) throw new AvailabilityError('VEICULO_FORA_DA_FROTA');
@@ -137,6 +141,12 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
         inicioLinha: existing ? existing.inicioLinha : row.inicioLinha ?? row.inicioBairro ?? null,
         historicoTrocas: JSON.stringify(history) };
       records.push(existing ? await tx.soltura.update({ where: { id: existing.id }, data }) : await tx.soltura.create({ data }));
+    }
+    if (JSON.stringify(programming) !== JSON.stringify(releaseSheet.itens)) {
+      await tx.folhaSoltura.update({ where: { id: releaseSheetRecord!.id }, data: {
+        conteudo: JSON.stringify({ ...releaseSheet, itens: programming }),
+        revisao: releaseSheetRecord!.revisao + 1, responsavelId: userId,
+      } });
     }
     checkTime();
     return batch ? { count: records.length, items: records } : records[0];

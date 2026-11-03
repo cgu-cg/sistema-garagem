@@ -9,15 +9,18 @@ import { MvpError, operationalContext } from './mvpTemporal';
 import { lockManualCI } from './c4Flow';
 import { enabledGarages, eventInstant, addDays, dateValue } from './c4Temporal';
 import { isIndependentRelease } from './independentRelease';
-import { readReleaseProgramming, finalizedReleaseRows, releaseScaleContext } from './releaseProgramming';
+import { readReleaseProgramming, finalizedReleaseRows, releaseScaleContext, updatedReleaseSheetRows } from './releaseProgramming';
 import { notifyC4Updated } from './c4Events';
 import { garageDefects } from './releaseVehicleExchange';
+import { resolveDateProgramming } from './trafficProgramming';
+import { scaleLinkedReleaseIds } from './releaseScaleUpdates';
 
 export type ReleaseContext = ReturnType<typeof parseDailyContext>;
 const rowSchema = z.object({ id: z.string(), linha: z.string(), tabela: z.string(), carroProgramado: z.string(),
   saidaGaragem: z.string(), inicioLinha: z.string().optional(), inicioBairro: z.string().optional(), chegadaGaragem: z.string().optional(),
   ordem: z.number().optional(), tipo: z.string().optional(), observacoes: z.string().optional() }).passthrough();
 export const releaseSheetSchema = z.object({ version: z.literal(1), itens: z.array(rowSchema).min(1),
+  escalaVinculadaIds: z.array(z.string().min(1)).max(2000).optional(),
   eventos: z.array(z.object({ operacao: z.enum(['iniciar', 'finalizar', 'reabrir']), usuarioId: z.number().int().positive(), registradoEm: z.string().datetime() })),
   relatorio: z.unknown().optional() }).strict();
 export type ReleaseSheet = z.infer<typeof releaseSheetSchema>;
@@ -100,6 +103,10 @@ export async function changeReleaseLifecycle(db: PrismaClient, userId: number | 
       && (!enabledGarages().includes('VCG') || sourceCI?.status !== 'FINALIZADA' || !preparation?.escala.fluxo.ciFinalizada)))) throw new MvpError(409, 'Finalize a CI e a Escala desta data antes de iniciar a Soltura.');
     const records = await tx.soltura.findMany({ where: context });
     const sheet: ReleaseSheet = old ? parseReleaseSheet(old.conteudo) : { version: 1, itens: currentRows!, eventos: [] };
+    if (!old && !isIndependentRelease(context)) {
+      const template = await resolveDateProgramming(tx, 'SOLTURA', context);
+      sheet.escalaVinculadaIds = scaleLinkedReleaseIds(template.itens, template.excecao, template.recorrente, template.origemCarros === 'ESCALA');
+    }
     if (!old) {
       for (const record of records) {
         if (!record.scheduleId) throw new MvpError(409, 'Despacho anterior sem identificador. Revise antes de iniciar.');
@@ -108,6 +115,7 @@ export async function changeReleaseLifecycle(db: PrismaClient, userId: number | 
           saidaGaragem: record.saidaGaragem ?? '', inicioLinha: record.inicioLinha ?? '' });
       }
     }
+    if (old?.status === 'EM_ANDAMENTO') sheet.itens = await updatedReleaseSheetRows(tx, context, sheet, records);
     if (command.operacao === 'finalizar' && !completedReleaseRows(sheet.itens, records)) throw new MvpError(409, 'Libere todas as viagens, com carro e motorista, antes de finalizar.');
     sheet.eventos.push({ operacao: command.operacao, usuarioId: userId!, registradoEm: clock().toISOString() });
     if (command.operacao === 'finalizar') {
@@ -153,6 +161,6 @@ export async function readReleaseReport(db: PrismaClient, value: unknown, userId
     return { contexto: context, status: 'LEGADO', emitidoEm: clock().toISOString(), itens: releaseReportRows(storedRows, records),
       reserva: [], bloqueados: [], defeitosGaragem: garageDefects(records), reservasTerminais: [], auxiliaresIndisponiveis: true };
   }
-  const rows = sheet?.itens ?? (await readReleaseProgramming(db, context, userId)).itens;
+  const rows = sheet ? await updatedReleaseSheetRows(db, context, sheet, records) : (await readReleaseProgramming(db, context, userId)).itens;
   return { ...await collectReleaseReport(db, context, userId, rows, records, clock()), status: record?.status ?? 'NAO_INICIADA' };
 }

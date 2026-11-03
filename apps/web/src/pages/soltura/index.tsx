@@ -1,3 +1,7 @@
+import { useDailyScaleDrafts } from '@/lib/useDailyScaleDrafts';
+import { canEditScaleDate } from '@/lib/dailyScaleWindow';
+import { ReleaseRowEditMenu } from './ReleaseRowEditMenu';
+import { useDailyScaleWindow } from '@/lib/useDailyScaleWindow';
 import { useReleaseLifecycle } from '@/lib/useReleaseLifecycle';
 import { ReleaseLifecycleBar } from './ReleaseLifecycleBar';
 import { MotoristaTrocaPopover } from './MotoristaTrocaPopover';
@@ -57,7 +61,7 @@ import { CarroRealizadoView } from "./CarroRealizadoView";
 import { checkCarroBloqueado, subscribeCIUpdates, fetchCIBloqueiosFromApi, getGaragemFisicaByCarro } from "./ciManager";
 import { loadSharedEscala, saveSharedEscala, SharedEscala, EscalaContext, DailyEscala, loadDailyEscala, changeDailyScaleState, saveDailyEscala, saveDailyScaleCard, treatDailySubstitution, CardMutation, ScaleWithdrawal } from '@/lib/sharedEscala';
 import { applyDailySchedule, fixedScheduleRows, fixedScheduleToken } from '@/lib/dailySchedule';
-import { defaultScheduleSelection, selectScheduleDate } from '@/lib/scheduleSelection';
+import { defaultScheduleSelection, selectScheduleDate, defaultReleasePeriod } from '@/lib/scheduleSelection';
 
 type GaragemType = "VCG" | "VCM";
 export type EscalaTipo = "SEG_SEX" | "SABADO" | "DOM_FER";
@@ -198,7 +202,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const dataOperacao = scheduleSelection.date;
   const setEscalaTipo = useCallback((dayType: EscalaTipo) => setScheduleSelection(current => ({ ...current, dayType })), []);
   const setDataOperacao = useCallback((date: string) => setScheduleSelection(current => selectScheduleDate(current, date)), []);
-  const [turnoTipo, setTurnoTipo] = useState<TurnoTipo>("MATUTINO");
+  const [turnoTipo, setTurnoTipo] = useState<TurnoTipo>(() => defaultReleasePeriod(escalaTipo));
   // A CI nao altera a data compartilhada pelas telas de soltura e historico.
   const [ciDate, setCIDate] = useState<string | null>(null);
   const ciDateManual = useRef(false);
@@ -269,6 +273,10 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       setDataOperacao(getOntemLocal());
     }
   }, [viewMode]);
+
+  useEffect(() => {
+    if (viewMode === 'FOLHA') setTurnoTipo(defaultReleasePeriod(escalaTipo));
+  }, [viewMode, dataOperacao, escalaTipo]);
 
   const [isListaEstendida, setIsListaEstendida] = useState(false);
 
@@ -371,7 +379,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const scaleWritePending = useRef(false);
   const scaleWriteContext = useRef<string | null>(null);
   const scaleReadSequence = useRef(0);
-  const dailyDirtyFields = useRef(new Set<string>());
+  const { fields: dailyDirtyFields, dirty: dailyHasDrafts, setEditing: setDailyEditing, clear: clearDailyDrafts } = useDailyScaleDrafts();
   const scaleContext: EscalaContext = { garagem, escalaTipo, turno: escalaTipo === 'SEG_SEX' ? (viewMode === 'ALTERAR_CARRO_PROGRAMADO' ? 'MATUTINO' : turnoTipo) : 'PADRAO' };
   const scaleContextKey = JSON.stringify(scaleContext);
   const dailyContext = { ...scaleContext, dataOperacao };
@@ -387,8 +395,9 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const dailyReady = Boolean(dailyScale && JSON.stringify(dailyScale.contexto) === dailyContextKey && !dailyError);
   const canConsultDailyScale = canReadScale(user);
   const [dailyLifecyclePending, setDailyLifecyclePending] = useState(false);
-  const dailyDateEditable = dataOperacao > operationalContext().today;
-  useEffect(() => { if (viewMode === 'ALTERAR_CARRO_PROGRAMADO') setDataOperacao(operationalContext().tomorrow); }, [viewMode]);
+  const scaleWindow = useDailyScaleWindow(viewMode === 'ALTERAR_CARRO_PROGRAMADO', dataOperacao, setDataOperacao,
+    () => dailyDirtyFields.current.size > 0 || dailyWritePending.current || dailyLifecyclePending);
+  const dailyDateEditable = dataOperacao > scaleWindow.today || dataOperacao === scaleWindow.today && scaleWindow.beforeCutoff;
   const canEditDailyScale = canWriteDailyScale(user, garagem) && dailyDateEditable && dailyScale?.fluxo?.status === 'EM_PREPARACAO' && dailyScale.fluxo.ciFinalizada && !dailyLifecyclePending;
   const canTreatDailyScale = canWriteDailyScale(user, garagem) && dailyReady && dataOperacao >= operationalContext().today
     && Boolean(dailyScale?.fluxo && ['EM_PREPARACAO', 'FINALIZADA'].includes(dailyScale.fluxo.status));
@@ -446,7 +455,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     }
   };
   useEffect(() => {
-    dailyDirtyFields.current.clear();
+    clearDailyDrafts();
     setDailyScale(null); setDailyError('');
     if (viewMode !== 'ALTERAR_CARRO_PROGRAMADO' || !canConsultDailyScale) return;
     void reloadDailyScale();
@@ -457,10 +466,10 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     });
     return () => { unsubscribe(); window.removeEventListener('focus', refresh); };
   }, [dailyContextKey, viewMode, canConsultDailyScale, user?.id]);
-  useEffect(() => { if (viewMode !== 'ALTERAR_CARRO_PROGRAMADO') dailyDirtyFields.current.clear(); }, [viewMode]);
+  useEffect(() => { if (viewMode !== 'ALTERAR_CARRO_PROGRAMADO') clearDailyDrafts(); }, [viewMode]);
   const persistDailySchedule = async (id: string, prefixo: string, retirada?: ScaleWithdrawal) => {
-    if (dataOperacao <= operationalContext().today) {
-      toast.error('Somente escalas futuras em preparacao podem ser alteradas.'); return false;
+    if (!canEditScaleDate(dataOperacao)) {
+      toast.error('Escalas podem ser alteradas somente antes das 06h do dia da operacao, em preparacao.'); return false;
     }
     const base = fixedScheduleToken(scaleContext, id, dailyScale?.programacao);
     if (!canEditDailyScale || !dailyReady || !dailyScale || dailyWritePending.current || !base) {
@@ -479,8 +488,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   };
   const selectedScaleKey = useRef(scaleContextKey);
   const persistDailyCard = async (mutation: CardMutation) => {
-    if (dataOperacao <= operationalContext().today) {
-      toast.error('Somente escalas futuras em preparacao podem ser alteradas.'); return false;
+    if (!canEditScaleDate(dataOperacao)) {
+      toast.error('Escalas podem ser alteradas somente antes das 06h do dia da operacao, em preparacao.'); return false;
     }
     if (!canEditDailyScale || !dailyReady || !dailyScale || dailyWritePending.current) {
       toast.error('Consulte a escala oficial e aguarde a gravacao pendente.'); return false;
@@ -1351,7 +1360,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         {garagem !== 'VCG' && !permanentReady && <p>Programacao base exibida para consulta. Alteracoes oficiais nao confirmadas; gravacoes e liberacoes bloqueadas.</p>}
         {garagem !== 'VCG' && canReadScale(user) && <Button type="button" variant="outline" onClick={() => {
           if (dailyDirtyFields.current.size && !window.confirm('Descartar as alteracoes digitadas da escala para consultar os dados oficiais?')) return;
-          dailyDirtyFields.current.clear(); setDailyScale(null);
+          clearDailyDrafts(); setDailyScale(null);
           setDailyEditEpoch(value => value + 1);
           void reloadSharedScale(); void reloadDailyScale();
         }}>Recarregar escala</Button>}
@@ -2018,13 +2027,13 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           {dailyError && <p className="text-xs text-muted-foreground">{dailyError}</p>}
           <Button type="button" variant="outline" onClick={() => {
             if (dailyDirtyFields.current.size && !window.confirm('Descartar as substituicoes digitadas e recarregar?')) return;
-            dailyDirtyFields.current.clear(); setDailyEditEpoch(value => value + 1); void reloadDailyScale();
+            clearDailyDrafts(); setDailyEditEpoch(value => value + 1); void reloadDailyScale();
           }}>Recarregar substituicoes</Button>
         </div>}
         <AlterarCarroProgramadoView
           key={`${dailyContextKey}:${dailyEditEpoch}`}
-          lifecycleControl={<DailyScaleLifecycle state={dailyReady ? dailyScale : null} allowed={canWriteDailyScale(user, garagem)} future={dailyDateEditable}
-            pending={dailyLifecyclePending || !dailyReady} dirty={dailyDirtyFields.current.size > 0} onChange={operation => void changeScaleLifecycle(operation)}
+          lifecycleControl={<DailyScaleLifecycle state={dailyReady ? dailyScale : null} allowed={canWriteDailyScale(user, garagem)} editableDate={dailyDateEditable}
+            pending={dailyLifecyclePending || !dailyReady} dirty={dailyHasDrafts} onChange={operation => void changeScaleLifecycle(operation)}
             onNext={() => { const day = new Date(dataOperacao + 'T12:00:00Z'); day.setUTCDate(day.getUTCDate() + 1); setDataOperacao(day.toISOString().slice(0, 10)); }} />}
           dateControl={<div className="group inline-flex h-9 shrink-0 overflow-hidden rounded-full border border-gray-200 bg-gray-50 shadow-2xs hover:bg-gray-100 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/80 transition-colors print:hidden" style={{ width: 240, minWidth: 240 }}>
             <div className="relative flex min-w-0 flex-1">
@@ -2043,16 +2052,16 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                 className="pointer-events-none absolute inset-0 h-full w-full opacity-0" />
             </div>
             <div className="flex shrink-0 items-center py-2">
-              <button type="button" onClick={() => setDataOperacao(operationalContext().tomorrow)} title="Ir para a escala de amanhã"
-                className="h-full whitespace-nowrap border-l border-gray-200 px-3 text-[11px] font-semibold text-emerald-700 hover:underline dark:border-slate-700 dark:text-emerald-400">Amanhã</button>
+              <button type="button" onClick={() => setDataOperacao(scaleWindow.preparationDate)} title="Ir para a escala em preparação"
+                className="h-full whitespace-nowrap border-l border-gray-200 px-3 text-[11px] font-semibold text-emerald-700 hover:underline dark:border-slate-700 dark:text-emerald-400">{scaleWindow.beforeCutoff ? 'Hoje' : 'Amanhã'}</button>
             </div>
           </div>}
           onEditingChange={(key, dirty) => {
-            if (dirty) { dailyDirtyFields.current.add(key); ++dailyReadSequence.current; ++scaleReadSequence.current; }
-            else dailyDirtyFields.current.delete(key);
+            setDailyEditing(key, dirty);
+            if (dirty) { ++dailyReadSequence.current; ++scaleReadSequence.current; }
           }}
           readOnly={!canEditDailyScale || !dailyReady}
-          readOnlyReason={!dailyDateEditable ? 'Os dados desta data permitem somente consulta. Uma escala pendente ainda pode ser finalizada.' : dailyScale?.fluxo?.status === 'LEGADO' ? 'Registro anterior preservado para consulta.' : dailyScale?.fluxo?.status !== 'EM_PREPARACAO' ? 'Inicie ou reabra a escala para editar.' : !dailyScale.fluxo.ciFinalizada ? 'Finalize a CI da mesma data para alterar a escala.' : !canEditDailyScale ? 'Seu perfil possui apenas permissao de consulta da Escala.' : dailyError ? 'Consulta das substituicoes falhou. Confira o aviso acima e recarregue apos resolver a falha.' : 'Aguardando a consulta das substituicoes da data selecionada.'}
+          readOnlyReason={!dailyDateEditable ? 'Edição encerrada às 06h do dia da operação. Esta data permite consulta e finalização pendente.' : dailyScale?.fluxo?.status === 'LEGADO' ? 'Registro anterior preservado para consulta.' : dailyScale?.fluxo?.status !== 'EM_PREPARACAO' ? 'Inicie ou reabra a escala para editar.' : !dailyScale.fluxo.ciFinalizada ? 'Finalize a CI da mesma data para alterar a escala.' : !canEditDailyScale ? 'Seu perfil possui apenas permissao de consulta da Escala.' : dailyError ? 'Consulta das substituicoes falhou. Confira o aviso acima e recarregue apos resolver a falha.' : 'Aguardando a consulta das substituicoes da data selecionada.'}
           garagem={garagem}
           escalaTipo={escalaTipo}
           schedules={dailySchedules}
@@ -2497,6 +2506,11 @@ function FolhaTableRow({
             >
               <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
             </span>
+            <ReleaseRowEditMenu car={{ item, scaleState, carroAtual: carroValue || item.carroRealizado || item.carroProgramado || '',
+              historicoTrocas, onTrocarCarro: onTrocarCarro || (async () => false), checkBloqueioCI, onPenduradoAlert,
+              getOutraLinhaComCarroRealiz, isReadOnly: isReadOnly || !onTrocarCarro }}
+              driver={{ codigo: item.motoristaCodigo || '', readOnly: isReadOnly || !onTrocarMoto,
+                onSave: codigo => onTrocarMoto ? onTrocarMoto(item, codigo) : Promise.resolve(false) }} />
           </div>
         ) : (
           <div className="flex items-center justify-center">

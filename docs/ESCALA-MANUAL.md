@@ -1,5 +1,43 @@
 # Escala de Carros manual
 
+## Finalização e rascunhos — correção de 03/11/2026
+
+O controle de rascunhos usa referência para os guardas assíncronos e estado
+React para atualizar o cabeçalho. Confirmar uma linha, cancelar a edição ou
+fechar/salvar um modal limpa sua pendência e atualiza o botão Finalizar Escala.
+Outras pendências mantêm o bloqueio. Troca de contexto e recarga explícita
+limpam ambos os estados, respeitando a confirmação de descarte existente.
+Não é necessário recarregar a página depois de confirmar cada linha.
+Validado em componentes React reais no navegador, incluindo gravação assíncrona,
+cancelamento, múltiplas pendências e finalização após a última confirmação.
+
+## Janela até as 06h — 03/11/2026
+
+A Escala preparada no dia anterior continua editável até antes das 06h do
+próprio dia da operação, no fuso America/Campo_Grande. Às 06h, iniciar,
+editar e reabrir essa data deixam de ser permitidos. Mantêm-se CI finalizada,
+permissões, revisão e restrições de reabertura existentes. Finalizar pendência
+continua permitido, sem alterar linhas/cards após o limite.
+
+Exemplo: Escala de 04/11 pode ser preparada em 03/11 e corrigida na madrugada
+de 04/11 até 05:59:59. Às 06h de 04/11, a sugestão passa a 05/11. Antes das
+06h, o atalho da data exibe Hoje; a partir das 06h, Amanhã. A virada não apaga,
+copia nem finaliza automaticamente registros. Consultas históricas manuais
+e rascunhos pendentes não são trocados pela seleção automática. Um rascunho
+não sincronizado antes das 06h não pode ser gravado fora do prazo.
+Solturas em andamento atualizam carros pendentes vinculados quando a Escala
+corrigida é finalizada novamente. Despachos liberados e folhas finalizadas
+permanecem preservados. Folhas antigas sem registro da política de vínculo
+não são reconstruídas; detalhes na atualização de vínculos em DOMAIN.md.
+
+Validação local desta mudança: 103 testes passaram nas suítes da janela,
+Escala diária, ciclo da Soltura e programação, com persistência simulada e
+rede bloqueada. Incluem início/edição/reabertura na madrugada, limite exato
+das 06h, rollback ao atravessar o limite e preservação das fotografias.
+No navegador, o hook React foi exercitado com relógio controlado para validar
+meia-noite, 06h, rascunho pendente e manutenção de consulta histórica manual.
+Nenhum acesso ao banco, SQL, migration ou alteração de dados operacionais.
+
 ## Selecao do tipo de dia - 30/10/2026
 
 Ao abrir e ao mudar a data operacional, Escala e Soltura selecionam SEG_SEX,
@@ -40,11 +78,12 @@ fotografia salva. Consulta e troca de referencia nao gravam nem copiam dados.
 4. Clicar em **Finalizar Escala**. O molde permanece nos JSONs; operacao por data
    e estado ficam no banco, na estrutura existente.
 
-A tela inicia em amanha. Pode consultar qualquer data. Iniciar, editar e reabrir
-exigem data futura. Escala finalizada permite reabrir somente se a escala do dia
+A tela inicia na data em preparação (hoje antes das 06h; amanhã depois).
+Pode consultar qualquer data. Iniciar, editar e reabrir exigem data futura ou
+hoje antes das 06h. Escala finalizada permite reabrir somente se a escala do dia
 seguinte ainda nao foi iniciada na mesma garagem, inclusive em outro tipo/turno.
-Chegando a data da escala, conteudo e reabertura ficam indisponiveis. Uma pendencia
-pode ser finalizada depois da virada, sem alterar linhas ou cards.
+Às 06h da data da escala, conteúdo e reabertura ficam indisponíveis. Uma pendência
+pode ser finalizada depois desse limite, sem alterar linhas ou cards.
 
 O inicio nao e automatico e nao depende de finalizar a escala anterior. Ele limpa
 substituicoes e confirmacoes, sem copiar operacao de outras datas. Cards de lista

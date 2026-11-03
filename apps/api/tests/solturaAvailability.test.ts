@@ -45,6 +45,43 @@ function fixture(status = 'FINALIZADA') {
 }
 const reason = (code: string) => (e: any) => e.status === 409 && e.code === code;
 
+test('pendente vinculada revalida programado corrigido; liberada e folha finalizada nao acompanham origem', async () => {
+  const f = fixture(), clock = () => eventInstant(target, 4);
+  let sheet: any = { id: 7, revisao: 1, status: 'EM_ANDAMENTO', conteudo: JSON.stringify({ version: 1,
+    itens: [{ ...first, carroProgramado: '4000' }], eventos: [], escalaVinculadaIds: [first.id] }) };
+  const sourceRow = currentScaleTemplate(releaseScaleContext(context)).find(row => row.linha === first.linha && row.tabela === first.tabela)!;
+  let substitute = '4001';
+  f.db.escalaDiaria.findUnique = async () => {
+    const state = JSON.parse(scaleContent()); state.programacao = [sourceRow];
+    state.itens = [{ id: sourceRow.id, carroSubstituido: substitute }]; return { conteudo: JSON.stringify(state) };
+  };
+  f.db.folhaSoltura = { findUnique: async () => sheet,
+    update: async ({ data }: any) => { sheet = { ...sheet, ...data }; return sheet; } };
+  await assert.rejects(writeSafeRelease(f.db, 1, { ...body, carroProgramado: '4000' }, false, clock, () => ['VCG']), reason('CARRO_PROGRAMADO_ALTERADO_RECARREGUE'));
+  assert.equal(f.rows().length, 0); assert.equal(sheet.revisao, 1);
+  const saved: any = await writeSafeRelease(f.db, 1, { ...body, carroProgramado: '4001', carroRealizado: '4001' }, false, clock, () => ['VCG']);
+  assert.equal(saved.carroProgramado, '4001'); assert.equal(sheet.revisao, 2);
+  assert.equal(JSON.parse(sheet.conteudo).itens[0].carroProgramado, '4001');
+  substitute = '4002';
+  const edited: any = await writeSafeRelease(f.db, 1, { ...body, carroRealizado: '4001', driverCode: '999' }, false, clock, () => ['VCG']);
+  assert.equal(edited.carroProgramado, '4001'); assert.equal(sheet.revisao, 2);
+  sheet.status = 'FINALIZADA';
+  await assert.rejects(writeSafeRelease(f.db, 1, body, false, clock, () => ['VCG']), /finalizada/);
+  assert.equal(f.rows()[0].driverCode, '999');
+});
+
+test('falha ao persistir a atualizacao do vinculo desfaz o despacho inteiro', async () => {
+  const f = fixture();
+  const source = currentScaleTemplate(releaseScaleContext(context)).find(row => row.linha === first.linha && row.tabela === first.tabela)!;
+  f.db.escalaDiaria.findUnique = async () => { const state = JSON.parse(scaleContent()); state.programacao = [source];
+    state.itens = [{ id: source.id, carroSubstituido: '4001' }]; return { conteudo: JSON.stringify(state) }; };
+  f.db.folhaSoltura = { findUnique: async () => ({ id: 7, revisao: 1, status: 'EM_ANDAMENTO', conteudo: JSON.stringify({ version: 1,
+    itens: [{ ...first, carroProgramado: '4000' }], eventos: [], escalaVinculadaIds: [first.id] }) }),
+    update: async () => { throw Error('falha snapshot'); } };
+  await assert.rejects(writeSafeRelease(f.db, 1, { ...body, carroRealizado: '4001' }, false, () => eventInstant(target, 4), () => ['VCG']), /falha snapshot/);
+  assert.equal(f.rows().length, 0);
+});
+
 test('fretamento criado no Tráfego depende do tipo na fotografia, nunca da identificação enviada', async () => {
   for (const tipo of ['REGULAR', 'FRETAMENTO']) {
     const f = fixture();

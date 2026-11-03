@@ -71,27 +71,55 @@ test('hoje e anteriores rejeitam linhas e cards antes das integracoes, inclusive
       const f = fixture();
       const noFleet = async (): Promise<never> => { throw Error('Nao deveria carregar frota'); };
       await assert.rejects(saveReal(f.db, 1, { ...mutation, contexto: { ...contexto, dataOperacao: day } }, noFleet,
-        async () => null, () => new Date('2026-10-14T16:00:00Z')), (e: any) => e.status === 409 && /hoje/.test(e.message));
+        async () => null, () => new Date('2026-10-14T16:00:00Z')), (e: any) => e.status === 409 && /06h/.test(e.message));
       assert.equal(f.records.size, 0); assert.equal(f.locks.length, 0);
     }
   }
 });
 
-test('data usa Campo Grande: aceita antes da meia-noite local e rejeita depois', async () => {
+test('data usa Campo Grande: aceita antes das 06h locais e rejeita depois', async () => {
   const f = fixture(); await lifecycle(f.db, 'iniciar');
   await saveReal(f.db, 1, command(), async () => f.db.__fleet, async () => null,
-    () => new Date('2026-10-14T03:59:59Z'));
+    () => new Date('2026-10-14T09:59:59Z'));
   await assert.rejects(saveReal(f.db, 1, command(2, '5002'), async () => f.db.__fleet, async () => null,
-    () => new Date('2026-10-14T04:00:00Z')), (e: any) => e.status === 409);
+    () => new Date('2026-10-14T10:00:00Z')), (e: any) => e.status === 409);
   assert.equal([...f.records.values()][0].revisao, 2);
+});
+
+test('madrugada permite iniciar, editar cards e reabrir sem perder a escala da mesma data', async () => {
+  const f = fixture();
+  const midnight = () => new Date('2026-10-14T04:00:00Z');
+  const beforeSix = () => new Date('2026-10-14T09:59:59Z');
+  await lifecycle(f.db, 'iniciar', 0, contexto, midnight);
+  await saveReal(f.db, 1, command(), async () => f.db.__fleet, async () => null, midnight);
+  const card = await saveReal(f.db, 1, { contexto, revisao: 2, card: 'PORTARIA', operacao: 'adicionar', prefixo: '5002' }, async () => f.db.__fleet, async () => null, beforeSix);
+  const closed = await lifecycle(f.db, 'finalizar', card.revisao, contexto, beforeSix);
+  const reopened = await lifecycle(f.db, 'reabrir', closed.revisao, contexto, beforeSix);
+  assert.deepEqual(reopened.itens, closed.itens); assert.deepEqual(reopened.cards, closed.cards);
+  assert.equal(f.records.size, 1); assert.equal(reopened.fluxo.status, 'EM_PREPARACAO');
 });
 
 test('virada do dia durante a transacao cancela gravacao', async () => {
   const f = fixture(); await lifecycle(f.db, 'iniciar'); const before = structuredClone([...f.records]); let calls = 0;
   await assert.rejects(saveReal(f.db, 1, command(), async () => f.db.__fleet, async () => null,
-    () => new Date(++calls < 3 ? '2026-10-14T03:59:59Z' : '2026-10-14T04:00:00Z')),
+    () => new Date(++calls < 3 ? '2026-10-14T09:59:59Z' : '2026-10-14T10:00:00Z')),
     (e: any) => e.status === 409);
   assert.deepEqual([...f.records], before);
+});
+
+test('CI corrigida atualiza escala em preparacao mas nao a finalizada, sem escrita em GET', async () => {
+  const f = fixture(); await lifecycle(f.db, 'iniciar');
+  const before = structuredClone([...f.records]);
+  f.db.__blocks = ['5001'];
+  const read = await readEscalaDiaria(f.db, contexto, 1, async () => f.db.__fleet, async () => null);
+  assert.ok(read.bloqueados.includes('5001')); assert.ok(!read.reserva.includes('5001'));
+  assert.deepEqual([...f.records], before);
+  const closed = await lifecycle(f.db, 'finalizar');
+  const closedBefore = structuredClone([...f.records]);
+  f.db.__blocks = ['5002'];
+  const frozen = await readEscalaDiaria(f.db, contexto, 1, async () => f.db.__fleet, async () => null);
+  assert.deepEqual(frozen.bloqueados, closed.bloqueados);
+  assert.deepEqual([...f.records], closedBefore);
 });
 
 test('escala usa JSON fixo e banco armazena somente a substituicao', async () => {
@@ -710,18 +738,18 @@ test('manual: CI reaberta impede editar, reabrir ou finalizar escala ate nova fi
   f.db.__ciStatus = 'FINALIZADA'; await lifecycle(f.db, 'finalizar');
 });
 
-test('manual: meia-noite bloqueia iniciar, reabrir e editar, permitindo apenas finalizar pendencia', async () => {
+test('manual: 06h bloqueia iniciar, reabrir e editar, permitindo apenas finalizar pendencia', async () => {
   const f = fixture(); await lifecycle(f.db, 'iniciar');
-  const beforeMidnight = () => new Date('2026-10-14T03:59:59Z');
-  const afterMidnight = () => new Date('2026-10-14T04:00:00Z');
-  const saved = await saveReal(f.db, 1, command(), async () => f.db.__fleet, async () => null, beforeMidnight);
+  const beforeSix = () => new Date('2026-10-14T09:59:59Z');
+  const afterSix = () => new Date('2026-10-14T10:00:00Z');
+  const saved = await saveReal(f.db, 1, command(), async () => f.db.__fleet, async () => null, beforeSix);
   const before = structuredClone([...f.records]);
-  await assert.rejects(saveReal(f.db, 1, command(saved.revisao), async () => f.db.__fleet, async () => null, afterMidnight), /hoje ou anterior/);
-  await assert.rejects(lifecycle(f.db, 'iniciar', 0, contexto, afterMidnight), /hoje ou anterior/);
+  await assert.rejects(saveReal(f.db, 1, command(saved.revisao), async () => f.db.__fleet, async () => null, afterSix), /06h/);
+  await assert.rejects(lifecycle(f.db, 'iniciar', 0, contexto, afterSix), /06h/);
   assert.deepEqual([...f.records], before);
-  const closed = await lifecycle(f.db, 'finalizar', saved.revisao, contexto, afterMidnight);
+  const closed = await lifecycle(f.db, 'finalizar', saved.revisao, contexto, afterSix);
   assert.deepEqual(closed.itens, saved.itens);
-  await assert.rejects(lifecycle(f.db, 'reabrir', closed.revisao, contexto, afterMidnight), /hoje ou anterior/);
+  await assert.rejects(lifecycle(f.db, 'reabrir', closed.revisao, contexto, afterSix), /06h/);
 });
 
 test('manual: escala finalizada conserva fotografia da CI mesmo se a CI futura mudar', async () => {
@@ -753,7 +781,7 @@ test('manual: virada durante a escrita de linha reverte conteudo e revisao', asy
   const update = f.db.escalaDiaria.update; let crossed = false;
   f.db.escalaDiaria.update = async (args: any) => { await update(args); crossed = true; };
   await assert.rejects(saveReal(f.db, 1, command(), async () => f.db.__fleet, async () => null,
-    () => new Date(crossed ? '2026-10-14T04:00:00Z' : '2026-10-14T03:59:59Z')), /hoje ou anterior/);
+    () => new Date(crossed ? '2026-10-14T10:00:00Z' : '2026-10-14T09:59:59Z')), /06h/);
   assert.deepEqual([...f.records], before);
 });
 

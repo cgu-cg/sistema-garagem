@@ -7,7 +7,7 @@ import { listTraffic, saveTraffic } from '../services/trafficProgramming';
 function error(res: Response, value: unknown) {
   if (value instanceof MvpError) return res.status(value.status).json({ error: value.message });
   if (value instanceof ZodError) return res.status(400).json({ error: value.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; ') });
-  return res.status(503).json({ error: 'Programação de Tráfego indisponível. Verifique a aplicação do SQL trafego_programacao e a atualização da API.' });
+  return res.status(503).json({ error: 'Programação indisponível. Verifique os SQLs trafego_programacao, trafego_modelo e trafego_modelo_versao, o cliente Prisma e a atualização da API.' });
 }
 export async function list(req: AuthRequest, res: Response) {
   try { return res.json(await listTraffic(prisma, req.userId, req.query.garagem)); } catch (value) { return error(res, value); }
