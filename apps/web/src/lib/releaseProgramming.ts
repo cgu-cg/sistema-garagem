@@ -3,6 +3,7 @@ import { api } from './api';
 import { validateDailyEscala, type DailyEscala } from './sharedEscala';
 import { currentReleaseTemplate } from '../data/scheduleTemplates';
 import type { SolturaItem } from '../data/solturaTypes';
+import { trafficRowsSchema } from './trafficSchema';
 
 export interface ReleaseProgramming {
   contexto: DailyEscala['contexto']; escala: DailyEscala; escalaFinalizada: boolean; itens: SolturaItem[];
@@ -12,6 +13,7 @@ export interface GarageDefect { prefixo: string; descricao: string; registradoEm
 export interface ReleaseExchangeCommand { carroAnterior: string; motivo: 'Adicionado equivocadamente' | 'Defeito Garagem'; descricaoDefeito?: string }
 export async function loadReleaseProgramming(context: DailyEscala['contexto']): Promise<ReleaseProgramming> {
   const raw = z.object({ contexto: z.record(z.string()), escala: z.unknown(), escalaFinalizada: z.boolean(),
+    programacao: trafficRowsSchema.optional(),
     disponibilidade: z.object({ reserva: z.array(z.string().regex(/^\d{1,10}$/)),
       defeitosGaragem: z.array(z.object({ prefixo: z.string().regex(/^\d{1,10}$/), descricao: z.string(), registradoEm: z.string().datetime().nullable() }).strict()),
       reservaPorCor: z.object({ updatedAt: z.string().datetime().nullable(), grupos: z.array(z.object({ id: z.enum(['AZUL', 'VERMELHO', 'MICRO', 'VERMELHO_AZUL', 'PRATA', 'OUTRO']), titulo: z.string(), prefixos: z.array(z.string().regex(/^\d{1,10}$/)) }).strict()).length(6) }).strict(),
@@ -21,9 +23,9 @@ export async function loadReleaseProgramming(context: DailyEscala['contexto']): 
   if (Object.entries(context).some(([key, value]) => raw.contexto[key] !== value)) throw Error('Programacao de outra data ou garagem.');
   const independent = context.escalaTipo === 'SEG_SEX' && context.turno === 'VESPERTINO';
   const scaleContext = independent ? context : { ...context, turno: context.escalaTipo === 'SEG_SEX' ? 'MATUTINO' as const : 'PADRAO' as const };
-  const escala = validateDailyEscala(raw.escala, scaleContext), template = currentReleaseTemplate(context);
+  const escala = validateDailyEscala(raw.escala, scaleContext), template = raw.programacao ?? currentReleaseTemplate(context);
   if ((independent && (raw.itens.some(row => row.carroProgramado !== '') || escala.bloqueados.length > 0 || escala.ciAvisos?.length || escala.cards.length > 0)) || raw.escalaFinalizada !== (escala.fluxo?.status === 'FINALIZADA') || raw.itens.length !== template.length
-    || (!raw.escalaFinalizada && raw.itens.some(row => row.carroProgramado !== ''))
+    || (!raw.escalaFinalizada && !raw.programacao && raw.itens.some(row => row.carroProgramado !== ''))
     || new Set(raw.itens.map(row => row.id)).size !== template.length) throw Error('Programacao inconsistente com a escala.');
   const byId = new Map(raw.itens.map(item => [item.id, item]));
   const itens = template.map(row => {

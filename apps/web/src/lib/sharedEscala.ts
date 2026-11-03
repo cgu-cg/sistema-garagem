@@ -1,3 +1,4 @@
+import { trafficRowsSchema, type TrafficRow } from './trafficSchema';
 import { SolturaItem } from '@/data/solturaTypes';
 import { api } from './api';
 import { z } from 'zod';
@@ -19,7 +20,7 @@ export interface ScaleCard { id: string; titulo: string; modo: 'lista' | 'unico'
 export interface CardMutation { card: string; operacao: 'adicionar' | 'remover' | 'definir'; prefixo: string; itemId?: string; linha?: string; tabela?: string }
 export interface ScaleWithdrawal { prefixo: string; destino: 'RESERVA' | 'BLOQUEAR'; motivo: string }
 export interface ScaleExchange extends Omit<ScaleWithdrawal, 'destino'> { destino: 'PENDENTE' | 'RESERVA' | 'BLOQUEAR'; tratadoPor?: number; tratadoEm?: string; id: string; linhaId: string; substituto: string; usuarioId: number; registradoEm: string }
-export interface DailyEscala { contexto: EscalaContext & { dataOperacao: string }; revisao: number;
+export interface DailyEscala { programacao?: TrafficRow[]; contexto: EscalaContext & { dataOperacao: string }; revisao: number;
   // Anotacao de apresentacao da Soltura; nao altera a fotografia da Escala.
   defeitosGaragem?: { prefixo: string; descricao: string }[];
   historicoTrocas?: ScaleExchange[];
@@ -35,6 +36,7 @@ export interface DailyEscala { contexto: EscalaContext & { dataOperacao: string 
   ocupacoes: { prefixo: string; local: string; chave: string }[]; ciData: string; cardsOrigem: 'padrao' | 'salvo'; omitidosPadrao: number }
 const prefixSchema = z.string().regex(/^\d{1,10}$/);
 const dailyResponseSchema = z.object({
+  programacao: trafficRowsSchema.optional(),
   historicoTrocas: z.array(z.object({ id: z.string().uuid(), linhaId: z.string().min(1).max(100),
     prefixo: prefixSchema, substituto: prefixSchema, destino: z.enum(['PENDENTE', 'RESERVA', 'BLOQUEAR']), tratadoPor: z.number().int().positive().optional(), tratadoEm: z.string().datetime().optional(),
     motivo: z.string().trim().max(1000), usuarioId: z.number().int().positive(), registradoEm: z.string().datetime() }).strict()
@@ -62,7 +64,7 @@ const dailyResponseSchema = z.object({
 }).strict();
 export function validateDailyEscala(value: unknown, contexto: DailyEscala['contexto']): DailyEscala {
   const parsed = dailyResponseSchema.parse(value);
-  const ids = new Set([...currentScaleTemplate(contexto), ...retiredScaleRows(contexto)].map(i => i.id));
+  const ids = new Set([...(parsed.programacao ?? currentScaleTemplate(contexto)), ...retiredScaleRows(contexto)].map(i => i.id));
   if (parsed.foraMolde?.some(item => {
     const old = retiredScaleRows(contexto).find(row => row.id === item.id);
     return !old || old.linha !== item.linha || old.tabela !== item.tabela || old.saidaGaragem !== item.saidaGaragem

@@ -1,3 +1,4 @@
+import * as trafficProgramming from '../controllers/trafficProgramming';
 import { operationalAccess } from '../middleware/operationalAccess';
 import * as maintenanceBoardController from '../controllers/maintenanceBoard';
 import { Router } from "express";
@@ -34,6 +35,8 @@ import * as c4Controller from '../controllers/c4';
 import * as escalaCarrosController from '../controllers/escalaCarros';
 
 const router: Router = Router();
+router.get("/trafego/programacoes", authenticate, trafficProgramming.list);
+router.post("/trafego/programacoes", authenticate, trafficProgramming.save);
 
 router.get("/escala-carros", authenticate, operationalAccess('scale'), escalaCarrosController.list);
 router.post("/escala-carros", authenticate, operationalAccess('admin'), escalaCarrosController.save);

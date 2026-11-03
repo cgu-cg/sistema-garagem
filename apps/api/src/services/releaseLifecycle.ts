@@ -119,7 +119,7 @@ export async function changeReleaseLifecycle(db: PrismaClient, userId: number | 
         const savedScale = parseStoredDailyScale(scaleRecord?.conteudo, c);
         if (savedScale.fluxo?.status !== 'FINALIZADA') throw new MvpError(409, 'Escala alterada durante a finalizacao.');
         const cards = savedScale.cards ?? [];
-        scale = { ...scale, cards, ...allocationProjection(fixedSchedule(c), savedScale.itens, cards, scale.frota, savedScale.fluxo.fonteCI.bloqueados) };
+        scale = { ...scale, cards, ...allocationProjection(savedScale.programacao ?? fixedSchedule(c), savedScale.itens, cards, scale.frota, savedScale.fluxo.fonteCI.bloqueados) };
       }
       const availability = releaseFleetProjection(scale, sheet.itens, dailyRecords, context);
       const terminals = await tx.reservaTerminal.findMany({ where: { garagem: context.garagem,

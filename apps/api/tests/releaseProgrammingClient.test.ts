@@ -68,3 +68,18 @@ test('vespertino aceita frota independente sem CI ou escala finalizada e recusa 
   await assert.rejects(loadReleaseProgramming(evening));
  } finally { api.get = original; }
 });
+
+test('exceção oficial por data permite novas linhas e horários sem usar o JSON padrão', async () => {
+  const original = api.get;
+  try {
+    const row = { id: 'trafego-9a367235-3370-4e41-81f2-317513ef8ee6', linha: 'NOVA', tabela: '2', saidaGaragem: '08:45', carroProgramado: '4001' };
+    const value = { ...response(), programacao: [row], itens: [row] };
+    api.get = (async () => value) as typeof api.get;
+    const loaded = await loadReleaseProgramming(context);
+    assert.equal(loaded.itens.length, 1);
+    assert.equal(loaded.itens[0].linha, 'NOVA');
+    assert.equal(loaded.itens[0].saidaGaragem, '08:45');
+    value.itens = [{ ...row, linha: 'ADULTERADA' }];
+    await assert.rejects(loadReleaseProgramming(context));
+  } finally { api.get = original; }
+});

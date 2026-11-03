@@ -3,11 +3,11 @@ import type { DailyEscala, EscalaContext } from './sharedEscala';
 import { currentScaleTemplate } from '../data/scheduleTemplates';
 
 export type FixedScaleRow = SolturaItem & { carroSubstituido?: string; confirmada?: boolean };
-export function fixedScheduleRows(contexto: EscalaContext): FixedScaleRow[] {
-  return currentScaleTemplate(contexto).map(i => ({ ...i, status: 'PENDENTE' }));
+export function fixedScheduleRows(contexto: EscalaContext, programacao = currentScaleTemplate(contexto)): FixedScaleRow[] {
+  return programacao.map(i => ({ ...i, status: 'PENDENTE' }));
 }
-export function fixedScheduleToken(contexto: EscalaContext, id: string) {
-  return JSON.stringify(currentScaleTemplate(contexto).find(i => i.id === id));
+export function fixedScheduleToken(contexto: EscalaContext, id: string, programacao = currentScaleTemplate(contexto)) {
+  return JSON.stringify(programacao.find(i => i.id === id));
 }
 export function applyDailySchedule(base: FixedScaleRow[], daily: DailyEscala | null): FixedScaleRow[] {
   const changes = new Map(daily?.itens.map(i => [i.id, i.carroSubstituido]));

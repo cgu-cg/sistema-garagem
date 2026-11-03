@@ -1,5 +1,13 @@
 # Domain model e entendimento operacional atual
 
+## Exceções de Tráfego por data — 02/11/2026
+
+CONFIRMADO pelo usuário: Escalas e Solturas especiais valem para uma data
+específica, sem substituir padrões recorrentes; criação e edição por ADMIN
+e perfil Soltura. O editor permite copiar uma base ou começar vazio e editar
+campos/adicionar viagens. A API preserva o isolamento de garagem e as folhas
+já iniciadas. Implementação e limites em `proposals/TRAFEGO-PROGRAMACAO.md`.
+
 ## Controle de Manutencao independente e offline - 30/10/2026
 
 Decisao confirmada pelo usuario: o Controle continua neste sistema, com

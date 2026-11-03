@@ -1,3 +1,4 @@
+import { TrafegoPage } from '@/pages/trafego';
 import { operationPageAccess, explicitGarage } from '@/lib/operationalAccess';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useEffect } from "react";
@@ -110,6 +111,8 @@ export function App() {
             </ProtectedRoute>
           }
         >
+          <Route path="/trafego" element={<Navigate to="/trafego/alterar-escalas-solturas" replace />} />
+          <Route path="/trafego/alterar-escalas-solturas" element={<PermissionRoute to="/trafego" fallbackRoles={["ADMIN", "soltura"]}><TrafegoPage /></PermissionRoute>} />
           <Route
             path="/home"
             element={
@@ -210,7 +213,7 @@ export function App() {
             path="/soltura/alterar-folha"
             element={
               <PermissionRoute to="/soltura-adm" fallbackRoles={["ADMIN", "COLABORADOR"]}>
-                <SolturaPage defaultTab="ALTERAR_FOLHA" />
+                <Navigate to="/trafego/alterar-escalas-solturas" replace />
               </PermissionRoute>
             }
           />
@@ -266,7 +269,7 @@ export function App() {
             path="/soltura-adm"
             element={
               <PermissionRoute to="/soltura-adm" fallbackRoles={["ADMIN", "COLABORADOR"]}>
-                <SolturaPage defaultTab="ALTERAR_FOLHA" />
+                <Navigate to="/trafego/alterar-escalas-solturas" replace />
               </PermissionRoute>
             }
           />
@@ -274,7 +277,7 @@ export function App() {
             path="/soltura-adm/alterar-folha"
             element={
               <PermissionRoute to="/soltura-adm" fallbackRoles={["ADMIN", "COLABORADOR"]}>
-                <SolturaPage defaultTab="ALTERAR_FOLHA" />
+                <Navigate to="/trafego/alterar-escalas-solturas" replace />
               </PermissionRoute>
             }
           />
@@ -282,7 +285,7 @@ export function App() {
             path="/alterar-folha"
             element={
               <PermissionRoute to="/soltura-adm" fallbackRoles={["ADMIN", "COLABORADOR"]}>
-                <SolturaPage defaultTab="ALTERAR_FOLHA" />
+                <Navigate to="/trafego/alterar-escalas-solturas" replace />
               </PermissionRoute>
             }
           />

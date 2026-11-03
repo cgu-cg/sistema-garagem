@@ -462,7 +462,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     if (dataOperacao <= operationalContext().today) {
       toast.error('Somente escalas futuras em preparacao podem ser alteradas.'); return false;
     }
-    const base = fixedScheduleToken(scaleContext, id);
+    const base = fixedScheduleToken(scaleContext, id, dailyScale?.programacao);
     if (!canEditDailyScale || !dailyReady || !dailyScale || dailyWritePending.current || !base) {
       toast.error('Consulte as substituicoes oficiais antes de salvar.'); return false;
     }
@@ -509,7 +509,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const changeScaleLifecycle = async (operation: 'iniciar' | 'finalizar' | 'reabrir') => {
     if (!dailyScale || !dailyReady || dailyWritePending.current || !canWriteDailyScale(user, garagem)) return;
     if (dailyDirtyFields.current.size) { toast.warning('Salve os rascunhos antes de alterar o estado da escala.'); return; }
-    if (!window.confirm(operation === 'iniciar' ? 'Iniciar esta escala com o molde JSON, sem alteracoes da escala anterior?' : operation === 'finalizar' ? 'Finalizar esta escala?' : 'Reabrir esta escala para edicao?')) return;
+    if (!window.confirm(operation === 'iniciar' ? 'Iniciar esta escala com o modelo da data, sem alteracoes da escala anterior?' : operation === 'finalizar' ? 'Finalizar esta escala?' : 'Reabrir esta escala para edicao?')) return;
     const key = dailyContextKey;
     dailyWritePending.current = true; dailyWriteContext.current = key; ++dailyReadSequence.current; setDailyLifecyclePending(true);
     try {
@@ -575,7 +575,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const permanentSchedules = permanentReady && sharedScale?.publicada ? customSchedules[scheduleKey] ?? defaultSchedules : defaultSchedules;
   const releaseTemplate: SolturaItem[] = releaseLifecycle.data?.itens?.map(row => ({ ...row, status: 'PENDENTE' as const })) ?? releaseProgramming.data?.itens ?? defaultSchedules.map(row => ({ ...row, carroProgramado: '' }));
   const rawBaseSchedules = ['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode) ? releaseTemplate : garagem === 'VCG' ? defaultSchedules : permanentSchedules;
-  const fixedRows = useMemo(() => fixedScheduleRows(scaleContext), [scaleContextKey]);
+  const fixedRows = useMemo(() => fixedScheduleRows(scaleContext, dailyReady ? dailyScale?.programacao : undefined), [scaleContextKey, dailyReady, dailyScale?.programacao]);
   const dailySchedules = useMemo(() => applyDailySchedule(fixedRows, dailyReady ? dailyScale : null), [fixedRows, dailyScale, dailyReady]);
   const baseSchedules = useMemo(() => {
     return [...rawBaseSchedules].sort((a, b) => {

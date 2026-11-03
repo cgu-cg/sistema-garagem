@@ -1,3 +1,5 @@
+import { dateProgramming } from './trafficProgramming';
+import { trafficRowSchema, trafficRowsSchema } from './trafficSchema';
 import { scaleLifecycleSchema, assertScaleDate, assertScaleOperation, type ScaleLifecycle } from './dailyScaleLifecycle';
 import { scaleWithdrawalSchema, scaleExchangeSchema, registerScaleWithdrawal, treatScaleWithdrawal } from './scaleSubstitution';
 import { projectScaleCiNotices, type ScaleCiNotice } from './scaleCiNotices';
@@ -40,7 +42,7 @@ const commandSchema = z.union([
 ]);
 const confirmationsSchema = z.array(z.object({ id: z.string().min(1).max(100), prefixo: z.string().regex(/^\d{1,10}$/) }).strict()).max(2000)
   .refine(values => new Set(values.map(v => v.id)).size === values.length, 'Confirmacoes duplicadas.');
-const savedSchema = z.object({ version: z.union([z.literal(2), z.literal(3)]), itens: itemsSchema, cards: allocationCardsSchema, confirmacoes: confirmationsSchema.default([]), historicoTrocas: z.array(scaleExchangeSchema).default([]), fluxo: scaleLifecycleSchema.optional() }).strict();
+const savedSchema = z.object({ version: z.union([z.literal(2), z.literal(3)]), itens: itemsSchema, cards: allocationCardsSchema, confirmacoes: confirmationsSchema.default([]), historicoTrocas: z.array(scaleExchangeSchema).default([]), fluxo: scaleLifecycleSchema.optional(), programacao: trafficRowsSchema.optional() }).strict();
 export function fixedSchedule(contexto: ReturnType<typeof parseDailyContext>) {
   return currentScaleTemplate(contexto);
 }
@@ -50,9 +52,10 @@ export function parseStoredDailyScale(conteudo: string | undefined, contexto: Re
   const value = Array.isArray(parsed) ? { itens: itemsSchema.parse(parsed), cards: null, confirmacoes: [] } : savedSchema.parse(parsed);
   if ('version' in value && value.version === 3 && !value.fluxo) throw new MvpError(409, 'Estado da escala invalido.');
   if ('fluxo' in value && value.fluxo && value.fluxo.fonteCI.ciData !== contexto.dataOperacao) throw new MvpError(409, 'CI da escala pertence a outra data.');
-  const ids = new Set([...fixedSchedule(contexto), ...retiredScaleRows(contexto)].map(i => i.id));
+  const programacao = 'programacao' in value ? value.programacao : undefined;
+  const ids = new Set([...(programacao ?? fixedSchedule(contexto)), ...retiredScaleRows(contexto)].map(i => i.id));
   if (value.itens.some(i => !ids.has(i.id)) || value.confirmacoes.some(i => !ids.has(i.id))) throw new MvpError(409, 'Substituicoes fora da programacao fixa. Revisar sem descartar historico.');
-  return { ...value, historicoTrocas: 'historicoTrocas' in value ? value.historicoTrocas : [], fluxo: 'fluxo' in value ? value.fluxo ?? null : null };
+  return { ...value, programacao, historicoTrocas: 'historicoTrocas' in value ? value.historicoTrocas : [], fluxo: 'fluxo' in value ? value.fluxo ?? null : null };
 }
 export type FleetLoader = () => Promise<{ source: string; data: unknown }>;
 export type ColorLoader = () => Promise<FleetColorCache | null>;
@@ -74,8 +77,8 @@ function projectCiBlocks(folha: { status: string; itens: ItemFolhaCI[] } | null,
 }
 function project(contexto: ReturnType<typeof parseDailyContext>, revisao: number, itens: z.infer<typeof itemsSchema>, cards: AllocationCard[],
   frota: string[], source: { ciData: string; bloqueados: string[]; ciAvisos: ScaleCiNotice[] }, cardsOrigem: 'padrao' | 'salvo', omitidosPadrao: number,
-  confirmacoes: z.infer<typeof confirmationsSchema>, colorCache: FleetColorCache | null) {
-  const allocation = allocationProjection(fixedSchedule(contexto), itens, cards, frota, source.bloqueados);
+  confirmacoes: z.infer<typeof confirmationsSchema>, colorCache: FleetColorCache | null, programacao = fixedSchedule(contexto)) {
+  const allocation = allocationProjection(programacao, itens, cards, frota, source.bloqueados);
   const blocked = [...source.bloqueados, ...(cards.find(c => c.id === 'PORTARIA')?.itens.map(i => i.prefixo) ?? [])];
   const replacements = new Map(itens.map(i => [i.id, i.carroSubstituido]));
   const foraMolde = itens.flatMap(item => {
@@ -83,16 +86,16 @@ function project(contexto: ReturnType<typeof parseDailyContext>, revisao: number
     return old ? [{ ...old, carroSubstituido: item.carroSubstituido }] : [];
   });
   const confirmadas = confirmacoes.filter(c => {
-    const fixed = fixedSchedule(contexto).find(i => i.id === c.id);
+    const fixed = programacao.find(i => i.id === c.id);
     return fixed && c.prefixo === (replacements.get(c.id) ?? fixed.carroProgramado) && frota.includes(c.prefixo)
       && !blocked.includes(c.prefixo) && !allocation.ocupacoes.some(o => o.prefixo === c.prefixo && o.chave !== 'linha:' + c.id);
   }).map(c => c.id);
-  return { contexto, revisao, itens, cards, ciData: source.ciData, ciAvisos: source.ciAvisos, cardsOrigem, omitidosPadrao,
+  return { contexto, revisao, itens, cards, programacao, ciData: source.ciData, ciAvisos: source.ciAvisos, cardsOrigem, omitidosPadrao,
     confirmadas, foraMolde, ...allocation, coresFrota: Object.fromEntries(frota.map(prefixo => [prefixo, vehicleColor(colorCache, prefixo)])),
     reservaPorCor: groupReserveColors(allocation.reserva, colorCache) };
 }
-function cleanCards(contexto: ReturnType<typeof parseDailyContext>, frota: string[]) {
-  return defaultAllocations(contexto.garagem, frota, [], fixedSchedule(contexto), []).cards
+function cleanCards(contexto: ReturnType<typeof parseDailyContext>, frota: string[], programacao = fixedSchedule(contexto)) {
+  return defaultAllocations(contexto.garagem, frota, [], programacao, []).cards
     .map(card => ({ ...card, itens: card.modo === 'lista' ? [] : card.itens.map(item => ({ ...item, prefixo: '' })) }));
 }
 async function nextScaleStarted(tx: Pick<PrismaClient, 'escalaDiaria'>, contexto: ReturnType<typeof parseDailyContext>) {
@@ -126,9 +129,10 @@ export async function readEscalaDiaria(db: PrismaClient, value: unknown, userId:
       source = { ...projectCiBlocks(previous, previous.dataFolha.toISOString().slice(0, 10), frota), ciAvisos: [] };
       ciProvisoria = true;
     }
-    const defaults = defaultAllocations(contexto.garagem, frota, source.bloqueados, fixedSchedule(contexto), state.itens);
-    return { ...project(contexto, record?.revisao ?? 0, state.itens, state.cards ?? (legacy ? defaults.cards : cleanCards(contexto, frota)), frota, source,
-      state.cards ? 'salvo' : 'padrao', legacy && !state.cards ? defaults.omitted : 0, state.confirmacoes, colorCache),
+    const programacao = state.programacao ?? (record ? fixedSchedule(contexto) : await dateProgramming(tx, 'ESCALA', contexto));
+    const defaults = defaultAllocations(contexto.garagem, frota, source.bloqueados, programacao, state.itens);
+    return { ...project(contexto, record?.revisao ?? 0, state.itens, state.cards ?? (legacy ? defaults.cards : cleanCards(contexto, frota, programacao)), frota, source,
+      state.cards ? 'salvo' : 'padrao', legacy && !state.cards ? defaults.omitted : 0, state.confirmacoes, colorCache, programacao),
       historicoTrocas: state.historicoTrocas, ciProvisoria, fluxo: flowView(state.fluxo, Boolean(record), live.ciFinalizada, await nextScaleStarted(tx, contexto)) };
   }, { isolationLevel: 'Serializable' });
 }
@@ -144,7 +148,7 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
   assertDate();
   const userBefore = userId ? await db.user.findUnique({ where: { id: userId }, select: { role: true, garagem: true } }) : null;
   if (!canWriteDailyScale(userBefore, contexto.garagem)) throw new MvpError(403, 'Edicao exige ADMIN ou Soltura da propria garagem.');
-  const frota = officialGarageFleet(await loadFleet(), contexto.garagem), fixed = fixedSchedule(contexto);
+  const frota = officialGarageFleet(await loadFleet(), contexto.garagem);
   const colorCache = await loadColors();
   const result = await db.$transaction(async tx => {
     const user = userId ? await tx.user.findUnique({ where: { id: userId }, select: { role: true, garagem: true } }) : null;
@@ -161,6 +165,7 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
     const old = await tx.escalaDiaria.findUnique({ where: selector(contexto) });
     if ((old?.revisao ?? 0) !== c.revisao) throw new MvpError(409, 'Escala do dia alterada em outro posto. Recarregue e revise antes de salvar.');
     const source = await ciBlocks(tx, contexto, frota), state = parseStoredDailyScale(old?.conteudo, contexto);
+    const fixed = state.programacao ?? (old ? fixedSchedule(contexto) : await dateProgramming(tx, 'ESCALA', contexto));
     const nextStarted = await nextScaleStarted(tx, contexto);
     if (treating) {
       if (!state.fluxo || !old) throw new MvpError(409, 'Escala nao iniciada.');
@@ -172,10 +177,10 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
         : { ...state.fluxo!, status: c.operacao === 'finalizar' ? 'FINALIZADA' : 'EM_PREPARACAO',
           finalizadaEm: c.operacao === 'finalizar' ? clock().toISOString() : null, fonteCI: sourceSnapshot };
       const itens = c.operacao === 'iniciar' ? [] : state.itens;
-      const cards = c.operacao === 'iniciar' ? cleanCards(contexto, frota) : state.cards!;
+      const cards = c.operacao === 'iniciar' ? cleanCards(contexto, frota, fixed) : state.cards!;
       const confirmacoes = c.operacao === 'iniciar' ? [] : state.confirmacoes;
       const historicoTrocas = c.operacao === 'iniciar' ? [] : state.historicoTrocas;
-      const payload = savedSchema.parse({ version: 3, itens, cards, confirmacoes, historicoTrocas, fluxo });
+      const payload = savedSchema.parse({ version: 3, itens, cards, confirmacoes, historicoTrocas, programacao: fixed, fluxo });
       // Zero representa ausencia no GET/comando inicial; registros persistidos
       // comecam em 1, conforme CK_escala_diaria_revisao do banco.
       const data = { revisao: c.revisao + 1, conteudo: JSON.stringify(payload), responsavelId: userId! };
@@ -183,7 +188,7 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
       if (old) await tx.escalaDiaria.update({ where: { id: old.id }, data });
       else await tx.escalaDiaria.create({ data: { ...contexto, ...data } });
       assertDate();
-      return { ...project(contexto, data.revisao, itens, cards, frota, source, 'salvo', 0, confirmacoes, colorCache),
+      return { ...project(contexto, data.revisao, itens, cards, frota, source, 'salvo', 0, confirmacoes, colorCache, fixed),
         historicoTrocas, fluxo: flowView(fluxo, true, source.ciFinalizada, nextStarted) };
     }
     const itens = state.itens;
@@ -197,7 +202,10 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
         bloqueadosCI: [...new Set([...source.bloqueados, ...(state.fluxo?.fonteCI.bloqueados ?? [])])], usuarioId: userId!, agora: clock() });
     } else if ('id' in c) {
       const original = fixed.find(i => i.id === c.id);
-      if (!original || c.base !== JSON.stringify(original)) throw new MvpError(409, 'Programacao fixa diferente da versao do servidor. Atualize a pagina e revise.');
+      let sameBase = false;
+      try { sameBase = Boolean(original) && JSON.stringify(trafficRowSchema.parse(JSON.parse(c.base))) === JSON.stringify(trafficRowSchema.parse(original)); }
+      catch { /* Token inválido não autoriza gravação. */ }
+      if (!original || !sameBase) throw new MvpError(409, 'Programacao fixa diferente da versao do servidor. Atualize a pagina e revise.');
       const effective = c.carroSubstituido || original.carroProgramado;
       const anterior = itens.find(i => i.id === c.id)?.carroSubstituido ?? original.carroProgramado;
       validateAllocation(effective, 'linha:' + c.id, frota, [...source.bloqueados, ...portaria], used);
@@ -228,14 +236,14 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
         else throw new MvpError(400, 'Informe os dados da posicao.');
       }
     }
-    const payload = savedSchema.parse({ version: 3, itens, cards, confirmacoes, historicoTrocas, fluxo: treating ? state.fluxo! : { ...state.fluxo!, fonteCI: sourceSnapshot } });
+    const payload = savedSchema.parse({ version: 3, itens, cards, confirmacoes, historicoTrocas, programacao: fixed, fluxo: treating ? state.fluxo! : { ...state.fluxo!, fonteCI: sourceSnapshot } });
     const data = { revisao: c.revisao + 1, conteudo: JSON.stringify(payload), responsavelId: userId! };
     assertDate();
     if (old) await tx.escalaDiaria.update({ where: { id: old.id }, data });
     else await tx.escalaDiaria.create({ data: { ...contexto, ...data } });
     assertDate();
     const presentationSource = treating && state.fluxo?.status === 'FINALIZADA' ? state.fluxo.fonteCI : source;
-    return { ...project(contexto, data.revisao, itens, cards, frota, presentationSource, 'salvo', 0, confirmacoes, colorCache),
+    return { ...project(contexto, data.revisao, itens, cards, frota, presentationSource, 'salvo', 0, confirmacoes, colorCache, fixed),
       historicoTrocas, fluxo: flowView(payload.fluxo!, true, source.ciFinalizada, nextStarted) };
   }, { isolationLevel: 'Serializable' });
   if (operation !== 'editar' || treating) await notifyC4Updated(contexto.garagem, addDays(contexto.dataOperacao, -1));

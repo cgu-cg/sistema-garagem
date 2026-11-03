@@ -1,5 +1,19 @@
 # Moldes VCG em JSON - 21/10/2026
 
+## Exceções por data — 02/11/2026
+
+O menu Tráfego permite criar exceções de Escala ou Soltura para uma data,
+do zero ou copiando padrões/exceções existentes. ADMIN e perfil Soltura da
+própria garagem podem editar. As exceções ficam em `trafego_programacao` e
+prevalecem no contexto da data; os padrões JSON permanecem como base quando
+não houver exceção. Copiar sábado para segunda não altera o sábado padrão.
+
+Programação em uso não pode ser editada. Novas escalas fotografam suas linhas
+ao iniciar; solturas preservam a fotografia já existente no ciclo. Na exceção
+de Soltura, o carro programado é o cadastrado no editor; no vespertino continua
+ausente. Requisitos operacionais de CI, Escala, data e garagem permanecem.
+Detalhes e implantação em `proposals/TRAFEGO-PROGRAMACAO.md`.
+
 ## Carros fixos sem repeticao - decisao de 22/10/2026
 
 Na Escala VCG, cada carro fixo aparece uma unica vez por molde. O importador

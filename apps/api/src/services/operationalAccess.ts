@@ -27,8 +27,9 @@ export function canReadOperation(user: AccessUser | null | undefined) {
   return Boolean(user && (user.role === 'ADMIN' || explicitGarage(user)));
 }
 export function operationPageAccess(user: AccessUser | null | undefined, path: string): boolean | undefined {
+  if (path === '/trafego' || path.startsWith('/trafego/')) return Boolean(user && (user.role === 'ADMIN' || user.role === 'soltura' && explicitGarage(user)));
   if (['/soltura-adm', '/alterar-folha', '/soltura/alterar-folha'].some(p => path === p || path.startsWith(p + '/')))
-    return user?.role === 'ADMIN';
+    return Boolean(user && (user.role === 'ADMIN' || user.role === 'soltura' && explicitGarage(user)));
   if (['/manutencao', '/ci-manutencao', '/soltura/ci-manutencao'].some(p => path === p || path.startsWith(p + '/')))
     return canReadOperation(user);
   if (['/escala-carros', '/alterar-carro-programado', '/soltura/alterar-carro-programado', '/soltura/carro-realizado'].some(p => path === p || path.startsWith(p + '/')))

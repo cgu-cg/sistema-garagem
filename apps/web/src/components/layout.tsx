@@ -12,14 +12,12 @@ import {
   Radio,
   Sun,
   Moon,
-  Gauge,
   Menu,
   X,
   Building2,
   ChevronDown,
   Bell,
-  Wrench,
-  CalendarClock
+  Wrench
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -48,40 +46,34 @@ const navItems: NavItem[] = [
     icon: LayoutGrid,
     roles: ["ADMIN", "COLABORADOR", "tanque", "abastecimento", "operacional"]
   },
-  { 
-    to: "/catracas", 
-    label: "Conferência Catracas", 
-    icon: ClipboardCheck, 
-    roles: ["ADMIN"]
-  },
   {
     to: "/abastecimento",
-    label: "Leitura de Tanques",
-    icon: Gauge,
-    roles: ["ADMIN", "tanque", "COLABORADOR"]
-  },
-  {
-    to: "/abastecimento-carro",
-    label: "Abastecimento por Carro",
+    label: "Abastecimento",
     icon: Fuel,
-    roles: ["ADMIN", "abastecimento", "COLABORADOR"]
+    roles: ["ADMIN", "abastecimento", "tanque", "COLABORADOR"],
+    children: [
+      { to: "/abastecimento-carro", label: "Abastecimento Por Carro", roles: ["ADMIN", "abastecimento", "COLABORADOR"] },
+      { to: "/abastecimento", label: "Leitura de Tanques", roles: ["ADMIN", "tanque", "COLABORADOR"] }
+    ]
   },
   {
-    to: "/soltura",
-    label: "Soltura",
+    to: "/bilhetagem",
+    label: "Bilhetagem",
+    icon: ClipboardCheck,
+    roles: ["ADMIN"],
+    children: [
+      { to: "/catracas", label: "Conferência de Catraca", roles: ["ADMIN"] }
+    ]
+  },
+  {
+    to: "/portaria",
+    label: "Portaria",
     icon: Bus,
     roles: ["ADMIN", "soltura", "COLABORADOR"],
     children: [
-      {
-        to: "/soltura",
-        label: "Folha de Soltura",
-        roles: ["ADMIN", "soltura", "COLABORADOR"]
-      },
-      {
-        to: "/soltura/alterar-folha",
-        label: "Alterar Folha de Soltura",
-        roles: ["ADMIN", "soltura", "COLABORADOR"]
-      }
+      { to: "/trafego/alterar-escalas-solturas", label: "Editar Escalas e Solturas", roles: ["ADMIN", "soltura"] },
+      { to: "/soltura", label: "Solturas", roles: ["ADMIN", "soltura", "COLABORADOR"] },
+      { to: "/escala-carros/alterar-carro-programado", label: "Escala de Carros", roles: ["ADMIN", "COLABORADOR"] }
     ]
   },
   {
@@ -103,23 +95,13 @@ const navItems: NavItem[] = [
     ]
   },
   {
-    to: "/escala-carros",
-    label: "Escala Carros",
-    icon: CalendarClock,
-    roles: ["ADMIN", "COLABORADOR"],
-    children: [
-      {
-        to: "/escala-carros/alterar-carro-programado",
-        label: "Alterar Carro Programado",
-        roles: ["ADMIN", "COLABORADOR"]
-      }
-    ]
-  },
-  {
-    to: "/controle-operacional",
-    label: "Controle Operacional",
+    to: "/operacao",
+    label: "Operação",
     icon: Radio,
-    roles: ["ADMIN", "operacional", "COLABORADOR"]
+    roles: ["ADMIN", "operacional", "COLABORADOR"],
+    children: [
+      { to: "/controle-operacional", label: "Controle Operacional", roles: ["ADMIN", "operacional", "COLABORADOR"] }
+    ]
   },
   {
     to: "/admin/usuarios",
@@ -147,9 +129,11 @@ export function Layout() {
     return () => document.removeEventListener('pointerdown', closeOutside, true);
   }, [sidebarCollapsed]);
   const [openSubMenus, setOpenSubMenus] = useState<Record<string, boolean>>({
-    "/soltura": true,
+    "/abastecimento": true,
+    "/bilhetagem": true,
+    "/operacao": true,
+    "/portaria": true,
     "/manutencao": true,
-    "/escala-carros": true,
   });
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
@@ -250,7 +234,6 @@ export function Layout() {
 
   const filterNavItems = (items: NavItem[]) => {
     return items
-      .filter((item) => hasPermission(item.to, item.roles))
       .map((item) => {
         if (item.children) {
           return {
@@ -259,12 +242,14 @@ export function Layout() {
           };
         }
         return item;
-      });
+      })
+      .filter(item => item.children ? Boolean(item.children.length) : hasPermission(item.to, item.roles));
   };
 
   const visibleNav = filterNavItems(navItems);
 
   const getActiveTitle = () => {
+    if (location.pathname.startsWith("/trafego")) return "Portaria - Editar Escalas e Solturas";
     if (location.pathname.startsWith("/home")) return "Início";
     if (location.pathname.startsWith("/catracas/consistencia")) return "Catracas - Consistência Diária";
     if (location.pathname.startsWith("/catracas/alertas")) return "Catracas - Datas Incorretas";
@@ -275,10 +260,10 @@ export function Layout() {
     if (location.pathname.startsWith("/abastecimento")) return "Leitura de Tanques";
     if (location.pathname === "/manutencao") return "Manutenção - Controle de Manutenção";
     if (location.pathname.startsWith("/manutencao") || location.pathname.startsWith("/ci-manutencao") || location.pathname.startsWith("/soltura/ci-manutencao")) return "Manutenção - CI Manutenção";
-    if (location.pathname.startsWith("/soltura/alterar-folha") || location.pathname.startsWith("/soltura-adm") || location.pathname.startsWith("/alterar-folha")) return "Soltura - Alterar Folha de Soltura";
-    if (location.pathname.startsWith("/escala-carros") || location.pathname.startsWith("/soltura/alterar-carro-programado") || location.pathname.startsWith("/alterar-carro-programado") || location.pathname.startsWith("/soltura/carro-realizado")) return "Escala Carros - Alterar Carro Programado";
+    if (location.pathname.startsWith("/soltura/alterar-folha") || location.pathname.startsWith("/soltura-adm") || location.pathname.startsWith("/alterar-folha")) return "Portaria - Editar Escalas e Solturas";
+    if (location.pathname.startsWith("/escala-carros") || location.pathname.startsWith("/soltura/alterar-carro-programado") || location.pathname.startsWith("/alterar-carro-programado") || location.pathname.startsWith("/soltura/carro-realizado")) return "Portaria - Escala de Carros";
     if (location.pathname.startsWith("/soltura/historico")) return "Soltura - Histórico de Soltura";
-    if (location.pathname.startsWith("/soltura")) return "Soltura - Folha de Soltura";
+    if (location.pathname.startsWith("/soltura")) return "Portaria - Solturas";
     if (location.pathname.startsWith("/controle-operacional")) return "Controle Operacional";
     if (location.pathname.startsWith("/admin/usuarios")) return "Usuários";
     return "Sistema Garagem";

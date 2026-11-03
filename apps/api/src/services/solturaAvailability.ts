@@ -97,6 +97,7 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
     for (const i of items) {
       const row = programming.find(row => row.id === i.scheduleId);
       if (!row || row.linha !== i.linha || row.tabela !== i.tabela) throw new AvailabilityError('VIAGEM_FORA_DO_MOLDE');
+      if (!row.tabela.trim() && row.tipo !== 'FRETAMENTO') throw new AvailabilityError('TABELA_OBRIGATORIA');
       const existing = dailyRecords.filter(r => r.scheduleId === i.scheduleId && r.turno === releaseContext.turno && r.escalaTipo === releaseContext.escalaTipo);
       if (existing.length > 1) throw new AvailabilityError('SOLTURA_DUPLICADA_EXISTENTE');
       const programmed = independent ? null : existing[0] ? existing[0].carroProgramado : row.carroProgramado || null;

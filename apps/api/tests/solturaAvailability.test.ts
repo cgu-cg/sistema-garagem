@@ -45,6 +45,18 @@ function fixture(status = 'FINALIZADA') {
 }
 const reason = (code: string) => (e: any) => e.status === 409 && e.code === code;
 
+test('fretamento criado no Tráfego depende do tipo na fotografia, nunca da identificação enviada', async () => {
+  for (const tipo of ['REGULAR', 'FRETAMENTO']) {
+    const f = fixture();
+    const row = { ...first, id: 'trafego-9a367235-3370-4e41-81f2-317513ef8ee6', linha: 'ESPECIAL', tabela: '', tipo };
+    f.db.folhaSoltura.findUnique = async () => ({ status: 'EM_ANDAMENTO', conteudo: JSON.stringify({ version: 1, itens: [row], eventos: [] }) });
+    const command = { ...body, scheduleId: row.id, linha: row.linha, tabela: '' };
+    const save = () => writeSafeRelease(f.db, 1, command, false, () => eventInstant(target, 4), () => ['VCG']);
+    if (tipo === 'REGULAR') { await assert.rejects(save(), reason('TABELA_OBRIGATORIA')); assert.equal(f.rows().length, 0); }
+    else { await save(); assert.equal(f.rows()[0].linha, 'ESPECIAL'); }
+  }
+});
+
 test('alteracao de MOTO preserva carro, liberacao e historico de troca salvo', async () => {
  const f = fixture(), clock = () => eventInstant(target, 4);
  const save = (request: unknown) => writeSafeRelease(f.db, 1, request, false, clock, () => ['VCG']);
