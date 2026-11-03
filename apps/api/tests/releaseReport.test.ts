@@ -22,3 +22,11 @@ test('sabado usa tres colunas; vespertino nao exibe programado', () => {
  const evening = fixture(2); evening.contexto.turno = 'VESPERTINO';
  assert.doesNotMatch(buildReleaseReportHtml(evening), /<th>Programado<\/th>/);
 });
+
+test('relatorio diferencia suspensas de liberadas e pendentes', () => {
+ const report = fixture(2);
+ report.itens[0] = { ...report.itens[0], suspensa: true, status: 'PENDENTE', carroRealizado: '', motoristaCodigo: '' };
+ const html = buildReleaseReportHtml(report);
+ assert.match(html, /background:#ffe4e6/); assert.match(html, /<small>SUSPENSA<\/small>/);
+ assert.match(html, /Liberados: 1/); assert.match(html, /Suspensas: 1/); assert.match(html, /Pendentes: 0/);
+});

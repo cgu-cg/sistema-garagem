@@ -5,6 +5,21 @@ import { loadReleaseProgramming } from '../../web/src/lib/releaseProgramming';
 import { currentReleaseTemplate } from '../../web/src/data/scheduleTemplates';
 
 const context = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'MATUTINO', dataOperacao: '2026-10-24' } as const;
+
+test('fotografia operacional aceita flag de suspensao sem relaxar validacao dos campos do molde', async () => {
+  const original = api.get;
+  try {
+    for (const suspensa of [false, true]) {
+      const value: any = response();
+      value.programacao = value.itens.map((row: any) => ({ ...row, suspensa }));
+      value.itens = value.programacao;
+      api.get = (async () => value) as typeof api.get;
+      assert.equal((await loadReleaseProgramming(context)).itens[0].suspensa, suspensa);
+      value.programacao[0].campoDesconhecido = 'nao permitido';
+      await assert.rejects(loadReleaseProgramming(context));
+    }
+  } finally { api.get = original; }
+});
 function response() {
   return { contexto: context, escalaFinalizada: true, itens: currentReleaseTemplate(context).map(row => ({ ...row, carroProgramado: '4001' })),
     escala: { contexto: { ...context, turno: 'MATUTINO' }, revisao: 2, itens: [], cards: [], confirmadas: [],

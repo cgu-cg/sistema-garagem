@@ -1,3 +1,4 @@
+import { canMarkMaintenanceUsage } from '@/lib/maintenancePortaria';
 import { explicitGarage } from '@/lib/operationalAccess';
 import { canWriteC4 } from '@/lib/c4Authorization';
 import { operationalContext } from '@/lib/mvpTemporal';
@@ -111,6 +112,7 @@ export function ManutencaoPage() {
   const reload = useReadCoordinator(activeContextRef.current, () => 0);
   const c4Scope = activeGaragem === 'VCM' ? 'VCM' : 'VCG';
   const mutationAllowed = Boolean(clock && ready && !saving && !(syncStatus.issue && !syncStatus.offline) && canWriteC4(user, c4Scope) && activeGaragem !== 'TODAS' && dataOperacao === getTodayString() && operationalContext(new Date(clock), 72000).open);
+  const usageAllowed = Boolean(clock && ready && !saving && !(syncStatus.issue && !syncStatus.offline) && canMarkMaintenanceUsage(user, c4Scope) && activeGaragem !== 'TODAS' && dataOperacao === getTodayString() && operationalContext(new Date(clock), 72000).open);
   const dateInputRef = useRef<HTMLInputElement>(null);
   const relatorioManutencaoRef = useRef<HTMLDivElement>(null);
   
@@ -428,6 +430,18 @@ export function ManutencaoPage() {
     finally { writing.current = false; setSaving(false); }
   };
   useEffect(() => { setRemovalIds([]); }, [dataOperacao, activeGaragem]);
+  const handlePortariaUsage = async (item: ManutencaoCarroItem) => {
+    if (!usageAllowed || writing.current || item.usadoPortaria || !item.emExecucao || item.bloqueado || item.liberado) return;
+    const context = activeContextRef.current;
+    const next = items.map(row => row.id === item.id ? { ...row, usadoPortaria: true } : row);
+    writing.current = true; setSaving(true);
+    try {
+      const records = await saveManutencaoData(dataOperacao, next, false, items, [], c4Scope, 'USADO_PORTARIA');
+      if (!reload.isActive(context)) return;
+      setItems(records); toast.success('Carro marcado como Usado Portaria.');
+    } catch (error) { if (reload.isActive(context)) toast.error(error instanceof Error ? error.message : 'Marcacao nao confirmada.'); }
+    finally { writing.current = false; setSaving(false); }
+  };
   const handleDeleteMaintenance = async (ids: string[]) => {
     if (!mutationAllowed) return;
     const selected = items.filter(item => ids.includes(item.id));
@@ -526,7 +540,7 @@ export function ManutencaoPage() {
   // Salvar alteração de observação
   const handleSaveObservacao = async () => {
     const items = maintenanceBaseline();
-    if (!editItem) return;
+    if (!editItem || !mutationAllowed) return;
     const cleanObs = editObs.trim().toUpperCase() || null;
     const updated = items.map(it => {
       if (it.id === editItem.id) {
@@ -860,6 +874,7 @@ export function ManutencaoPage() {
       {typeof window !== 'undefined' && window.isSecureContext === false && <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 print:hidden">
         Acesso por HTTP: para instalar o PWA e reabrir o aplicativo sem rede, use um endereço HTTPS.
       </p>}
+      {!mutationAllowed && usageAllowed && <p role="status" className="p-3 text-sm text-muted-foreground">Portaria: marque os carros usados pelo menu. Defeitos e demais dados ficam em consulta.</p>}
       {saving && <p role="status">Salvando alteracao...</p>}
       <div className="flex flex-wrap items-center gap-3 rounded-2xl border bg-card p-3 text-xs print:hidden" role="status">
         <span className={cn(syncStatus.offline || syncStatus.pending ? 'text-amber-700' : 'text-emerald-700')}>
@@ -877,7 +892,7 @@ export function ManutencaoPage() {
           Pendências de {pending.data.split('-').reverse().join('/')} ({pending.count})
         </Button>)}
       </div>
-      {!mutationAllowed && <p role="status" className="p-3 text-sm">Somente leitura. Alteracoes exigem permissao, copia carregada, data atual e janela 03:00 ate 20:00 (America/Campo_Grande).</p>}
+      {!mutationAllowed && !usageAllowed && <p role="status" className="p-3 text-sm">Somente leitura. Alteracoes exigem permissao, copia carregada, data atual e janela 03:00 ate 20:00 (America/Campo_Grande).</p>}
       {/* ==========================================================
           1. HEADER PRINCIPAL (ESTILO DONEZO / BENTO GRID)
           ========================================================== */}
@@ -1111,13 +1126,14 @@ export function ManutencaoPage() {
                           </div>
                         </td>
                         <td 
-                          onClick={() => { beginMaintenanceEdit(); setEditItem(item); setEditObs(item.observacao ?? ""); }}
-                          className="py-2 px-3 font-semibold uppercase text-[11px] text-gray-800 dark:text-slate-200 cursor-pointer group/cell"
-                          title="Clique para editar defeito/observação"
+                          onClick={() => { if (!mutationAllowed) return; beginMaintenanceEdit(); setEditItem(item); setEditObs(item.observacao ?? ""); }}
+                          className={cn("py-2 px-3 font-semibold uppercase text-[11px] text-gray-800 dark:text-slate-200", mutationAllowed && "cursor-pointer group/cell")}
+                          title={mutationAllowed ? "Clique para editar defeito/observa\u00e7\u00e3o" : undefined}
                         >
-                          <span className="truncate block max-w-[140px] sm:max-w-[170px] group-hover/cell:underline">
+                          <div className="flex flex-wrap items-center gap-1.5"><span className="truncate block max-w-[140px] sm:max-w-[170px] group-hover/cell:underline">
                             {item.observacao || "—"}
                           </span>
+                          {item.usadoPortaria && <span className="inline-flex shrink-0 whitespace-nowrap rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold normal-case text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300">Usado Portaria</span>}</div>
                         </td>
                         <td className="py-2 px-3 text-center">
                           <DropdownMenu>
@@ -1136,10 +1152,10 @@ export function ManutencaoPage() {
                                 Em Manutenção
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => { beginMaintenanceEdit(); setEditItem(item); setEditObs(item.observacao ?? ""); }}>
+                              {mutationAllowed && <DropdownMenuItem onClick={() => { if (!mutationAllowed) return; beginMaintenanceEdit(); setEditItem(item); setEditObs(item.observacao ?? ""); }}>
                                 <Edit2 className="w-3.5 h-3.5 text-gray-500 mr-2" />
                                 Editar Defeito
-                              </DropdownMenuItem>
+                              </DropdownMenuItem>}
                               <DropdownMenuSeparator />
                               <DropdownMenuItem disabled={!mutationAllowed} className="text-rose-600" onClick={() => void handleDeleteMaintenance([item.id])}><Trash2 className="w-3.5 h-3.5 mr-2" />Excluir</DropdownMenuItem>
                             </DropdownMenuContent>
@@ -1204,13 +1220,14 @@ export function ManutencaoPage() {
                           </div>
                         </td>
                         <td 
-                          onClick={() => { beginMaintenanceEdit(); setEditItem(item); setEditObs(item.observacao ?? ""); }}
-                          className="py-2 px-3 font-semibold uppercase text-[11px] text-gray-800 dark:text-slate-200 cursor-pointer group/cell"
-                          title="Clique para editar defeito/observação"
+                          onClick={() => { if (!mutationAllowed) return; beginMaintenanceEdit(); setEditItem(item); setEditObs(item.observacao ?? ""); }}
+                          className={cn("py-2 px-3 font-semibold uppercase text-[11px] text-gray-800 dark:text-slate-200", mutationAllowed && "cursor-pointer group/cell")}
+                          title={mutationAllowed ? "Clique para editar defeito/observa\u00e7\u00e3o" : undefined}
                         >
-                          <span className="truncate block max-w-[140px] sm:max-w-[170px] group-hover/cell:underline">
+                          <div className="flex flex-wrap items-center gap-1.5"><span className="truncate block max-w-[140px] sm:max-w-[170px] group-hover/cell:underline">
                             {item.observacao || "—"}
                           </span>
+                          {item.usadoPortaria && <span className="inline-flex shrink-0 whitespace-nowrap rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold normal-case text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300">Usado Portaria</span>}</div>
                         </td>
                         <td className="py-2 px-3 text-center">
                           <DropdownMenu>
@@ -1220,16 +1237,19 @@ export function ManutencaoPage() {
                               </button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-44">
+                              {canMarkMaintenanceUsage(user, c4Scope) && <DropdownMenuItem disabled={!usageAllowed || item.usadoPortaria} onClick={() => void handlePortariaUsage(item)}>
+                                <Bus className="mr-2 h-3.5 w-3.5 text-indigo-600" />Usado Portaria
+                              </DropdownMenuItem>}
                               <DropdownMenuItem disabled={!mutationAllowed} onClick={() => handleSetStatus(item.id, "BLOQUEADO")}><Ban className="w-3.5 h-3.5 text-rose-500 mr-2" />Bloquear</DropdownMenuItem>
                               <DropdownMenuItem disabled={!mutationAllowed} onClick={() => handleSetStatus(item.id, "LIBERADO")}>
                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 mr-2" />
                                 Liberar
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => { beginMaintenanceEdit(); setEditItem(item); setEditObs(item.observacao ?? ""); }}>
+                              {mutationAllowed && <DropdownMenuItem onClick={() => { if (!mutationAllowed) return; beginMaintenanceEdit(); setEditItem(item); setEditObs(item.observacao ?? ""); }}>
                                 <Edit2 className="w-3.5 h-3.5 text-gray-500 mr-2" />
                                 Editar Defeito
-                              </DropdownMenuItem>
+                              </DropdownMenuItem>}
                               <DropdownMenuSeparator />
                               <DropdownMenuItem disabled={!mutationAllowed} className="text-rose-600" onClick={() => void handleDeleteMaintenance([item.id])}><Trash2 className="w-3.5 h-3.5 mr-2" />Excluir</DropdownMenuItem>
                             </DropdownMenuContent>
@@ -1294,13 +1314,14 @@ export function ManutencaoPage() {
                           </div>
                         </td>
                         <td 
-                          onClick={() => { beginMaintenanceEdit(); setEditItem(item); setEditObs(item.observacao ?? ""); }}
-                          className="py-2 px-3 font-semibold uppercase text-[11px] text-gray-800 dark:text-slate-200 cursor-pointer group/cell"
-                          title="Clique para editar defeito/observação"
+                          onClick={() => { if (!mutationAllowed) return; beginMaintenanceEdit(); setEditItem(item); setEditObs(item.observacao ?? ""); }}
+                          className={cn("py-2 px-3 font-semibold uppercase text-[11px] text-gray-800 dark:text-slate-200", mutationAllowed && "cursor-pointer group/cell")}
+                          title={mutationAllowed ? "Clique para editar defeito/observa\u00e7\u00e3o" : undefined}
                         >
-                          <span className="truncate block max-w-[140px] sm:max-w-[170px] group-hover/cell:underline">
+                          <div className="flex flex-wrap items-center gap-1.5"><span className="truncate block max-w-[140px] sm:max-w-[170px] group-hover/cell:underline">
                             {item.observacao || "—"}
                           </span>
+                          {item.usadoPortaria && <span className="inline-flex shrink-0 whitespace-nowrap rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold normal-case text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300">Usado Portaria</span>}</div>
                         </td>
                         <td className="py-2 px-3 text-center">
                           <DropdownMenu>
@@ -1316,10 +1337,10 @@ export function ManutencaoPage() {
                                 Em Manutencao
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => { beginMaintenanceEdit(); setEditItem(item); setEditObs(item.observacao ?? ""); }}>
+                              {mutationAllowed && <DropdownMenuItem onClick={() => { if (!mutationAllowed) return; beginMaintenanceEdit(); setEditItem(item); setEditObs(item.observacao ?? ""); }}>
                                 <Edit2 className="w-3.5 h-3.5 text-gray-500 mr-2" />
                                 Editar Defeito
-                              </DropdownMenuItem>
+                              </DropdownMenuItem>}
                               <DropdownMenuSeparator />
                               <DropdownMenuItem disabled={!mutationAllowed} className="text-rose-600" onClick={() => void handleDeleteMaintenance([item.id])}><Trash2 className="w-3.5 h-3.5 mr-2" />Excluir</DropdownMenuItem>
                             </DropdownMenuContent>

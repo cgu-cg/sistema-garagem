@@ -5,6 +5,7 @@ import { civil, dateValue, dateString } from './c4Temporal';
 import { MvpError, operationalContext } from './mvpTemporal';
 import { officialFleet } from './escalaDiaria';
 import { officialGarageFleet } from './escalaAllocation';
+import { canMarkMaintenanceUsage, assertMaintenanceUsageChange } from './maintenancePortaria';
 import { canWriteC4, assertC4Read } from './c4Authorization';
 
 const contextSchema = z.object({ garagem: z.enum(['VCG', 'VCM']), data: z.string() });
@@ -12,14 +13,14 @@ export const maintenanceRowSchema = z.object({
   id: z.string().min(1).max(100), prefixo: z.string().regex(/^\d{1,10}$/),
   consorciada: z.enum(['VCG', 'VCM', 'VSF', 'JTU']), data: z.string(),
   observacao: z.string().max(255).nullable(), observacaoBloqueio: z.string().max(255).nullish(),
-  observacaoOficina: z.string().max(255).nullish(),
+  observacaoOficina: z.string().max(255).nullish(), usadoPortaria: z.boolean().optional(),
   bloqueado: z.boolean(), emExecucao: z.boolean(), liberado: z.boolean(),
 });
 const itemsSchema = z.array(maintenanceRowSchema).max(5000);
 const sheetSchema = z.object({ version: z.literal(1), items: itemsSchema,
   eventos: z.array(z.object({ id: z.string().uuid(), hash: z.string(), usuarioId: z.number().int().positive(), registradoEm: z.string().datetime() })) });
 const commandSchema = contextSchema.extend({ base: z.string().min(1), operacaoId: z.string().uuid(),
-  items: itemsSchema, confirmRelease: z.boolean().default(false) });
+  items: itemsSchema, operacao: z.enum(['EDITAR', 'USADO_PORTARIA']).default('EDITAR'), confirmRelease: z.boolean().default(false) });
 type Tx = Prisma.TransactionClient;
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const where = (garagem: string, dataOperacao: string) => ({ garagem_dataOperacao: { garagem, dataOperacao } });
@@ -71,12 +72,15 @@ export async function saveMaintenanceBoard(db: PrismaClient, userId: number | un
   const fleet = officialGarageFleet(await loadFleet(), c.garagem);
   return db.$transaction(async tx => {
     const user = userId ? await tx.user.findUnique({ where: { id: userId }, select: { role: true, garagem: true } }) : null;
-    if (!userId || !canWriteC4(user, c.garagem)) throw new MvpError(403, 'Controle exige ADMIN ou manutencao da propria garagem habilitada.');
+    const allowed = c.operacao === 'USADO_PORTARIA' ? canMarkMaintenanceUsage(user, c.garagem) : canWriteC4(user, c.garagem);
+    if (!userId || !allowed) throw new MvpError(403, c.operacao === 'USADO_PORTARIA'
+      ? 'Usado Portaria exige ADMIN ou perfil Soltura da propria garagem.'
+      : 'Controle exige ADMIN ou manutencao da propria garagem habilitada.');
     await tx.$queryRaw`SELECT id FROM dbo.controle_manutencao_folha WITH (UPDLOCK,HOLDLOCK) WHERE garagem=${c.garagem} AND data_operacao<=${c.data}`;
     checkDate();
     const old = await tx.controleManutencaoFolha.findUnique({ where: where(c.garagem, c.data) });
     const content = old ? sheetSchema.parse(JSON.parse(old.conteudo)) : { version: 1 as const, items: [], eventos: [] };
-    const fingerprint = hash([c.items, c.confirmRelease]);
+    const fingerprint = hash(c.operacao === 'USADO_PORTARIA' ? [c.items, c.confirmRelease, c.operacao] : [c.items, c.confirmRelease]);
     const applied = content.eventos.find(e => e.id === c.operacaoId);
     if (applied) {
       if (applied.usuarioId !== userId || applied.hash !== fingerprint) throw new MvpError(409, 'Identificador de operacao ja usado com outro conteudo.');
@@ -84,6 +88,12 @@ export async function saveMaintenanceBoard(db: PrismaClient, userId: number | un
     }
     const baseline = await projectMaintenance(tx, c.garagem, c.data, now());
     if (baseline.base !== c.base) throw new MvpError(409, 'Controle alterado em outro dispositivo. Pendencia preservada para revisao.');
+    if (c.operacao === 'USADO_PORTARIA') {
+      if (c.confirmRelease) throw new MvpError(403, 'Usado Portaria nao autoriza liberacao.');
+      assertMaintenanceUsageChange(baseline.items, c.items);
+    } else if (c.items.some(item => Boolean(item.usadoPortaria) !== Boolean(baseline.items.find(old => old.id === item.id)?.usadoPortaria))) {
+      throw new MvpError(403, 'A marcacao Usado Portaria exige o comando especifico.');
+    }
     if (new Set(c.items.map(i => i.prefixo)).size !== c.items.length || new Set(c.items.map(i => i.id)).size !== c.items.length)
       throw new MvpError(400, 'Carro ou identificador duplicado no Controle.');
     for (const i of c.items) {

@@ -1,5 +1,6 @@
 export interface SolturaItem {
   id: string;
+  suspensa?: boolean;
   ordem?: number;
   ordemTerminal?: number;
   linha: string;

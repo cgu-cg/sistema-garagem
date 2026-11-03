@@ -6,7 +6,7 @@ import type { ReleaseReport } from './releaseReport';
 export const lifecycleSchema = z.object({ contexto: z.object({ garagem: z.enum(['VCG', 'VCM']), escalaTipo: z.enum(['SEG_SEX', 'SABADO', 'DOM_FER']),
   turno: z.enum(['MATUTINO', 'VESPERTINO', 'PADRAO']), dataOperacao: z.string() }), status: z.enum(['NAO_INICIADA', 'EM_ANDAMENTO', 'FINALIZADA']),
   revisao: z.number().int().nonnegative(), eventos: z.array(z.object({ operacao: z.enum(['iniciar', 'finalizar', 'reabrir']), usuarioId: z.number().int().positive(), registradoEm: z.string().datetime() })),
-  itens: z.array(z.object({ id: z.string(), linha: z.string(), tabela: z.string(), carroProgramado: z.string(), saidaGaragem: z.string() }).passthrough()).nullable() });
+  itens: z.array(z.object({ suspensa: z.boolean().optional(), id: z.string(), linha: z.string(), tabela: z.string(), carroProgramado: z.string(), saidaGaragem: z.string() }).passthrough()).nullable() });
 export type ReleaseLifecycle = z.infer<typeof lifecycleSchema>;
 function validate(value: unknown, context: DailyEscala['contexto']) {
   const parsed = lifecycleSchema.parse(value);

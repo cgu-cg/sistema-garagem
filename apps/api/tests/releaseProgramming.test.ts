@@ -2,11 +2,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { programReleaseRows, releaseScaleContext, finalizedReleaseRows } from '../src/services/releaseProgramming';
 import { currentScaleTemplate, currentReleaseTemplate } from '../src/data/scheduleTemplates';
-import { applyReleaseRecords } from '../../web/src/lib/releaseSchedule';
+import { applyReleaseRecords, isActiveReleaseRecord } from '../../web/src/lib/releaseSchedule';
 
 const context = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'MATUTINO', dataOperacao: '2026-10-24' } as const;
 const [first] = currentReleaseTemplate(context);
 const candidate = { id: 'scale-row', linha: first.linha, tabela: first.tabela, carroProgramado: '4001' };
+
+test('registro limpo PENDENTE nao reaparece como liberado, mesmo vindo da API ou cache antigo', () => {
+  const base = programReleaseRows(context, [candidate], []);
+  const record = { status: 'PENDENTE', carroRealizado: '', motoristaCodigo: '', motoristaNome: '', horaLiberacao: '', substituido: false, scheduleSnapshot: base[0] };
+  assert.equal(isActiveReleaseRecord(record), false);
+  const loaded = applyReleaseRecords(base, { [first.id]: record });
+  assert.equal(loaded[0].status, 'PENDENTE'); assert.equal(loaded[0].carroRealizado, undefined);
+  assert.equal(loaded[0].motoristaCodigo, undefined);
+  assert.equal(applyReleaseRecords([], { [first.id]: record }, true).length, 0);
+  assert.equal(isActiveReleaseRecord({ status: 'LIBERADO' }), true);
+  assert.equal(isActiveReleaseRecord({ status: null }), true, 'Compatibilidade com despacho antigo');
+});
 
 test('correspondencia usa linha E tabela, substituto prevalece e campos JSON de carro sao ignorados', () => {
   const rows = programReleaseRows(context, [candidate], [{ id: candidate.id, carroSubstituido: '5001' }]);

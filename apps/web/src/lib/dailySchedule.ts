@@ -11,5 +11,5 @@ export function fixedScheduleToken(contexto: EscalaContext, id: string, programa
 }
 export function applyDailySchedule(base: FixedScaleRow[], daily: DailyEscala | null): FixedScaleRow[] {
   const changes = new Map(daily?.itens.map(i => [i.id, i.carroSubstituido]));
-  return base.map(item => ({ ...item, carroSubstituido: changes.get(item.id), confirmada: daily?.confirmadas?.includes(item.id) ?? false }));
+  return base.map(item => ({ ...item, carroSubstituido: changes.get(item.id), suspensa: daily?.itens.find(i => i.id === item.id)?.suspensa ?? false, confirmada: daily?.confirmadas?.includes(item.id) ?? false }));
 }

@@ -19,6 +19,7 @@ export interface ManutencaoCarroItem {
   updatedAt?: string;
   observacaoBloqueio?: string | null;
   observacaoOficina?: string | null;
+  usadoPortaria?: boolean;
   dataBloqueio?: string;
   campoObservacao?: 'bloqueio' | 'oficina';
 }
@@ -242,10 +243,10 @@ export async function fetchManutencaoDataFromApi(data = getTodayString(), garage
   publish(key, value); return value.snapshot.items;
 }
 export async function saveManutencaoData(data: string, items: ManutencaoCarroItem[], confirmRelease: boolean,
-  baseline: ManutencaoCarroItem[], _removeBlocked: string[] = [], garagem: C4Garage = 'VCG'): Promise<ManutencaoCarroItem[]> {
+  baseline: ManutencaoCarroItem[], _removeBlocked: string[] = [], garagem: C4Garage = 'VCG', operacao?: 'USADO_PORTARIA'): Promise<ManutencaoCarroItem[]> {
   if (data !== getTodayString() || !operationalContext(new Date(), 72000).open) throw Error('Controle fora do dia/janela 03:00 ate 20:00.');
   const { key, engine } = client(data, garagem);
-  const value = await engine.save(items, confirmRelease, baseline); publish(key, value); return value.snapshot.items;
+  const value = await engine.save(items, confirmRelease, baseline, operacao); publish(key, value); return value.snapshot.items;
 }
 export async function discardMaintenancePending(data: string, garagem: C4Garage) {
   const { key, engine } = client(data, garagem);

@@ -11,14 +11,21 @@ export interface ReleaseProgramming {
 }
 export interface GarageDefect { prefixo: string; descricao: string; registradoEm: string | null }
 export interface ReleaseExchangeCommand { carroAnterior: string; motivo: 'Adicionado equivocadamente' | 'Defeito Garagem'; descricaoDefeito?: string }
+// A fotografia operacional tem flags que não pertencem ao modelo de Tráfego.
+// Retira somente a flag conhecida antes de validar o molde estrito.
+const operationalProgrammingSchema = z.preprocess(value => Array.isArray(value) ? value.map(row => {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) return row;
+  const { suspensa: _suspended, ...template } = row;
+  return template;
+}) : value, trafficRowsSchema);
 export async function loadReleaseProgramming(context: DailyEscala['contexto']): Promise<ReleaseProgramming> {
   const raw = z.object({ contexto: z.record(z.string()), escala: z.unknown(), escalaFinalizada: z.boolean(),
-    programacao: trafficRowsSchema.optional(),
+    programacao: operationalProgrammingSchema.optional(),
     disponibilidade: z.object({ reserva: z.array(z.string().regex(/^\d{1,10}$/)),
       defeitosGaragem: z.array(z.object({ prefixo: z.string().regex(/^\d{1,10}$/), descricao: z.string(), registradoEm: z.string().datetime().nullable() }).strict()),
       reservaPorCor: z.object({ updatedAt: z.string().datetime().nullable(), grupos: z.array(z.object({ id: z.enum(['AZUL', 'VERMELHO', 'MICRO', 'VERMELHO_AZUL', 'PRATA', 'OUTRO']), titulo: z.string(), prefixos: z.array(z.string().regex(/^\d{1,10}$/)) }).strict()).length(6) }).strict(),
     }).strict().optional(),
-    itens: z.array(z.object({ id: z.string(), linha: z.string(), tabela: z.string(), carroProgramado: z.string().regex(/^\d{0,10}$/) }).passthrough()),
+    itens: z.array(z.object({ suspensa: z.boolean().optional(), id: z.string(), linha: z.string(), tabela: z.string(), carroProgramado: z.string().regex(/^\d{0,10}$/) }).passthrough()),
   }).strict().parse(await api.get('/solturas/programacao', { params: { ...context } }));
   if (Object.entries(context).some(([key, value]) => raw.contexto[key] !== value)) throw Error('Programacao de outra data ou garagem.');
   const independent = context.escalaTipo === 'SEG_SEX' && context.turno === 'VESPERTINO';
@@ -31,7 +38,7 @@ export async function loadReleaseProgramming(context: DailyEscala['contexto']): 
   const itens = template.map(row => {
     const received = byId.get(row.id);
     if (!received || received.linha !== row.linha || received.tabela !== row.tabela) throw Error('Molde de Soltura divergente.');
-    return { ...row, carroProgramado: received.carroProgramado, status: 'PENDENTE' as const };
+    return { ...row, suspensa: received.suspensa, carroProgramado: received.carroProgramado, status: 'PENDENTE' as const };
   });
   if (raw.disponibilidade) {
     const { reserva, defeitosGaragem, reservaPorCor } = raw.disponibilidade;

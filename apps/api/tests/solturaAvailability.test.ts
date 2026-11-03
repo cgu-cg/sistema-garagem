@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 import { resolveReleaseContext, writeSafeRelease } from '../src/services/solturaAvailability';
 import { eventInstant } from '../src/services/c4Temporal';
 import { currentReleaseTemplate } from '../src/data/scheduleTemplates';
+import { clearReleaseLine } from '../src/services/releaseLineClear';
+import { releaseLineToken } from '../src/services/lineClearAudit';
 const day = '2026-10-08', target = '2026-10-09';
 const context = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'MATUTINO', dataOperacao: target } as const;
 const [first, second] = currentReleaseTemplate(context);
@@ -44,6 +46,36 @@ function fixture(status = 'FINALIZADA') {
   return { db, locks, states, ci, rows: () => rows, failRead: () => { failRead = true; }, failWrite: () => { failWrite = true; }, missingCycle: () => { cycle = null; } };
 }
 const reason = (code: string) => (e: any) => e.status === 409 && e.code === code;
+
+test('limpar libera o carro para a linha correta e permite preencher a antiga sem duplicar registro', async () => {
+  const f = fixture(), clock = () => eventInstant(target, 4);
+  const initial = await f.db.folhaSoltura.findUnique({ where: { garagem_escalaTipo_turno_dataOperacao: context } });
+  const sheet = { ...initial, id: 1, revisao: 1 };
+  f.db.folhaSoltura.findUnique = async () => sheet;
+  f.db.folhaSoltura.update = async ({ data }: any) => Object.assign(sheet, data);
+  const saved: any = await writeSafeRelease(f.db, 1, body, false, clock, () => ['VCG']);
+  await clearReleaseLine(f.db, 1, { contexto: context, scheduleId: first.id, revisao: 1, base: releaseLineToken(saved) }, clock);
+  await writeSafeRelease(f.db, 1, { ...body, ...secondItem, carroRealizado: '4000', driverCode: '123' }, false, clock, () => ['VCG']);
+  await writeSafeRelease(f.db, 1, { ...body, carroRealizado: '4001', driverCode: '456' }, false, clock, () => ['VCG']);
+  assert.equal(f.rows().length, 2);
+  assert.equal(f.rows().find(r => r.scheduleId === first.id).id, saved.id);
+  assert.equal(f.rows().find(r => r.scheduleId === second.id).carroRealizado, '4000');
+  assert.equal(JSON.parse(sheet.conteudo).limpezas.length, 1);
+});
+
+test('linha suspensa rejeita despacho simples e lote sem atribuir carro ou motorista', async () => {
+  const f = fixture();
+  const original = f.db.folhaSoltura.findUnique;
+  f.db.folhaSoltura.findUnique = async (args: any) => {
+    const record = await original(args); const sheet = JSON.parse(record.conteudo);
+    sheet.itens.find((row: any) => row.id === first.id).suspensa = true;
+    return { ...record, conteudo: JSON.stringify(sheet) };
+  };
+  await assert.rejects(writeSafeRelease(f.db, 1, body, false, () => eventInstant(target, 4), () => ['VCG']), reason('LINHA_SUSPENSA_REATIVE_ANTES_DE_LIBERAR'));
+  await assert.rejects(writeSafeRelease(f.db, 1, { garagem: 'VCG', dataOperacao: target, turno: 'MATUTINO', escalaTipo: 'SEG_SEX', items: [secondItem, item] }, true,
+    () => eventInstant(target, 4), () => ['VCG']));
+  assert.equal(f.rows().length, 0);
+});
 
 test('pendente vinculada revalida programado corrigido; liberada e folha finalizada nao acompanham origem', async () => {
   const f = fixture(), clock = () => eventInstant(target, 4);

@@ -1,3 +1,4 @@
+import { lineClearAuditSchema } from './lineClearAudit';
 import { dateProgramming } from './trafficProgramming';
 import { trafficRowSchema, trafficRowsSchema } from './trafficSchema';
 import { scaleLifecycleSchema, assertScaleDate, assertScaleOperation, type ScaleLifecycle } from './dailyScaleLifecycle';
@@ -28,11 +29,12 @@ export function parseDailyContext(value: unknown) {
   const { dataOperacao, ...base } = raw;
   return { ...escalaContextSchema.parse(base), dataOperacao };
 }
-const itemsSchema = z.array(z.object({ id: z.string().min(1).max(100), carroSubstituido: z.string().regex(/^\d{1,10}$/) }).strict()).max(2000)
+const itemsSchema = z.array(z.object({ id: z.string().min(1).max(100), carroSubstituido: z.string().regex(/^(\d{1,10})?$/), suspensa: z.boolean().optional() }).strict()).max(2000)
   .refine(items => new Set(items.map(i => i.id)).size === items.length, 'Viagens duplicadas.');
 const header = { contexto: z.unknown(), revisao: z.number().int().nonnegative().max(2147483646) };
 const prefix = z.string().trim().regex(/^(\d{1,10})?$/);
 const commandSchema = z.union([
+  z.object({ ...header, operacao: z.enum(['limpar-linha', 'suspender-linha', 'reativar-linha']), id: z.string().min(1).max(100), base: z.string().min(1) }).strict(),
   z.object({ ...header, operacao: z.literal('tratar-substituido'), trocaId: z.string().uuid(), retirada: scaleWithdrawalSchema }).strict(),
   z.object({ ...header, operacao: z.enum(['iniciar', 'finalizar', 'reabrir']) }).strict(),
   z.object({ ...header, id: z.string().min(1).max(100), carroSubstituido: prefix, base: z.string().min(1), retirada: scaleWithdrawalSchema.optional() }).strict(),
@@ -42,7 +44,7 @@ const commandSchema = z.union([
 ]);
 const confirmationsSchema = z.array(z.object({ id: z.string().min(1).max(100), prefixo: z.string().regex(/^\d{1,10}$/) }).strict()).max(2000)
   .refine(values => new Set(values.map(v => v.id)).size === values.length, 'Confirmacoes duplicadas.');
-const savedSchema = z.object({ version: z.union([z.literal(2), z.literal(3)]), itens: itemsSchema, cards: allocationCardsSchema, confirmacoes: confirmationsSchema.default([]), historicoTrocas: z.array(scaleExchangeSchema).default([]), fluxo: scaleLifecycleSchema.optional(), programacao: trafficRowsSchema.optional() }).strict();
+const savedSchema = z.object({ limpezas: z.array(lineClearAuditSchema).optional(), version: z.union([z.literal(2), z.literal(3)]), itens: itemsSchema, cards: allocationCardsSchema, confirmacoes: confirmationsSchema.default([]), historicoTrocas: z.array(scaleExchangeSchema).default([]), fluxo: scaleLifecycleSchema.optional(), programacao: trafficRowsSchema.optional() }).strict();
 export function fixedSchedule(contexto: ReturnType<typeof parseDailyContext>) {
   return currentScaleTemplate(contexto);
 }
@@ -139,7 +141,7 @@ export async function readEscalaDiaria(db: PrismaClient, value: unknown, userId:
 export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefined, value: unknown, loadFleet: FleetLoader = officialFleet, loadColors: ColorLoader = loadColorCache, clock = () => new Date()) {
   const c = commandSchema.parse(value), contexto = parseDailyContext(c.contexto);
   const treating = 'operacao' in c && c.operacao === 'tratar-substituido';
-  const operation = 'operacao' in c && !('card' in c) && c.operacao !== 'tratar-substituido' ? c.operacao : 'editar';
+  const operation = 'operacao' in c && !('card' in c) && c.operacao !== 'tratar-substituido' && c.operacao !== 'limpar-linha' && c.operacao !== 'suspender-linha' && c.operacao !== 'reativar-linha' ? c.operacao : 'editar';
   const assertDate = () => {
     if (treating) {
       if (contexto.dataOperacao < operationalContext(clock()).today) throw new MvpError(409, 'Tratamento de datas anteriores permite somente consulta.');
@@ -171,7 +173,7 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
       if (!state.fluxo || !old) throw new MvpError(409, 'Escala nao iniciada.');
     } else assertScaleOperation(operation, state.fluxo, Boolean(old), source.ciFinalizada, nextStarted);
     const { ciFinalizada: _ciFinalizada, ...sourceSnapshot } = source;
-    if ('operacao' in c && !('card' in c) && c.operacao !== 'tratar-substituido') {
+    if ('operacao' in c && !('card' in c) && c.operacao !== 'tratar-substituido' && c.operacao !== 'limpar-linha' && c.operacao !== 'suspender-linha' && c.operacao !== 'reativar-linha') {
       const fluxo: ScaleLifecycle = c.operacao === 'iniciar'
         ? { status: 'EM_PREPARACAO', iniciadaEm: clock().toISOString(), finalizadaEm: null, fonteCI: sourceSnapshot }
         : { ...state.fluxo!, status: c.operacao === 'finalizar' ? 'FINALIZADA' : 'EM_PREPARACAO',
@@ -180,7 +182,7 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
       const cards = c.operacao === 'iniciar' ? cleanCards(contexto, frota, fixed) : state.cards!;
       const confirmacoes = c.operacao === 'iniciar' ? [] : state.confirmacoes;
       const historicoTrocas = c.operacao === 'iniciar' ? [] : state.historicoTrocas;
-      const payload = savedSchema.parse({ version: 3, itens, cards, confirmacoes, historicoTrocas, programacao: fixed, fluxo });
+      const payload = savedSchema.parse({ limpezas: 'limpezas' in state ? state.limpezas : undefined, version: 3, itens, cards, confirmacoes, historicoTrocas, programacao: fixed, fluxo });
       // Zero representa ausencia no GET/comando inicial; registros persistidos
       // comecam em 1, conforme CK_escala_diaria_revisao do banco.
       const data = { revisao: c.revisao + 1, conteudo: JSON.stringify(payload), responsavelId: userId! };
@@ -206,16 +208,32 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
       try { sameBase = Boolean(original) && JSON.stringify(trafficRowSchema.parse(JSON.parse(c.base))) === JSON.stringify(trafficRowSchema.parse(original)); }
       catch { /* Token inválido não autoriza gravação. */ }
       if (!original || !sameBase) throw new MvpError(409, 'Programacao fixa diferente da versao do servidor. Atualize a pagina e revise.');
-      const effective = c.carroSubstituido || original.carroProgramado;
-      const anterior = itens.find(i => i.id === c.id)?.carroSubstituido ?? original.carroProgramado;
-      validateAllocation(effective, 'linha:' + c.id, frota, [...source.bloqueados, ...portaria], used);
-      confirmacoes = [...confirmacoes.filter(i => i.id !== c.id), { id: c.id, prefixo: effective }];
-      const index = itens.findIndex(i => i.id === c.id);
-      if (!c.carroSubstituido || c.carroSubstituido === original.carroProgramado) { if (index >= 0) itens.splice(index, 1); }
-      else { const next = { id: c.id, carroSubstituido: c.carroSubstituido }; if (index < 0) itens.push(next); else itens[index] = next; }
-      const troca = registerScaleWithdrawal({ anterior, substituto: effective, linhaId: c.id, retirada: c.retirada,
-        cards, fixed, itens, frota, bloqueadosCI: source.bloqueados, usuarioId: userId!, agora: clock() });
-      if (troca) historicoTrocas.push(troca);
+      if ('operacao' in c) {
+        const index = itens.findIndex(i => i.id === c.id);
+        const anterior = { operacao: c.operacao, id: c.id, carroSubstituido: itens[index]?.carroSubstituido ?? null, suspensa: itens[index]?.suspensa ?? false,
+          confirmacao: confirmacoes.find(i => i.id === c.id) ?? null };
+        if (c.operacao === 'reativar-linha' && !anterior.suspensa) throw new MvpError(409, 'Linha nao esta suspensa.');
+        if (c.operacao === 'suspender-linha' && anterior.suspensa) throw new MvpError(409, 'Linha ja suspensa.');
+        if (c.operacao === 'limpar-linha' && !anterior.suspensa && itens[index]?.carroSubstituido === '' && !anterior.confirmacao) throw new MvpError(409, 'Linha ja esta limpa. Recarregue.');
+        const limpezas = 'limpezas' in state ? state.limpezas ?? [] : [];
+        limpezas.push({ id: randomUUID(), linhaId: c.id, usuarioId: userId!, registradoEm: clock().toISOString(), anterior: JSON.stringify(anterior) });
+        Object.assign(state, { limpezas });
+        const next = { id: c.id, carroSubstituido: '', suspensa: c.operacao === 'suspender-linha' };
+        if (index >= 0) itens[index] = next; else itens.push(next);
+        confirmacoes = confirmacoes.filter(i => i.id !== c.id);
+      } else {
+        if (itens.find(i => i.id === c.id)?.suspensa) throw new MvpError(409, 'Reative a linha antes de confirmar um carro.');
+        const effective = c.carroSubstituido || original.carroProgramado;
+        const anterior = itens.find(i => i.id === c.id)?.carroSubstituido ?? original.carroProgramado;
+        validateAllocation(effective, 'linha:' + c.id, frota, [...source.bloqueados, ...portaria], used);
+        confirmacoes = [...confirmacoes.filter(i => i.id !== c.id), { id: c.id, prefixo: effective }];
+        const index = itens.findIndex(i => i.id === c.id);
+        if (!c.carroSubstituido || c.carroSubstituido === original.carroProgramado) { if (index >= 0) itens.splice(index, 1); }
+        else { const next = { id: c.id, carroSubstituido: c.carroSubstituido }; if (index < 0) itens.push(next); else itens[index] = next; }
+        const troca = registerScaleWithdrawal({ anterior, substituto: effective, linhaId: c.id, retirada: c.retirada,
+          cards, fixed, itens, frota, bloqueadosCI: source.bloqueados, usuarioId: userId!, agora: clock() });
+        if (troca) historicoTrocas.push(troca);
+      }
     } else {
       const card = cards.find(card => card.id === c.card);
       if (!card) throw new MvpError(400, 'Card desconhecido.');
@@ -236,7 +254,7 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
         else throw new MvpError(400, 'Informe os dados da posicao.');
       }
     }
-    const payload = savedSchema.parse({ version: 3, itens, cards, confirmacoes, historicoTrocas, programacao: fixed, fluxo: treating ? state.fluxo! : { ...state.fluxo!, fonteCI: sourceSnapshot } });
+    const payload = savedSchema.parse({ limpezas: 'limpezas' in state ? state.limpezas : undefined, version: 3, itens, cards, confirmacoes, historicoTrocas, programacao: fixed, fluxo: treating ? state.fluxo! : { ...state.fluxo!, fonteCI: sourceSnapshot } });
     const data = { revisao: c.revisao + 1, conteudo: JSON.stringify(payload), responsavelId: userId! };
     assertDate();
     if (old) await tx.escalaDiaria.update({ where: { id: old.id }, data });

@@ -96,6 +96,7 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
     const defects = new Set(garageDefects(dailyRecords).map(d => d.prefixo));
     const snapshots = new Map<string, { existing: Soltura | undefined; programmed: string | null; realized: string; history: ReturnType<typeof appendReleaseExchange>; row: typeof programming[number] }>();
     for (const i of items) {
+      if (releaseSheet.itens.find(row => row.id === i.scheduleId)?.suspensa) throw new AvailabilityError('LINHA_SUSPENSA_REATIVE_ANTES_DE_LIBERAR');
       const row = programming.find(row => row.id === i.scheduleId);
       if (!row || row.linha !== i.linha || row.tabela !== i.tabela) throw new AvailabilityError('VIAGEM_FORA_DO_MOLDE');
       if (!row.tabela.trim() && row.tipo !== 'FRETAMENTO') throw new AvailabilityError('TABELA_OBRIGATORIA');

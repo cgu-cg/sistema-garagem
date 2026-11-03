@@ -41,6 +41,18 @@ test('inicio explicito persiste molde e nao consulta CI/Escala no vespertino', a
  assert.equal(f.sheet().status, 'EM_ANDAMENTO');
 });
 
+test('folha com viagens suspensas finaliza e preserva suspensoes no relatorio historico', async () => {
+ const f = fixture(); await f.command('iniciar');
+ const content = JSON.parse(f.sheet().conteudo);
+ content.itens = content.itens.map((row: any) => ({ ...row, suspensa: true }));
+ f.sheet().conteudo = JSON.stringify(content);
+ const closed = await f.command('finalizar'); assert.equal(closed.status, 'FINALIZADA');
+ const snapshot = JSON.parse(f.sheet().conteudo).relatorio;
+ assert.ok(snapshot.itens.every((row: any) => row.suspensa && row.status === 'SUSPENSA' && !row.carroRealizado && !row.motoristaCodigo));
+ f.db.soltura.findMany = async () => { throw Error('Historico nao pode reconstruir suspensoes'); };
+ assert.deepEqual(await readReleaseReport(f.db, context, 1), snapshot);
+});
+
 test('finaliza somente completa e fotografa relatorio; somente ADMIN reabre sem apagar despachos', async () => {
  const f = fixture(); await f.command('iniciar'); f.complete();
  const closed = await f.command('finalizar'); assert.equal(closed.status, 'FINALIZADA');

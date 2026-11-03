@@ -2,11 +2,11 @@ import { z } from 'zod';
 
 export const maintenanceItemSchema = z.object({ id: z.string(), prefixo: z.string(), consorciada: z.enum(['VCG', 'VCM', 'VSF', 'JTU']),
   data: z.string(), observacao: z.string().nullable(), observacaoBloqueio: z.string().nullish(), observacaoOficina: z.string().nullish(),
-  bloqueado: z.boolean(), emExecucao: z.boolean(), liberado: z.boolean() });
+  bloqueado: z.boolean(), emExecucao: z.boolean(), liberado: z.boolean(), usadoPortaria: z.boolean().optional() });
 export const maintenanceSnapshotSchema = z.object({ garagem: z.enum(['VCG', 'VCM']), data: z.string(), revisao: z.number().int().nonnegative(),
   base: z.string(), items: z.array(maintenanceItemSchema), origem: z.enum(['PERSISTIDA', 'VIRADA', 'LEGADO', 'VAZIA']) });
 export type MaintenanceSnapshot = z.infer<typeof maintenanceSnapshotSchema>;
-export type MaintenanceCommand = { garagem: 'VCG' | 'VCM'; data: string; base: string; items: MaintenanceSnapshot['items']; operacaoId: string; confirmRelease: boolean };
+export type MaintenanceCommand = { garagem: 'VCG' | 'VCM'; data: string; base: string; items: MaintenanceSnapshot['items']; operacaoId: string; confirmRelease: boolean; operacao?: 'USADO_PORTARIA' };
 export type MaintenanceLocal = { snapshot: MaintenanceSnapshot; confirmed?: MaintenanceSnapshot; queue: MaintenanceCommand[]; issue: string; offline: boolean; notice?: string };
 type Dependencies = {
   get: (key: string) => Promise<MaintenanceLocal | null>; put: (key: string, value: MaintenanceLocal) => Promise<void>;
@@ -77,7 +77,7 @@ export function createMaintenanceOffline(key: string, garage: 'VCG' | 'VCM', day
         return { ...local, offline: true, issue: 'Sem conexao com a API. Exibindo copia local.' };
       }
     }),
-    save: (items: MaintenanceSnapshot['items'], confirmed: boolean, baseline: MaintenanceSnapshot['items']) => exclusive(async () => {
+    save: (items: MaintenanceSnapshot['items'], confirmed: boolean, baseline: MaintenanceSnapshot['items'], operacao?: 'USADO_PORTARIA') => exclusive(async () => {
       const local = await deps.get(key);
       if (!local) throw Error('Carregue o Controle antes de alterar.');
       if (deps.today && day !== deps.today()) throw Error('Alteracoes somente no dia atual.');
@@ -85,7 +85,7 @@ export function createMaintenanceOffline(key: string, garage: 'VCG' | 'VCM', day
       if (JSON.stringify(z.array(maintenanceItemSchema).parse(local.snapshot.items)) !== JSON.stringify(z.array(maintenanceItemSchema).parse(baseline)))
         throw Error('Controle atualizado enquanto o formulario estava aberto. Reabra para revisar.');
       const command: MaintenanceCommand = { garagem: garage, data: day, base: local.snapshot.base,
-        items: z.array(maintenanceItemSchema).parse(items), confirmRelease: confirmed, operacaoId: deps.uuid() };
+        items: z.array(maintenanceItemSchema).parse(items), confirmRelease: confirmed, operacaoId: deps.uuid(), ...(operacao ? { operacao } : {}) };
       const next: MaintenanceLocal = { confirmed: local.confirmed ?? (local.queue.length ? undefined : local.snapshot), snapshot: { ...local.snapshot, items: command.items,
         revisao: local.snapshot.revisao + 1, base: String(local.snapshot.revisao + 1) }, queue: [...local.queue, command], issue: '', offline: !deps.online() };
       await deps.put(key, next); // Exibe sucesso local somente apos commit no IndexedDB.

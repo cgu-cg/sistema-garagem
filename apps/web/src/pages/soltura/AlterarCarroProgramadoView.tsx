@@ -1,3 +1,4 @@
+import { LineActionsMenu, type LineAction } from './LineActionsMenu';
 import { VehicleAlertIcon } from './CiVehicleNotice';
 import { ScaleFleetSidebar } from './ScaleFleetSidebar';
 import { PreparationOverlay } from './PreparationOverlay';
@@ -22,6 +23,7 @@ interface Props {
   garagem: 'VCG' | 'VCM'; escalaTipo: 'SEG_SEX' | 'SABADO' | 'DOM_FER'; schedules: FixedScaleRow[];
   official: DailyEscala | null;
   onSaveSubstitution: (id: string, prefixo: string, retirada?: ScaleWithdrawal) => Promise<boolean>;
+  onClearLine?: (id: string, action?: LineAction) => Promise<boolean>;
   onSaveCard: (change: CardMutation) => Promise<boolean>;
   onTreatSubstitution?: (id: string, retirada: ScaleWithdrawal) => Promise<boolean>;
   treatmentReadOnly?: boolean;
@@ -46,7 +48,7 @@ export function pickerOptions(state: DailyEscala | null, ownKey: string) {
 }
 
 export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, readOnly = true, readOnlyReason, onEditingChange, garagem, escalaTipo,
-  schedules, official, onSaveSubstitution, onSaveCard, onTreatSubstitution, treatmentReadOnly = readOnly, onSelectGaragem, onSelectEscalaTipo }: Props) {
+  schedules, official, onSaveSubstitution, onClearLine, onSaveCard, onTreatSubstitution, treatmentReadOnly = readOnly, onSelectGaragem, onSelectEscalaTipo }: Props) {
   const [search, setSearch] = useState(''), [extended, setExtended] = useState(false);
   const [modal, setModal] = useState<{ card: ScaleCard; item?: ScaleCardItem } | null>(null);
   const [prefixo, setPrefixo] = useState('');
@@ -75,7 +77,8 @@ export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, read
   };
   const filtered = schedules.filter(s => [s.linha, s.tabela, s.carroProgramado, s.carroSubstituido ?? ''].some(v => v.toLowerCase().includes(search.trim().toLowerCase())));
   const completed = schedules.filter(item => item.confirmada).length;
-  const remaining = schedules.length - completed;
+  const suspended = schedules.filter(item => item.suspensa).length;
+  const remaining = schedules.length - completed - suspended;
   const colorIds = ['AZUL', 'VERMELHO', 'MICRO', 'VERMELHO_AZUL', 'PRATA', 'OUTRO'];
   const otherCards = official?.cards.filter(c => !colorIds.includes(c.id) && c.id !== 'SUBSTITUIDOS' && !c.id.startsWith('TERMINAL_')) ?? [];
   const terminalCards = official?.cards.filter(c => c.id.startsWith('TERMINAL_')) ?? [];
@@ -129,11 +132,11 @@ export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, read
           </div>
           <div role="status" className="ml-auto flex items-center gap-3 whitespace-nowrap font-mono">
             <span>Feito: <strong className="text-[#164E3A] dark:text-emerald-400">{String(completed).padStart(2, '0')}</strong></span>
-            <span>Falta: <strong className="text-foreground">{String(remaining).padStart(2, '0')}</strong></span>
+            <span>Falta: <strong className="text-foreground">{String(remaining).padStart(2, '0')}</strong></span>{suspended > 0 && <span className="text-rose-700">Suspensas: <strong>{suspended}</strong></span>}
           </div>
         </div>
         <div className={cn('overflow-auto', !extended && 'max-h-[515px]')}><table className="w-full text-xs"><thead className="sticky top-0 bg-card z-10"><tr className="border-b bg-muted/50 text-muted-foreground"><th className="p-3 text-left">Linha</th><th className="p-3 text-left">Tabela</th><th className="p-3 text-left">Hr Saida</th><th className="p-3 text-left">Hr Chegada</th><th className="p-3 text-left">Carro fixo</th><th className="p-3 text-left">Carro substituido</th></tr></thead>
-          <tbody>{filtered.map(item => <LineRow key={item.id} item={item} official={official} readOnly={readOnly} onSave={onSaveSubstitution} onEditingChange={onEditingChange} drafts={drafts.current} />)}</tbody></table></div>
+          <tbody>{filtered.map(item => <LineRow key={item.id} item={item} official={official} readOnly={readOnly} onSave={onSaveSubstitution} onClear={onClearLine} onEditingChange={onEditingChange} drafts={drafts.current} />)}</tbody></table></div>
         <div className="p-2"><Button type="button" variant="outline" className="w-full text-xs" onClick={() => setExtended(v => !v)}>{extended ? <ChevronUp className="h-3 w-3 mr-2" /> : <ChevronDown className="h-3 w-3 mr-2" />}{extended ? 'Recolher lista' : 'Estender toda a lista'} ({filtered.length} horarios)</Button></div>
       </div>
       <div className="min-w-0 space-y-4">
@@ -172,7 +175,8 @@ export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, read
     </DialogContent></Dialog>
   </div>;
 }
-function LineRow({ item, official, readOnly, onSave, onEditingChange, drafts }: { item: FixedScaleRow; official: DailyEscala | null; readOnly: boolean;
+function LineRow({ item, official, readOnly, onSave, onClear, onEditingChange, drafts }: { item: FixedScaleRow; official: DailyEscala | null; readOnly: boolean;
+  onClear?: (id: string, action?: LineAction) => Promise<boolean>;
   onSave: (id: string, prefixo: string, retirada?: ScaleWithdrawal) => Promise<boolean>; onEditingChange?: (key: string, dirty: boolean) => void; drafts: Map<string, string> }) {
   const [prefixo, setPrefixo] = useState(drafts.get(item.id) ?? item.carroSubstituido ?? ''), [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -190,13 +194,21 @@ function LineRow({ item, official, readOnly, onSave, onEditingChange, drafts }: 
     try { if (await onSave(item.id, p)) { dirty.current = false; setEditing(false); drafts.delete(item.id); onEditingChange?.(item.id, false); setPrefixo(p === item.carroProgramado ? '' : p); toast.success('Linha validada e escala salva.'); } }
     finally { pending.current = false; setSaving(false); }
   };
-  return <><tr data-confirmada={confirmed ? 'true' : 'false'} className={cn('border-b border-border/60 font-mono', confirmed ? 'bg-emerald-100 hover:bg-emerald-200/70 dark:bg-emerald-900/40 dark:hover:bg-emerald-900/50' : 'hover:bg-muted/30')}><td className="p-3 font-bold">{item.linha}</td><td className="p-3">{item.tabela}</td><td className="p-3">{item.saidaGaragem}</td><td className="p-3">{item.chegadaGaragem || '\u2014'}</td>
+  return <><tr data-confirmada={confirmed ? 'true' : 'false'} className={cn('border-b border-border/60 font-mono', item.suspensa ? 'bg-rose-100 hover:bg-rose-200/70 dark:bg-rose-950/50' : confirmed ? 'bg-emerald-100 hover:bg-emerald-200/70 dark:bg-emerald-900/40 dark:hover:bg-emerald-900/50' : 'hover:bg-muted/30')}><td className="p-3 font-bold">{item.linha}{item.suspensa && <span className="ml-2 font-sans text-xs text-rose-700">Suspensa</span>}</td><td className="p-3">{item.tabela}</td><td className="p-3">{item.saidaGaragem}</td><td className="p-3">{item.chegadaGaragem || '\u2014'}</td>
     <td className="p-3 font-bold"><CiVehicleNotice state={official} prefixo={item.carroProgramado || '\u2014'} warning={fixedAlert || undefined}><ScaleVehiclePrefix state={official} prefixo={item.carroProgramado || '\u2014'} struck={Boolean(item.carroProgramado && item.carroSubstituido && item.carroSubstituido !== item.carroProgramado)} /></CiVehicleNotice></td>
-    <td className="p-2"><div className="flex items-center gap-2"><CiVehicleNotice hideIcon state={official} prefixo={prefixo.trim()} warning={prefixo.trim() ? allocationError(official, prefixo.trim(), ownKey) || undefined : undefined}><ScaleVehiclePicker label={'Carro substituido da Linha ' + item.linha + ' Tabela ' + item.tabela} value={prefixo} disabled={readOnly || saving}
+    <td className="p-2"><div className="flex items-center gap-2"><CiVehicleNotice hideIcon state={official} prefixo={prefixo.trim()} warning={prefixo.trim() ? allocationError(official, prefixo.trim(), ownKey) || undefined : undefined}><ScaleVehiclePicker label={'Carro substituido da Linha ' + item.linha + ' Tabela ' + item.tabela} value={prefixo} placeholder={item.carroSubstituido === '' ? 'Sem carro' : undefined} disabled={readOnly || saving || item.suspensa}
       garage={official?.contexto.garagem ?? ''} options={pickerOptions(official, ownKey)}
       onChange={value => { dirty.current = true; drafts.set(item.id, value); onEditingChange?.(item.id, true); setPrefixo(value); }} onConfirm={() => void confirm()}
       renderPrefix={p => <span className="relative inline-flex"><ScaleVehiclePrefix state={official} prefixo={p} />{p === prefixo.trim() && <VehicleNoticeIcons {...vehicleNoticeFlags(official, p)} />}</span>} className="h-7 w-24 py-0 text-center" /></CiVehicleNotice>
-      <button type="button" aria-label={(confirmed ? 'Linha confirmada ' : 'Confirmar linha ') + item.linha + ' tabela ' + item.tabela} title={confirmed ? 'Linha confirmada para esta data' : 'Confirmar linha'} disabled={readOnly || saving || confirmed} onClick={() => void confirm()} className={cn('h-7 w-7 inline-flex items-center justify-center rounded-full', 'bg-[#164E3A] text-white', (readOnly || saving || confirmed) && 'opacity-40 cursor-not-allowed')}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}</button>
+      <button type="button" aria-label={(confirmed ? 'Linha confirmada ' : 'Confirmar linha ') + item.linha + ' tabela ' + item.tabela} title={confirmed ? 'Linha confirmada para esta data' : 'Confirmar linha'} disabled={readOnly || saving || confirmed || item.suspensa} onClick={() => void confirm()} className={cn('h-7 w-7 inline-flex items-center justify-center rounded-full', 'bg-[#164E3A] text-white', (readOnly || saving || confirmed) && 'opacity-40 cursor-not-allowed')}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}</button>
+      {onClear && !readOnly && <LineActionsMenu label={`${item.linha} tabela ${item.tabela}`} suspended={item.suspensa} disabled={saving} canClear={item.carroSubstituido !== ''}
+        onAction={async action => {
+          const message = action === 'suspender-linha' ? 'Suspender esta linha? O carro ser\u00e1 retirado e ela contar\u00e1 como resolvida para finalizar.' : action === 'reativar-linha' ? 'Reativar esta linha? Ela ficar\u00e1 pendente, sem carro e sem confirma\u00e7\u00e3o.' : 'Limpar esta linha? Ela ficar\u00e1 sem carro e sem confirma\u00e7\u00e3o. O carro fixo continuar\u00e1 como refer\u00eancia.';
+          if (pending.current || !window.confirm(message)) return;
+          pending.current = true; setSaving(true);
+          try { if (await onClear(item.id, action)) { dirty.current = false; drafts.delete(item.id); onEditingChange?.(item.id, false); setEditing(false); setPrefixo(''); toast.success('Linha atualizada.'); } }
+          finally { pending.current = false; setSaving(false); }
+        }} />}
       {confirmed && !readOnly && <button type="button" className="h-7 w-7 inline-flex items-center justify-center rounded-full border border-border hover:bg-muted" aria-label={'Editar linha ' + item.linha + ' tabela ' + item.tabela} title="Editar carro desta linha" disabled={saving} onClick={event => {
         dirty.current = true; drafts.set(item.id, prefixo); onEditingChange?.(item.id, true); setEditing(true);
         const input = event.currentTarget.closest('tr')?.querySelector<HTMLInputElement>('input[role="combobox"]'); input?.focus(); input?.click();

@@ -14,17 +14,29 @@ import { notifyC4Updated } from './c4Events';
 import { garageDefects } from './releaseVehicleExchange';
 import { resolveDateProgramming } from './trafficProgramming';
 import { scaleLinkedReleaseIds } from './releaseScaleUpdates';
+import { lineClearAuditSchema } from './lineClearAudit';
 
 export type ReleaseContext = ReturnType<typeof parseDailyContext>;
-const rowSchema = z.object({ id: z.string(), linha: z.string(), tabela: z.string(), carroProgramado: z.string(),
+const rowSchema = z.object({ suspensa: z.boolean().optional(), id: z.string(), linha: z.string(), tabela: z.string(), carroProgramado: z.string(),
   saidaGaragem: z.string(), inicioLinha: z.string().optional(), inicioBairro: z.string().optional(), chegadaGaragem: z.string().optional(),
   ordem: z.number().optional(), tipo: z.string().optional(), observacoes: z.string().optional() }).passthrough();
 export const releaseSheetSchema = z.object({ version: z.literal(1), itens: z.array(rowSchema).min(1),
+  limpezas: z.array(lineClearAuditSchema).optional(),
   escalaVinculadaIds: z.array(z.string().min(1)).max(2000).optional(),
   eventos: z.array(z.object({ operacao: z.enum(['iniciar', 'finalizar', 'reabrir']), usuarioId: z.number().int().positive(), registradoEm: z.string().datetime() })),
   relatorio: z.unknown().optional() }).strict();
 export type ReleaseSheet = z.infer<typeof releaseSheetSchema>;
-export function parseReleaseSheet(conteudo: string): ReleaseSheet { return releaseSheetSchema.parse(JSON.parse(conteudo)); }
+export function parseReleaseSheet(conteudo: string): ReleaseSheet {
+  let value: unknown;
+  try { value = JSON.parse(conteudo); }
+  catch { throw new MvpError(503, 'Conteudo salvo da Soltura invalido (JSON). Nenhum dado foi descartado.'); }
+  const parsed = releaseSheetSchema.safeParse(value);
+  if (!parsed.success) {
+    const fields = [...new Set(parsed.error.issues.map(issue => `${issue.path.join('.') || 'folha'} (${issue.code})`))].slice(0, 5).join(', ');
+    throw new MvpError(503, `Conteudo salvo da Soltura invalido em: ${fields}. Nenhum dado foi descartado; informe estes campos ao suporte.`);
+  }
+  return parsed.data;
+}
 export const releaseSheetWhere = (context: ReleaseContext) => ({ garagem_escalaTipo_turno_dataOperacao: context });
 
 export async function lockReleaseSheet(tx: Pick<Prisma.TransactionClient, '$queryRaw'>, c: ReleaseContext) {
@@ -38,6 +50,7 @@ export function completedReleaseRows(rows: ReleaseSheet['itens'], records: Pick<
   if (!rows.length || records.some(record => !rows.some(row => row.id === record.scheduleId))) return false;
   return rows.every(row => {
     const matches = records.filter(r => r.scheduleId === row.id);
+    if (row.suspensa) return matches.length <= 1 && matches.every(r => r.linha === row.linha && r.tabela === row.tabela && !r.carroRealizado && !r.driverCode);
     return matches.length === 1 && matches[0].linha === row.linha && matches[0].tabela === row.tabela
       && /^\d{1,10}$/.test(matches[0].carroRealizado ?? '') && Boolean(matches[0].driverCode?.trim()) && matches[0].status === 'LIBERADO';
   });
@@ -48,7 +61,7 @@ export function releaseReportRows(rows: ReleaseSheet['itens'], records: Soltura[
     return { ...row, carroProgramado: saved ? saved.carroProgramado ?? '' : row.carroProgramado,
       carroRealizado: saved?.carroRealizado ?? '', motoristaCodigo: saved?.driverCode ?? '',
       motoristaNome: saved?.driverName ?? '', horaLiberacao: saved?.horaLiberacao ?? '',
-      status: saved?.status ?? 'PENDENTE', observacoes: saved?.notes ?? row.observacoes ?? '' };
+      status: row.suspensa ? 'SUSPENSA' : saved?.status ?? 'PENDENTE', observacoes: saved?.notes ?? row.observacoes ?? '' };
   });
 }
 export function releaseLifecycleView(record: { status: string; revisao: number; conteudo: string } | null) {
@@ -116,7 +129,7 @@ export async function changeReleaseLifecycle(db: PrismaClient, userId: number | 
       }
     }
     if (old?.status === 'EM_ANDAMENTO') sheet.itens = await updatedReleaseSheetRows(tx, context, sheet, records);
-    if (command.operacao === 'finalizar' && !completedReleaseRows(sheet.itens, records)) throw new MvpError(409, 'Libere todas as viagens, com carro e motorista, antes de finalizar.');
+    if (command.operacao === 'finalizar' && !completedReleaseRows(sheet.itens, records)) throw new MvpError(409, 'Libere todas as viagens com carro e motorista ou suspenda as que nao vao operar antes de finalizar.');
     sheet.eventos.push({ operacao: command.operacao, usuarioId: userId!, registradoEm: clock().toISOString() });
     if (command.operacao === 'finalizar') {
       const dailyRecords = await tx.soltura.findMany({ where: { garagem: context.garagem, dataOperacao: context.dataOperacao } });

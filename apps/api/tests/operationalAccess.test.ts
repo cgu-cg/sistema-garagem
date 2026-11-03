@@ -105,6 +105,24 @@ test('ciclo da soltura valida garagem aninhada sem aceitar garagem externa ao co
   assert.match(readFileSync('apps/api/src/routes/index.ts', 'utf8'), /router\.post\('\/solturas\/estado', authenticate, operationalAccess\('releaseLifecycle'\)/);
 });
 
+test('rota de limpar, suspender e reativar recebe garagem do contexto e preserva autorizacao', async () => {
+  const routes = readFileSync('apps/api/src/routes/index.ts', 'utf8');
+  const action = routes.match(/router\.post\('\/solturas\/limpar-linha', authenticate, operationalAccess\('([^']+)'\), solturaController.clearLine\)/)?.[1];
+  assert.ok(action, 'Rota real deve ter autorizacao explicita');
+  const { state, run } = middlewareFixture();
+  for (const operacao of ['limpar-linha', 'suspender-linha', 'reativar-linha']) {
+    const body = { contexto: { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'VESPERTINO', dataOperacao: '2026-11-03' }, scheduleId: 'linha-1', revisao: 1, operacao };
+    assert.equal((await run(action, { method: 'POST', body })).next, true);
+    assert.equal((await run(action, { method: 'POST', body: { ...body, contexto: { ...body.contexto, garagem: 'VCM' }, garagem: 'VCG' } })).body.code, 'GARAGE_FORBIDDEN');
+    assert.equal((await run(action, { method: 'POST', body: { garagem: 'VCG' } })).body.code, 'GARAGE_CONTEXT_REQUIRED');
+  }
+  state.user = { role: 'COLABORADOR', garagem: 'VCG' };
+  assert.equal((await run(action, { method: 'POST', body: { contexto: { garagem: 'VCG' } } })).body.code, 'ACTION_FORBIDDEN');
+  state.user = { role: 'ADMIN' };
+  assert.equal((await run(action, { method: 'POST', body: {} })).body.code, 'GARAGE_CONTEXT_REQUIRED');
+  assert.equal((await run(action, { method: 'POST', body: { contexto: { garagem: 'VCG' } } })).next, true);
+});
+
 test('consulta e reservas preservam isolamento; ADMIN conserva acesso entre garagens', async () => {
   const { state, run } = middlewareFixture();
   state.user = { role: 'manutencao', garagem: 'VCM' };

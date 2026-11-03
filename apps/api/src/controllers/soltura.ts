@@ -5,6 +5,8 @@ import { writeSafeRelease, AvailabilityError } from "../services/solturaAvailabi
 import { MvpError } from "../services/mvpTemporal";
 import { ZodError } from "zod";
 import { readReleaseProgramming } from '../services/releaseProgramming';
+import { releaseLineToken } from '../services/lineClearAudit';
+import { clearReleaseLine } from '../services/releaseLineClear';
 
 export async function programming(req: AuthRequest, res: Response) {
   try { return res.json(await readReleaseProgramming(prisma, req.query, req.userId)); }
@@ -20,6 +22,8 @@ export async function list(req: AuthRequest, res: Response) {
     const { startDate, endDate, date, dataOperacao, garagem, turno, escalaTipo } = req.query;
 
     const where: any = {};
+    // Linhas desfeitas ficam auditadas no banco, mas não são liberações ativas.
+    where.OR = [{ status: null }, { status: { not: 'PENDENTE' } }];
 
     const opDate = (date as string) || (dataOperacao as string);
     if (opDate) {
@@ -69,6 +73,7 @@ export async function list(req: AuthRequest, res: Response) {
       }
       return {
         ...r,
+        baseLinha: releaseLineToken(r),
         historicoTrocas: parsedTrocas,
       };
     });
@@ -81,7 +86,11 @@ export async function list(req: AuthRequest, res: Response) {
 }
 
 async function persist(req: AuthRequest, res: Response, batch: boolean) {
-  try { return res.json(await writeSafeRelease(prisma, req.userId, req.body, batch)); }
+  try {
+    const result = await writeSafeRelease(prisma, req.userId, req.body, batch);
+    if ('items' in result) return res.json({ ...result, items: result.items.map(row => ({ ...row, baseLinha: releaseLineToken(row) })) });
+    return res.json({ ...result, baseLinha: releaseLineToken(result) });
+  }
   catch (error) {
     if (error instanceof AvailabilityError) return res.status(409).json({ code: error.code, error: error.message });
     if (error instanceof MvpError) return res.status(error.status).json({ error: error.message });
@@ -91,3 +100,12 @@ async function persist(req: AuthRequest, res: Response, batch: boolean) {
 }
 export async function create(req: AuthRequest, res: Response) { return persist(req, res, false); }
 export async function syncBatch(req: AuthRequest, res: Response) { return persist(req, res, true); }
+
+export async function clearLine(req: AuthRequest, res: Response) {
+  try { return res.json(await clearReleaseLine(prisma, req.userId, req.body)); }
+  catch (error) {
+    if (error instanceof MvpError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof ZodError) return res.status(400).json({ error: 'Dados de limpeza inválidos. Recarregue a folha.' });
+    return res.status(409).json({ error: 'Limpeza não confirmada. Recarregue antes de tentar novamente.' });
+  }
+}

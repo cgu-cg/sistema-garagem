@@ -9,7 +9,7 @@ export function ReleaseLifecycleBar({ state, error, pending, allowed, admin, tod
   return <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card p-3 text-xs print:hidden">
     <div><p className="font-semibold">Soltura: {state ? labels[state.status] : error ? 'Indisponível' : 'Consultando estado oficial...'}</p>
       {error && <p role="alert" className="mt-1 text-rose-600">{error}</p>}
-      {state?.status === 'EM_ANDAMENTO' && <p className="mt-1 text-muted-foreground">{remaining} viagem(ns) pendente(s). Finalização exige todas liberadas.</p>}
+      {state?.status === 'EM_ANDAMENTO' && <p className="mt-1 text-muted-foreground">{remaining} viagem(ns) pendente(s). Finalização exige todas liberadas ou suspensas.</p>}
       {dirty && <p className="mt-1 text-amber-700">Confirme os rascunhos antes de finalizar.</p>}
       {!today && <p className="mt-1 text-muted-foreground">Consulta histórica. Alterações disponíveis somente no dia da operação.</p>}
     </div>

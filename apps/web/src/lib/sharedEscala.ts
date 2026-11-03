@@ -32,7 +32,7 @@ export interface DailyEscala { programacao?: TrafficRow[]; contexto: EscalaConte
   reservaPorCor?: { updatedAt: string | null; grupos: { id: string; titulo: string; prefixos: string[] }[] };
   ciAvisos?: { prefixo: string; categoria: 'PREVENTIVA' | 'OFICINA' | 'REFORCO'; subTipo: string | null; horario: string | null; tipoPosicao: string | null; ordemPosicao: number | null }[];
   confirmadas: string[];
-  itens: { id: string; carroSubstituido: string }[]; cards: ScaleCard[]; frota: string[]; bloqueados: string[]; reserva: string[];
+  itens: { id: string; carroSubstituido: string; suspensa?: boolean }[]; cards: ScaleCard[]; frota: string[]; bloqueados: string[]; reserva: string[];
   ocupacoes: { prefixo: string; local: string; chave: string }[]; ciData: string; cardsOrigem: 'padrao' | 'salvo'; omitidosPadrao: number }
 const prefixSchema = z.string().regex(/^\d{1,10}$/);
 const dailyResponseSchema = z.object({
@@ -55,7 +55,7 @@ const dailyResponseSchema = z.object({
   ciAvisos: z.array(z.object({ prefixo: prefixSchema, categoria: z.enum(['PREVENTIVA', 'OFICINA', 'REFORCO']), subTipo: z.string().nullable(),
     horario: z.string().nullable(), tipoPosicao: z.string().nullable(), ordemPosicao: z.number().int().positive().nullable() }).strict()).optional(),
   confirmadas: z.array(z.string().min(1)).max(2000).default([]),
-  itens: z.array(z.object({ id: z.string().min(1), carroSubstituido: z.string().regex(/^\d{1,10}$/) }).strict()).max(2000),
+  itens: z.array(z.object({ id: z.string().min(1), carroSubstituido: z.string().regex(/^(\d{1,10})?$/), suspensa: z.boolean().optional() }).strict()).max(2000),
   cards: z.array(z.object({ id: z.string(), titulo: z.string(), modo: z.enum(['lista', 'unico', 'rabicho']), itens: z.array(z.object({ id: z.string(),
     prefixo: z.string().regex(/^(\d{1,10})?$/), linha: z.string().optional(), tabela: z.string().optional(), horario: z.string().optional() }).strict()) }).strict()),
   frota: z.array(prefixSchema), bloqueados: z.array(prefixSchema), reserva: z.array(prefixSchema),
@@ -101,3 +101,6 @@ export const changeDailyScaleState = async (contexto: DailyEscala['contexto'], r
 
 export const treatDailySubstitution = async (contexto: DailyEscala['contexto'], revisao: number, trocaId: string, retirada: ScaleWithdrawal) =>
   validateDailyEscala(await api.post('/escala-carros/diaria', { contexto, revisao, operacao: 'tratar-substituido', trocaId, retirada }), contexto);
+
+export const clearDailyScaleLine = async (contexto: DailyEscala['contexto'], revisao: number, id: string, base: string, operacao: 'limpar-linha' | 'suspender-linha' | 'reativar-linha' = 'limpar-linha') =>
+  validateDailyEscala(await api.post<DailyEscala>('/escala-carros/diaria', { contexto, revisao, id, base, operacao }), contexto);

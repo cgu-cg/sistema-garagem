@@ -1,5 +1,69 @@
 # Domain model e entendimento operacional atual
 
+## Releitura após limpar linha da Soltura — 03/11/2026
+
+A validação do cliente distingue o molde de Tráfego da fotografia operacional:
+aceita a flag `suspensa` na programação retornada pela Soltura, preserva seu
+valor nos itens e continua recusando campos de molde desconhecidos. Um registro
+de despacho `PENDENTE`, inclusive recebido de uma API anterior ou cache, não
+é projetado como liberado e não bloqueia a viagem como confirmação existente.
+
+Limpar/suspender/reativar valida todo o JSON resultante antes de persistir o
+despacho e a folha na mesma transação. A releitura de conteúdo inválido informa
+os caminhos dos campos que falharam, sem expor valores nem apagar metadados ou
+histórico. Erro de conteúdo persistido não é apresentado como erro de contexto.
+Publicar API e frontend juntos; não há normalização destrutiva ou SQL automático.
+
+## Uso pela Portaria no Controle de Manutenção — 03/11/2026
+
+CONFIRMADO pelo usuário: a ação Usado Portaria marca o veículo que está em
+Em Manutenção, preservando o defeito e o estado. A tela mostra um badge índigo
+Usado Portaria ao lado do defeito, também nas consultas posteriores e no
+relatório da tela. A marca acompanha o registro nas alterações normais.
+
+Perfil `soltura` da própria garagem e ADMIN podem executar a marcação pela
+ação específica `USADO_PORTARIA`. O backend aceita somente acrescentar a marca
+a um único carro em manutenção, com revisão válida; recusa alterar defeitos,
+estados, identificação, lista de carros ou desfazer a marca nesse comando.
+Portaria não ganha autorização de escrita geral no Controle nem na CI.
+Editar Defeito e o clique na célula de defeito permanecem disponíveis somente
+para quem já pode editar Manutenção (ADMIN/Manutenção conforme regras atuais).
+
+Mantêm-se o dia atual, janela 03h–20h de America/Campo_Grande, isolamento por
+garagem, conflitos e idempotência. A fila offline guarda a ação e o badge;
+sincronização e descarte de pendências antigas seguem as regras existentes.
+Campo JSON opcional `usadoPortaria`, sem nova tabela/coluna, SQL ou migração.
+Publicar API e frontend juntos; clientes antigos não preservam essa marca.
+
+## Limpar dados e suspender viagens — 03/11/2026
+
+CONFIRMADO pelo usuário: o menu vertical de três pontos nas linhas da Escala
+de Carros e da Soltura oferece Limpar dados e Suspender linha. Suspensão é
+por viagem da folha operacional; não exclui a linha nem modifica o modelo.
+As ações exigem confirmação, revisão atual, permissão e folha aberta, dentro
+dos limites de data/horário já existentes. Folhas finalizadas permanecem
+protegidas; eventual reabertura segue as regras anteriores.
+
+Limpar na Escala grava uma atribuição explicitamente vazia e retira a
+confirmação, mantendo o carro fixo apenas como referência. Limpar na Soltura
+retira realizado, vínculo do veículo, MOTO e horário de liberação; o registro
+existente fica pendente e pode ser preenchido novamente. Não apaga registros
+nem históricos de trocas/bloqueios. O estado anterior, usuário e instante
+ficam auditados no JSON da própria folha, na coleção `limpezas`.
+
+Suspender também retira a atribuição/confirmação e, na Soltura, o MOTO. A linha
+fica vermelha, identificada como Suspensa e sem permitir confirmação/despacho.
+Ela conta como resolvida para a finalização, sem contar como saída liberada.
+O menu passa a oferecer Reativar linha: volta a ficar pendente e vazia, sem
+restaurar automaticamente dados retirados. A finalização da Soltura exige
+viagens liberadas com carro e motorista ou explicitamente suspensas.
+Relatórios e fotografias finalizados preservam a suspensão. Não há propagação
+automática de uma suspensão da Escala para uma viagem da Soltura.
+
+Persistência usa campos JSON opcionais (`suspensa` nos itens operacionais) e
+campos anuláveis existentes; sem DDL, alteração de Prisma ou migração de dados.
+Publicar API e frontend em conjunto. Nenhum SQL foi executado pelo agente.
+
 ## Seleção inicial do turno da Soltura — 03/11/2026
 
 No contexto Seg–Sex, abrir a Folha de Soltura a partir das 12h de

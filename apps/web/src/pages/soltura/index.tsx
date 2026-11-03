@@ -1,3 +1,4 @@
+import { LineActionsMenu, type LineAction } from './LineActionsMenu';
 import { useDailyScaleDrafts } from '@/lib/useDailyScaleDrafts';
 import { canEditScaleDate } from '@/lib/dailyScaleWindow';
 import { ReleaseRowEditMenu } from './ReleaseRowEditMenu';
@@ -51,7 +52,7 @@ import {
   parseTimeToMinutes
 } from "@/data/solturaTypes";
 import { terminaisReservaVCG, terminaisReservaVCM } from '@/data/reservasData';
-import { releaseScheduleBase, applyReleaseRecords, type ReleaseRecord } from '@/lib/releaseSchedule';
+import { isActiveReleaseRecord, releaseScheduleBase, applyReleaseRecords, type ReleaseRecord } from '@/lib/releaseSchedule';
 import { drivers } from "@/data/drivers";
 import { cn } from "@/lib/utils";
 import { CiManutencaoView } from "./CiManutencaoView";
@@ -59,7 +60,7 @@ import { AlterarFolhaView } from "./AlterarFolhaView";
 import { AlterarCarroProgramadoView } from "./AlterarCarroProgramadoView";
 import { CarroRealizadoView } from "./CarroRealizadoView";
 import { checkCarroBloqueado, subscribeCIUpdates, fetchCIBloqueiosFromApi, getGaragemFisicaByCarro } from "./ciManager";
-import { loadSharedEscala, saveSharedEscala, SharedEscala, EscalaContext, DailyEscala, loadDailyEscala, changeDailyScaleState, saveDailyEscala, saveDailyScaleCard, treatDailySubstitution, CardMutation, ScaleWithdrawal } from '@/lib/sharedEscala';
+import { clearDailyScaleLine, loadSharedEscala, saveSharedEscala, SharedEscala, EscalaContext, DailyEscala, loadDailyEscala, changeDailyScaleState, saveDailyEscala, saveDailyScaleCard, treatDailySubstitution, CardMutation, ScaleWithdrawal } from '@/lib/sharedEscala';
 import { applyDailySchedule, fixedScheduleRows, fixedScheduleToken } from '@/lib/dailySchedule';
 import { defaultScheduleSelection, selectScheduleDate, defaultReleasePeriod } from '@/lib/scheduleSelection';
 
@@ -99,6 +100,7 @@ export const TIPOS_RESERVA: Array<{
 import { CarroTrocaPopover, TrocaCarroItem } from "./CarroTrocaPopover";
 
 export interface DispatchedRecord extends ReleaseRecord {
+  baseLinha?: string;
   scheduleId: string;
   carroRealizado: string;
   motoristaCodigo: string;
@@ -515,6 +517,19 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Tratamento nao gravado.'); return false; }
     finally { dailyWritePending.current = false; dailyWriteContext.current = null; }
   };
+  const persistClearDailyLine = async (id: string, action: LineAction = 'limpar-linha') => {
+    if (!dailyReady || !dailyScale || !canEditDailyScale || dailyWritePending.current || !canEditScaleDate(dataOperacao)) return false;
+    const base = fixedScheduleToken(scaleContext, id, dailyScale.programacao);
+    if (!base) return false;
+    const key = dailyContextKey;
+    dailyWritePending.current = true; dailyWriteContext.current = key; ++dailyReadSequence.current;
+    try {
+      const saved = await clearDailyScaleLine(dailyContext, dailyScale.revisao, id, base, action);
+      if (selectedDailyKey.current === key) { setDailyScale(saved); setDailyError(''); }
+      return true;
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'N\u00e3o foi poss\u00edvel atualizar a linha.'); return false; }
+    finally { dailyWritePending.current = false; dailyWriteContext.current = null; }
+  };
   const changeScaleLifecycle = async (operation: 'iniciar' | 'finalizar' | 'reabrir') => {
     if (!dailyScale || !dailyReady || dailyWritePending.current || !canWriteDailyScale(user, garagem)) return;
     if (dailyDirtyFields.current.size) { toast.warning('Salve os rascunhos antes de alterar o estado da escala.'); return; }
@@ -599,6 +614,15 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   }, [rawBaseSchedules]);
 
   const [isSyncingDb, setIsSyncingDb] = useState(false);
+  const [dispatchReload, setDispatchReload] = useState(0);
+
+  useEffect(() => {
+    if (!['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode)) return;
+    const refresh = () => { if (!dispatchWritePending.current) setDispatchReload(value => value + 1); };
+    const stop = c4Realtime.subscribe(event => { if (!event || event.garagem === garagem) refresh(); });
+    window.addEventListener('focus', refresh);
+    return () => { stop(); window.removeEventListener('focus', refresh); };
+  }, [viewMode, garagem]);
 
   // Sincronizar com o banco de dados oficial (SQL Server)
   useEffect(() => {
@@ -620,10 +644,10 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           if (records.length > 0) {
             // Se existem registros no banco para essa data, o banco é a autoridade máxima
             const dbDispatches: Record<string, DispatchedRecord> = {};
-            records.forEach((rec) => {
+            records.filter(isActiveReleaseRecord).forEach((rec) => {
               const sid = rec.scheduleId || `${rec.linha}_${rec.tabela}`;
               dbDispatches[sid] = {
-                scheduleId: sid,
+                scheduleId: sid, status: rec.status, baseLinha: rec.baseLinha,
                 carroRealizado: rec.carroRealizado,
                 carroProgramado: rec.carroProgramado ?? undefined,
                 scheduleSnapshot: { id: sid, linha: rec.linha, tabela: rec.tabela ?? '',
@@ -659,7 +683,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     return () => {
       isCancelled = true;
     };
-  }, [garagem, escalaTipo, turnoTipo, dataOperacao]);
+  }, [garagem, escalaTipo, turnoTipo, dataOperacao, dispatchReload]);
 
   // Persistir despacho individual na API
   const dispatchWritePending = useRef(false);
@@ -686,7 +710,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         status: "LIBERADO",
         notes: record.observacoes || null,
       });
-      return { ...record, carroRealizado: saved.carroRealizado, carroProgramado: saved.carroProgramado ?? undefined, substituido: saved.substituido,
+      return { ...record, status: saved.status ?? 'LIBERADO', baseLinha: saved.baseLinha, carroRealizado: saved.carroRealizado, carroProgramado: saved.carroProgramado ?? undefined, substituido: saved.substituido,
         historicoTrocas: typeof saved.historicoTrocas === 'string' ? JSON.parse(saved.historicoTrocas) : saved.historicoTrocas ?? [] };
   };
 
@@ -726,7 +750,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           const row = baseSchedules.find(item => item.id === id);
           const received = result.items.find((entry: any) => entry.scheduleId === id);
           const { trocaCarro: _troca, ...savedRecord } = record;
-          return [id, { ...savedRecord, carroRealizado: received.carroRealizado, substituido: received.substituido,
+          return [id, { ...savedRecord, status: received.status ?? 'LIBERADO', baseLinha: received.baseLinha, carroRealizado: received.carroRealizado, substituido: received.substituido,
             historicoTrocas: typeof received.historicoTrocas === 'string' ? JSON.parse(received.historicoTrocas) : received.historicoTrocas ?? [], carroProgramado: dispatches[id]?.carroProgramado ?? row?.carroProgramado,
             scheduleSnapshot: dispatches[id]?.scheduleSnapshot ?? (row ? { ...row } : undefined) }];
         }))));
@@ -946,21 +970,23 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   // Mapear itens mesclando programação base + despachos realizados
   const activeSchedules = useMemo(() => {
     const rows = applyReleaseRecords(baseSchedules, dispatches, dataOperacao < operationalContext().today || viewMode === 'HISTORICO');
-    return independentRelease ? rows.map(row => ({ ...row, carroProgramado: '' })) : rows;
-  }, [baseSchedules, dispatches, viewMode, dataOperacao, independentRelease]);
+    const projected = rows.map(row => releaseLifecycle.data?.itens?.find(item => item.id === row.id)?.suspensa ? { ...row, suspensa: true, carroRealizado: '', motoristaCodigo: '', motoristaNome: '', horaLiberacao: '', status: 'PENDENTE' as const } : row);
+    return independentRelease ? projected.map(row => ({ ...row, carroProgramado: '' })) : projected;
+  }, [baseSchedules, dispatches, viewMode, dataOperacao, independentRelease, releaseLifecycle.data]);
 
   // Estatísticas operacionais
   const stats = useMemo(() => {
     const total = activeSchedules.length;
     const liberados = activeSchedules.filter(s => s.status === "LIBERADO" || s.status === "SUBSTITUIDO").length;
     const substituidos = activeSchedules.filter(s => s.status === "SUBSTITUIDO" || (!independentRelease && s.carroRealizado && s.carroRealizado !== s.carroProgramado)).length;
-    const pendentes = total - liberados;
+    const suspensas = activeSchedules.filter(s => s.suspensa).length;
+    const pendentes = total - liberados - suspensas;
     const percentual = total > 0 ? Math.round((liberados / total) * 100) : 0;
 
     // Contar CIs ativos reais da CI oficial (sem duplicatas)
     const totalBloqueadosCI = penduradosAtivos.length;
 
-    return { total, liberados, substituidos, pendentes, percentual, totalBloqueadosCI };
+    return { total, liberados, substituidos, suspensas, pendentes, percentual, totalBloqueadosCI };
   }, [activeSchedules, penduradosAtivos]);
 
   // Estado para animar e pulsar o carro bloqueado na seção de pendurados
@@ -1254,6 +1280,30 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       reportWindow.document.open(); reportWindow.document.write(buildReleaseReportHtml(report)); reportWindow.document.close();
     } catch (error) { reportWindow.close(); toast.error(error instanceof Error ? error.message : 'Relatório indisponível.'); }
   };
+  const handleClearReleaseLine = async (item: SolturaItem, action: LineAction = 'limpar-linha') => {
+    if (!releaseUiAllowed || dispatchWritePending.current || !releaseLifecycle.data) return false;
+    const previous = dispatches[item.id];
+    if ((action === 'limpar-linha' || item.carroRealizado) && !previous?.baseLinha) { setDispatchReload(value => value + 1); toast.info('Recarregando o registro oficial. Tente limpar novamente após a consulta.'); return false; }
+    const message = action === 'suspender-linha' ? 'Suspender esta linha? O carro e o MOTO ser\u00e3o retirados. Ela contar\u00e1 como resolvida para finalizar a folha.' : action === 'reativar-linha' ? 'Reativar esta linha? Ela ficar\u00e1 pendente, sem carro e sem MOTO.' : 'Limpar esta linha? O carro e o MOTO ser\u00e3o retirados e a viagem ficar\u00e1 pendente. O hist\u00f3rico ser\u00e1 preservado.';
+    if (!window.confirm(message)) return false;
+    const key = dispatchContextKey;
+    dispatchWritePending.current = true;
+    try {
+      await api.post('/solturas/limpar-linha', { contexto: releaseContext, scheduleId: item.id,
+        revisao: releaseLifecycle.data.revisao, base: previous?.baseLinha, operacao: action });
+      if (selectedDispatchKey.current === key) {
+        const next = { ...dispatches }; delete next[item.id]; saveDispatches(next);
+        setDrafts(current => { const result = { ...current }; delete result[item.id]; return result; });
+        setDispatchReload(value => value + 1);
+        await Promise.all([releaseProgramming.reload(), releaseLifecycle.reload()]);
+      }
+      toast.success(action === 'suspender-linha' ? 'Linha suspensa.' : action === 'reativar-linha' ? 'Linha reativada e pendente.' : 'Dados limpos. A viagem est\u00e1 pendente novamente.'); return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Altera\u00e7\u00e3o da linha n\u00e3o confirmada.');
+      if (selectedDispatchKey.current === key) { setDispatchReload(value => value + 1); void releaseLifecycle.reload(); }
+      return false;
+    } finally { dispatchWritePending.current = false; }
+  };
   const changeReleaseState = async (operation: 'iniciar' | 'finalizar' | 'reabrir') => {
     if (dispatchWritePending.current) { toast.error('Aguarde a gravação do despacho.'); return; }
     if (operation === 'finalizar' && Object.values(drafts).some(draft => draft.carro || draft.moto)) { toast.error('Confirme os rascunhos antes de finalizar.'); return; }
@@ -1268,7 +1318,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const releaseLifecycleControl = (<ReleaseLifecycleBar state={releaseLifecycle.data} error={releaseLifecycle.error} pending={releaseLifecycle.pending || !dispatchLoaded || isSyncingDb}
           allowed={canDispatch(user) && garagem === 'VCG'} admin={isAdmin} today={dataOperacao === operationalContext().today}
           ready={Boolean(releaseProgramming.data && (independentRelease || (releaseProgramming.data.escalaFinalizada && releaseState?.fluxo?.ciFinalizada)))}
-          remaining={activeSchedules.filter(row => !['LIBERADO', 'SUBSTITUIDO'].includes(row.status)).length}
+          remaining={activeSchedules.filter(row => !row.suspensa && !['LIBERADO', 'SUBSTITUIDO'].includes(row.status)).length}
           dirty={Object.values(drafts).some(draft => Boolean(draft.carro || draft.moto))}
           onChange={operation => void changeReleaseState(operation)} onReload={() => void releaseLifecycle.reload()} />);
   const renderCardReservaTerminal = (isPrint: boolean = false) => (
@@ -1410,7 +1460,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
               <span><strong>PROGRAMADOS:</strong> {stats.total} VEÍCULOS</span>
               <span><strong>LIBERADOS:</strong> {stats.liberados}</span>
               <span><strong>SUBSTITUIÇÕES:</strong> {stats.substituidos}</span>
-              <span><strong>PENDENTES:</strong> {stats.pendentes}</span>
+              <span><strong>PENDENTES:</strong> {stats.pendentes}</span><span><strong>SUSPENSAS:</strong> {stats.suspensas}</span>
               <span><strong>TAXA DE SOLTURA:</strong> {stats.percentual}%</span>
             </div>
           </div>
@@ -1424,7 +1474,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
             <div className="min-w-0 border rounded-2xl overflow-hidden shadow-2xs bg-card border-border/80 sticky top-4 self-start z-10">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 text-xs text-muted-foreground">
                 <div className="flex flex-wrap gap-3">{!independentRelease && <><span className="inline-flex items-center gap-1.5"><VehicleAlertIcon className="h-3 w-3 text-rose-600" />Bloqueados CI</span><span className="inline-flex items-center gap-1.5"><VehicleAlertIcon className="h-3 w-3 text-amber-500" />Reforço</span></>}<span className="inline-flex items-center gap-1.5"><VehicleAlertIcon className="h-3 w-3 text-blue-600" />Defeito Garagem</span></div>
-                <div className="flex gap-3 font-mono"><span>Feito: <strong className="text-emerald-700">{String(stats.liberados).padStart(2, '0')}</strong></span><span>Falta: <strong>{String(stats.pendentes).padStart(2, '0')}</strong></span></div>
+                <div className="flex gap-3 font-mono"><span>Feito: <strong className="text-emerald-700">{String(stats.liberados).padStart(2, '0')}</strong></span><span>Falta: <strong>{String(stats.pendentes).padStart(2, '0')}</strong></span>{stats.suspensas > 0 && <span className="text-rose-700">Suspensas: <strong>{stats.suspensas}</strong></span>}</div>
               </div>
 
               {/* Barra de progresso sutil ao carregar linhas da folha */}
@@ -1498,6 +1548,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                             onDraftChange={handleDraftChange}
                             onTrocarCarro={handleTrocarCarro}
                             onTrocarMoto={handleTrocarMoto}
+                            onClearLine={handleClearReleaseLine}
                             onPenduradoAlert={triggerPenduradoAlert}
                             getOutraLinhaComCarroRealiz={getOutraLinhaComCarroRealiz}
                             getOutraLinhaComMoto={getOutraLinhaComMoto}
@@ -1662,6 +1713,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                                 onDraftChange={handleDraftChange}
                                 onTrocarCarro={handleTrocarCarro}
                                 onTrocarMoto={handleTrocarMoto}
+                                onClearLine={handleClearReleaseLine}
                                 onPenduradoAlert={triggerPenduradoAlert}
                                 getOutraLinhaComCarroRealiz={getOutraLinhaComCarroRealiz}
                                 getOutraLinhaComMoto={getOutraLinhaComMoto}
@@ -1807,7 +1859,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                 key={item.id}
                 className={cn(
                   "p-3.5 rounded-xl border transition-all shadow-2xs hover:shadow-md flex flex-col justify-between relative overflow-hidden bg-card",
-                  isDone
+                  item.suspensa ? 'border-rose-300 !bg-rose-100 dark:!bg-rose-950/50' : isDone
                     ? "border-emerald-500/30 bg-emerald-500/5"
                     : "hover:border-primary/50"
                 )}
@@ -1830,7 +1882,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                        <Clock className="w-3 h-3" /> Pendente
+                        <Clock className="w-3 h-3" /> {item.suspensa ? 'Suspensa' : 'Pendente'}
                       </span>
                     )}
                   </div>
@@ -1887,7 +1939,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                   ) : (
                     <Button
                       size="sm"
-                      disabled={!releaseUiAllowed}
+                      disabled={!releaseUiAllowed || item.suspensa}
                       onClick={() => handleRelease(item)}
                       className="flex-1 h-8 text-xs font-bold rounded-lg bg-[#164E3A] hover:bg-[#113C2D] text-white shadow-2xs"
                     >
@@ -2067,6 +2119,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           schedules={dailySchedules}
           official={dailyReady ? dailyScale : null}
           onSaveSubstitution={persistDailySchedule}
+          onClearLine={persistClearDailyLine}
           onSaveCard={persistDailyCard}
           onTreatSubstitution={persistDailyTreatment}
           treatmentReadOnly={!canTreatDailyScale}
@@ -2184,6 +2237,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 // COMPONENTE DE LINHA DA TABELA DA FOLHA DE SOLTURA (ESTILO PRANCHETA)
 // ----------------------------------------------------------------------
 interface FolhaTableRowProps {
+  onClearLine?: (item: SolturaItem, action?: LineAction) => Promise<boolean>;
   onTrocarMoto?: (item: SolturaItem, codigo: string) => Promise<boolean>;
   hideProgrammedCar?: boolean;
   scaleState: DailyEscala | null;
@@ -2203,6 +2257,7 @@ interface FolhaTableRowProps {
 
 function FolhaTableRow({
   onTrocarMoto,
+  onClearLine,
   hideProgrammedCar = false,
   scaleState,
   item,
@@ -2242,7 +2297,7 @@ function FolhaTableRow({
   const handleKeyDownCarro = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      if (isReadOnly) return;
+      if (isReadOnly || item.suspensa) return;
       if ((carroValue.trim() || item.carroProgramado) && motoValue.trim()) {
         if (conflitoMoto) {
           toast.error(`Motorista (MOTO ${motoValue.trim()}) já está escalado na Linha ${conflitoMoto.linha} / Tab ${conflitoMoto.tabela}!`);
@@ -2259,6 +2314,7 @@ function FolhaTableRow({
   };
 
   const handleKeyDownMoto = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (isReadOnly || item.suspensa) return;
     if (e.key === "Enter") {
       e.preventDefault();
       if ((carroValue.trim() || item.carroProgramado) && motoValue.trim()) {
@@ -2293,7 +2349,7 @@ function FolhaTableRow({
     <tr
       className={cn(
         "transition-colors group border-b",
-        isVCM
+        item.suspensa ? 'bg-rose-100 hover:bg-rose-200/70 dark:bg-rose-950/50 border-rose-300' : isVCM
           ? isDone
             ? "bg-blue-500/15 hover:bg-blue-500/25 dark:bg-blue-950/50 dark:hover:bg-blue-950/70 border-blue-500/30"
             : "bg-blue-500/10 hover:bg-blue-500/20 dark:bg-blue-950/30 dark:hover:bg-blue-950/50 border-blue-500/30 text-foreground"
@@ -2362,7 +2418,7 @@ function FolhaTableRow({
                 type="text"
                 placeholder=""
                 value={carroValue}
-                disabled={isReadOnly}
+                disabled={item.suspensa || isReadOnly}
                 onKeyDown={handleKeyDownCarro}
                 onChange={(e) => {
                   const val = e.target.value;
@@ -2426,12 +2482,12 @@ function FolhaTableRow({
         <span className="hidden print:inline font-mono font-bold text-[8pt] text-black">
           {motoValue || "—"}
         </span>
-        {isDone ? <span className="print:hidden"><MotoristaTrocaPopover codigo={item.motoristaCodigo || ''} readOnly={isReadOnly || !onTrocarMoto} onSave={codigo => onTrocarMoto ? onTrocarMoto(item, codigo) : Promise.resolve(false)} /></span> : <input
+        {isDone ? <span className="print:hidden"><MotoristaTrocaPopover codigo={item.motoristaCodigo || ''} readOnly={item.suspensa || isReadOnly || !onTrocarMoto} onSave={codigo => onTrocarMoto ? onTrocarMoto(item, codigo) : Promise.resolve(false)} /></span> : <input
           id={`moto-input-${item.id}`}
           type="text"
           placeholder=""
           value={motoValue}
-          disabled={isDone || isReadOnly}
+          disabled={item.suspensa || isDone || isReadOnly}
           onKeyDown={handleKeyDownMoto}
           onChange={(e) => {
             const val = e.target.value;
@@ -2476,7 +2532,7 @@ function FolhaTableRow({
 
       {/* 7. Horário Saída Garagem */}
       <td className="py-1 px-2 text-center font-mono font-bold text-xs text-foreground whitespace-nowrap">
-        {item.saidaGaragem}
+        {item.saidaGaragem}{item.suspensa && <span className="block text-[10px] text-rose-700">Suspensa</span>}
       </td>
 
       {/* 8. Horário Início Linha / Bairro */}
@@ -2510,13 +2566,13 @@ function FolhaTableRow({
               historicoTrocas, onTrocarCarro: onTrocarCarro || (async () => false), checkBloqueioCI, onPenduradoAlert,
               getOutraLinhaComCarroRealiz, isReadOnly: isReadOnly || !onTrocarCarro }}
               driver={{ codigo: item.motoristaCodigo || '', readOnly: isReadOnly || !onTrocarMoto,
-                onSave: codigo => onTrocarMoto ? onTrocarMoto(item, codigo) : Promise.resolve(false) }} />
+                onSave: codigo => onTrocarMoto ? onTrocarMoto(item, codigo) : Promise.resolve(false) }} onClear={onClearLine ? action => onClearLine(item, action) : undefined} />
           </div>
         ) : (
           <div className="flex items-center justify-center">
             <button
               type="button"
-              disabled={!isLiberarHabilitado}
+              disabled={!isLiberarHabilitado || item.suspensa}
               onClick={() => onRelease(item, carroValue, motoValue)}
               className={cn(
                 "w-7 h-7 rounded-full flex items-center justify-center transition-all shadow-2xs select-none",
@@ -2532,6 +2588,7 @@ function FolhaTableRow({
             >
               <Check className="w-4 h-4" />
             </button>
+            {onClearLine && <LineActionsMenu label={`${item.linha} tabela ${item.tabela}`} suspended={item.suspensa} canClear={false} onAction={action => onClearLine(item, action)} />}
           </div>
         )}
       </td>

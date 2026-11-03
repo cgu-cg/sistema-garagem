@@ -26,20 +26,21 @@ export function buildReleaseReportHtml(report: ReleaseReport): string {
         const done = row.status === 'LIBERADO' || row.status === 'SUBSTITUIDO';
         const changed = Boolean(done && row.carroProgramado && row.carroRealizado && row.carroRealizado !== row.carroProgramado);
         const kind = row.tipo === 'VCM' ? 'VCM' : row.tipo === 'FRETAMENTO' ? 'Fretamento' : '';
-        const cells = [escape(row.linha) + (kind ? `<small>${kind}</small>` : ''), escape(row.tabela),
+        const cells = [escape(row.linha) + (row.suspensa ? '<small>SUSPENSA</small>' : '') + (kind ? `<small>${kind}</small>` : ''), escape(row.tabela),
           ...(!independent ? [`<span class="${changed ? 'replaced' : ''}">${escape(row.carroProgramado)}</span>`] : []),
           escape(done ? row.carroRealizado || row.carroProgramado : ''), escape(done ? row.motoristaCodigo : ''),
           escape(row.saidaGaragem), escape(weekend ? row.chegadaGaragem : row.inicioLinha || row.inicioBairro)];
-        return `<tr>${cells.map(value => `<td>${value}</td>`).join('')}</tr>`;
+        return `<tr${row.suspensa ? ' style="background:#ffe4e6"' : ''}>${cells.map(value => `<td>${value}</td>`).join('')}</tr>`;
       }).join('');
       return `<table><thead><tr><th>Linha</th><th>Tab.</th>${!independent ? `<th>${weekend ? 'Carro' : 'Programado'}</th>` : ''}<th>${weekend ? 'Realiz.' : 'Realizado'}</th><th>MOTO</th><th>Saída</th><th>${weekend ? 'Chegada' : 'Início'}</th></tr></thead><tbody>${body}</tbody></table>`;
     }).join('');
+    const suspended = report.itens.filter(row => row.suspensa).length;
     const liberated = report.itens.filter(row => ['LIBERADO', 'SUBSTITUIDO'].includes(row.status)).length;
     const auxiliary = page === totalPages - 1 && report.auxiliaresIndisponiveis ? '<p>Reservas e bloqueios não registrados neste histórico. Dados atuais não foram usados para completar o relatório.</p>' : page === totalPages - 1 ? `<div class="auxiliary"><div><h3>Reserva garagem</h3><p>${escape(report.reserva.join(' · ') || 'Sem carros')}</p></div>
       <div><h3>Reserva terminal</h3>${report.reservasTerminais.length ? report.reservasTerminais.map(r => `<p>${escape(r.terminal)}: ${escape(r.carro)}</p>`).join('') : '<p>Sem registros</p>'}</div>
       <div><h3>Bloqueados CI</h3><p>${escape(report.ciNaoVinculada ? 'CI não vinculada ao vespertino' : report.bloqueados.join(' · ') || 'Sem registros')}</p><h3>Defeito garagem</h3>${report.defeitosGaragem.map(d => `<p>${escape(d.prefixo)}: ${escape(d.descricao)}</p>`).join('') || '<p>Sem registros</p>'}</div></div>` : '';
     pages.push(`<section class="sheet"><header><h1>CONSÓRCIO GUAICURUS · GARAGEM ${escape(c.garagem)}</h1><h2>FOLHA DE SOLTURA — ${labels[c.escalaTipo]}${c.turno === 'PADRAO' ? '' : ' · ' + escape(c.turno)} · ${escape(c.dataOperacao.split('-').reverse().join('/'))}</h2>
-      <p>${escape(report.status === 'FINALIZADA' ? 'Finalizada' : report.status === 'LEGADO' ? 'Histórico anterior ao controle de início/fim' : report.status === 'NAO_INICIADA' ? 'Não iniciada — prévia' : 'Em andamento — parcial')} · Total: ${report.itens.length} · Liberados: ${liberated} · Pendentes: ${report.itens.length - liberated}</p></header>
+      <p>${escape(report.status === 'FINALIZADA' ? 'Finalizada' : report.status === 'LEGADO' ? 'Histórico anterior ao controle de início/fim' : report.status === 'NAO_INICIADA' ? 'Não iniciada — prévia' : 'Em andamento — parcial')} · Total: ${report.itens.length} · Liberados: ${liberated} \u00b7 Suspensas: ${suspended} · Pendentes: ${report.itens.length - liberated - suspended}</p></header>
       <div class="columns" style="grid-template-columns:repeat(${columns},minmax(0,1fr))">${tables}</div>${auxiliary}
       <footer>Página ${page + 1} de ${totalPages} · Registro de emissão: ${escape(report.emitidoEm)} · Responsável: ____________________</footer></section>`);
   }

@@ -27,6 +27,17 @@ test('offline exige copia carregada e guarda fotografia e fila em uma unica escr
  assert.equal(JSON.stringify(local).includes('token'),false);
  const reopened=await f.client().load();assert.deepEqual(reopened.snapshot.items,[row]);
 });
+test('Usado Portaria persiste no cache e na fila offline com comando especifico',async()=>{
+ const f=fixture(),client=f.client();await client.load();
+ const saved=await client.save([row],false,[]);f.online(false);
+ const local=await client.save([{...row,usadoPortaria:true}],false,saved.snapshot.items,'USADO_PORTARIA');
+ assert.equal(local.queue[0].operacao,'USADO_PORTARIA');assert.equal(local.snapshot.items[0].usadoPortaria,true);
+ const reopened=await f.client().load();assert.equal(reopened.snapshot.items[0].usadoPortaria,true);
+ f.online(true);const flushed=await f.client().load();
+ assert.equal(flushed.queue.length,0);assert.equal(f.server().items[0].usadoPortaria,true);
+ assert.equal(f.sent.at(-1)?.operacao,'USADO_PORTARIA');
+});
+
 test('reconexao envia FIFO com revisoes consecutivas e preserva alteracoes posteriores',async()=>{
  const f=fixture(),client=f.client();await client.load();f.online(false);
  await client.save([row],false,[]);
