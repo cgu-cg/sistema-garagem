@@ -1,3 +1,4 @@
+import { canEditHistoricalRelease } from './releaseDateAccess';
 import type { Prisma, PrismaClient, Soltura } from '@prisma/client';
 import { z } from 'zod';
 import { parseDailyContext, parseStoredDailyScale, fixedSchedule } from './escalaDiaria';
@@ -88,9 +89,11 @@ export async function collectReleaseReport(db: PrismaClient, context: ReleaseCon
 export async function changeReleaseLifecycle(db: PrismaClient, userId: number | undefined, value: unknown, clock = () => new Date(), prepare = readReleaseProgramming) {
   const command = z.object({ contexto: z.unknown(), revisao: z.number().int().nonnegative(), operacao: z.enum(['iniciar', 'finalizar', 'reabrir']) }).strict().parse(value);
   const context = parseDailyContext(command.contexto);
-  const assertDate = () => { if (context.garagem !== 'VCG' || context.dataOperacao !== operationalContext(clock()).today)
+  const preflight = command.operacao === 'finalizar' && context.dataOperacao < operationalContext(clock()).today && userId ? await db.user.findUnique({ where: { id: userId } }) : null;
+  const assertDate = (role?: string) => { const today = operationalContext(clock()).today;
+    if (context.garagem !== 'VCG' || context.dataOperacao !== today && !(command.operacao === 'finalizar' && canEditHistoricalRelease(role, context.dataOperacao, today, 'EM_ANDAMENTO')))
     throw new MvpError(409, 'Inicio, finalizacao e reabertura exigem VCG e o dia da operacao.'); };
-  assertDate();
+  assertDate(preflight?.role);
   // Leitura auxiliar antes dos locks; a fotografia da finalizacao e montada com despachos relidos na transacao.
   const preparation = command.operacao !== 'reabrir' ? await prepare(db, context, userId) : null;
   const result = await db.$transaction(async tx => {
@@ -103,7 +106,7 @@ export async function changeReleaseLifecycle(db: PrismaClient, userId: number | 
     const user = userId ? await tx.user.findUnique({ where: { id: userId }, include: { groups: true } }) : null;
     if (!canDispatch(user) || (user?.role !== 'ADMIN' && user?.garagem !== context.garagem)) throw new MvpError(403, 'Sem permissao para alterar esta Soltura.');
     if (command.operacao === 'reabrir' && user?.role !== 'ADMIN') throw new MvpError(403, 'Somente administrador pode reabrir a Soltura.');
-    assertDate();
+    assertDate(user?.role);
     const old = await tx.folhaSoltura.findUnique({ where: releaseSheetWhere(context) });
     if ((old?.revisao ?? 0) !== command.revisao) throw new MvpError(409, 'Soltura alterada em outro posto. Recarregue.');
     if (command.operacao === 'iniciar' && old) throw new MvpError(409, 'Soltura ja iniciada.');
@@ -154,7 +157,7 @@ export async function changeReleaseLifecycle(db: PrismaClient, userId: number | 
     const data = { status: command.operacao === 'finalizar' ? 'FINALIZADA' : 'EM_ANDAMENTO',
       revisao: command.revisao + 1, conteudo: JSON.stringify(releaseSheetSchema.parse(sheet)), responsavelId: userId! };
     const saved = old ? await tx.folhaSoltura.update({ where: { id: old.id }, data }) : await tx.folhaSoltura.create({ data: { ...context, ...data } });
-    assertDate(); return { contexto: context, ...releaseLifecycleView(saved) };
+    assertDate(user?.role); return { contexto: context, ...releaseLifecycleView(saved) };
   }, { isolationLevel: 'Serializable' });
   await notifyC4Updated(context.garagem, addDays(context.dataOperacao, -1)); return result;
 }

@@ -1,3 +1,4 @@
+import { canEditHistoricalRelease } from './releaseDateAccess';
 import type { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -15,18 +16,20 @@ export async function clearReleaseLine(db: PrismaClient, userId: number | undefi
   const command = z.object({ contexto: z.unknown(), scheduleId: z.string().min(1).max(100),
     revisao: z.number().int().nonnegative(), operacao: z.enum(['limpar-linha', 'suspender-linha', 'reativar-linha']).default('limpar-linha'), base: z.string().regex(/^[a-f0-9]{64}$/).optional() }).strict().parse(value);
   const context = parseDailyContext(command.contexto);
-  const assertDate = () => {
-    if (context.garagem !== 'VCG' || context.dataOperacao !== operationalContext(clock()).today)
+  const preflight = context.dataOperacao < operationalContext(clock()).today && userId ? await db.user.findUnique({ where: { id: userId } }) : null;
+  const assertDate = (role?: string) => {
+    const today = operationalContext(clock()).today;
+    if (context.garagem !== 'VCG' || context.dataOperacao !== today && !canEditHistoricalRelease(role, context.dataOperacao, today, 'EM_ANDAMENTO'))
       throw new MvpError(409, 'Limpar linha exige VCG e o dia da operação.');
   };
-  assertDate();
+  assertDate(preflight?.role);
   const result = await db.$transaction(async tx => {
     if (!isIndependentRelease(context)) await lockManualCI(tx, context.garagem, context.dataOperacao);
     await lockReleaseSheet(tx, context);
     const user = userId ? await tx.user.findUnique({ where: { id: userId }, include: { groups: true } }) : null;
     if (!userId || !canDispatch(user) || user?.role !== 'ADMIN' && user?.garagem !== context.garagem)
       throw new MvpError(403, 'Sem permissão para limpar esta linha.');
-    assertDate();
+    assertDate(user?.role);
     const record = await tx.folhaSoltura.findUnique({ where: releaseSheetWhere(context) });
     assertReleaseStarted(record);
     if (record!.revisao !== command.revisao) throw new MvpError(409, 'Folha alterada em outro posto. Recarregue antes de limpar.');
@@ -51,7 +54,7 @@ export async function clearReleaseLine(db: PrismaClient, userId: number | undefi
       busId: null, driverCode: null, driverName: null, horaLiberacao: null, substituido: false, notes: null, userId } });
     const revisao = record!.revisao + 1;
     await tx.folhaSoltura.update({ where: { id: record!.id }, data: { revisao, conteudo, responsavelId: userId } });
-    assertDate();
+    assertDate(user?.role);
     return { contexto: context, scheduleId: command.scheduleId, revisao };
   }, { isolationLevel: 'Serializable' });
   await notifyC4Updated(context.garagem, addDays(context.dataOperacao, -1));

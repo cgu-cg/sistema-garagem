@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { canEditHistoricalRelease } from './releaseDateAccess';
 import { assertReleaseStarted, lockReleaseSheet, parseReleaseSheet, releaseSheetWhere } from './releaseLifecycle';
 import { isIndependentRelease } from './independentRelease';
 import { officialFleet } from './escalaDiaria';
@@ -18,11 +20,11 @@ import { appendReleaseExchange, garageDefects } from './releaseVehicleExchange';
 export class AvailabilityError extends MvpError {
   constructor(public code: string) { super(409, `Soltura impedida: ${code}. Nenhum registro foi gravado.`); }
 }
-export function resolveReleaseContext(garagem: unknown, dataOperacao: unknown, now: Date) {
+export function resolveReleaseContext(garagem: unknown, dataOperacao: unknown, now: Date, allowPast = false) {
   if (garagem !== 'VCG') throw new AvailabilityError('FONTE_VCM_NAO_COMPROVADA');
   if (!dataOperacao) throw new AvailabilityError('DATA_OPERACIONAL_OBRIGATORIA');
   const ciDate = civil(dataOperacao), ctx = operationalContext(now);
-  if (ciDate !== ctx.today) throw new AvailabilityError('DATA_FORA_DO_CONTEXTO');
+  if (ciDate !== ctx.today && !(allowPast && ciDate < ctx.today)) throw new AvailabilityError('DATA_FORA_DO_CONTEXTO');
   // A data pedida determina a CI, nao a data do servidor sozinha.
   // Nao transportar estados de ontem para autorizar a madrugada atual.
   return { ciDate, maintenanceDate: ctx.today };
@@ -41,7 +43,10 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
   if (parsed.garagem !== 'VCG') throw new AvailabilityError('FONTE_VCM_NAO_COMPROVADA');
   const independent = isIndependentRelease({ escalaTipo: parsed.escalaTipo ?? '', turno: parsed.turno ?? '' });
   if (!independent && !configured().includes('VCG')) throw new AvailabilityError('LEGADO_SEM_FOLHA_FINALIZADA_CERTIFICAVEL');
-  const context = resolveReleaseContext(parsed.garagem, parsed.dataOperacao, clock());
+  const before = operationalContext(clock());
+  // Preflight autoriza somente prosseguir aos locks. A folha real e o papel sao revalidados abaixo.
+  const preflight = parsed.dataOperacao && parsed.dataOperacao < before.today && userId ? await db.user.findUnique({ where: { id: userId } }) : null;
+  const context = resolveReleaseContext(parsed.garagem, parsed.dataOperacao, clock(), preflight?.role === 'ADMIN');
   const releaseContext = parseDailyContext({ garagem: parsed.garagem, escalaTipo: parsed.escalaTipo,
     turno: parsed.escalaTipo === 'SEG_SEX' ? parsed.turno : 'PADRAO', dataOperacao: context.ciDate });
   const raw = batch ? (parsed as z.infer<typeof batchSyncSolturaSchema>).items : [parsed];
@@ -62,7 +67,7 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
     assertReleaseStarted(releaseSheetRecord);
     const releaseSheet = parseReleaseSheet(releaseSheetRecord!.conteudo);
     const checkTime = () => {
-      const current = resolveReleaseContext(parsed.garagem, parsed.dataOperacao, clock());
+      const current = resolveReleaseContext(parsed.garagem, parsed.dataOperacao, clock(), canEditHistoricalRelease(user?.role, context.ciDate, operationalContext(clock()).today, releaseSheetRecord!.status));
       if ((!independent && !configured().includes('VCG')) || current.maintenanceDate !== context.maintenanceDate)
         throw new AvailabilityError('CONTEXTO_ALTERADO_DURANTE_GRAVACAO');
     };
@@ -130,6 +135,14 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
     }
     // Inclui defeitos declarados no proprio lote, independentemente da ordem.
     for (const snapshot of snapshots.values()) if (defects.has(snapshot.realized)) throw new AvailabilityError('VEICULO_COM_DEFEITO_GARAGEM');
+    const historicalEdit = canEditHistoricalRelease(user?.role, context.ciDate, operationalContext(clock()).today, releaseSheetRecord!.status);
+    if (historicalEdit) releaseSheet.limpezas = [...(releaseSheet.limpezas ?? []), ...items.map(item => ({
+      id: randomUUID(), linhaId: item.scheduleId, usuarioId: userId, registradoEm: clock().toISOString(),
+      anterior: JSON.stringify({ operacao: 'EDICAO_ADMIN_HISTORICA',
+        registro: snapshots.get(item.scheduleId)!.existing ?? null, linha: snapshots.get(item.scheduleId)!.row }),
+    }))];
+    const sheetChanged = historicalEdit || JSON.stringify(programming) !== JSON.stringify(releaseSheet.itens);
+    const nextContent = sheetChanged ? JSON.stringify(parseReleaseSheet(JSON.stringify({ ...releaseSheet, itens: programming }))) : null;
     const records = [];
     for (const i of items) {
       const where = { scheduleId: i.scheduleId, dataOperacao: context.ciDate, garagem: 'VCG', turno: releaseContext.turno, escalaTipo: releaseContext.escalaTipo };
@@ -143,9 +156,9 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
         historicoTrocas: JSON.stringify(history) };
       records.push(existing ? await tx.soltura.update({ where: { id: existing.id }, data }) : await tx.soltura.create({ data }));
     }
-    if (JSON.stringify(programming) !== JSON.stringify(releaseSheet.itens)) {
+    if (nextContent !== null) {
       await tx.folhaSoltura.update({ where: { id: releaseSheetRecord!.id }, data: {
-        conteudo: JSON.stringify({ ...releaseSheet, itens: programming }),
+        conteudo: nextContent,
         revisao: releaseSheetRecord!.revisao + 1, responsavelId: userId,
       } });
     }

@@ -1,3 +1,4 @@
+import { canEditHistoricalRelease } from '@/lib/releaseDateAccess';
 import { LineActionsMenu, type LineAction } from './LineActionsMenu';
 import { useDailyScaleDrafts } from '@/lib/useDailyScaleDrafts';
 import { canEditScaleDate } from '@/lib/dailyScaleWindow';
@@ -439,8 +440,13 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const eveningCIError = eveningCI?.key === eveningCIKey ? eveningCI.error : 'Consultando CI...';
   const releasePendingMessage = !independentRelease && releaseProgramming.data && dataOperacao >= operationalContext().today
     ? releasePreparationMessage(Boolean(releaseState?.fluxo?.ciFinalizada), releaseProgramming.data.escalaFinalizada) : null;
+  const [historicalEditKey, setHistoricalEditKey] = useState<string | null>(null);
+  const historicalContextKey = JSON.stringify(releaseContext);
+  useEffect(() => { setHistoricalEditKey(null); }, [historicalContextKey, user?.id, user?.role]);
+  const historicalEditable = canEditHistoricalRelease(user?.role, dataOperacao, operationalContext().today, releaseLifecycle.data?.status);
+  const editingHistorical = historicalEditable && historicalEditKey === historicalContextKey;
   const [dispatchLoaded, setDispatchLoaded] = useState(false);
-  const releaseUiAllowed = canDispatch(user) && garagem === 'VCG' && (independentRelease || Boolean(ciC4Enabled)) && dataOperacao === operationalContext().today
+  const releaseUiAllowed = canDispatch(user) && garagem === 'VCG' && (independentRelease || Boolean(ciC4Enabled)) && (dataOperacao === operationalContext().today || editingHistorical)
     && releaseLifecycle.data?.status === 'EM_ANDAMENTO' && !releaseLifecycle.pending
     && dispatchLoaded && !releaseProgramming.loading && Boolean(releaseProgramming.data && (independentRelease || (releaseProgramming.data.escalaFinalizada && releaseState?.fluxo?.ciFinalizada)));
   const reloadDailyScale = async () => {
@@ -1317,6 +1323,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   // Renderização reutilizável do Card de Reserva Terminal (para Painel Lateral Fixo e Impressão A4)
   const releaseLifecycleControl = (<ReleaseLifecycleBar state={releaseLifecycle.data} error={releaseLifecycle.error} pending={releaseLifecycle.pending || !dispatchLoaded || isSyncingDb}
           allowed={canDispatch(user) && garagem === 'VCG'} admin={isAdmin} today={dataOperacao === operationalContext().today}
+          historicalEditable={historicalEditable} editingHistorical={editingHistorical}
+          onEditHistorical={() => setHistoricalEditKey(editingHistorical ? null : historicalContextKey)}
           ready={Boolean(releaseProgramming.data && (independentRelease || (releaseProgramming.data.escalaFinalizada && releaseState?.fluxo?.ciFinalizada)))}
           remaining={activeSchedules.filter(row => !row.suspensa && !['LIBERADO', 'SUBSTITUIDO'].includes(row.status)).length}
           dirty={Object.values(drafts).some(draft => Boolean(draft.carro || draft.moto))}
@@ -1428,7 +1436,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           lineSearch={lineSearch} onLineSearch={setLineSearch}
           onGarage={isAdmin ? setGaragem : undefined} onDayType={setEscalaTipo} onPeriod={setTurnoTipo} onPrint={handlePrint} />
         {releaseLifecycleControl}
-        {dataOperacao !== operationalContext().today && <p className="text-xs text-muted-foreground print:hidden">Consulta por data: despachos disponíveis somente no dia da operação.</p>}
+        {dataOperacao !== operationalContext().today && !historicalEditable && <p className="text-xs text-muted-foreground print:hidden">Consulta por data: esta folha não permite edição.</p>}
         {releaseProgramming.error && <p role="alert" className="rounded-xl border border-rose-200 p-3 text-xs text-rose-600">{releaseProgramming.error}</p>}
       </>}
 
@@ -1553,7 +1561,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                             getOutraLinhaComCarroRealiz={getOutraLinhaComCarroRealiz}
                             getOutraLinhaComMoto={getOutraLinhaComMoto}
                             historicoTrocas={dispatches[item.id]?.historicoTrocas || []}
-                            isReadOnly={!releaseUiAllowed || dataOperacao !== operationalContext().today}
+                            isReadOnly={!releaseUiAllowed}
                           />
                         </>
                       );

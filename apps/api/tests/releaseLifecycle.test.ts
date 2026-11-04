@@ -2,10 +2,37 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { changeReleaseLifecycle, readReleaseReport, assertReleaseStarted, completedReleaseRows } from '../src/services/releaseLifecycle';
 import { currentReleaseTemplate } from '../src/data/scheduleTemplates';
+import { canEditHistoricalRelease as backendDateAccess } from '../src/services/releaseDateAccess';
+import { canEditHistoricalRelease as frontendDateAccess } from '../../web/src/lib/releaseDateAccess';
 
 const context = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'VESPERTINO', dataOperacao: '2026-10-30' } as const;
 const rows = currentReleaseTemplate(context).map(row => ({ ...row, carroProgramado: '' }));
 const now = () => new Date('2026-10-30T17:00:00Z');
+
+test('regra de edicao historica concorda entre cliente e API e nao libera finalizadas/futuro/outros perfis', () => {
+ for (const role of ['ADMIN', 'soltura', 'manutencao', undefined])
+  for (const date of ['2026-10-29', '2026-10-30', '2026-10-31'])
+   for (const status of ['EM_ANDAMENTO', 'FINALIZADA', 'NAO_INICIADA', undefined]) {
+    const expected = role === 'ADMIN' && date === '2026-10-29' && status === 'EM_ANDAMENTO';
+    assert.equal(backendDateAccess(role, date, '2026-10-30', status), expected);
+    assert.equal(frontendDateAccess(role, date, '2026-10-30', status), expected);
+   }
+});
+
+test('ADMIN finaliza folha anterior em andamento, sem iniciar/reabrir historicos e sem alterar data', async () => {
+ const f = fixture(); await f.command('iniciar'); f.complete();
+ const later = () => new Date('2026-11-01T17:00:00Z');
+ const change = (operacao: string) => changeReleaseLifecycle(f.db, 1, { contexto: context, revisao: f.sheet().revisao, operacao }, later, async () => ({
+   escala: { frota: ['4000', '4001'], reserva: ['4001'], bloqueados: [], cards: [], coresFrota: {}, reservaPorCor: { updatedAt: null } },
+ } as any));
+ await assert.rejects(change('finalizar'), /dia da operacao/);
+ f.role('ADMIN'); const before = structuredClone(f.records());
+ await assert.rejects(change('iniciar'), /dia da operacao/);
+ const closed = await change('finalizar'); assert.equal(closed.status, 'FINALIZADA');
+ assert.equal(closed.contexto.dataOperacao, context.dataOperacao);
+ assert.deepEqual(f.records(), before);
+ await assert.rejects(change('reabrir'), /dia da operacao/);
+});
 function fixture() {
  let sheet: any = null, records: any[] = [], role = 'soltura';
  const locks: string[] = [];

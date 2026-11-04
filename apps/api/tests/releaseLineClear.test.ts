@@ -13,6 +13,20 @@ import { api } from '../../web/src/lib/api';
 const context = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'VESPERTINO', dataOperacao: '2026-11-03' } as const;
 const now = () => new Date('2026-11-03T18:00:00Z');
 
+test('somente ADMIN pode limpar/suspender/reativar folha anterior em andamento; finalizada permanece protegida', async () => {
+  const later = () => new Date('2026-11-04T18:00:00Z');
+  const f = fixture(); f.state.role = 'ADMIN';
+  await clearReleaseLine(f.db, 7, f.command(), later);
+  assert.equal(f.state.line.status, 'PENDENTE'); assert.equal(f.state.line.dataOperacao, context.dataOperacao);
+  await clearReleaseLine(f.db, 7, { ...f.command(), operacao: 'suspender-linha' }, later);
+  await clearReleaseLine(f.db, 7, { ...f.command(), operacao: 'reativar-linha' }, later);
+  assert.equal(parseReleaseSheet(f.state.sheet.conteudo).limpezas?.length, 3);
+  f.state.sheet.status = 'FINALIZADA'; const frozen = structuredClone(f.state);
+  await assert.rejects(clearReleaseLine(f.db, 7, { ...f.command(), operacao: 'suspender-linha' }, later), /finalizada/);
+  assert.deepEqual(f.state, frozen);
+  const denied = fixture(); await assert.rejects(clearReleaseLine(denied.db, 7, denied.command(), later), /dia/);
+});
+
 test('limpar permite reler estado e programacao pelo contrato real do cliente sem perder a auditoria', async () => {
   const f = fixture(); await clearReleaseLine(f.db, 7, f.command(), now);
   const contents = f.state.sheet.conteudo;

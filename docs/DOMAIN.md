@@ -1,5 +1,29 @@
 # Domain model e entendimento operacional atual
 
+## Edição administrativa de Soltura anterior em andamento — 04/11/2026
+
+CONFIRMADO pelo usuário: ADMIN pode editar Soltura já iniciada e ainda não
+finalizada, inclusive de dias anteriores. Na consulta da data anterior, o botão
+Editar Soltura habilita explicitamente os controles; Encerrar edição volta à
+consulta. A escolha é local e reinicia ao mudar data/contexto ou perfil.
+Correções incluem carro/MOTO, limpar dados, suspender/reativar e preencher
+viagens pendentes, mantendo linhas e horários do molde operacional existente.
+Após resolver as pendências, ADMIN também pode finalizar essa folha anterior.
+
+A API revalida o perfil atual dentro da transação e exige a folha real em
+EM_ANDAMENTO. Não permite iniciar/reabrir folha antiga nem editar finalizadas,
+datas futuras ou registros legados sem folha iniciada. Demais perfis continuam
+limitados ao dia atual. VCG, CI/Escala da data quando exigidas, frota, bloqueios,
+motivos de troca e atomicidade mantêm suas validações. A Escala de Carros e seu
+limite de 06h não foram alterados.
+
+Na correção administrativa anterior, usuário e instante reais da alteração,
+estado anterior da viagem/despacho e operação EDICAO_ADMIN_HISTORICA ficam
+auditados no JSON existente (`limpezas`); a data operacional permanece a da
+folha. Limpar/suspender/reativar preserva a auditoria já existente; finalizar
+gera a fotografia e o evento normais. Não modifica outras datas ou folhas
+finalizadas. Sem SQL, nova tabela ou migração. Publicar API e frontend juntos.
+
 ## Releitura após limpar linha da Soltura — 03/11/2026
 
 A validação do cliente distingue o molde de Tráfego da fotografia operacional:

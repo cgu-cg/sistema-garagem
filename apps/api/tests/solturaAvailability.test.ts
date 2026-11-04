@@ -47,6 +47,46 @@ function fixture(status = 'FINALIZADA') {
 }
 const reason = (code: string) => (e: any) => e.status === 409 && e.code === code;
 
+test('ADMIN edita Soltura anterior em andamento, inclusive lote e MOTO, com auditoria dos valores anteriores', async () => {
+  const f = fixture(); const during = () => eventInstant(target, 4), later = () => eventInstant('2026-10-10', 10);
+  const original = await f.db.folhaSoltura.findUnique({ where: { garagem_escalaTipo_turno_dataOperacao: context } });
+  const sheet = { ...original, id: 1, revisao: 1 };
+  f.db.folhaSoltura.findUnique = async () => sheet;
+  f.db.folhaSoltura.update = async ({ data }: any) => Object.assign(sheet, data);
+  await writeSafeRelease(f.db, 1, body, false, during, () => ['VCG']);
+  const before = structuredClone(f.rows()[0]);
+  f.db.user.findUnique = async () => ({ role: 'ADMIN', garagem: 'VCG' });
+  await writeSafeRelease(f.db, 1, { ...body, driverCode: '999' }, false, later, () => ['VCG']);
+  assert.equal(f.rows()[0].driverCode, '999'); assert.equal(f.rows()[0].dataOperacao, target);
+  let content = JSON.parse(sheet.conteudo);
+  assert.deepEqual(JSON.parse(content.limpezas[0].anterior).registro, before);
+  assert.equal(content.limpezas[0].registradoEm, later().toISOString());
+  assert.equal(sheet.revisao, 2);
+  await writeSafeRelease(f.db, 1, { ...body, items: [{ ...item, driverCode: '888' }, { ...secondItem, driverCode: '777' }] }, true, later, () => ['VCG']);
+  assert.equal(f.rows().length, 2); content = JSON.parse(sheet.conteudo);
+  assert.equal(content.limpezas.length, 3); assert.equal(JSON.parse(content.limpezas[1].anterior).registro.driverCode, '999');
+  assert.equal(JSON.parse(content.limpezas[2].anterior).registro, null);
+  sheet.status = 'FINALIZADA'; const frozen = structuredClone(f.rows());
+  await assert.rejects(writeSafeRelease(f.db, 1, body, false, later, () => ['VCG']), /finalizada/);
+  assert.deepEqual(f.rows(), frozen);
+});
+
+test('edicao anterior exige folha iniciada e ADMIN atual, recusa futuro e reverte falha na auditoria', async () => {
+  const later = () => eventInstant('2026-10-10', 10);
+  const missing = fixture(); missing.db.user.findUnique = async () => ({ role: 'ADMIN' });
+  missing.db.folhaSoltura.findUnique = async () => null;
+  await assert.rejects(writeSafeRelease(missing.db, 1, body, false, later, () => ['VCG']), /Inicie/);
+  const revoked = fixture(); let calls = 0;
+  revoked.db.user.findUnique = async () => ({ role: ++calls === 1 ? 'ADMIN' : 'soltura', garagem: 'VCG' });
+  await assert.rejects(writeSafeRelease(revoked.db, 1, body, false, later, () => ['VCG']), reason('DATA_FORA_DO_CONTEXTO'));
+  assert.equal(revoked.rows().length, 0);
+  const failed = fixture(); failed.db.user.findUnique = async () => ({ role: 'ADMIN' });
+  failed.db.folhaSoltura.update = async () => { throw Error('Falha auditoria'); };
+  await assert.rejects(writeSafeRelease(failed.db, 1, body, false, later, () => ['VCG']), /Falha auditoria/);
+  assert.equal(failed.rows().length, 0);
+  await assert.rejects(writeSafeRelease(failed.db, 1, { ...body, dataOperacao: '2026-10-11' }, false, later, () => ['VCG']), reason('DATA_FORA_DO_CONTEXTO'));
+});
+
 test('limpar libera o carro para a linha correta e permite preencher a antiga sem duplicar registro', async () => {
   const f = fixture(), clock = () => eventInstant(target, 4);
   const initial = await f.db.folhaSoltura.findUnique({ where: { garagem_escalaTipo_turno_dataOperacao: context } });
