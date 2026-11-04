@@ -28,6 +28,12 @@ a confirmação explícita para uso de bloqueados CI e as reservas de terminal.
 Solturas vinculadas continuam partindo da disponibilidade da Escala de origem;
 o vespertino independente parte da frota da garagem. Sem alteração de schema.
 
+Correção da tratativa: enviar a Reserva (inclusive desbloquear Portaria) verifica
+uso realizado somente na própria garagem/data/tipo/turno. Registros PENDENTE,
+que já foram limpos, não constituem uso ativo. Uso real na mesma folha continua
+impedindo o retorno e a mensagem identifica as linhas e tabelas envolvidas.
+Isso não remove bloqueios CI nem outras retiradas ou bloqueios independentes.
+
 ## Uso confirmado de carro bloqueado na CI — 04/11/2026
 
 CONFIRMADO pelo usuário: Escala de Carros e Soltura podem atribuir um carro

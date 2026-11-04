@@ -104,6 +104,41 @@ test('desbloqueio nao remove bloqueio CI ou outra retirada; falha de persistenci
   await assert.rejects(treatReleaseCar(f.db, 7, f.command('RESERVA'), now, loadFleet), /independente/);
 });
 
+test('retorno a reserva ignora uso de outra soltura e registro limpo, inclusive desbloqueio Portaria', async () => {
+  for (const overrides of [{ turno: 'MATUTINO' }, { turno: 'PADRAO', escalaTipo: 'SABADO' },
+    { turno: 'PADRAO', escalaTipo: 'DOM_FER' }, { status: 'PENDENTE' },
+    { dataOperacao: '2026-11-03' }, { garagem: 'VCM' }]) {
+    for (const blocked of [false, true]) {
+      const f = fixture(); await f.write('4000'); await f.write('4001');
+      if (blocked) await treatReleaseCar(f.db, 7, f.command('BLOQUEAR', 'MOTOR'), now, loadFleet);
+      const other = { ...f.state.records[0], id: 99, scheduleId: 'outra', linha: '999', tabela: '88',
+        carroRealizado: '4000', historicoTrocas: '[]', ...overrides };
+      f.state.records.push(other);
+      await treatReleaseCar(f.db, 7, f.command('RESERVA'), now, loadFleet);
+      assert.deepEqual(releaseWithdrawals(f.state.records), []);
+      assert.deepEqual(f.state.records[1], other, 'tratativa nao altera atribuicao de outra folha');
+      const programming = await readReleaseProgramming(f.db, context, 7, loadFleet, async () => null);
+      assert.ok(programming.disponibilidade.reserva.includes('4000'));
+    }
+  }
+});
+
+test('uso real na mesma soltura identifica todas as linhas e tabelas sem alterar a tratativa', async () => {
+  const f = fixture(); await f.write('4000'); await f.write('4001');
+  for (const [index, status] of ['LIBERADO', 'SUBSTITUIDO', null].entries()) {
+    f.state.records.push({ ...f.state.records[0], id: 90 + index, scheduleId: `outra-${index}`, linha: `99${index}`, tabela: `${index + 1}`,
+      carroRealizado: '4000', historicoTrocas: '[]', status });
+  }
+  const before = structuredClone(f.state);
+  await assert.rejects(treatReleaseCar(f.db, 7, f.command('RESERVA'), now, loadFleet), (error: any) => {
+    assert.equal(error.status, 409);
+    assert.match(error.message, /Carro 4000 em uso nesta Soltura/);
+    for (let index = 0; index < 3; index++) assert.ok(error.message.includes(`Linha 99${index} / Tab ${index + 1}`));
+    return true;
+  });
+  assert.deepEqual(f.state, before);
+});
+
 test('limpar desfaz toda sequencia da linha mas conserva os eventos e nao toca defeito legado', async () => {
   const f = fixture(); await f.write('4000'); await f.write('4001');
   await treatReleaseCar(f.db, 7, f.command('BLOQUEAR', 'MOTOR'), now, loadFleet);

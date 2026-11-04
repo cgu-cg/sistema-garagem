@@ -56,7 +56,9 @@ export async function treatReleaseCar(db: PrismaClient, userId: number | undefin
     const all = releaseWithdrawals(records), retirada = all.find(r => r.registroId === record.id && r.trocaId === command.trocaId);
     if (!retirada || !fleet.includes(retirada.prefixo)) throw new MvpError(409, 'Retirada inexistente ou carro fora da frota.');
     if (command.destino === 'RESERVA') {
-      if (records.some(r => r.carroRealizado === retirada.prefixo)) throw new MvpError(409, 'Carro em uso em outra linha.');
+      const usages = records.filter(r => r.escalaTipo === context.escalaTipo && r.turno === context.turno
+        && r.status !== 'PENDENTE' && r.carroRealizado === retirada.prefixo);
+      if (usages.length) throw new MvpError(409, `Carro ${retirada.prefixo} em uso nesta Soltura: ${usages.map(r => `Linha ${r.linha} / Tab ${r.tabela || 'sem tabela'}`).join('; ')}.`);
       if (ci?.itens.some(i => i.prefixo === retirada.prefixo && i.categoria === 'BLOQUEADO' && i.statusItem !== 'LIBERADO'))
         throw new MvpError(409, 'Carro bloqueado na CI. O bloqueio sera preservado.');
       if (all.some(r => r.prefixo === retirada.prefixo && (r.registroId !== record.id || r.trocaId !== command.trocaId)))
