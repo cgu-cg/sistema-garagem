@@ -1,3 +1,4 @@
+import { useCiUseConfirmationContext } from './CiUseConfirmation';
 import { FleetVehicleInput } from './FleetVehicleInput';
 import type { DailyEscala } from '@/lib/sharedEscala';
 import { ScaleVehiclePrefix } from './ScaleVehiclePrefix';
@@ -47,6 +48,7 @@ export function CarroTrocaPopover({
   getOutraLinhaComCarroRealiz,
   isReadOnly = false
 }: CarroTrocaPopoverProps) {
+  const ciGate = useCiUseConfirmationContext();
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"ALTERAR" | "HISTORICO">("ALTERAR");
   const [novoCarro, setNovoCarro] = useState("");
@@ -120,7 +122,7 @@ export function CarroTrocaPopover({
   return (
     <CiVehicleNotice state={scaleState} prefixo={carroAtual} substitution={substitution} hideIcon hoverOnly hoverDisabled={isOpen}
       description={historyDescription}>
-    <Popover open={isOpen} onOpenChange={open => { if (!pending.current) setIsOpen(open); }}>
+    <Popover open={isOpen} onOpenChange={open => { if (!pending.current && !ciGate?.isPending()) setIsOpen(open); }}>
       {/* Gatilho visual na célula da tabela */}
       <span className="inline-flex items-center justify-center gap-1 group">
         <PopoverTrigger asChild>

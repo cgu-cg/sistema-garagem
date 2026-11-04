@@ -16,6 +16,7 @@ function harness(kind: 'troca' | 'notice' = 'troca') {
   };
   (Module as any)._load = function(id: string, ...args: unknown[]) {
    if (id === 'react') return { ...React,
+    useContext() { return null; },
     useState(initial: any) { const n = cursor++; if (!(n in memory)) memory[n] = initial;
      return [memory[n], (value: any) => { memory[n] = typeof value === 'function' ? value(memory[n]) : value; }]; },
     useRef(initial: any) { const n = cursor++; if (!(n in memory)) memory[n] = { current: initial }; return memory[n]; },

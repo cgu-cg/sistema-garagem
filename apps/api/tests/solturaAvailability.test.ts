@@ -48,6 +48,65 @@ function fixture(status = 'FINALIZADA') {
 }
 const reason = (code: string) => (e: any) => e.status === 409 && e.code === code;
 
+test('Soltura usa bloqueado CI somente com confirmacao, audita e preserva motorista sem confirmar outra vez', async () => {
+  const f = fixture(), clock = () => eventInstant(target, 4);
+  const sheet: any = { ...await f.db.folhaSoltura.findUnique({ where: { garagem_escalaTipo_turno_dataOperacao: context } }), id: 7, revisao: 1 };
+  f.db.folhaSoltura.findUnique = async () => sheet;
+  f.db.folhaSoltura.update = async ({ data }: any) => Object.assign(sheet, data);
+  f.ci.push({ prefixo: '4000', categoria: 'BLOQUEADO', statusItem: 'BLOQUEADO' });
+  await assert.rejects(writeSafeRelease(f.db, 1, body, false, clock, () => ['VCG']), reason('VEICULO_BLOQUEADO_NA_CI'));
+  await assert.rejects(writeSafeRelease(f.db, 1, { ...body, confirmarBloqueadoCI: '4001' }, false, clock, () => ['VCG']), /outro carro/);
+  await writeSafeRelease(f.db, 1, { ...body, confirmarBloqueadoCI: '4000' }, false, clock, () => ['VCG']);
+  let saved = JSON.parse(sheet.conteudo);
+  assert.equal(saved.usosBloqueadosCI[0].prefixo, '4000'); assert.equal(saved.usosBloqueadosCI[0].usuarioId, 1);
+  assert.equal(saved.usosBloqueadosCI[0].linhaId, first.id); assert.equal(f.ci[0].statusItem, 'BLOQUEADO');
+  assert.ok(saved.limpezas.some((a: any) => JSON.parse(a.anterior).operacao === 'USO_BLOQUEADO_CI'));
+  await writeSafeRelease(f.db, 1, { ...body, driverCode: '999' }, false, clock, () => ['VCG']);
+  assert.equal(f.rows()[0].driverCode, '999');
+  await clearReleaseLine(f.db, 1, { contexto: context, scheduleId: first.id, revisao: sheet.revisao, base: releaseLineToken(f.rows()[0]) }, clock);
+  saved = JSON.parse(sheet.conteudo); assert.deepEqual(saved.usosBloqueadosCI, []);
+  await assert.rejects(writeSafeRelease(f.db, 1, body, false, clock, () => ['VCG']), reason('VEICULO_BLOQUEADO_NA_CI'));
+});
+
+test('lote exige confirmacao por carro e reverte tudo se uma linha bloqueada nao for confirmada', async () => {
+  const f = fixture(), clock = () => eventInstant(target, 4);
+  const sheet: any = { ...await f.db.folhaSoltura.findUnique({ where: { garagem_escalaTipo_turno_dataOperacao: context } }), id: 7, revisao: 1 };
+  f.db.folhaSoltura.findUnique = async () => sheet;
+  f.db.folhaSoltura.update = async ({ data }: any) => Object.assign(sheet, data);
+  f.ci.push(...['4000', '4001'].map(prefixo => ({ prefixo, categoria: 'BLOQUEADO', statusItem: 'BLOQUEADO' })));
+  await assert.rejects(writeSafeRelease(f.db, 1, { ...body, items: [{ ...item, confirmarBloqueadoCI: '4000' }, secondItem] }, true, clock, () => ['VCG']), reason('VEICULO_BLOQUEADO_NA_CI'));
+  assert.equal(f.rows().length, 0); assert.equal(sheet.revisao, 1);
+  await writeSafeRelease(f.db, 1, { ...body, items: [{ ...item, confirmarBloqueadoCI: '4000' }, { ...secondItem, confirmarBloqueadoCI: '4001' }] }, true, clock, () => ['VCG']);
+  assert.equal(f.rows().length, 2); assert.equal(JSON.parse(sheet.conteudo).usosBloqueadosCI.length, 2);
+});
+
+test('vespertino tambem exige confirmacao de bloqueado CI sem exigir CI finalizada ou Escala', async () => {
+  const f = fixture(), clock = () => eventInstant(target, 14);
+  const evening = { ...context, turno: 'VESPERTINO' } as const, row = currentReleaseTemplate(evening)[0];
+  const sheet: any = { status: 'EM_ANDAMENTO', id: 7, revisao: 1,
+    conteudo: JSON.stringify({ version: 1, itens: [{ ...row, carroProgramado: '' }], eventos: [] }) };
+  f.db.folhaSoltura.findUnique = async () => sheet;
+  f.db.folhaSoltura.update = async ({ data }: any) => Object.assign(sheet, data);
+  f.db.folhaCI.findUnique = async () => ({ status: 'EM_PREPARACAO', itens: [{ prefixo: '4000', categoria: 'BLOQUEADO', statusItem: 'BLOQUEADO' }] });
+  f.db.escalaDiaria.findUnique = async () => { throw Error('Vespertino nao exige escala'); };
+  const request = { ...body, ...evening, scheduleId: row.id, linha: row.linha, tabela: row.tabela };
+  const fleet = async () => ({ source: 'real', data: [{ prefixo: '4000', idCarro: '4000', garagem: 'VCG' }] });
+  await assert.rejects(writeSafeRelease(f.db, 1, request, false, clock, () => [], fleet), reason('VEICULO_BLOQUEADO_NA_CI'));
+  await writeSafeRelease(f.db, 1, { ...request, confirmarBloqueadoCI: '4000' }, false, clock, () => [], fleet);
+  assert.equal(f.rows()[0].carroRealizado, '4000'); assert.equal(JSON.parse(sheet.conteudo).usosBloqueadosCI[0].prefixo, '4000');
+});
+
+test('confirmacao da CI nao ignora Portaria nem autorizacao falsificada no corpo', async () => {
+  const f = fixture(), clock = () => eventInstant(target, 4);
+  f.ci.push({ prefixo: '4000', categoria: 'BLOQUEADO', statusItem: 'BLOQUEADO' });
+  await assert.rejects(writeSafeRelease(f.db, 1, { ...body, usosBloqueadosCI: [{ prefixo: '4000', usuarioId: 999 }] }, false, clock, () => ['VCG']), reason('VEICULO_BLOQUEADO_NA_CI'));
+  const scale = JSON.parse(scaleContent());
+  scale.cards = [{ id: 'PORTARIA', titulo: 'BLOQUEADOS PORTARIA', modo: 'lista', itens: [{ id: 'blocked', prefixo: '4000' }] }];
+  f.db.escalaDiaria.findUnique = async () => ({ conteudo: JSON.stringify(scale) });
+  await assert.rejects(writeSafeRelease(f.db, 1, { ...body, confirmarBloqueadoCI: '4000' }, false, clock, () => ['VCG']), reason('VEICULO_BLOQUEADO_NA_PORTARIA'));
+  assert.equal(f.rows().length, 0);
+});
+
 test('ADMIN edita Soltura anterior em andamento, inclusive lote e MOTO, com auditoria dos valores anteriores', async () => {
   const f = fixture(); const during = () => eventInstant(target, 4), later = () => eventInstant('2026-10-10', 10);
   const original = await f.db.folhaSoltura.findUnique({ where: { garagem_escalaTipo_turno_dataOperacao: context } });
@@ -193,11 +252,11 @@ test('despacho individual e lote exigem Soltura iniciada e recusam finalizada', 
  }
 });
 
-test('vespertino grava sem CI, manutencao ou escala e exige carro realizado da frota', async () => {
+test('vespertino consulta bloqueios opcionais sem exigir CI finalizada, manutencao ou escala', async () => {
  const f = fixture();
  const forbid = async () => { throw Error('Dependencia proibida no vespertino'); };
- f.db.folhaCI.findUnique = forbid; f.db.cicloOperacional.findUnique = forbid;
- f.db.escalaDiaria.findUnique = forbid; f.db.$queryRaw = async (sql: TemplateStringsArray) => { assert.match(sql.join('?'), /soltura_folha/); return []; };
+ f.db.folhaCI.findUnique = async () => null; f.db.cicloOperacional.findUnique = forbid;
+ f.db.escalaDiaria.findUnique = forbid; f.db.$queryRaw = async (sql: TemplateStringsArray) => { assert.match(sql.join('?'), /soltura_folha|folha_ci|ciclo_operacional/); return []; };
  const evening = { ...context, turno: 'VESPERTINO' } as const;
  const row = currentReleaseTemplate(evening)[0];
  const request = { ...body, turno: 'VESPERTINO', scheduleId: row.id, linha: row.linha, tabela: row.tabela, carroProgramado: '9999' };

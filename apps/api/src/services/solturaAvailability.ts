@@ -1,3 +1,4 @@
+import { authorizeCiUse } from './ciUseConfirmation';
 import { randomUUID } from 'node:crypto';
 import { canEditHistoricalRelease } from './releaseDateAccess';
 import { assertReleaseStarted, lockReleaseSheet, parseReleaseSheet, releaseSheetWhere } from './releaseLifecycle';
@@ -8,7 +9,7 @@ import type { PrismaClient, Soltura } from '@prisma/client';
 import { z } from 'zod';
 import { lockManualCI } from './c4Flow';
 import { finalizedReleaseRows, releaseScaleContext, updatedReleaseSheetRows } from './releaseProgramming';
-import { parseDailyContext } from './escalaDiaria';
+import { parseDailyContext, parseStoredDailyScale } from './escalaDiaria';
 import { canDispatch } from './operationalAccess';
 import { assertC4Read } from './c4Authorization';
 import { civil, dateValue, enabledGarages, addDays } from './c4Temporal';
@@ -57,7 +58,7 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
   const fleet = independent ? officialGarageFleet(await loadFleet(), 'VCG') : null;
   const result = await db.$transaction(async tx => {
     // Mesma funcao e mesma ordem dos escritores CI, manutencao e scheduler.
-    if (!independent) await lockManualCI(tx, 'VCG', context.ciDate);
+    await lockManualCI(tx, 'VCG', context.ciDate);
     const scaleContext = releaseScaleContext(releaseContext);
     if (!independent) await tx.$queryRaw`SELECT id FROM dbo.escala_diaria WITH (UPDLOCK,HOLDLOCK) WHERE garagem=${scaleContext.garagem} AND data_operacao=${scaleContext.dataOperacao}`;
     const user = await tx.user.findUnique({ where: { id: userId }, include: { groups: true } });
@@ -73,6 +74,7 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
         throw new AvailabilityError('CONTEXTO_ALTERADO_DURANTE_GRAVACAO');
     };
     checkTime();
+    const previousCiUses = JSON.stringify(releaseSheet.usosBloqueadosCI ?? []);
     let folha: { itens: { prefixo: string; categoria: string; statusItem: string | null }[] } | null = null;
     if (!independent) {
       const sourceFolha = await tx.folhaCI.findUnique({ where: { garagem_dataFolha: { garagem: 'VCG', dataFolha: dateValue(context.ciDate) } }, include: { itens: true } });
@@ -94,8 +96,12 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
       }
 
     }
+    if (independent) folha = await tx.folhaCI.findUnique({ where: { garagem_dataFolha: { garagem: 'VCG', dataFolha: dateValue(context.ciDate) } }, include: { itens: true } });
     const liveProgramming = await finalizedReleaseRows(tx, releaseContext);
     if (!liveProgramming) throw new AvailabilityError('ESCALA_NAO_FINALIZADA');
+    const sourceScale = !independent ? await tx.escalaDiaria.findUnique({ where: { garagem_escalaTipo_turno_dataOperacao: scaleContext } }) : null;
+    const portaria = new Set((sourceScale ? parseStoredDailyScale(sourceScale.conteudo, scaleContext).cards ?? [] : [])
+      .filter(card => card.id === 'PORTARIA').flatMap(card => card.itens.map(item => item.prefixo)));
     const dailyRecords = await tx.soltura.findMany({ where: { garagem: 'VCG', dataOperacao: context.ciDate } });
     const programming = await updatedReleaseSheetRows(tx, releaseContext, releaseSheet,
       dailyRecords.filter(record => record.escalaTipo === releaseContext.escalaTipo && record.turno === releaseContext.turno));
@@ -133,8 +139,18 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
       if (dailyRecords.some(r => r.id !== existing[0]?.id && r.escalaTipo === releaseContext.escalaTipo && r.turno === releaseContext.turno && r.carroRealizado === realized && !items.some(i => i.scheduleId === r.scheduleId)))
         throw new AvailabilityError('CARRO_REALIZADO_EM_OUTRA_LINHA');
       snapshots.set(i.scheduleId, { existing: existing[0], programmed, realized, history, row });
-      if (folha?.itens.some(row => row.prefixo === realized && row.categoria === 'BLOQUEADO' && row.statusItem !== 'LIBERADO'))
-        throw new AvailabilityError('VEICULO_BLOQUEADO_NA_CI');
+      const uso = authorizeCiUse({ linhaId: i.scheduleId, prefixo: realized, ciData: context.ciDate,
+        bloqueados: folha?.itens.filter(row => row.categoria === 'BLOQUEADO' && row.statusItem !== 'LIBERADO').map(row => row.prefixo) ?? [],
+        confirmar: i.confirmarBloqueadoCI, anterior: released && existing[0]?.carroRealizado === realized
+          ? releaseSheet.usosBloqueadosCI?.find(c => c.linhaId === i.scheduleId && c.prefixo === realized) : undefined,
+        usuarioId: userId, agora: clock() });
+      const usos = (releaseSheet.usosBloqueadosCI ?? []).filter(c => c.linhaId !== i.scheduleId);
+      if (uso) usos.push(uso);
+      if (uso || releaseSheet.usosBloqueadosCI) releaseSheet.usosBloqueadosCI = usos;
+      if (uso && i.confirmarBloqueadoCI) releaseSheet.limpezas = [...(releaseSheet.limpezas ?? []), {
+        id: randomUUID(), linhaId: i.scheduleId, usuarioId: userId, registradoEm: clock().toISOString(),
+        anterior: JSON.stringify({ operacao: 'USO_BLOQUEADO_CI', ...uso }),
+      }];
       // IDs auxiliares nao podem apontar para outro veiculo que o checado.
       if (i.busId) {
         const bus = await tx.bus.findUnique({ where: { id: i.busId } });
@@ -146,6 +162,7 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
       }
     }
     // Inclui defeitos declarados no proprio lote, independentemente da ordem.
+    for (const snapshot of snapshots.values()) if (portaria.has(snapshot.realized)) throw new AvailabilityError('VEICULO_BLOQUEADO_NA_PORTARIA');
     for (const snapshot of snapshots.values()) if (defects.has(snapshot.realized)) throw new AvailabilityError('VEICULO_COM_DEFEITO_GARAGEM');
     for (const snapshot of snapshots.values()) if (pendingWithdrawals.has(snapshot.realized)) throw new AvailabilityError('CARRO_AGUARDANDO_TRATATIVA');
     if (new Set([...snapshots.values()].map(s => s.realized)).size !== snapshots.size) throw new AvailabilityError('CARRO_DUPLICADO_NO_LOTE');
@@ -155,13 +172,13 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
       anterior: JSON.stringify({ operacao: 'EDICAO_ADMIN_HISTORICA',
         registro: snapshots.get(item.scheduleId)!.existing ?? null, linha: snapshots.get(item.scheduleId)!.row }),
     }))];
-    const sheetChanged = historicalEdit || JSON.stringify(programming) !== JSON.stringify(releaseSheet.itens);
+    const sheetChanged = historicalEdit || items.some(i => Boolean(i.confirmarBloqueadoCI)) || previousCiUses !== JSON.stringify(releaseSheet.usosBloqueadosCI ?? []) || JSON.stringify(programming) !== JSON.stringify(releaseSheet.itens);
     const nextContent = sheetChanged ? JSON.stringify(parseReleaseSheet(JSON.stringify({ ...releaseSheet, itens: programming }))) : null;
     const records = [];
     for (const i of items) {
       const where = { scheduleId: i.scheduleId, dataOperacao: context.ciDate, garagem: 'VCG', turno: releaseContext.turno, escalaTipo: releaseContext.escalaTipo };
       const { existing, programmed, realized, history, row } = snapshots.get(i.scheduleId)!;
-      const { garagem: _g, dataOperacao: _d, turno: _t, escalaTipo: _e, trocaCarro: _troca, historicoTrocas: _history, ...fields } = i;
+      const { garagem: _g, dataOperacao: _d, turno: _t, escalaTipo: _e, trocaCarro: _troca, confirmarBloqueadoCI: _confirmarCI, historicoTrocas: _history, ...fields } = i;
       const data = { ...fields, ...where, userId, status: 'LIBERADO', carroProgramado: programmed, carroRealizado: realized,
         substituido: independent ? history.length > 0 : realized !== (programmed ?? ''),
         linha: existing?.linha ?? row.linha, tabela: existing?.tabela ?? row.tabela,

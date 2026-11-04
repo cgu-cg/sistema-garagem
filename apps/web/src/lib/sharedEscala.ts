@@ -20,7 +20,9 @@ export interface ScaleCard { id: string; titulo: string; modo: 'lista' | 'unico'
 export interface CardMutation { card: string; operacao: 'adicionar' | 'remover' | 'definir'; prefixo: string; itemId?: string; linha?: string; tabela?: string }
 export interface ScaleWithdrawal { prefixo: string; destino: 'RESERVA' | 'BLOQUEAR'; motivo: string }
 export interface ScaleExchange extends Omit<ScaleWithdrawal, 'destino'> { destino: 'PENDENTE' | 'RESERVA' | 'BLOQUEAR'; tratadoPor?: number; tratadoEm?: string; id: string; linhaId: string; substituto: string; usuarioId: number; registradoEm: string }
-export interface DailyEscala { programacao?: TrafficRow[]; contexto: EscalaContext & { dataOperacao: string }; revisao: number;
+export const ciUseSchema = z.object({ linhaId: z.string().min(1).max(100), prefixo: z.string().regex(/^\d{1,10}$/), ciData: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), usuarioId: z.number().int().positive(), registradoEm: z.string().datetime() }).strict();
+export type CiUse = z.infer<typeof ciUseSchema>;
+export interface DailyEscala { usosBloqueadosCI?: CiUse[]; programacao?: TrafficRow[]; contexto: EscalaContext & { dataOperacao: string }; revisao: number;
   // Anotacao de apresentacao da Soltura; nao altera a fotografia da Escala.
   defeitosGaragem?: { prefixo: string; descricao: string }[];
   historicoTrocas?: ScaleExchange[];
@@ -43,6 +45,7 @@ export function pendingScaleWithdrawals(state: DailyEscala | null): ScaleExchang
 
 const prefixSchema = z.string().regex(/^\d{1,10}$/);
 const dailyResponseSchema = z.object({
+  usosBloqueadosCI: z.array(ciUseSchema).optional(),
   programacao: trafficRowsSchema.optional(),
   historicoTrocas: z.array(z.object({ id: z.string().uuid(), linhaId: z.string().min(1).max(100),
     prefixo: prefixSchema, substituto: prefixSchema, destino: z.enum(['PENDENTE', 'RESERVA', 'BLOQUEAR']), tratadoPor: z.number().int().positive().optional(), tratadoEm: z.string().datetime().optional(),
@@ -99,8 +102,8 @@ export function validateDailyEscala(value: unknown, contexto: DailyEscala['conte
 }
 export const loadDailyEscala = async (contexto: DailyEscala['contexto']) => validateDailyEscala(
   await api.get<DailyEscala>('/escala-carros/diaria', { params: { ...contexto } }), contexto);
-export const saveDailyEscala = async (contexto: DailyEscala['contexto'], revisao: number, id: string, carroSubstituido: string, base: string, retirada?: ScaleWithdrawal) =>
-  validateDailyEscala(await api.post<DailyEscala>('/escala-carros/diaria', { contexto, revisao, id, carroSubstituido, base, retirada }), contexto);
+export const saveDailyEscala = async (contexto: DailyEscala['contexto'], revisao: number, id: string, carroSubstituido: string, base: string, retirada?: ScaleWithdrawal, confirmarBloqueadoCI?: string) =>
+  validateDailyEscala(await api.post<DailyEscala>('/escala-carros/diaria', { contexto, revisao, id, carroSubstituido, base, retirada, confirmarBloqueadoCI }), contexto);
 export const saveDailyScaleCard = async (contexto: DailyEscala['contexto'], revisao: number, mutation: CardMutation) =>
   validateDailyEscala(await api.post<DailyEscala>('/escala-carros/diaria', { contexto, revisao, ...mutation }), contexto);
 export const changeDailyScaleState = async (contexto: DailyEscala['contexto'], revisao: number, operacao: 'iniciar' | 'finalizar' | 'reabrir') =>

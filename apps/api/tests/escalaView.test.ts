@@ -126,6 +126,7 @@ test('Portaria e erro de alocacao nao recebem triangulo de bloqueio CI', () => {
 test('Substituidos fica entre reserva e CI; risco aparece apenas na coluna de fixos', () => {
  const prefixo = rows[0].carroProgramado;
  const html = render(false, { schedules: [{ ...rows[0], carroSubstituido: '5001' }], official: { ...official,
+  cards: [...official.cards, { id: 'SUBSTITUIDOS', titulo: 'SUBSTITUIDOS', modo: 'lista', itens: [{ id: '550e8400-e29b-41d4-a716-446655440000', prefixo }] }],
   historicoTrocas: [{ id: '550e8400-e29b-41d4-a716-446655440000', linhaId: rows[0].id,
     prefixo, substituto: '5001', destino: 'PENDENTE', motivo: '', usuarioId: 1, registradoEm: '2026-10-30T12:00:00Z' }] } });
  assert.ok(html.indexOf('RESERVA GARAGEM') < html.indexOf('SUBSTITUIDOS'));
@@ -293,7 +294,7 @@ test('pedido da CI nao substitui cor azul do carro pelo amarelo', () => {
 const lifecycleHtml = (status: string, ciFinalizada = true, proximaIniciada = false, future = true, allowed = true) =>
   renderToStaticMarkup(React.createElement(Lifecycle, { state: { ...official, ciData: contexto.dataOperacao,
     fluxo: { status, ciFinalizada, proximaIniciada, iniciadaEm: null, finalizadaEm: null } },
-    future, allowed, dirty: false, pending: false, onChange() {}, onNext() {} }));
+    editableDate: future, allowed, dirty: false, pending: false, onChange() {}, onNext() {} }));
 
 test('ciclo da escala mostra inicio condicionado a CI finalizada da mesma data', () => {
   assert.match(lifecycleHtml('NAO_INICIADA'), />Iniciar Escala<\/button>/);
@@ -313,7 +314,7 @@ test('ciclo da escala impede reabrir apos virada ou proxima iniciada, e permite 
 test('referencia provisoria identifica CI de origem sem confundir finalizacao da CI da escala', () => {
   const html = renderToStaticMarkup(React.createElement(Lifecycle, { state: { ...official, ciData: '2026-10-13', ciProvisoria: true,
     fluxo: { status: 'NAO_INICIADA', ciFinalizada: false, proximaIniciada: false, iniciadaEm: null, finalizadaEm: null } },
-    future: true, allowed: true, dirty: false, pending: false, onChange() {}, onNext() {} }));
+    editableDate: true, allowed: true, dirty: false, pending: false, onChange() {}, onNext() {} }));
   assert.match(html, /CI de 14\/10\/2026: aguardando/);
   assert.match(html, /Bloqueios provisórios da CI de 13\/10\/2026/);
   assert.match(html, /<button[^>]*disabled=""[^>]*>Iniciar Escala<\/button>/);

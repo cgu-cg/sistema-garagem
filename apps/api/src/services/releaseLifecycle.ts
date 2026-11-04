@@ -1,3 +1,4 @@
+import { ciUseSchema } from './ciUseConfirmation';
 import { canEditHistoricalRelease } from './releaseDateAccess';
 import type { Prisma, PrismaClient, Soltura } from '@prisma/client';
 import { z } from 'zod';
@@ -24,6 +25,7 @@ const rowSchema = z.object({ suspensa: z.boolean().optional(), id: z.string(), l
   ordem: z.number().optional(), tipo: z.string().optional(), observacoes: z.string().optional() }).passthrough();
 export const releaseSheetSchema = z.object({ version: z.literal(1), itens: z.array(rowSchema).min(1),
   limpezas: z.array(lineClearAuditSchema).optional(),
+  usosBloqueadosCI: z.array(ciUseSchema).max(2000).optional(),
   escalaVinculadaIds: z.array(z.string().min(1)).max(2000).optional(),
   eventos: z.array(z.object({ operacao: z.enum(['iniciar', 'finalizar', 'reabrir']), usuarioId: z.number().int().positive(), registradoEm: z.string().datetime() })),
   relatorio: z.unknown().optional() }).strict();
@@ -70,7 +72,7 @@ export function releaseReportRows(rows: ReleaseSheet['itens'], records: Soltura[
 export function releaseLifecycleView(record: { status: string; revisao: number; conteudo: string } | null) {
   const sheet = record ? parseReleaseSheet(record.conteudo) : null;
   return { status: record?.status ?? 'NAO_INICIADA', revisao: record?.revisao ?? 0,
-    eventos: sheet?.eventos ?? [], itens: sheet?.itens ?? null };
+    eventos: sheet?.eventos ?? [], usosBloqueadosCI: sheet?.usosBloqueadosCI ?? [], itens: sheet?.itens ?? null };
 }
 export async function readReleaseLifecycle(db: PrismaClient, value: unknown, userId: number | undefined) {
   const context = parseDailyContext(value); await assertC4Read(db, userId, context.garagem);

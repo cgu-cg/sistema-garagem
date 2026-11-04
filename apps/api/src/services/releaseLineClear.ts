@@ -58,6 +58,7 @@ export async function clearReleaseLine(db: PrismaClient, userId: number | undefi
       for (const terminal of terminals) used.add(terminal.carro);
       history = JSON.stringify(undoReleaseWithdrawals(previous.historicoTrocas, used, userId, clock()));
     }
+    if (sheet.usosBloqueadosCI) sheet.usosBloqueadosCI = sheet.usosBloqueadosCI.filter(c => c.linhaId !== command.scheduleId);
     row.suspensa = command.operacao === 'suspender-linha';
     // Valida também os metadados novos antes de alterar despacho ou folha.
     const conteudo = JSON.stringify(parseReleaseSheet(JSON.stringify(sheet)));

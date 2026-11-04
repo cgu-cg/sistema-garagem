@@ -1,3 +1,4 @@
+import { ciUseSchema, ciUseCommandSchema, authorizeCiUse } from './ciUseConfirmation';
 import { lineClearAuditSchema } from './lineClearAudit';
 import { dateProgramming } from './trafficProgramming';
 import { trafficRowSchema, trafficRowsSchema } from './trafficSchema';
@@ -37,12 +38,12 @@ const commandSchema = z.union([
   z.object({ ...header, operacao: z.enum(['limpar-linha', 'suspender-linha', 'reativar-linha', 'devolver-fixo']), id: z.string().min(1).max(100), base: z.string().min(1) }).strict(),
   z.object({ ...header, operacao: z.literal('tratar-substituido'), trocaId: z.string().uuid(), retirada: scaleWithdrawalSchema }).strict(),
   z.object({ ...header, operacao: z.enum(['iniciar', 'finalizar', 'reabrir']) }).strict(),
-  z.object({ ...header, id: z.string().min(1).max(100), carroSubstituido: prefix, base: z.string().min(1), retirada: scaleWithdrawalSchema.optional() }).strict(),
+  z.object({ ...header, id: z.string().min(1).max(100), carroSubstituido: prefix, confirmarBloqueadoCI: ciUseCommandSchema, base: z.string().min(1), retirada: scaleWithdrawalSchema.optional() }).strict(),
   z.object({ ...header, card: z.string().min(1).max(100), operacao: z.enum(['adicionar', 'remover', 'definir']),
     prefixo: prefix, itemId: z.string().max(100).optional(), linha: z.string().trim().min(1).max(100).optional(),
     tabela: z.string().trim().min(1).max(100).optional() }).strict(),
 ]);
-const confirmationsSchema = z.array(z.object({ id: z.string().min(1).max(100), prefixo: z.string().regex(/^\d{1,10}$/) }).strict()).max(2000)
+const confirmationsSchema = z.array(z.object({ id: z.string().min(1).max(100), prefixo: z.string().regex(/^\d{1,10}$/), usoBloqueadoCI: ciUseSchema.optional() }).strict()).max(2000)
   .refine(values => new Set(values.map(v => v.id)).size === values.length, 'Confirmacoes duplicadas.');
 const savedSchema = z.object({ limpezas: z.array(lineClearAuditSchema).optional(), version: z.union([z.literal(2), z.literal(3)]), itens: itemsSchema, cards: allocationCardsSchema, confirmacoes: confirmationsSchema.default([]), historicoTrocas: z.array(scaleExchangeSchema).default([]), fluxo: scaleLifecycleSchema.optional(), programacao: trafficRowsSchema.optional() }).strict();
 export function fixedSchedule(contexto: ReturnType<typeof parseDailyContext>) {
@@ -54,6 +55,8 @@ export function parseStoredDailyScale(conteudo: string | undefined, contexto: Re
   const value = Array.isArray(parsed) ? { itens: itemsSchema.parse(parsed), cards: null, confirmacoes: [] } : savedSchema.parse(parsed);
   if ('version' in value && value.version === 3 && !value.fluxo) throw new MvpError(409, 'Estado da escala invalido.');
   if ('fluxo' in value && value.fluxo && value.fluxo.fonteCI.ciData !== contexto.dataOperacao) throw new MvpError(409, 'CI da escala pertence a outra data.');
+  if (value.confirmacoes.some(c => c.usoBloqueadoCI && (c.usoBloqueadoCI.linhaId !== c.id || c.usoBloqueadoCI.prefixo !== c.prefixo || c.usoBloqueadoCI.ciData !== contexto.dataOperacao)))
+    throw new MvpError(409, 'Confirmacao de uso da CI fora do contexto da linha.');
   const programacao = 'programacao' in value ? value.programacao : undefined;
   const ids = new Set([...(programacao ?? fixedSchedule(contexto)), ...retiredScaleRows(contexto)].map(i => i.id));
   if (value.itens.some(i => !ids.has(i.id)) || value.confirmacoes.some(i => !ids.has(i.id))) throw new MvpError(409, 'Substituicoes fora da programacao fixa. Revisar sem descartar historico.');
@@ -90,10 +93,10 @@ function project(contexto: ReturnType<typeof parseDailyContext>, revisao: number
   const confirmadas = confirmacoes.filter(c => {
     const fixed = programacao.find(i => i.id === c.id);
     return fixed && c.prefixo === (replacements.get(c.id) ?? fixed.carroProgramado) && frota.includes(c.prefixo)
-      && !blocked.includes(c.prefixo) && !allocation.ocupacoes.some(o => o.prefixo === c.prefixo && o.chave !== 'linha:' + c.id);
+      && (!blocked.includes(c.prefixo) || Boolean(c.usoBloqueadoCI && source.bloqueados.includes(c.prefixo) && !cards.find(card => card.id === 'PORTARIA')?.itens.some(i => i.prefixo === c.prefixo))) && !allocation.ocupacoes.some(o => o.prefixo === c.prefixo && o.chave !== 'linha:' + c.id);
   }).map(c => c.id);
   return { contexto, revisao, itens, cards, programacao, ciData: source.ciData, ciAvisos: source.ciAvisos, cardsOrigem, omitidosPadrao,
-    confirmadas, foraMolde, ...allocation, coresFrota: Object.fromEntries(frota.map(prefixo => [prefixo, vehicleColor(colorCache, prefixo)])),
+    confirmadas, usosBloqueadosCI: confirmacoes.flatMap(c => c.usoBloqueadoCI ? [c.usoBloqueadoCI] : []), foraMolde, ...allocation, coresFrota: Object.fromEntries(frota.map(prefixo => [prefixo, vehicleColor(colorCache, prefixo)])),
     reservaPorCor: groupReserveColors(allocation.reserva, colorCache) };
 }
 function cleanCards(contexto: ReturnType<typeof parseDailyContext>, frota: string[], programacao = fixedSchedule(contexto)) {
@@ -236,8 +239,15 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
         if (itens.find(i => i.id === c.id)?.suspensa) throw new MvpError(409, 'Reative a linha antes de confirmar um carro.');
         const effective = c.carroSubstituido || original.carroProgramado;
         const anterior = itens.find(i => i.id === c.id)?.carroSubstituido ?? original.carroProgramado;
-        validateAllocation(effective, 'linha:' + c.id, frota, [...source.bloqueados, ...portaria], used);
-        confirmacoes = [...confirmacoes.filter(i => i.id !== c.id), { id: c.id, prefixo: effective }];
+        const usoBloqueadoCI = authorizeCiUse({ linhaId: c.id, prefixo: effective, ciData: contexto.dataOperacao, bloqueados: source.bloqueados, confirmar: c.confirmarBloqueadoCI,
+          anterior: confirmacoes.find(i => i.id === c.id && i.prefixo === effective)?.usoBloqueadoCI, usuarioId: userId!, agora: clock() });
+        validateAllocation(effective, 'linha:' + c.id, frota, portaria, used);
+        if (usoBloqueadoCI && c.confirmarBloqueadoCI) {
+          const limpezas = 'limpezas' in state ? state.limpezas ?? [] : [];
+          limpezas.push({ id: randomUUID(), linhaId: c.id, usuarioId: userId!, registradoEm: clock().toISOString(), anterior: JSON.stringify({ operacao: 'USO_BLOQUEADO_CI', ...usoBloqueadoCI }) });
+          Object.assign(state, { limpezas });
+        }
+        confirmacoes = [...confirmacoes.filter(i => i.id !== c.id), { id: c.id, prefixo: effective, ...(usoBloqueadoCI ? { usoBloqueadoCI } : {}) }];
         const index = itens.findIndex(i => i.id === c.id);
         if (!c.carroSubstituido || c.carroSubstituido === original.carroProgramado) { if (index >= 0) itens.splice(index, 1); }
         else { const next = { id: c.id, carroSubstituido: c.carroSubstituido }; if (index < 0) itens.push(next); else itens[index] = next; }

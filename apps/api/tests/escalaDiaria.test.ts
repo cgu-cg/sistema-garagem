@@ -65,6 +65,43 @@ function fixture() {
 const command = (revisao = 1, carroSubstituido = '5001') => ({ contexto, revisao, id: original.id, carroSubstituido, base: JSON.stringify(original),
   retirada: { prefixo: revisao === 1 ? original.carroProgramado : '5001', destino: 'RESERVA' as const, motivo: 'Troca operacional' } });
 
+test('CI bloqueada exige confirmacao do prefixo e permanece bloqueada apos confirmar fixo e finalizar', async () => {
+  const f = fixture(); f.db.__blocks = [original.carroProgramado]; await lifecycle(f.db, 'iniciar');
+  const input = { contexto, revisao: 1, id: original.id, carroSubstituido: '', base: JSON.stringify(original) };
+  await assert.rejects(saveEscalaDiaria(f.db, 1, input), /Confirme explicitamente/);
+  await assert.rejects(saveEscalaDiaria(f.db, 1, { ...input, confirmarBloqueadoCI: '5002' }), /outro carro/);
+  const saved = await saveEscalaDiaria(f.db, 1, { ...input, confirmarBloqueadoCI: original.carroProgramado });
+  assert.ok(saved.confirmadas.includes(original.id)); assert.ok(saved.bloqueados.includes(original.carroProgramado));
+  assert.ok(!saved.reserva.includes(original.carroProgramado));
+  assert.equal(saved.usosBloqueadosCI[0].usuarioId, 1); assert.equal(saved.usosBloqueadosCI[0].linhaId, original.id);
+  assert.deepEqual(f.db.__blocks, [original.carroProgramado]);
+  assert.deepEqual(validateDailyEscala(saved, contexto), saved);
+  const loaded = await readEscalaDiaria(f.db, contexto, 1); assert.ok(loaded.confirmadas.includes(original.id));
+  const finalized = await lifecycle(f.db, 'finalizar', saved.revisao);
+  assert.ok(finalized.confirmadas.includes(original.id)); assert.ok(finalized.bloqueados.includes(original.carroProgramado));
+});
+
+test('autorizacao CI nao libera Portaria, duplicidade, nem sobrevive a limpar a linha', async () => {
+  const f = fixture(); f.db.__blocks = ['5001']; await lifecycle(f.db, 'iniciar');
+  const saved = await saveEscalaDiaria(f.db, 1, { ...command(), confirmarBloqueadoCI: '5001' });
+  assert.ok(saved.confirmadas.includes(original.id)); assert.ok(saved.bloqueados.includes('5001'));
+  const cleared = await saveReal(f.db, 1, { contexto, revisao: saved.revisao, id: original.id, base: JSON.stringify(original), operacao: 'limpar-linha' }, async () => f.db.__fleet, async () => null, now);
+  assert.deepEqual(cleared.usosBloqueadosCI, []);
+  await assert.rejects(saveEscalaDiaria(f.db, 1, { ...command(cleared.revisao), retirada: undefined }), /Confirme explicitamente/);
+  const record = [...f.records.values()][0], content = JSON.parse(record.conteudo);
+  content.cards.find((c: any) => c.id === 'PORTARIA').itens.push({ id: 'blocked', prefixo: '5001' });
+  record.conteudo = JSON.stringify(content); const before = structuredClone([...f.records]);
+  await assert.rejects(saveEscalaDiaria(f.db, 1, { ...command(cleared.revisao), retirada: undefined, confirmarBloqueadoCI: '5001' }), /bloqueado/);
+  assert.deepEqual([...f.records], before);
+});
+
+test('falha ao salvar autorizacao CI nao persiste confirmacao nem auditoria', async () => {
+  const f = fixture(); f.db.__blocks = [original.carroProgramado]; await lifecycle(f.db, 'iniciar');
+  const before = structuredClone([...f.records]); f.fail();
+  await assert.rejects(saveEscalaDiaria(f.db, 1, { contexto, revisao: 1, id: original.id, carroSubstituido: '', base: JSON.stringify(original), confirmarBloqueadoCI: original.carroProgramado }), /Falha simulada/);
+  assert.deepEqual([...f.records], before);
+});
+
 const returnFixed = (db: any, revisao: number) => saveReal(db, 1, { contexto, revisao, id: original.id,
   base: JSON.stringify(original), operacao: 'devolver-fixo' }, async () => db.__fleet, async () => null, now);
 

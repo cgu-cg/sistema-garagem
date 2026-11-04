@@ -1,3 +1,4 @@
+import { useCiUseConfirmationContext } from './CiUseConfirmation';
 import { useId, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
@@ -6,12 +7,14 @@ import { cn } from '@/lib/utils';
 export type VehicleOption = { prefixo: string; unavailable: string; blocked: boolean };
 const company = (prefixo: string) => ({ '1': 'VCM', '2': 'VSF', '3': 'JTU', '4': 'VCG' }[prefixo[0]] || '');
 
-export function ScaleVehiclePicker({ value, onChange, onConfirm, onSelect, options, garage, label, disabled, className, placeholder, renderPrefix }: {
-  value: string; onChange: (value: string) => void; onConfirm?: () => void;
+export function ScaleVehiclePicker({ value, onChange, onConfirm, onSelect, options, garage, label, disabled, className, placeholder, renderPrefix, allowCiConfirmation = false }: {
+  allowCiConfirmation?: boolean; value: string; onChange: (value: string) => void; onConfirm?: () => void;
   onSelect?: (value: string) => void;
   options: VehicleOption[]; garage: string; label: string; disabled?: boolean; className?: string; placeholder?: string;
   renderPrefix?: (prefixo: string) => ReactNode;
 }) {
+  const ciGate = useCiUseConfirmationContext();
+  const checkCI = (p: string) => { if (allowCiConfirmation && ciGate?.isBlocked(p)) void ciGate.request(p); };
   const [open, setOpen] = useState(false), [filter, setFilter] = useState('TODAS');
   const [search, setSearch] = useState('');
   const input = useRef<HTMLInputElement>(null);
@@ -23,7 +26,7 @@ export function ScaleVehiclePicker({ value, onChange, onConfirm, onSelect, optio
         value={value} placeholder={placeholder} disabled={disabled} inputMode="numeric" maxLength={10}
         style={renderPrefix && value ? { color: 'transparent', caretColor: 'hsl(var(--foreground))' } : undefined}
         onClick={() => { setSearch(''); setOpen(true); }}
-        onChange={e => { const p = e.target.value.replace(/\D/g, ''); onChange(p); setSearch(p); setOpen(true); }}
+        onChange={e => { const p = e.target.value.replace(/\D/g, ''); onChange(p); checkCI(p); setSearch(p); setOpen(true); }}
         onKeyDown={e => {
           if (e.key === 'Escape' || e.key === 'Tab') setOpen(false);
           if (e.key === 'Enter') { e.preventDefault(); setOpen(false); onConfirm?.(); }
@@ -60,7 +63,7 @@ export function ScaleVehiclePicker({ value, onChange, onConfirm, onSelect, optio
           buttons[(current + (e.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus();
         }}> 
         {filtered.map(o => <button key={o.prefixo} role="option" aria-selected={value === o.prefixo} type="button" disabled={Boolean(o.unavailable)} title={o.unavailable}
-          onClick={() => { onChange(o.prefixo); setOpen(false); onSelect?.(o.prefixo); }}
+          onClick={() => { onChange(o.prefixo); checkCI(o.prefixo); setOpen(false); onSelect?.(o.prefixo); }}
           className="flex w-full items-center gap-2 px-3 py-3 text-left text-xs hover:bg-muted focus:bg-muted disabled:cursor-not-allowed disabled:opacity-60">
           <span className="font-mono font-bold">{renderPrefix ? renderPrefix(o.prefixo) : o.prefixo}</span>
           <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">{company(o.prefixo)}</span>

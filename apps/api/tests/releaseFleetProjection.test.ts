@@ -11,6 +11,21 @@ const programming = [{ id: 'linha-1', carroProgramado: '4000' }];
 const record = (motivo: string) => ({ scheduleId: 'linha-1', ...context, carroRealizado: '4001',
   historicoTrocas: JSON.stringify([{ carroAnterior: '4000', novoCarro: '4001', motivo, descricaoDefeito: 'Pneu furado', registradoEm: '2026-10-27T12:00:00Z' }]) });
 
+test('uso em outro turno ou tipo nao reduz a reserva da folha selecionada', () => {
+ const records = [
+   { ...record(''), turno: 'VESPERTINO', carroRealizado: '4001', historicoTrocas: null },
+   { ...record(''), escalaTipo: 'SABADO', turno: 'PADRAO', carroRealizado: '4002', historicoTrocas: null },
+ ];
+ assert.deepEqual(releaseFleetProjection(scale, programming, records, context).reserva, ['4001', '4002', '4003']);
+ assert.deepEqual(releaseFleetProjection(scale, [], records, { ...context, turno: 'VESPERTINO' }).reserva, ['4002', '4003']);
+});
+
+test('retorno para reserva de outra folha nao importa carro alocado na escala vinculada', () => {
+ const other = { ...record('Adicionado equivocadamente'), turno: 'VESPERTINO' };
+ assert.deepEqual(releaseFleetProjection(scale, [], [other], context).reserva, ['4001', '4002', '4003']);
+ assert.ok(releaseFleetProjection(scale, [], [other], { ...context, turno: 'VESPERTINO' }).reserva.includes('4000'));
+});
+
 test('equivoco devolve programado retirado a reserva e atualiza cor, sem repetir carro realizado', () => {
  const state = releaseFleetProjection(scale, programming, [record('Adicionado equivocadamente')], context);
  assert.deepEqual(state.reserva, ['4000', '4002', '4003']); assert.deepEqual(state.defeitosGaragem, []);

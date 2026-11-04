@@ -85,7 +85,7 @@ export function CiVehicleNotice({ state, prefixo, warning, children, hideIcon = 
         {item.horario && <p>Horário: {item.horario}</p>}
         {item.tipoPosicao === 'EXTRA' && <p>Posição extra{item.ordemPosicao ? ' ' + item.ordemPosicao : ''}</p>}
       </li>)}</ul>
-      <p className="mt-2 border-t pt-2 text-[10px] text-muted-foreground">{red || defeito ? 'Este carro não pode ser utilizado. Informe um substituto livre.' : 'Informativo: esta ocorrência não bloqueia o uso do carro.'}</p>
+      <p className="mt-2 border-t pt-2 text-[10px] text-muted-foreground">{blockedCI && !blockedPortaria && !defeito && !warning ? 'Uso deste carro exige confirmacao explicita. O bloqueio da CI sera mantido.' : red || defeito ? 'Este carro não pode ser utilizado. Informe um substituto livre.' : 'Informativo: esta ocorrência não bloqueia o uso do carro.'}</p>
     </PopoverContent>}
   </Popover>;
 }

@@ -1,3 +1,4 @@
+import { CiUseConfirmationContext, useCiUseConfirmation } from './CiUseConfirmation';
 import { ReleaseTreatmentCards } from './ReleaseTreatmentCards';
 import { ScaleVehiclePrefix } from './ScaleVehiclePrefix';
 import { treatReleaseWithdrawal, type ReleaseWithdrawal } from '@/lib/releaseProgramming';
@@ -412,7 +413,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const releaseContext = { garagem, escalaTipo, turno: escalaTipo === 'SEG_SEX' ? turnoTipo : 'PADRAO' as const, dataOperacao };
   const releaseLifecycle = useReleaseLifecycle(releaseContext, canDispatch(user) && ['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode));
   const releaseAvailability = releaseProgramming.data?.disponibilidade;
-  const releaseState = useMemo(() => releaseProgramming.data ? { ...releaseProgramming.data.escala,
+  const rawReleaseState = useMemo(() => releaseProgramming.data ? { ...releaseProgramming.data.escala,
     ...(releaseAvailability ? { reserva: releaseAvailability.reserva, reservaPorCor: releaseAvailability.reservaPorCor, defeitosGaragem: releaseAvailability.defeitosGaragem } : {}) } : null, [releaseProgramming.data, releaseAvailability]);
   const [eveningCI, setEveningCI] = useState<{ key: string; items: BloqueioCarro[]; error: string } | null>(null);
   const eveningCIKey = `${garagem}:${dataOperacao}`;
@@ -435,11 +436,13 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     const stop = c4Realtime.subscribe(event => { if (!event || event.garagem === garagem) void refresh(); });
     return () => { active = false; stop(); window.removeEventListener('focus', refresh); };
   }, [independentRelease, eveningCIKey, viewMode]);
-  const eveningCIState = useMemo(() => releaseState ? { ...releaseState, ciData: dataOperacao,
+  const eveningCIState = useMemo(() => rawReleaseState ? { ...rawReleaseState, ciData: dataOperacao,
     bloqueados: [...new Set((eveningCI?.key === eveningCIKey ? eveningCI.items : []).filter(item =>
       item.data === dataOperacao && item.garagem === garagem && item.status !== 'LIBERADO'
       && item.categoriaPlanilha === 'BLOQUEADO').map(item => item.prefixo))] } : null,
-  [releaseState, eveningCI, eveningCIKey, dataOperacao, garagem]);
+  [rawReleaseState, eveningCI, eveningCIKey, dataOperacao, garagem]);
+  const releaseState = independentRelease ? eveningCIState : rawReleaseState;
+  const ciUse = useCiUseConfirmation(`${viewMode}:${JSON.stringify(releaseContext)}:${dailyContextKey}`, viewMode === 'ALTERAR_CARRO_PROGRAMADO' ? dailyReady ? dailyScale?.bloqueados ?? [] : [] : ['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode) ? releaseState?.bloqueados ?? [] : []);
   const eveningCIError = eveningCI?.key === eveningCIKey ? eveningCI.error : 'Consultando CI...';
   const releasePendingMessage = !independentRelease && releaseProgramming.data && dataOperacao >= operationalContext().today
     ? releasePreparationMessage(Boolean(releaseState?.fluxo?.ciFinalizada), releaseProgramming.data.escalaFinalizada) : null;
@@ -489,7 +492,12 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     const key = dailyContextKey;
     dailyWritePending.current = true; dailyWriteContext.current = key; ++dailyReadSequence.current;
     try {
-      const saved = await saveDailyEscala(dailyContext, dailyScale.revisao, id, prefixo, base, retirada);
+      const effective = prefixo || dailyScale.programacao?.find(row => row.id === id)?.carroProgramado || fixedRows.find(row => row.id === id)?.carroProgramado || '';
+      const retained = dailyScale.usosBloqueadosCI?.some(c => c.linhaId === id && c.prefixo === effective);
+      if (ciUse.gate.isBlocked(effective) && !retained && !await ciUse.gate.request(effective)) return false;
+      if (selectedDailyKey.current !== key) return false;
+      const saved = await saveDailyEscala(dailyContext, dailyScale.revisao, id, prefixo, base, retirada, ciUse.gate.isBlocked(effective) && !retained ? effective : undefined);
+      ciUse.gate.consume(effective);
       if (selectedDailyKey.current === key) { setDailyScale(saved); setDailyError(''); }
       return true;
     } catch (error) {
@@ -698,7 +706,13 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const dispatchWritePending = useRef(false);
   const persistDispatchToApi = async (item: SolturaItem, record: DispatchedRecord, trocaCarro?: ReleaseExchangeCommand): Promise<DispatchedRecord> => {
       if (!releaseUiAllowed) throw new Error('Soltura indisponivel para este perfil ou contexto de CI.');
+      const contextKey = dispatchContextKey;
+      const effective = record.carroRealizado || item.carroProgramado || '';
+      const retained = releaseLifecycle.data?.usosBloqueadosCI?.some(c => c.linhaId === item.id && c.prefixo === effective);
+      if (ciUse.gate.isBlocked(effective) && !retained && !await ciUse.gate.request(effective)) throw Error('Uso do carro bloqueado cancelado. Nenhuma alteracao foi salva.');
+      if (selectedDispatchKey.current !== contextKey) throw Error('Contexto alterado. Confirme novamente.');
       const saved: any = await api.createSoltura({
+        confirmarBloqueadoCI: ciUse.gate.isBlocked(effective) && !retained ? effective : undefined,
         scheduleId: item.id,
         carroProgramado: item.carroProgramado || null,
         carroRealizado: record.carroRealizado,
@@ -719,6 +733,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         status: "LIBERADO",
         notes: record.observacoes || null,
       });
+      ciUse.gate.consume(effective);
+      if (ciUse.gate.isBlocked(effective) && !retained) await releaseLifecycle.reload();
       return { ...record, status: saved.status ?? 'LIBERADO', baseLinha: saved.baseLinha, carroRealizado: saved.carroRealizado, carroProgramado: saved.carroProgramado ?? undefined, substituido: saved.substituido,
         historicoTrocas: typeof saved.historicoTrocas === 'string' ? JSON.parse(saved.historicoTrocas) : saved.historicoTrocas ?? [] };
   };
@@ -743,6 +759,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         substituido: !!disp.substituido,
         historicoTrocas: disp.historicoTrocas || [],
         trocaCarro: disp.trocaCarro,
+        confirmarBloqueadoCI: undefined as string | undefined,
         status: "LIBERADO",
         notes: disp.observacoes || null
       };
@@ -753,6 +770,16 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     }
     dispatchWritePending.current = true;
     try {
+      const contextKey = dispatchContextKey;
+      for (const row of itemsToPersist) {
+        const p = row.carroRealizado || row.carroProgramado || '';
+        const retained = releaseLifecycle.data?.usosBloqueadosCI?.some(c => c.linhaId === row.scheduleId && c.prefixo === p);
+        if (ciUse.gate.isBlocked(p) && !retained) {
+          if (!await ciUse.gate.request(p)) return false;
+          row.confirmarBloqueadoCI = p;
+        }
+      }
+      if (selectedDispatchKey.current !== contextKey) return false;
       await confirmedWrite(() => api.batchSyncSolturas({ dataOperacao, garagem,
         turno: escalaTipo === "SEG_SEX" ? turnoTipo : "PADRAO", escalaTipo, items: itemsToPersist }),
         (result: any) => saveDispatches(Object.fromEntries(Object.entries(newDispatches).map(([id, record]) => {
@@ -763,7 +790,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
             historicoTrocas: typeof received.historicoTrocas === 'string' ? JSON.parse(received.historicoTrocas) : received.historicoTrocas ?? [], carroProgramado: dispatches[id]?.carroProgramado ?? row?.carroProgramado,
             scheduleSnapshot: dispatches[id]?.scheduleSnapshot ?? (row ? { ...row } : undefined) }];
         }))));
-      await releaseProgramming.reload();
+      for (const row of itemsToPersist) ciUse.gate.consume(row.carroRealizado || row.carroProgramado || '');
+      await Promise.all([releaseProgramming.reload(), releaseLifecycle.reload()]);
       return true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Soltura nao confirmada."); return false;
@@ -1007,8 +1035,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       if (releaseAvailability?.substituidos?.some(r => r.prefixo === prefixo)) return { prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, motivo: 'Aguardando tratativa em Substituidos', data: dataOperacao };
       const defeito = releaseAvailability?.defeitosGaragem.find(d => d.prefixo === prefixo);
       if (defeito) return { prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, motivo: 'Bloqueado Portaria: ' + defeito.descricao, data: dataOperacao };
-      if (!releaseState?.bloqueados.includes(prefixo)) return null;
-      return { prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, motivo: 'Bloqueado na CI ' + releaseState.ciData, data: releaseState.ciData };
+      if (releaseState?.cards.find(c => c.id === 'PORTARIA')?.itens.some(i => i.prefixo === prefixo)) return { prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, motivo: 'Bloqueado na Portaria', data: dataOperacao };
+      return null;
     }
     return checkCarroBloqueado(prefixo, ciList, dataOperacao);
   }, [ciList, dataOperacao, viewMode, releaseState, releaseAvailability]);
@@ -1435,7 +1463,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   );
 
   return (
-    <div className="space-y-5 animate-in fade-in duration-300 pb-16">
+    <CiUseConfirmationContext.Provider value={ciUse.gate}>{ciUse.dialog}<div className="space-y-5 animate-in fade-in duration-300 pb-16">
       {!isCIView && viewMode !== 'ALTERAR_CARRO_PROGRAMADO' && (garagem !== 'VCG' || ciReadError) && <div role="alert" className="p-3 border rounded print:hidden">
         {ciReadError && <p>{ciReadError}</p>}
         {garagem !== 'VCG' && canReadScale(user) && (scaleError || (!sharedScale ? 'Carregando escala oficial...' : sharedScale.publicada ? 'Escala oficial carregada.' : 'Escala ainda nao publicada. Nenhum dado local foi importado.'))}
@@ -2007,7 +2035,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           dispatches={dispatches}
           onSaveDispatch={handleSaveDispatchFromView}
           onTrocarCarro={handleTrocarCarro}
-          ciList={releaseState ? [...releaseState.bloqueados.map(prefixo => ({ prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, data: releaseState.ciData, motivo: 'Bloqueado na CI' })), ...(releaseAvailability?.defeitosGaragem ?? []).map(d => ({ prefixo: d.prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, data: dataOperacao, motivo: d.descricao })), ...(releaseAvailability?.substituidos ?? []).map(d => ({ prefixo: d.prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, data: dataOperacao, motivo: 'Aguardando tratativa em Substituidos' }))] : []}
+          ciList={releaseState ? [...(releaseState.cards.find(c => c.id === 'PORTARIA')?.itens ?? []).map(i => ({ prefixo: i.prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, data: dataOperacao, motivo: 'Bloqueado na Portaria' })), ...(releaseAvailability?.defeitosGaragem ?? []).map(d => ({ prefixo: d.prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, data: dataOperacao, motivo: d.descricao })), ...(releaseAvailability?.substituidos ?? []).map(d => ({ prefixo: d.prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, data: dataOperacao, motivo: 'Aguardando tratativa em Substituidos' }))] : []}
           scaleState={releaseState}
           readOnly={!releaseUiAllowed}
         />
@@ -2262,7 +2290,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       {/* ========================================================= */}
 
 
-    </div>
+    </div></CiUseConfirmationContext.Provider>
   );
 }
 

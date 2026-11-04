@@ -1,5 +1,50 @@
 # Domain model e entendimento operacional atual
 
+## Reserva da Soltura por folha — 04/11/2026
+
+CONFIRMADO pelo usuário: atribuições de carros e retornos para Reserva pertencem
+à própria Soltura (garagem, data, tipo e turno). Carros realizados em outra
+folha não reduzem sua Reserva, e retornos de outra folha não ampliam a lista.
+A gravação continua impedindo duplicidade dentro da folha selecionada.
+Permanecem os bloqueios e retiradas pendentes aplicáveis à mesma garagem/data,
+a confirmação explícita para uso de bloqueados CI e as reservas de terminal.
+Solturas vinculadas continuam partindo da disponibilidade da Escala de origem;
+o vespertino independente parte da frota da garagem. Sem alteração de schema.
+
+## Uso confirmado de carro bloqueado na CI — 04/11/2026
+
+CONFIRMADO pelo usuário: Escala de Carros e Soltura podem atribuir um carro
+bloqueado na CI mediante confirmação explícita no popup central. Isso substitui
+a recusa absoluta anterior somente para bloqueio CI. Portaria, defeitos da
+Soltura, pendências de tratamento, duplicidade, frota, permissões, datas e estados
+das folhas continuam sendo validados. A CI não é liberada ou modificada: seu
+card conserva o carro e o triângulo vermelho permanece nos prefixos em uso.
+Reservas e tratamentos de desbloqueio não ganham autorização para ignorar CI.
+
+A API exige confirmarBloqueadoCI com o prefixo exato da atribuição. A permissão
+fica vinculada à linha, prefixo e data CI, com operador e instante do servidor.
+Na Escala fica na confirmação da linha; na Soltura, nos usosBloqueadosCI do
+JSON da folha. A auditoria existente registra USO_BLOQUEADO_CI. Trocar, limpar,
+suspender ou reativar remove a permissão daquela atribuição; alterar somente
+o motorista do mesmo despacho pode reutilizar a permissão existente. Se o carro
+deixar de estar bloqueado ao salvar, não é mantida uma permissão desnecessária.
+Confirmar no popup sem salvar não altera dados e não modifica a CI.
+
+O frontend solicita a confirmação ao digitar/selecionar um bloqueado conhecido,
+ou ao confirmar o fixo/programado bloqueado. Cancelar não grava a atribuição.
+A anuência temporária é descartada após salvar ou mudar o contexto. A API
+reconsulta o bloqueio na transação e recusa prefixo diferente do confirmado.
+Lotes exigem confirmação individual dos bloqueados e são atômicos. Não há
+autorização para alterar folhas finalizadas ou ampliar a janela de edição.
+
+O vespertino continua sem exigir CI finalizada, origem CI certificada ou
+Escala. Ao despachar consulta bloqueios CI existentes da mesma data: se houver
+bloqueio, também exige confirmação; ausência da folha CI não impede despacho.
+Falha de consulta não é tratada como ausência de bloqueios. A frota independente
+continua sem herdar alocações da Escala; os triângulos CI são observacionais.
+
+Persistência nos campos JSON existentes, sem tabela, coluna ou execução de SQL.
+
 ## Cards da Soltura por folha e programado riscado — 04/11/2026
 
 CONFIRMADO: Substituídos e Bloqueados Portaria aparecem somente na folha de

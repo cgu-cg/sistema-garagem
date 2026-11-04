@@ -36,16 +36,16 @@ const addVehicleButton = 'inline-flex h-6 w-6 shrink-0 items-center justify-cent
 function blocked(state: DailyEscala, p: string) {
   return state.bloqueados.includes(p) || Boolean(state.cards.find(c => c.id === 'PORTARIA')?.itens.some(i => i.prefixo === p));
 }
-function allocationError(state: DailyEscala | null, prefixo: string, ownKey: string) {
+function allocationError(state: DailyEscala | null, prefixo: string, ownKey: string, allowCI = false) {
   if (!state) return 'Consulte a frota e os bloqueios oficiais antes de confirmar.';
   if (!/^\d{1,10}$/.test(prefixo)) return 'Informe um carro substituto valido.';
-  if (blocked(state, prefixo)) return 'Carro ' + prefixo + ' esta bloqueado. Informe um substituto livre.';
+  if (state.cards.find(c => c.id === 'PORTARIA')?.itens.some(i => i.prefixo === prefixo) || !allowCI && state.bloqueados.includes(prefixo)) return 'Carro ' + prefixo + ' esta bloqueado. Informe um substituto livre.';
   if (!state.frota.includes(prefixo)) return 'Carro ' + prefixo + ' nao existe na frota desta garagem.';
   const used = state.ocupacoes.find(o => o.prefixo === prefixo && o.chave !== ownKey);
   return used ? 'Carro ' + prefixo + ' ja utilizado em ' + used.local + '.' : '';
 }
-export function pickerOptions(state: DailyEscala | null, ownKey: string) {
-  return state?.frota.filter(prefixo => !state.ocupacoes.some(o => o.prefixo === prefixo && o.chave.startsWith('linha:'))).map(prefixo => ({ prefixo, blocked: blocked(state, prefixo), unavailable: allocationError(state, prefixo, ownKey) })) ?? [];
+export function pickerOptions(state: DailyEscala | null, ownKey: string, allowCI = false) {
+  return state?.frota.filter(prefixo => !state.ocupacoes.some(o => o.prefixo === prefixo && o.chave.startsWith('linha:'))).map(prefixo => ({ prefixo, blocked: blocked(state, prefixo), unavailable: allocationError(state, prefixo, ownKey, allowCI) })) ?? [];
 }
 
 export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, readOnly = true, readOnlyReason, onEditingChange, garagem, escalaTipo,
@@ -185,12 +185,13 @@ function LineRow({ item, official, readOnly, onSave, onClear, onEditingChange, d
   const dirty = useRef(drafts.has(item.id)), pending = useRef(false);
   useEffect(() => { if (!dirty.current) setPrefixo(item.carroSubstituido ?? ''); }, [item.carroSubstituido]);
   const ownKey = 'linha:' + item.id;
-  const fixedAlert = official && item.carroProgramado ? allocationError(official, item.carroProgramado, ownKey) : '';
+  const fixedAlert = official && item.carroProgramado ? allocationError(official, item.carroProgramado, ownKey, true) : '';
   const confirmed = Boolean(item.confirmada && !dirty.current && prefixo.trim() === (item.carroSubstituido ?? '')
-    && !allocationError(official, prefixo.trim() || item.carroProgramado, ownKey));
+    && (!official?.bloqueados.includes(prefixo.trim() || item.carroProgramado) || official.usosBloqueadosCI?.some(c => c.linhaId === item.id && c.prefixo === (prefixo.trim() || item.carroProgramado)))
+    && !allocationError(official, prefixo.trim() || item.carroProgramado, ownKey, true));
   const confirm = async () => {
     if (readOnly || pending.current) return;
-    const p = prefixo.trim(), error = allocationError(official, p || item.carroProgramado, ownKey);
+    const p = prefixo.trim(), error = allocationError(official, p || item.carroProgramado, ownKey, true);
     if (error) { toast.error(error); return; }
     pending.current = true; setSaving(true);
     try { if (await onSave(item.id, p)) { dirty.current = false; setEditing(false); drafts.delete(item.id); onEditingChange?.(item.id, false); setPrefixo(p === item.carroProgramado ? '' : p); toast.success('Linha validada e escala salva.'); } }
@@ -198,8 +199,8 @@ function LineRow({ item, official, readOnly, onSave, onClear, onEditingChange, d
   };
   return <><tr data-confirmada={confirmed ? 'true' : 'false'} className={cn('border-b border-border/60 font-mono', item.suspensa ? 'bg-rose-100 hover:bg-rose-200/70 dark:bg-rose-950/50' : confirmed ? 'bg-emerald-100 hover:bg-emerald-200/70 dark:bg-emerald-900/40 dark:hover:bg-emerald-900/50' : 'hover:bg-muted/30')}><td className="p-3 font-bold">{item.linha}{item.suspensa && <span className="ml-2 font-sans text-xs text-rose-700">Suspensa</span>}</td><td className="p-3">{item.tabela}</td><td className="p-3">{item.saidaGaragem}</td><td className="p-3">{item.chegadaGaragem || '\u2014'}</td>
     <td className="p-3 font-bold"><CiVehicleNotice state={official} prefixo={item.carroProgramado || '\u2014'} warning={fixedAlert || undefined}><ScaleVehiclePrefix state={official} prefixo={item.carroProgramado || '\u2014'} struck={Boolean(item.carroProgramado && item.carroSubstituido && item.carroSubstituido !== item.carroProgramado)} /></CiVehicleNotice></td>
-    <td className="p-2"><div className="flex items-center gap-2"><CiVehicleNotice hideIcon state={official} prefixo={prefixo.trim()} warning={prefixo.trim() ? allocationError(official, prefixo.trim(), ownKey) || undefined : undefined}><ScaleVehiclePicker label={'Carro substituido da Linha ' + item.linha + ' Tabela ' + item.tabela} value={prefixo} placeholder={item.carroSubstituido === '' ? 'Sem carro' : undefined} disabled={readOnly || saving || item.suspensa}
-      garage={official?.contexto.garagem ?? ''} options={pickerOptions(official, ownKey)}
+    <td className="p-2"><div className="flex items-center gap-2"><CiVehicleNotice hideIcon state={official} prefixo={prefixo.trim()} warning={prefixo.trim() ? allocationError(official, prefixo.trim(), ownKey, true) || undefined : undefined}><ScaleVehiclePicker label={'Carro substituido da Linha ' + item.linha + ' Tabela ' + item.tabela} value={prefixo} placeholder={item.carroSubstituido === '' ? 'Sem carro' : undefined} disabled={readOnly || saving || item.suspensa}
+      garage={official?.contexto.garagem ?? ''} allowCiConfirmation options={pickerOptions(official, ownKey, true)}
       onChange={value => { dirty.current = true; drafts.set(item.id, value); onEditingChange?.(item.id, true); setPrefixo(value); }} onConfirm={() => void confirm()}
       renderPrefix={p => <span className="relative inline-flex"><ScaleVehiclePrefix state={official} prefixo={p} />{p === prefixo.trim() && <VehicleNoticeIcons {...vehicleNoticeFlags(official, p)} />}</span>} className="h-7 w-24 py-0 text-center" /></CiVehicleNotice>
       <button type="button" aria-label={(confirmed ? 'Linha confirmada ' : 'Confirmar linha ') + item.linha + ' tabela ' + item.tabela} title={confirmed ? 'Linha confirmada para esta data' : 'Confirmar linha'} disabled={readOnly || saving || confirmed || item.suspensa} onClick={() => void confirm()} className={cn('h-7 w-7 inline-flex items-center justify-center rounded-full', 'bg-[#164E3A] text-white', (readOnly || saving || confirmed) && 'opacity-40 cursor-not-allowed')}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}</button>

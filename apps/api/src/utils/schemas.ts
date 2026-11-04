@@ -1,3 +1,4 @@
+import { ciUseCommandSchema } from '../services/ciUseConfirmation';
 import { z } from "zod";
 import { hasValidReleaseTable } from '../services/solturaTemplateTable';
 import { releaseExchangeCommandSchema } from '../services/releaseVehicleExchange';
@@ -58,6 +59,7 @@ export const createSolturaFields = z.object({
   substituido: z.boolean().optional().nullable(),
   historicoTrocas: z.union([z.string(), z.array(z.any())]).optional().nullable(),
   trocaCarro: releaseExchangeCommandSchema.optional(),
+  confirmarBloqueadoCI: ciUseCommandSchema,
   status: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
 });
@@ -85,6 +87,7 @@ export const batchSyncSolturaSchema = z.object({
       substituido: z.boolean().optional().nullable(),
       historicoTrocas: z.union([z.string(), z.array(z.any())]).optional().nullable(),
       trocaCarro: releaseExchangeCommandSchema.optional(),
+  confirmarBloqueadoCI: ciUseCommandSchema,
       status: z.string().optional().nullable(),
       notes: z.string().optional().nullable(),
     })
