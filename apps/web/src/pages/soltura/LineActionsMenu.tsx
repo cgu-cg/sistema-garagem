@@ -3,15 +3,17 @@ import { MoreVertical, Eraser, Ban, RotateCcw } from 'lucide-react';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 
 export type LineAction = 'limpar-linha' | 'suspender-linha' | 'reativar-linha';
-export function LineActionsMenu({ label, suspended, disabled, canClear = true, onAction }: {
+export type ScaleLineAction = LineAction | 'devolver-fixo';
+export function LineActionsMenu({ label, suspended, disabled, canClear = true, onAction, onReturnFixed }: {
   label: string; suspended?: boolean; disabled?: boolean; canClear?: boolean;
   onAction: (action: LineAction) => Promise<unknown>;
+  onReturnFixed?: () => Promise<unknown>;
 }) {
   const [busy, setBusy] = useState(false), pending = useRef(false);
-  const run = async (action: LineAction) => {
+  const run = async (action: ScaleLineAction) => {
     if (pending.current || disabled) return;
     pending.current = true; setBusy(true);
-    try { await onAction(action); } finally { pending.current = false; setBusy(false); }
+    try { if (action === 'devolver-fixo') await onReturnFixed?.(); else await onAction(action); } finally { pending.current = false; setBusy(false); }
   };
   return <DropdownMenu><DropdownMenuTrigger asChild>
     <button type="button" aria-label={`Ações da linha ${label}`} title="Ações da linha" disabled={disabled || busy}
@@ -19,6 +21,7 @@ export function LineActionsMenu({ label, suspended, disabled, canClear = true, o
       <MoreVertical className="h-4 w-4" />
     </button>
   </DropdownMenuTrigger><DropdownMenuContent align="end">
+    {onReturnFixed && <DropdownMenuItem onSelect={() => void run('devolver-fixo')}><RotateCcw className="h-4 w-4" />Devolver carro fixo a Substituídos</DropdownMenuItem>}
     {suspended ? <DropdownMenuItem onSelect={() => void run('reativar-linha')}><RotateCcw className="h-4 w-4" />Reativar linha</DropdownMenuItem> : <>
       <DropdownMenuItem disabled={!canClear} onSelect={() => void run('limpar-linha')}><Eraser className="h-4 w-4" />Limpar dados</DropdownMenuItem>
       <DropdownMenuItem className="text-rose-600" onSelect={() => void run('suspender-linha')}><Ban className="h-4 w-4" />Suspender linha</DropdownMenuItem>

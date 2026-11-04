@@ -1,4 +1,4 @@
-import { removeReserva } from '../services/reservaTerminal';
+import { createReserva, removeReserva } from '../services/reservaTerminal';
 import { MvpError } from '../services/mvpTemporal';
 import { Response } from "express";
 import prisma from "../utils/prisma";
@@ -45,24 +45,11 @@ export async function list(req: AuthRequest, res: Response) {
 
 export async function create(req: AuthRequest, res: Response) {
   try {
-    const { carro, tipo, terminal, garagem } = req.body;
-
-    const record = await prisma.reservaTerminal.create({
-      data: {
-        carro: String(carro).trim(),
-        tipo: String(tipo).toUpperCase(),
-        terminal: String(terminal).trim(),
-        garagem: garagem ? String(garagem).toUpperCase() : "VCG",
-        userId: req.userId || null,
-        dataHora: new Date(),
-      },
-      include: {
-        user: { select: { id: true, name: true } },
-      },
-    });
+    const record = await createReserva(prisma, req.userId, req.body);
 
     return res.status(201).json(record);
   } catch (error) {
+    if (error instanceof MvpError) return res.status(error.status).json({ error: error.message });
     console.error("Erro ao criar reserva de terminal:", error);
     return res.status(500).json({ message: "Erro ao criar reserva de terminal" });
   }

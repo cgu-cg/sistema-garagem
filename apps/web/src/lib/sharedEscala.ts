@@ -34,6 +34,13 @@ export interface DailyEscala { programacao?: TrafficRow[]; contexto: EscalaConte
   confirmadas: string[];
   itens: { id: string; carroSubstituido: string; suspensa?: boolean }[]; cards: ScaleCard[]; frota: string[]; bloqueados: string[]; reserva: string[];
   ocupacoes: { prefixo: string; local: string; chave: string }[]; ciData: string; cardsOrigem: 'padrao' | 'salvo'; omitidosPadrao: number }
+// Historico e preservado apos limpar; somente posicoes atuais podem ser tratadas.
+export function pendingScaleWithdrawals(state: DailyEscala | null): ScaleExchange[] {
+  const positions = state?.cards.find(card => card.id === 'SUBSTITUIDOS')?.itens ?? [];
+  return state?.historicoTrocas?.filter(t => t.destino === 'PENDENTE' &&
+    positions.some(item => item.id === t.id && item.prefixo === t.prefixo)) ?? [];
+}
+
 const prefixSchema = z.string().regex(/^\d{1,10}$/);
 const dailyResponseSchema = z.object({
   programacao: trafficRowsSchema.optional(),
@@ -102,5 +109,5 @@ export const changeDailyScaleState = async (contexto: DailyEscala['contexto'], r
 export const treatDailySubstitution = async (contexto: DailyEscala['contexto'], revisao: number, trocaId: string, retirada: ScaleWithdrawal) =>
   validateDailyEscala(await api.post('/escala-carros/diaria', { contexto, revisao, operacao: 'tratar-substituido', trocaId, retirada }), contexto);
 
-export const clearDailyScaleLine = async (contexto: DailyEscala['contexto'], revisao: number, id: string, base: string, operacao: 'limpar-linha' | 'suspender-linha' | 'reativar-linha' = 'limpar-linha') =>
+export const clearDailyScaleLine = async (contexto: DailyEscala['contexto'], revisao: number, id: string, base: string, operacao: 'limpar-linha' | 'suspender-linha' | 'reativar-linha' | 'devolver-fixo' = 'limpar-linha') =>
   validateDailyEscala(await api.post<DailyEscala>('/escala-carros/diaria', { contexto, revisao, id, base, operacao }), contexto);

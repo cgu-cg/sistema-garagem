@@ -66,19 +66,19 @@ test('seletor filho mantem a mesma estrutura ao digitar prefixo e alternar aviso
  }
 });
 
-test('troca exige escolha de motivo e descricao para Defeito Garagem', async () => {
+test('troca envia somente o novo carro e deixa o motivo para o card Substituidos', async () => {
  const h = harness(); h.render(); h.open(); h.car('4001');
- await h.submit(); assert.deepEqual(h.calls, []);
- h.reason('Defeito Garagem'); await h.submit(); assert.deepEqual(h.calls, []);
- h.get(n => n.type === 'textarea').props.onChange({ target: { value: '  Pneu furado  ' } }); h.render();
+ assert.throws(() => h.get(n => n.type === 'input' && n.props.type === 'radio'));
+ assert.throws(() => h.get(n => n.type === 'textarea'));
  await h.submit(); h.render();
- assert.equal(h.calls.length, 1); assert.equal(h.calls[0][2], 'Defeito Garagem'); assert.equal(h.calls[0][3], 'Pneu furado');
+ assert.equal(h.calls.length, 1); assert.equal(h.calls[0][1], '4001');
+ assert.equal(h.calls[0][2], undefined);
  assert.equal(h.get(n => n.type?.name === 'Popover').props.open, false);
 });
 
-test('equivoco nao exige descricao de defeito e envia motivo escolhido', async () => {
- const h = harness(); h.render(); h.open(); h.car('4001'); h.reason('Adicionado equivocadamente');
- await h.submit(); h.render(); assert.equal(h.calls.length, 1); assert.equal(h.calls[0][2], 'Adicionado equivocadamente');
+test('carro vazio ou igual ao atual nao gera nova troca', async () => {
+ const h = harness(); h.render(); h.open(); await h.submit();
+ h.car('4000'); await h.submit(); assert.deepEqual(h.calls, []);
 });
 
 test('consulta temporaria preserva borda e tamanho do carro; formularios fechados nao sao montados', () => {
@@ -93,25 +93,25 @@ test('consulta temporaria preserva borda e tamanho do carro; formularios fechado
 });
 
 test('recarga com popup aberto preserva formulario e bloqueia salvar ate a consulta terminar', async () => {
- const h = harness(); h.render(); h.open(); h.car('4001'); h.reason('Adicionado equivocadamente');
+ const h = harness(); h.render(); h.open(); h.car('4001');
  h.props.isReadOnly = true; h.render();
  assert.ok(h.get(n => n.type === 'form')); assert.equal(h.get(n => n.props.type === 'submit').props.disabled, true);
  await h.submit(); assert.equal(h.calls.length, 0);
  h.props.isReadOnly = false; h.render(); await h.submit(); assert.equal(h.calls.length, 1);
 });
 
-test('pendencia impede fechar e repetir; falha mantem popup, carro e descricao', async () => {
+test('pendencia impede fechar e repetir; falha mantem popup e carro', async () => {
  const h = harness(); let resolve!: (value: boolean) => void;
  h.props.onTrocarCarro = () => new Promise<boolean>(r => { resolve = r; });
- h.render(); h.open(); h.car('4001'); h.reason('Defeito Garagem');
- h.get(n => n.type === 'textarea').props.onChange({ target: { value: 'Motor' } }); h.render();
+ h.render(); h.open(); h.car('4001');
+ h.render();
  const request = h.submit(); h.render();
  assert.equal(h.get(n => n.props.type === 'submit').props.disabled, true);
  h.get(n => n.type?.name === 'Popover').props.onOpenChange(false); h.render();
  assert.equal(h.get(n => n.type?.name === 'Popover').props.open, true);
  await h.submit(); resolve(false); await request; h.render();
  assert.equal(h.get(n => n.type?.name === 'Popover').props.open, true);
- assert.equal(h.get(n => n.type === 'textarea').props.value, 'Motor');
+
  assert.equal(h.get(n => n.type?.name === 'FleetVehicleInput').props.value, '4001');
 });
 

@@ -12,6 +12,7 @@ import { Pencil, X, Check, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 
 export interface TrocaCarroItem {
+  destino?: 'PENDENTE' | 'RESERVA' | 'BLOQUEAR' | 'DESFEITO';
   carroAnterior: string;
   novoCarro: string;
   motivo: "Adicionado equivocadamente" | "Defeito Garagem" | "Defeito Rua (SOS)" | string;
@@ -26,17 +27,13 @@ interface CarroTrocaPopoverProps {
   item: SolturaItem;
   carroAtual: string;
   historicoTrocas?: TrocaCarroItem[];
-  onTrocarCarro: (item: SolturaItem, novoCarro: string, motivo: ReleaseExchangeCommand['motivo'], descricaoDefeito?: string) => Promise<boolean>;
+  onTrocarCarro: (item: SolturaItem, novoCarro: string, motivo?: ReleaseExchangeCommand['motivo'], descricaoDefeito?: string) => Promise<boolean>;
   checkBloqueioCI?: (prefixo?: string) => any;
   onPenduradoAlert?: (prefixo: string, motivo?: string) => void;
   getOutraLinhaComCarroRealiz?: (carro: string, currentItemId: string) => SolturaItem | undefined | null;
   isReadOnly?: boolean;
 }
 
-const MOTIVOS_DISPONIVEIS = [
-  "Adicionado equivocadamente",
-  "Defeito Garagem"
-] as const;
 const vehicleBadgeClass = 'relative inline-flex items-center gap-1 rounded-md border border-neutral-300 bg-neutral-100/90 px-2.5 py-0.5 font-mono text-xs font-bold text-neutral-900 shadow-2xs dark:border-neutral-700 dark:bg-neutral-800/80 dark:text-white';
 
 export function CarroTrocaPopover({
@@ -53,14 +50,13 @@ export function CarroTrocaPopover({
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"ALTERAR" | "HISTORICO">("ALTERAR");
   const [novoCarro, setNovoCarro] = useState("");
-  const [motivo, setMotivo] = useState<ReleaseExchangeCommand['motivo'] | ''>('');
-  const [descricaoDefeito, setDescricaoDefeito] = useState(''), [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState(false);
   const pending = useRef(false);
 
   const totalTrocas = historicoTrocas.length;
   const isAlterado = totalTrocas > 0;
   const ultimaTroca = historicoTrocas.slice(-1)[0];
-  const substitution = ultimaTroca?.motivo === 'Defeito Garagem' && ultimaTroca.novoCarro === carroAtual
+  const substitution = (ultimaTroca?.destino === 'BLOQUEAR' || !ultimaTroca?.destino && ultimaTroca?.motivo === 'Defeito Garagem') && ultimaTroca.novoCarro === carroAtual
     ? { carroAnterior: ultimaTroca.carroAnterior, descricaoDefeito: ultimaTroca.descricaoDefeito } : undefined;
   const historyDescription = !substitution && ultimaTroca
     ? 'Última troca: ' + ultimaTroca.carroAnterior + ' → ' + ultimaTroca.novoCarro + '. ' + ultimaTroca.motivo : undefined;
@@ -70,16 +66,12 @@ export function CarroTrocaPopover({
     if (isReadOnly) return;
     setActiveTab("ALTERAR");
     setNovoCarro("");
-    setMotivo('');
-    setDescricaoDefeito('');
     setIsOpen(true);
   };
 
   const handleSalvar = async (e: React.FormEvent) => {
     e.preventDefault();
     if (pending.current || isReadOnly) return;
-    if (!motivo) { toast.error('Selecione o motivo da troca.'); return; }
-    if (motivo === 'Defeito Garagem' && !descricaoDefeito.trim()) { toast.error('Descreva o defeito na garagem.'); return; }
     const cleanCarro = novoCarro.trim().replace(/\D/g, "");
     if (!cleanCarro) {
       toast.error("Informe o número do novo carro.");
@@ -110,7 +102,7 @@ export function CarroTrocaPopover({
 
     pending.current = true; setSaving(true);
     try {
-      if (await onTrocarCarro(item, cleanCarro, motivo, descricaoDefeito.trim())) { setIsOpen(false); setNovoCarro(''); setDescricaoDefeito(''); }
+      if (await onTrocarCarro(item, cleanCarro)) { setIsOpen(false); setNovoCarro(''); }
     } catch { toast.error('Troca não confirmada. Revise os dados antes de tentar novamente.'); }
     finally { pending.current = false; setSaving(false); }
   };
@@ -248,52 +240,10 @@ export function CarroTrocaPopover({
               />
             </div>
 
-            {/* Motivo da Troca */}
-            <div className="space-y-1.5 pt-0.5">
-              <span className="text-xs font-bold text-foreground block">
-                Motivo da troca
-              </span>
-              <div className="space-y-1.5">
-                {MOTIVOS_DISPONIVEIS.map((op) => {
-                  const isChecked = motivo === op;
-                  return (
-                    <label
-                      key={op}
-                      onClick={() => { if (!saving) setMotivo(op); }}
-                      className={cn(
-                        "flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs cursor-pointer transition-all select-none",
-                        isChecked
-                          ? "border-[#164E3A] bg-[#164E3A]/10 text-foreground font-semibold dark:border-emerald-500/50"
-                          : "border-transparent hover:bg-muted/40 text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      <input type="radio" name={'motivo-troca-' + item.id} value={op} checked={isChecked} onChange={() => setMotivo(op)} disabled={saving} required className="sr-only" />
-                      <div
-                        className={cn(
-                          "w-3.5 h-3.5 rounded-full border flex items-center justify-center transition-all shrink-0",
-                          isChecked
-                            ? "border-[#164E3A] bg-[#164E3A] dark:border-emerald-500 dark:bg-emerald-600"
-                            : "border-muted-foreground/60 bg-transparent"
-                        )}
-                      >
-                        {isChecked && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                      </div>
-                      <span className="text-xs">{op}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Botão Salvar */}
-            {motivo === 'Defeito Garagem' && <div className="space-y-1.5">
-              <label htmlFor={'defeito-' + item.id} className="text-xs font-semibold">Descreva o defeito <span className="text-rose-500">*</span></label>
-              <textarea id={'defeito-' + item.id} value={descricaoDefeito} onChange={e => setDescricaoDefeito(e.target.value)} required maxLength={1000} disabled={saving}
-                rows={3} placeholder="Informe o defeito na garagem..." className="w-full rounded-xl border border-border bg-background p-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#164E3A]" />
-            </div>}
+            <p className="text-xs text-muted-foreground">O carro anterior ira para Substituidos. Escolha o destino dele no card apos salvar.</p>
             <Button
               type="submit"
-              disabled={isReadOnly || saving || !novoCarro.trim() || !motivo || (motivo === 'Defeito Garagem' && !descricaoDefeito.trim())}
+              disabled={isReadOnly || saving || !novoCarro.trim()}
               className="w-full h-9 rounded-xl bg-[#164E3A] hover:bg-[#113C2D] text-white font-bold text-xs shadow-sm transition-all cursor-pointer flex items-center justify-center gap-1.5"
             >
               <Check className="w-3.5 h-3.5" />
@@ -334,7 +284,7 @@ export function CarroTrocaPopover({
                       <span className="text-muted-foreground font-semibold">{t.novoCarro}</span>
                     </div>
                     <div className="text-[11px] text-muted-foreground">
-                      {t.motivo}
+                      {t.destino ? { PENDENTE: 'Aguardando tratativa', RESERVA: 'Enviado para Reserva', BLOQUEAR: 'Bloqueado Portaria', DESFEITO: 'Desfeito ao limpar a linha' }[t.destino] : t.motivo}
                       {t.descricaoDefeito && <p className="mt-1 break-words">{t.descricaoDefeito}</p>}
                     </div>
                   </div>

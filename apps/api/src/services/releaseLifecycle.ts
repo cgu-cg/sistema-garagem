@@ -12,6 +12,7 @@ import { enabledGarages, eventInstant, addDays, dateValue } from './c4Temporal';
 import { isIndependentRelease } from './independentRelease';
 import { readReleaseProgramming, finalizedReleaseRows, releaseScaleContext, updatedReleaseSheetRows } from './releaseProgramming';
 import { notifyC4Updated } from './c4Events';
+import { releaseWithdrawals } from './releaseWithdrawals';
 import { garageDefects } from './releaseVehicleExchange';
 import { resolveDateProgramming } from './trafficProgramming';
 import { scaleLinkedReleaseIds } from './releaseScaleUpdates';
@@ -41,6 +42,7 @@ export function parseReleaseSheet(conteudo: string): ReleaseSheet {
 export const releaseSheetWhere = (context: ReleaseContext) => ({ garagem_escalaTipo_turno_dataOperacao: context });
 
 export async function lockReleaseSheet(tx: Pick<Prisma.TransactionClient, '$queryRaw'>, c: ReleaseContext) {
+  await tx.$queryRaw`SELECT id FROM dbo.soltura_folha WITH (UPDLOCK,HOLDLOCK) WHERE garagem=${c.garagem} AND data_operacao=${c.dataOperacao}`;
   await tx.$queryRaw`SELECT id FROM dbo.soltura_folha WITH (UPDLOCK,HOLDLOCK) WHERE garagem=${c.garagem} AND escala_tipo=${c.escalaTipo} AND turno=${c.turno} AND data_operacao=${c.dataOperacao}`;
 }
 export function assertReleaseStarted(record: { status: string } | null) {
@@ -84,6 +86,7 @@ export async function collectReleaseReport(db: PrismaClient, context: ReleaseCon
     reserva: programming.disponibilidade.reserva, bloqueados: programming.escala.bloqueados,
     ciNaoVinculada: isIndependentRelease(context),
     defeitosGaragem: programming.disponibilidade.defeitosGaragem,
+    substituidos: programming.disponibilidade.substituidos, bloqueadosPortaria: programming.disponibilidade.bloqueadosPortaria,
     reservasTerminais: terminals.map(t => ({ terminal: t.terminal, carro: t.carro })) };
 }
 export async function changeReleaseLifecycle(db: PrismaClient, userId: number | undefined, value: unknown, clock = () => new Date(), prepare = readReleaseProgramming) {
@@ -118,6 +121,8 @@ export async function changeReleaseLifecycle(db: PrismaClient, userId: number | 
     if (command.operacao === 'iniciar' && (!currentRows || (!isIndependentRelease(context)
       && (!enabledGarages().includes('VCG') || sourceCI?.status !== 'FINALIZADA' || !preparation?.escala.fluxo.ciFinalizada)))) throw new MvpError(409, 'Finalize a CI e a Escala desta data antes de iniciar a Soltura.');
     const records = await tx.soltura.findMany({ where: context });
+    if (command.operacao === 'finalizar' && releaseWithdrawals(records).some(r => r.destino === 'PENDENTE'))
+      throw new MvpError(409, 'Trate todos os carros em Substituidos antes de finalizar a Soltura.');
     const sheet: ReleaseSheet = old ? parseReleaseSheet(old.conteudo) : { version: 1, itens: currentRows!, eventos: [] };
     if (!old && !isIndependentRelease(context)) {
       const template = await resolveDateProgramming(tx, 'SOLTURA', context);
@@ -152,6 +157,7 @@ export async function changeReleaseLifecycle(db: PrismaClient, userId: number | 
         reserva: availability.reserva, bloqueados: scale.bloqueados,
         ciNaoVinculada: isIndependentRelease(context),
         defeitosGaragem: availability.defeitosGaragem,
+        substituidos: availability.substituidos, bloqueadosPortaria: availability.bloqueadosPortaria,
         reservasTerminais: terminals.map(t => ({ terminal: t.terminal, carro: t.carro })) };
     }
     const data = { status: command.operacao === 'finalizar' ? 'FINALIZADA' : 'EM_ANDAMENTO',

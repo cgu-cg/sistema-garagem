@@ -1,9 +1,11 @@
+import type { ReleaseWithdrawal } from './releaseProgramming';
 import type { SolturaItem } from '@/data/solturaTypes';
 import type { DailyEscala } from './sharedEscala';
 
 export interface ReleaseReport {
   contexto: DailyEscala['contexto']; status: string; emitidoEm: string;
   itens: SolturaItem[]; reserva: string[]; bloqueados: string[];
+  substituidos?: ReleaseWithdrawal[]; bloqueadosPortaria?: ReleaseWithdrawal[];
   defeitosGaragem: { prefixo: string; descricao: string }[];
   reservasTerminais: { terminal: string; carro: string }[];
   auxiliaresIndisponiveis?: boolean; ciNaoVinculada?: boolean;
@@ -36,9 +38,10 @@ export function buildReleaseReportHtml(report: ReleaseReport): string {
     }).join('');
     const suspended = report.itens.filter(row => row.suspensa).length;
     const liberated = report.itens.filter(row => ['LIBERADO', 'SUBSTITUIDO'].includes(row.status)).length;
+    const portaria = report.bloqueadosPortaria ? report.bloqueadosPortaria.map(item => ({ prefixo: item.prefixo, descricao: item.motivo })) : report.defeitosGaragem;
     const auxiliary = page === totalPages - 1 && report.auxiliaresIndisponiveis ? '<p>Reservas e bloqueios não registrados neste histórico. Dados atuais não foram usados para completar o relatório.</p>' : page === totalPages - 1 ? `<div class="auxiliary"><div><h3>Reserva garagem</h3><p>${escape(report.reserva.join(' · ') || 'Sem carros')}</p></div>
       <div><h3>Reserva terminal</h3>${report.reservasTerminais.length ? report.reservasTerminais.map(r => `<p>${escape(r.terminal)}: ${escape(r.carro)}</p>`).join('') : '<p>Sem registros</p>'}</div>
-      <div><h3>Bloqueados CI</h3><p>${escape(report.ciNaoVinculada ? 'CI não vinculada ao vespertino' : report.bloqueados.join(' · ') || 'Sem registros')}</p><h3>Defeito garagem</h3>${report.defeitosGaragem.map(d => `<p>${escape(d.prefixo)}: ${escape(d.descricao)}</p>`).join('') || '<p>Sem registros</p>'}</div></div>` : '';
+      <div><h3>Bloqueados CI</h3><p>${escape(report.ciNaoVinculada ? 'CI não vinculada ao vespertino' : report.bloqueados.join(' · ') || 'Sem registros')}</p><h3>${report.bloqueadosPortaria ? 'Bloqueados Portaria' : 'Defeito garagem'}</h3>${portaria.map(d => `<p>${escape(d.prefixo)}: ${escape(d.descricao)}</p>`).join('') || '<p>Sem registros</p>'}</div></div>` : '';
     pages.push(`<section class="sheet"><header><h1>CONSÓRCIO GUAICURUS · GARAGEM ${escape(c.garagem)}</h1><h2>FOLHA DE SOLTURA — ${labels[c.escalaTipo]}${c.turno === 'PADRAO' ? '' : ' · ' + escape(c.turno)} · ${escape(c.dataOperacao.split('-').reverse().join('/'))}</h2>
       <p>${escape(report.status === 'FINALIZADA' ? 'Finalizada' : report.status === 'LEGADO' ? 'Histórico anterior ao controle de início/fim' : report.status === 'NAO_INICIADA' ? 'Não iniciada — prévia' : 'Em andamento — parcial')} · Total: ${report.itens.length} · Liberados: ${liberated} \u00b7 Suspensas: ${suspended} · Pendentes: ${report.itens.length - liberated - suspended}</p></header>
       <div class="columns" style="grid-template-columns:repeat(${columns},minmax(0,1fr))">${tables}</div>${auxiliary}

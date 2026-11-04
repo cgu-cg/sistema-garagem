@@ -30,3 +30,13 @@ test('relatorio diferencia suspensas de liberadas e pendentes', () => {
  assert.match(html, /background:#ffe4e6/); assert.match(html, /<small>SUSPENSA<\/small>/);
  assert.match(html, /Liberados: 1/); assert.match(html, /Suspensas: 1/); assert.match(html, /Pendentes: 0/);
 });
+
+test('relatorio novo imprime bloqueios da propria folha sem misturar impedimentos de outro turno', () => {
+ const report = fixture(1);
+ report.defeitosGaragem = [{ prefixo: '3098', descricao: 'Outro turno' }];
+ report.bloqueadosPortaria = [];
+ const html = buildReleaseReportHtml(report);
+ assert.match(html, /Bloqueados Portaria/); assert.doesNotMatch(html, /3098/);
+ delete report.bloqueadosPortaria;
+ assert.match(buildReleaseReportHtml(report), /3098/, 'Relatorio antigo conserva a fotografia original');
+});

@@ -2,7 +2,7 @@ import { lineClearAuditSchema } from './lineClearAudit';
 import { dateProgramming } from './trafficProgramming';
 import { trafficRowSchema, trafficRowsSchema } from './trafficSchema';
 import { scaleLifecycleSchema, assertScaleDate, assertScaleOperation, type ScaleLifecycle } from './dailyScaleLifecycle';
-import { scaleWithdrawalSchema, scaleExchangeSchema, registerScaleWithdrawal, treatScaleWithdrawal } from './scaleSubstitution';
+import { scaleWithdrawalSchema, scaleExchangeSchema, registerScaleWithdrawal, treatScaleWithdrawal, returnFixedToSubstituted, undoFixedWithdrawal } from './scaleSubstitution';
 import { projectScaleCiNotices, type ScaleCiNotice } from './scaleCiNotices';
 import { notifyC4Updated } from './c4Events';
 import { groupReserveColors, isColorReserveCard } from './scaleReserveColors';
@@ -34,7 +34,7 @@ const itemsSchema = z.array(z.object({ id: z.string().min(1).max(100), carroSubs
 const header = { contexto: z.unknown(), revisao: z.number().int().nonnegative().max(2147483646) };
 const prefix = z.string().trim().regex(/^(\d{1,10})?$/);
 const commandSchema = z.union([
-  z.object({ ...header, operacao: z.enum(['limpar-linha', 'suspender-linha', 'reativar-linha']), id: z.string().min(1).max(100), base: z.string().min(1) }).strict(),
+  z.object({ ...header, operacao: z.enum(['limpar-linha', 'suspender-linha', 'reativar-linha', 'devolver-fixo']), id: z.string().min(1).max(100), base: z.string().min(1) }).strict(),
   z.object({ ...header, operacao: z.literal('tratar-substituido'), trocaId: z.string().uuid(), retirada: scaleWithdrawalSchema }).strict(),
   z.object({ ...header, operacao: z.enum(['iniciar', 'finalizar', 'reabrir']) }).strict(),
   z.object({ ...header, id: z.string().min(1).max(100), carroSubstituido: prefix, base: z.string().min(1), retirada: scaleWithdrawalSchema.optional() }).strict(),
@@ -141,7 +141,7 @@ export async function readEscalaDiaria(db: PrismaClient, value: unknown, userId:
 export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefined, value: unknown, loadFleet: FleetLoader = officialFleet, loadColors: ColorLoader = loadColorCache, clock = () => new Date()) {
   const c = commandSchema.parse(value), contexto = parseDailyContext(c.contexto);
   const treating = 'operacao' in c && c.operacao === 'tratar-substituido';
-  const operation = 'operacao' in c && !('card' in c) && c.operacao !== 'tratar-substituido' && c.operacao !== 'limpar-linha' && c.operacao !== 'suspender-linha' && c.operacao !== 'reativar-linha' ? c.operacao : 'editar';
+  const operation = 'operacao' in c && !('card' in c) && c.operacao !== 'tratar-substituido' && c.operacao !== 'limpar-linha' && c.operacao !== 'suspender-linha' && c.operacao !== 'reativar-linha' && c.operacao !== 'devolver-fixo' ? c.operacao : 'editar';
   const assertDate = () => {
     if (treating) {
       if (contexto.dataOperacao < operationalContext(clock()).today) throw new MvpError(409, 'Tratamento de datas anteriores permite somente consulta.');
@@ -173,7 +173,7 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
       if (!state.fluxo || !old) throw new MvpError(409, 'Escala nao iniciada.');
     } else assertScaleOperation(operation, state.fluxo, Boolean(old), source.ciFinalizada, nextStarted);
     const { ciFinalizada: _ciFinalizada, ...sourceSnapshot } = source;
-    if ('operacao' in c && !('card' in c) && c.operacao !== 'tratar-substituido' && c.operacao !== 'limpar-linha' && c.operacao !== 'suspender-linha' && c.operacao !== 'reativar-linha') {
+    if ('operacao' in c && !('card' in c) && c.operacao !== 'tratar-substituido' && c.operacao !== 'limpar-linha' && c.operacao !== 'suspender-linha' && c.operacao !== 'reativar-linha' && c.operacao !== 'devolver-fixo') {
       const fluxo: ScaleLifecycle = c.operacao === 'iniciar'
         ? { status: 'EM_PREPARACAO', iniciadaEm: clock().toISOString(), finalizadaEm: null, fonteCI: sourceSnapshot }
         : { ...state.fluxo!, status: c.operacao === 'finalizar' ? 'FINALIZADA' : 'EM_PREPARACAO',
@@ -208,18 +208,29 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
       try { sameBase = Boolean(original) && JSON.stringify(trafficRowSchema.parse(JSON.parse(c.base))) === JSON.stringify(trafficRowSchema.parse(original)); }
       catch { /* Token inválido não autoriza gravação. */ }
       if (!original || !sameBase) throw new MvpError(409, 'Programacao fixa diferente da versao do servidor. Atualize a pagina e revise.');
-      if ('operacao' in c) {
+      if ('operacao' in c && c.operacao === 'devolver-fixo') {
+        const returned = returnFixedToSubstituted({ linhaId: c.id, prefixo: original.carroProgramado,
+          substituto: itens.find(i => i.id === c.id)?.carroSubstituido ?? original.carroProgramado,
+          historico: historicoTrocas, cards, fixed, itens, frota,
+          bloqueadosCI: [...new Set([...source.bloqueados, ...(state.fluxo?.fonteCI.bloqueados ?? [])])], usuarioId: userId!, agora: clock() });
+        const limpezas = 'limpezas' in state ? state.limpezas ?? [] : [];
+        limpezas.push({ id: randomUUID(), linhaId: c.id, usuarioId: userId!, registradoEm: clock().toISOString(),
+          anterior: JSON.stringify({ operacao: 'DEVOLVER_FIXO_SUBSTITUIDOS', origem: returned.origem, pendenteId: returned.pendente.id }) });
+        Object.assign(state, { limpezas });
+      } else if ('operacao' in c) {
         const index = itens.findIndex(i => i.id === c.id);
         const anterior = { operacao: c.operacao, id: c.id, carroSubstituido: itens[index]?.carroSubstituido ?? null, suspensa: itens[index]?.suspensa ?? false,
           confirmacao: confirmacoes.find(i => i.id === c.id) ?? null };
         if (c.operacao === 'reativar-linha' && !anterior.suspensa) throw new MvpError(409, 'Linha nao esta suspensa.');
         if (c.operacao === 'suspender-linha' && anterior.suspensa) throw new MvpError(409, 'Linha ja suspensa.');
-        if (c.operacao === 'limpar-linha' && !anterior.suspensa && itens[index]?.carroSubstituido === '' && !anterior.confirmacao) throw new MvpError(409, 'Linha ja esta limpa. Recarregue.');
+        if (c.operacao === 'limpar-linha' && !original.carroProgramado && !anterior.suspensa && itens[index]?.carroSubstituido === '' && !anterior.confirmacao) throw new MvpError(409, 'Linha ja esta limpa. Recarregue.');
+        const desfazimento = c.operacao === 'limpar-linha' ? undoFixedWithdrawal({ linhaId: c.id, prefixo: original.carroProgramado, historico: historicoTrocas, cards, fixed, itens }) : null;
         const limpezas = 'limpezas' in state ? state.limpezas ?? [] : [];
-        limpezas.push({ id: randomUUID(), linhaId: c.id, usuarioId: userId!, registradoEm: clock().toISOString(), anterior: JSON.stringify(anterior) });
+        limpezas.push({ id: randomUUID(), linhaId: c.id, usuarioId: userId!, registradoEm: clock().toISOString(), anterior: JSON.stringify({ ...anterior, desfazimento }) });
         Object.assign(state, { limpezas });
         const next = { id: c.id, carroSubstituido: '', suspensa: c.operacao === 'suspender-linha' };
-        if (index >= 0) itens[index] = next; else itens.push(next);
+        if (c.operacao === 'limpar-linha') { if (index >= 0) itens.splice(index, 1); }
+        else if (index >= 0) itens[index] = next; else itens.push(next);
         confirmacoes = confirmacoes.filter(i => i.id !== c.id);
       } else {
         if (itens.find(i => i.id === c.id)?.suspensa) throw new MvpError(409, 'Reative a linha antes de confirmar um carro.');
@@ -249,7 +260,11 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
         if (c.operacao === 'definir' && !item) throw new MvpError(409, 'Posicao inexistente.');
         if (c.prefixo) validateAllocation(c.prefixo, item ? 'card:' + card.id + ':' + item.id : '', frota,
           [...source.bloqueados, ...portaria.filter(p => !(card.id === 'PORTARIA' && item?.prefixo === p))], used);
-        if (c.operacao === 'definir' && item) item.prefixo = c.prefixo;
+        if (c.operacao === 'definir' && item) {
+          item.prefixo = c.prefixo;
+          // Uma edicao manual passa a ser independente da troca que criou a posicao.
+          if (card.id === 'PORTARIA') item.id = randomUUID();
+        }
         else if (card.modo === 'lista' && c.prefixo) card.itens.push({ id: randomUUID(), prefixo: c.prefixo });
         else throw new MvpError(400, 'Informe os dados da posicao.');
       }

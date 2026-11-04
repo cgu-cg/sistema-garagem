@@ -84,6 +84,7 @@ router.post('/solturas/estado', authenticate, operationalAccess('releaseLifecycl
 router.get('/solturas/relatorio', authenticate, operationalAccess('dispatch'), releaseLifecycleController.report);
 router.post("/solturas", authenticate, operationalAccess('dispatch'), validate(createSolturaSchema), solturaController.create);
 router.post("/solturas/batch-sync", authenticate, operationalAccess('dispatch'), validate(batchSyncSolturaSchema), solturaController.syncBatch);
+router.post('/solturas/tratar-carro', authenticate, operationalAccess('releaseLifecycle'), solturaController.treatCar);
 router.post('/solturas/limpar-linha', authenticate, operationalAccess('releaseLifecycle'), solturaController.clearLine);
 router.get("/solturas/reservas-terminais", authenticate, operationalAccess('reservations'), reservasTerminaisController.list);
 router.post("/solturas/reservas-terminais", authenticate, operationalAccess('dispatch'), validate(createReservaTerminalSchema), reservasTerminaisController.create);

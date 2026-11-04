@@ -45,11 +45,12 @@ export function registerScaleWithdrawal(args: {
     throw new MvpError(409, 'Carro retirado esta bloqueado. Nao pode ser colocado na reserva.');
   const used = occupations(fixed, itens, cards).find(o => o.prefixo === anterior && !(retirada.destino === 'BLOQUEAR' && o.chave.startsWith('card:PORTARIA:')));
   if (used) throw new MvpError(409, `Carro ${anterior} ainda utilizado em ${used.local}. Revise antes de destinar o carro.`);
+  const exchangeId = randomUUID();
   if (retirada.destino === 'BLOQUEAR') {
     if (!portaria) throw new MvpError(409, 'Card de Bloqueados Portaria indisponivel.');
-    if (!portaria.itens.some(i => i.prefixo === anterior)) portaria.itens.push({ id: randomUUID(), prefixo: anterior });
+    if (!portaria.itens.some(i => i.prefixo === anterior)) portaria.itens.push({ id: exchangeId, prefixo: anterior });
   }
-  return scaleExchangeSchema.parse({ ...retirada, id: randomUUID(), linhaId: args.linhaId,
+  return scaleExchangeSchema.parse({ ...retirada, id: exchangeId, linhaId: args.linhaId,
     substituto, usuarioId: args.usuarioId, registradoEm: args.agora.toISOString() });
 }
 
@@ -66,7 +67,54 @@ export function treatScaleWithdrawal(args: {
     throw new MvpError(409, 'Substituicao ja tratada ou alterada. Recarregue.');
   const cards = structuredClone(args.cards);
   cards.find(c => c.id === 'SUBSTITUIDOS')!.itens = pending.itens.filter(i => i.id !== troca.id);
+  const portariaBefore = new Set(cards.find(c => c.id === 'PORTARIA')?.itens.map(i => i.id));
   registerScaleWithdrawal({ ...args, cards, anterior: troca.prefixo, substituto: troca.substituto, linhaId: troca.linhaId });
+  const created = cards.find(c => c.id === 'PORTARIA')?.itens.find(i => !portariaBefore.has(i.id));
+  if (created) created.id = troca.id;
   args.cards.splice(0, args.cards.length, ...cards);
   Object.assign(troca, args.retirada, { tratadoPor: args.usuarioId, tratadoEm: args.agora.toISOString() });
+}
+
+// Reabre o tratamento por um novo registro; a destinação anterior fica intacta.
+export function returnFixedToSubstituted(args: {
+  linhaId: string; prefixo: string; substituto: string;
+  historico: z.infer<typeof scaleExchangeSchema>[]; cards: AllocationCard[];
+  fixed: FixedLine[]; itens: Substitution[]; frota: string[]; bloqueadosCI: string[];
+  usuarioId: number; agora: Date;
+}) {
+  const previous = [...args.historico].reverse().find(t => t.linhaId === args.linhaId && t.prefixo === args.prefixo);
+  if (!previous || previous.destino !== 'RESERVA') throw new MvpError(409, 'Carro fixo sem retirada anterior para Reserva nesta linha.');
+  validateFixedReturn(args);
+  const pending = registerScaleWithdrawal({ ...args, anterior: args.prefixo,
+    substituto: args.substituto || previous.substituto });
+  if (!pending) throw new MvpError(409, 'Carro fixo ainda atribuido a esta linha.');
+  args.historico.push(pending);
+  return { origem: previous, pendente: pending };
+}
+
+function validateFixedReturn(args: { prefixo: string; frota: string[]; bloqueadosCI: string[];
+  fixed: FixedLine[]; itens: Substitution[]; cards: AllocationCard[] }) {
+  if (!args.frota.includes(args.prefixo)) throw new MvpError(409, 'Carro fixo fora da frota oficial.');
+  if (args.bloqueadosCI.includes(args.prefixo) || args.cards.find(c => c.id === 'PORTARIA')?.itens.some(i => i.prefixo === args.prefixo))
+    throw new MvpError(409, 'Carro fixo bloqueado. O bloqueio nao sera retirado.');
+  if (occupations(args.fixed, args.itens, args.cards).some(o => o.prefixo === args.prefixo))
+    throw new MvpError(409, 'Carro fixo ja utilizado ou aguardando tratamento. Recarregue.');
+}
+
+// Restaura a referencia fixa sem confirmar a linha. So remove destinos comprovados.
+export function undoFixedWithdrawal(args: {
+  linhaId: string; prefixo: string; historico: z.infer<typeof scaleExchangeSchema>[];
+  cards: AllocationCard[]; fixed: FixedLine[]; itens: Substitution[];
+}) {
+  const latest = [...args.historico].reverse().find(t => t.prefixo === args.prefixo);
+  const owned = latest?.linhaId === args.linhaId ? latest : undefined;
+  const removable = (card: AllocationCard, id: string) => Boolean(owned && id === owned.id &&
+    (card.id === 'SUBSTITUIDOS' && owned.destino === 'PENDENTE' || card.id === 'PORTARIA' && owned.destino === 'BLOQUEAR'));
+  const occupied = occupations(args.fixed, args.itens, args.cards).find(o => o.prefixo === args.prefixo &&
+    o.chave !== 'linha:' + args.linhaId && !o.chave.startsWith('card:PORTARIA:') &&
+    !args.cards.some(c => c.itens.some(i => o.chave === `card:${c.id}:${i.id}` && removable(c, i.id))));
+  if (occupied) throw new MvpError(409, 'Carro fixo utilizado em outro local. Nao foi possivel limpar a linha.');
+  const removidos = args.cards.flatMap(c => c.itens.filter(i => i.prefixo === args.prefixo && removable(c, i.id)).map(i => ({ card: c.id, ...i })));
+  for (const card of args.cards) card.itens = card.itens.filter(i => !removidos.some(r => r.card === card.id && r.id === i.id));
+  return { retirada: owned ?? null, removidos };
 }

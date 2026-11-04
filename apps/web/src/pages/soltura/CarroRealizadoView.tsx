@@ -54,7 +54,7 @@ interface CarroRealizadoViewProps {
   schedules: SolturaItem[];
   dispatches: Record<string, DispatchedRecord>;
   onSaveDispatch: (newDispatches: Record<string, DispatchedRecord>) => Promise<boolean>;
-  onTrocarCarro?: (item: SolturaItem, novoCarro: string, motivo: ReleaseExchangeCommand['motivo'], descricaoDefeito?: string) => Promise<boolean>;
+  onTrocarCarro?: (item: SolturaItem, novoCarro: string, motivo?: ReleaseExchangeCommand['motivo'], descricaoDefeito?: string) => Promise<boolean>;
   ciList: BloqueioCarro[];
   onAddSchedule?: (newItem: SolturaItem) => Promise<boolean>;
 }
@@ -86,8 +86,6 @@ export function CarroRealizadoView({
   const [inputMotoCodigo, setInputMotoCodigo] = useState("");
   const [inputMotoNome, setInputMotoNome] = useState("");
   const [inputHoraSaida, setInputHoraSaida] = useState("");
-  const [inputMotivoSubstituicao, setInputMotivoSubstituicao] = useState("");
-  const [descricaoDefeito, setDescricaoDefeito] = useState('');
   const [inputObs, setInputObs] = useState("");
 
   // Estado do Card de Cadastro de Carros Programados
@@ -165,8 +163,6 @@ export function CarroRealizadoView({
     const horaAtual = `${String(agora.getHours()).padStart(2, "0")}:${String(agora.getMinutes()).padStart(2, "0")}`;
     setInputHoraSaida(disp?.horaLiberacao || horaAtual);
     setInputObs(disp?.observacoes || item.observacoes || "");
-    setInputMotivoSubstituicao("");
-    setDescricaoDefeito('');
   };
 
   // Atualizar código de motorista
@@ -214,21 +210,6 @@ export function CarroRealizadoView({
     const agora = new Date();
     const horaFinal = inputHoraSaida || `${String(agora.getHours()).padStart(2, "0")}:${String(agora.getMinutes()).padStart(2, "0")}`;
     const substituido = finalCarro !== currentItem.carroProgramado;
-    const anterior = dispatches[currentItem.id]?.carroRealizado || currentItem.carroRealizado;
-    let trocaCarro: ReleaseExchangeCommand | undefined;
-    if (anterior && anterior !== finalCarro) {
-      if (inputMotivoSubstituicao !== 'Adicionado equivocadamente' && inputMotivoSubstituicao !== 'Defeito Garagem') {
-        toast.error('Informe o motivo da troca.'); return;
-      }
-      if (inputMotivoSubstituicao === 'Defeito Garagem' && !descricaoDefeito.trim()) { toast.error('Descreva o defeito na garagem.'); return; }
-      trocaCarro = { carroAnterior: anterior, motivo: inputMotivoSubstituicao, descricaoDefeito: descricaoDefeito.trim() };
-    }
-
-    let obsFinal = inputObs;
-    if (substituido && inputMotivoSubstituicao.trim()) {
-      obsFinal = `[Substituição: ${inputMotivoSubstituicao.trim()}] ${obsFinal}`.trim();
-    }
-
     const newRecord: DispatchedRecord = {
       ...dispatches[currentItem.id],
       scheduleId: currentItem.id,
@@ -236,9 +217,9 @@ export function CarroRealizadoView({
       motoristaCodigo: inputMotoCodigo.trim(),
       motoristaNome: inputMotoNome.trim(),
       horaLiberacao: horaFinal,
-      observacoes: obsFinal,
+      observacoes: inputObs,
       substituido,
-      trocaCarro,
+      trocaCarro: undefined,
     };
 
     const updated = { ...dispatches, [currentItem.id]: newRecord };
@@ -918,36 +899,11 @@ export function CarroRealizadoView({
               />
             </div>
 
-            {/* Motivo de Substituição (se houver) */}
-            {isSubstituicao || (currentItem?.carroRealizado && (inputCarroRealizado.trim() || currentItem.carroProgramado) !== currentItem.carroRealizado) ? (
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-blue-600 dark:text-blue-400">
-                  Motivo da Troca de Carro
-                </Label>
-                <select
-                  value={inputMotivoSubstituicao}
-                  onChange={(e) => setInputMotivoSubstituicao(e.target.value)}
-                  className="w-full h-9 px-3 rounded-lg border border-blue-300 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/40 text-xs font-semibold focus:outline-hidden"
-                >
-                  <option value="">Selecione o motivo...</option>
-                  <option value="Adicionado equivocadamente">Adicionado equivocadamente</option>
-                  <option value="Defeito Garagem">Defeito Garagem</option>
-                </select>
-                {inputMotivoSubstituicao === 'Defeito Garagem' && <Input value={descricaoDefeito} onChange={e => setDescricaoDefeito(e.target.value)} maxLength={1000} required placeholder="Descreva o defeito na garagem..." />}
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-foreground">
-                  Observações de Pista
-                </Label>
-                <Input
-                  placeholder="Observação opcional..."
-                  value={inputObs}
-                  onChange={(e) => setInputObs(e.target.value)}
-                  className="text-xs h-9 bg-muted/40"
-                />
-              </div>
-            )}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold">Observacoes de Pista</Label>
+              <Input placeholder="Observacao opcional..." value={inputObs} onChange={e => setInputObs(e.target.value)} className="text-xs h-9 bg-muted/40" />
+              {isSubstituicao && <p className="text-xs text-muted-foreground">O carro retirado aguardara tratativa no card Substituidos.</p>}
+            </div>
 
           </div>
 

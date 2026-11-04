@@ -1,3 +1,6 @@
+import { releaseHistory } from './releaseVehicleExchange';
+import { undoReleaseWithdrawals } from './releaseWithdrawals';
+import { eventInstant } from './c4Temporal';
 import { canEditHistoricalRelease } from './releaseDateAccess';
 import type { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
@@ -47,11 +50,19 @@ export async function clearReleaseLine(db: PrismaClient, userId: number | undefi
       throw new MvpError(409, 'Estado da linha mudou. Recarregue antes de continuar.');
     sheet.limpezas = [...(sheet.limpezas ?? []), { id: randomUUID(), linhaId: command.scheduleId,
       usuarioId: userId, registradoEm: clock().toISOString(), anterior: JSON.stringify(command.operacao === 'limpar-linha' ? previous : { operacao: command.operacao, linha: row, registro: previous ?? null }) }];
+    let history = previous?.historicoTrocas;
+    if (command.operacao === 'limpar-linha' && previous && releaseHistory(previous.historicoTrocas).some(e => e.origem === 'SOLTURA' && e.destino !== 'DESFEITO')) {
+      const records = await tx.soltura.findMany({ where: { garagem: context.garagem, dataOperacao: context.dataOperacao } });
+      const used = new Set(records.filter(r => r.id !== previous.id).map(r => r.carroRealizado).filter((p): p is string => Boolean(p)));
+      const terminals = await tx.reservaTerminal.findMany({ where: { garagem: context.garagem, dataHora: { gte: eventInstant(context.dataOperacao, 0), lt: eventInstant(addDays(context.dataOperacao, 1), 0) } } });
+      for (const terminal of terminals) used.add(terminal.carro);
+      history = JSON.stringify(undoReleaseWithdrawals(previous.historicoTrocas, used, userId, clock()));
+    }
     row.suspensa = command.operacao === 'suspender-linha';
     // Valida também os metadados novos antes de alterar despacho ou folha.
     const conteudo = JSON.stringify(parseReleaseSheet(JSON.stringify(sheet)));
     if (previous) await tx.soltura.update({ where: { id: previous.id }, data: { status: 'PENDENTE', carroRealizado: null,
-      busId: null, driverCode: null, driverName: null, horaLiberacao: null, substituido: false, notes: null, userId } });
+      historicoTrocas: history, busId: null, driverCode: null, driverName: null, horaLiberacao: null, substituido: false, notes: null, userId } });
     const revisao = record!.revisao + 1;
     await tx.folhaSoltura.update({ where: { id: record!.id }, data: { revisao, conteudo, responsavelId: userId } });
     assertDate(user?.role);

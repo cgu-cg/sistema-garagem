@@ -35,3 +35,30 @@ test('historico legado de defeito e preservado, nao duplica prefixos e dados cor
  assert.match(garageDefects(records)[0].descricao, /sem descricao/);
  assert.throws(() => garageDefects([{ historicoTrocas: '{invalido' }]));
 });
+
+test('cards isolam turno e tipo, mas bloqueios e pendencias de outras folhas impedem reserva', () => {
+ const records = [
+   { ...record('Aguardando tratativa'), historicoTrocas: JSON.stringify([{ id: 'pending-own', carroAnterior: '4000', destino: 'PENDENTE' }]) },
+   { ...record('Defeito Garagem'), turno: 'VESPERTINO', historicoTrocas: JSON.stringify([{ carroAnterior: '4002', motivo: 'Defeito Garagem' }]) },
+   { ...record('Aguardando tratativa'), turno: 'PADRAO', escalaTipo: 'SABADO', historicoTrocas: JSON.stringify([{ id: 'pending-other', carroAnterior: '4003', destino: 'PENDENTE' }]) },
+ ];
+ const morning = releaseFleetProjection(scale, programming, records, context);
+ assert.deepEqual(morning.substituidos.map(r => r.prefixo), ['4000']);
+ assert.deepEqual(morning.bloqueadosPortaria, []);
+ assert.ok(!morning.reserva.includes('4002')); assert.ok(!morning.reserva.includes('4003'));
+ const evening = releaseFleetProjection(scale, [], records, { ...context, turno: 'VESPERTINO' });
+ assert.deepEqual(evening.substituidos, []);
+ assert.deepEqual(evening.bloqueadosPortaria.map(r => r.prefixo), ['4002']);
+ assert.ok(!evening.reserva.includes('4000')); assert.ok(!evening.reserva.includes('4003'));
+ const saturday = releaseFleetProjection(scale, [], records, { escalaTipo: 'SABADO', turno: 'PADRAO' });
+ assert.deepEqual(saturday.substituidos.map(r => r.prefixo), ['4003']); assert.deepEqual(saturday.bloqueadosPortaria, []);
+ const sunday = releaseFleetProjection(scale, [], records, { escalaTipo: 'DOM_FER', turno: 'PADRAO' });
+ assert.deepEqual(sunday.substituidos, []); assert.deepEqual(sunday.bloqueadosPortaria, []);
+});
+
+test('legado sem tipo ou turno nao e atribuido a folha, mas conserva bloqueio', () => {
+ const records = [{ ...record('Defeito Garagem'), turno: null, escalaTipo: null }];
+ const state = releaseFleetProjection(scale, programming, records, context);
+ assert.deepEqual(state.bloqueadosPortaria, []); assert.deepEqual(state.substituidos, []);
+ assert.equal(state.defeitosGaragem[0].prefixo, '4000'); assert.ok(!state.reserva.includes('4000'));
+});

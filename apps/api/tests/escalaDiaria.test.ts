@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readEscalaDiaria as readReal, saveEscalaDiaria as saveReal, parseDailyContext, fixedSchedule } from '../src/services/escalaDiaria';
 import { subscribeC4Updates } from '../src/services/c4Events';
 import { applyDailySchedule, fixedScheduleRows, fixedScheduleToken } from '../../web/src/lib/dailySchedule';
-import { validateDailyEscala } from '../../web/src/lib/sharedEscala';
+import { validateDailyEscala, pendingScaleWithdrawals } from '../../web/src/lib/sharedEscala';
 import { currentScaleTemplate } from '../../web/src/data/scheduleTemplates';
 import { officialGarageFleet, occupations, defaultAllocations } from '../src/services/escalaAllocation';
 
@@ -64,6 +64,74 @@ function fixture() {
 }
 const command = (revisao = 1, carroSubstituido = '5001') => ({ contexto, revisao, id: original.id, carroSubstituido, base: JSON.stringify(original),
   retirada: { prefixo: revisao === 1 ? original.carroProgramado : '5001', destino: 'RESERVA' as const, motivo: 'Troca operacional' } });
+
+const returnFixed = (db: any, revisao: number) => saveReal(db, 1, { contexto, revisao, id: original.id,
+  base: JSON.stringify(original), operacao: 'devolver-fixo' }, async () => db.__fleet, async () => null, now);
+
+async function legacyBlank(f: ReturnType<typeof fixture>) {
+  const record = [...f.records.values()][0], state = JSON.parse(record.conteudo);
+  state.itens = [{ id: original.id, carroSubstituido: '' }]; state.confirmacoes = [];
+  record.conteudo = JSON.stringify(state); record.revisao++;
+  return readEscalaDiaria(f.db, contexto, 1);
+}
+
+test('devolver fixo da Reserva a Substituidos apos limpar e preencher preserva linha e historico anterior', async () => {
+  const f = fixture(); const swapped = await saveEscalaDiaria(f.db, 1, command());
+  const oldHistory = structuredClone(swapped.historicoTrocas);
+  await legacyBlank(f);
+  const filled = await saveEscalaDiaria(f.db, 1, { ...command(3, '5002'), retirada: undefined });
+  const returned = await returnFixed(f.db, filled.revisao);
+  assert.deepEqual(returned.itens, filled.itens); assert.deepEqual(returned.confirmadas, filled.confirmadas);
+  assert.deepEqual(returned.historicoTrocas.slice(0, oldHistory.length), oldHistory);
+  const pending = returned.historicoTrocas.at(-1)!;
+  assert.equal(pending.destino, 'PENDENTE'); assert.equal(pending.prefixo, original.carroProgramado);
+  assert.equal(pending.substituto, '5002'); assert.equal(returned.reserva.includes(original.carroProgramado), false);
+  assert.ok(returned.cards.find(c => c.id === 'SUBSTITUIDOS')!.itens.some(i => i.id === pending.id && i.prefixo === original.carroProgramado));
+  assert.deepEqual(validateDailyEscala(returned, contexto), returned);
+  await assert.rejects(returnFixed(f.db, returned.revisao));
+  const treated = await saveReal(f.db, 1, { contexto, revisao: returned.revisao, operacao: 'tratar-substituido', trocaId: pending.id,
+    retirada: { prefixo: pending.prefixo, destino: 'RESERVA', motivo: '' } }, async () => f.db.__fleet, async () => null, now);
+  assert.ok(treated.reserva.includes(original.carroProgramado));
+  assert.deepEqual(treated.historicoTrocas.slice(0, oldHistory.length), oldHistory);
+});
+
+test('devolver fixo com linha limpa mantém a linha vazia e recusa bloqueios ou uso em outro card', async () => {
+  const f = fixture(); await saveEscalaDiaria(f.db, 1, command());
+  const cleared = await legacyBlank(f);
+  const returned = await returnFixed(f.db, cleared.revisao);
+  assert.equal(returned.itens.find(i => i.id === original.id)?.carroSubstituido, '');
+  assert.equal(returned.confirmadas.includes(original.id), false);
+  for (const card of ['PORTARIA', 'LIMPEZA']) {
+    const blocked = fixture(); await saveEscalaDiaria(blocked.db, 1, command());
+    await saveEscalaDiaria(blocked.db, 1, { contexto, revisao: 2, card, operacao: 'adicionar', prefixo: original.carroProgramado });
+    const before = structuredClone([...blocked.records]);
+    await assert.rejects(returnFixed(blocked.db, 3), /bloqueado|utilizado/);
+    assert.deepEqual([...blocked.records], before);
+  }
+  const ci = fixture(); await saveEscalaDiaria(ci.db, 1, command()); ci.db.__blocks = [original.carroProgramado];
+  await assert.rejects(returnFixed(ci.db, 2), /bloqueado/);
+  const occupied = fixture(); await saveEscalaDiaria(occupied.db, 1, command());
+  const record = [...occupied.records.values()][0], content = JSON.parse(record.conteudo);
+  const another = fixedSchedule(contexto).find(line => line.id !== original.id)!;
+  content.itens.push({ id: another.id, carroSubstituido: original.carroProgramado });
+  record.conteudo = JSON.stringify(content);
+  await assert.rejects(returnFixed(occupied.db, 2), /utilizado/);
+});
+
+test('devolver fixo exige historico de Reserva, revisao, edicao autorizada e rollback integral', async () => {
+  const f = fixture(); await lifecycle(f.db, 'iniciar');
+  await assert.rejects(returnFixed(f.db, 1), /retirada anterior/);
+  const saved = await saveEscalaDiaria(f.db, 1, command());
+  await assert.rejects(returnFixed(f.db, saved.revisao - 1), /outro posto/);
+  await assert.rejects(saveReal(f.db, 1, { contexto, revisao: saved.revisao, id: original.id, base: JSON.stringify(original), operacao: 'devolver-fixo' },
+    async () => f.db.__fleet, async () => null, () => new Date('2026-10-14T10:00:00Z')), /06h/);
+  f.role('COLABORADOR'); await assert.rejects(returnFixed(f.db, saved.revisao), (e: any) => e.status === 403);
+  f.role('ADMIN'); await lifecycle(f.db, 'finalizar', saved.revisao);
+  await assert.rejects(returnFixed(f.db, saved.revisao + 1), /Reabra/);
+  const failed = fixture(); await saveEscalaDiaria(failed.db, 1, command()); const before = structuredClone([...failed.records]); failed.fail();
+  await assert.rejects(returnFixed(failed.db, 2), /Falha simulada/);
+  assert.deepEqual([...failed.records], before);
+});
 
 test('suspender escala libera carro, preserva referencia/auditoria e exige reativar antes de confirmar', async () => {
   const f = fixture(); await lifecycle(f.db, 'iniciar');
@@ -165,20 +233,21 @@ test('escala usa JSON fixo e banco armazena somente a substituicao', async () =>
   assert.ok(f.locks.some(lock => /escala_diaria WITH \(UPDLOCK,HOLDLOCK\)/.test(lock)));
 });
 
-test('limpar linha deixa sem carro e confirmacao, libera ocupacao e preserva auditoria', async () => {
+test('limpar linha restaura fixo sem confirmacao, libera substituto e preserva auditoria', async () => {
   const f = fixture(); await lifecycle(f.db, 'iniciar');
   const saved = await saveReal(f.db, 1, command(), async () => f.db.__fleet, async () => null, now);
   const cleared = await saveReal(f.db, 1, { contexto, revisao: saved.revisao, id: original.id,
     base: JSON.stringify(original), operacao: 'limpar-linha' }, async () => f.db.__fleet, async () => null, now);
-  assert.equal(cleared.itens.find(i => i.id === original.id)?.carroSubstituido, '');
-  assert.ok(!cleared.confirmadas.includes(original.id)); assert.ok(!cleared.ocupacoes.some(i => i.chave === 'linha:' + original.id));
+  assert.equal(cleared.itens.find(i => i.id === original.id)?.carroSubstituido, undefined);
+  assert.ok(!cleared.confirmadas.includes(original.id)); assert.ok(cleared.ocupacoes.some(i => i.chave === 'linha:' + original.id && i.prefixo === original.carroProgramado));
+  assert.ok(!cleared.reserva.includes(original.carroProgramado));
   assert.ok(cleared.reserva.includes('5001'));
   const state = JSON.parse([...f.records.values()][0].conteudo);
   assert.equal(state.limpezas[0].linhaId, original.id);
   assert.equal(JSON.parse(state.limpezas[0].anterior).carroSubstituido, '5001');
   assert.deepEqual(cleared.historicoTrocas, saved.historicoTrocas);
   const read = await readEscalaDiaria(f.db, contexto, 1);
-  assert.equal(read.itens.find(i => i.id === original.id)?.carroSubstituido, '');
+  assert.equal(read.itens.find(i => i.id === original.id)?.carroSubstituido, undefined);
   const closed = await lifecycle(f.db, 'finalizar', cleared.revisao);
   await assert.rejects(saveReal(f.db, 1, { contexto, revisao: closed.revisao, id: original.id,
     base: JSON.stringify(original), operacao: 'limpar-linha' }, async () => f.db.__fleet, async () => null, now), /Reabra/);
@@ -899,4 +968,84 @@ test('provisoria: fotografia de escala finalizada nao consulta nem herda CI ante
   const read = await readEscalaDiaria(f.db, contexto, 1);
   assert.equal(read.ciProvisoria, false); assert.equal(read.ciData, contexto.dataOperacao);
   assert.deepEqual(read.bloqueados, ['5002']); assert.deepEqual([...f.records], before);
+});
+
+const clearFixed = (f: ReturnType<typeof fixture>, revisao: number) => saveReal(f.db, 1, {
+  contexto, revisao, id: original.id, base: JSON.stringify(original), operacao: 'limpar-linha',
+}, async () => f.db.__fleet, async () => null, now);
+
+test('limpar desfaz pendencia, reserva ou bloqueio criado pela troca e permite nova troca', async () => {
+  for (const destino of ['PENDENTE', 'RESERVA', 'BLOQUEAR']) {
+    const f = fixture();
+    const saved = await saveEscalaDiaria(f.db, 1, { ...command(), retirada: destino === 'PENDENTE' ? undefined : {
+      prefixo: original.carroProgramado, destino, motivo: 'teste',
+    } });
+    const history = structuredClone(saved.historicoTrocas);
+    const cleared = await clearFixed(f, 2);
+    assert.deepEqual(cleared.historicoTrocas, history);
+    assert.ok(!cleared.cards.some(c => ['PORTARIA', 'SUBSTITUIDOS'].includes(c.id) && c.itens.some(i => i.prefixo === original.carroProgramado)));
+    assert.ok(!cleared.reserva.includes(original.carroProgramado));
+    assert.ok(!cleared.confirmadas.includes(original.id));
+    assert.deepEqual(validateDailyEscala(cleared, contexto), cleared);
+    const changed = await saveEscalaDiaria(f.db, 1, { ...command(3, '5002'), retirada: undefined });
+    assert.equal(changed.historicoTrocas.at(-1)!.prefixo, original.carroProgramado);
+    assert.equal(changed.historicoTrocas.at(-1)!.destino, 'PENDENTE');
+  }
+});
+
+test('limpar desfaz bloqueio tratado mas preserva CI e bloqueio independente', async () => {
+  const f = fixture(); const pending = await saveEscalaDiaria(f.db, 1, { ...command(), retirada: undefined });
+  await saveReal(f.db, 1, { contexto, revisao: 2, operacao: 'tratar-substituido', trocaId: pending.historicoTrocas[0].id,
+    retirada: { prefixo: original.carroProgramado, destino: 'BLOQUEAR', motivo: 'defeito' } }, async () => f.db.__fleet, async () => null, now);
+  f.db.__blocks = [original.carroProgramado];
+  const cleared = await clearFixed(f, 3);
+  assert.ok(cleared.bloqueados.includes(original.carroProgramado));
+  assert.ok(!cleared.cards.find(c => c.id === 'PORTARIA')!.itens.some(i => i.prefixo === original.carroProgramado));
+  const independent = fixture(); await saveEscalaDiaria(independent.db, 1, command());
+  await saveEscalaDiaria(independent.db, 1, { contexto, revisao: 2, card: 'PORTARIA', operacao: 'adicionar', prefixo: original.carroProgramado });
+  const kept = await clearFixed(independent, 3);
+  assert.ok(kept.cards.find(c => c.id === 'PORTARIA')!.itens.some(i => i.prefixo === original.carroProgramado));
+});
+
+test('limpar recusa fixo em uso e rollback preserva dados', async () => {
+  const f = fixture(); await saveEscalaDiaria(f.db, 1, command());
+  const other = fixedSchedule(contexto).find(i => i.id !== original.id)!;
+  const record = [...f.records.values()][0], state = JSON.parse(record.conteudo);
+  state.itens.push({ id: other.id, carroSubstituido: original.carroProgramado }); record.conteudo = JSON.stringify(state);
+  const before = structuredClone([...f.records]);
+  await assert.rejects(clearFixed(f, 2), /outro local/); assert.deepEqual([...f.records], before);
+  const failed = fixture(); await saveEscalaDiaria(failed.db, 1, { ...command(), retirada: undefined });
+  const snapshot = structuredClone([...failed.records]); failed.fail();
+  await assert.rejects(clearFixed(failed, 2), /Falha simulada/); assert.deepEqual([...failed.records], snapshot);
+});
+
+test('edicao manual de bloqueio retira vinculo automatico com troca', async () => {
+  const f = fixture(); const saved = await saveEscalaDiaria(f.db, 1, { ...command(), retirada: {
+    prefixo: original.carroProgramado, destino: 'BLOQUEAR', motivo: 'teste',
+  } });
+  const item = saved.cards.find(c => c.id === 'PORTARIA')!.itens.find(i => i.prefixo === original.carroProgramado)!;
+  await saveEscalaDiaria(f.db, 1, { contexto, revisao: 2, card: 'PORTARIA', operacao: 'definir', itemId: item.id, prefixo: item.prefixo });
+  const cleared = await clearFixed(f, 3);
+  assert.ok(cleared.cards.find(c => c.id === 'PORTARIA')!.itens.some(i => i.prefixo === original.carroProgramado));
+});
+
+test('limpar restaura tambem fixo de linha vazia gravada pela versao anterior', async () => {
+  const f = fixture(); await saveEscalaDiaria(f.db, 1, command()); await legacyBlank(f);
+  const result = await clearFixed(f, 3);
+  assert.ok(result.ocupacoes.some(o => o.chave === 'linha:' + original.id && o.prefixo === original.carroProgramado));
+  assert.ok(!result.reserva.includes(original.carroProgramado));
+});
+
+test('card Substituidos deixa de exibir retirada limpa e conserva historico apos recarga', async () => {
+  const f = fixture();
+  const saved = await saveEscalaDiaria(f.db, 1, { ...command(), retirada: undefined });
+  assert.equal(pendingScaleWithdrawals(saved).length, 1);
+  const cleared = await clearFixed(f, saved.revisao);
+  assert.equal(cleared.historicoTrocas[0].destino, 'PENDENTE');
+  assert.deepEqual(pendingScaleWithdrawals(cleared), []);
+  assert.deepEqual(pendingScaleWithdrawals(await readEscalaDiaria(f.db, contexto, 1)), []);
+  const changed = await saveEscalaDiaria(f.db, 1, { ...command(cleared.revisao, '5002'), retirada: undefined });
+  assert.equal(pendingScaleWithdrawals(changed).length, 1);
+  assert.equal(pendingScaleWithdrawals(changed)[0].id, changed.historicoTrocas.at(-1)!.id);
+  assert.deepEqual(pendingScaleWithdrawals(null), []);
 });

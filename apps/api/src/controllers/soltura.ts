@@ -1,3 +1,4 @@
+import { treatReleaseCar } from '../services/releaseTreatment';
 import { Response } from "express";
 import prisma from "../utils/prisma";
 import { AuthRequest } from "../middleware/auth";
@@ -107,5 +108,14 @@ export async function clearLine(req: AuthRequest, res: Response) {
     if (error instanceof MvpError) return res.status(error.status).json({ error: error.message });
     if (error instanceof ZodError) return res.status(400).json({ error: 'Dados de limpeza inválidos. Recarregue a folha.' });
     return res.status(409).json({ error: 'Limpeza não confirmada. Recarregue antes de tentar novamente.' });
+  }
+}
+
+export async function treatCar(req: AuthRequest, res: Response) {
+  try { return res.json(await treatReleaseCar(prisma, req.userId, req.body)); }
+  catch (error) {
+    if (error instanceof MvpError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof ZodError) return res.status(400).json({ error: 'Tratativa invalida. Recarregue a folha.' });
+    return res.status(409).json({ error: 'Tratativa nao confirmada. Recarregue antes de tentar novamente.' });
   }
 }

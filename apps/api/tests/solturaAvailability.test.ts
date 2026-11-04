@@ -26,6 +26,7 @@ function fixture(status = 'FINALIZADA') {
     folhaSoltura: { findUnique: async ({ where }: any) => ({ status: 'EM_ANDAMENTO', conteudo: JSON.stringify({ version: 1,
       itens: programReleaseRows(where.garagem_escalaTipo_turno_dataOperacao, currentScaleTemplate(releaseScaleContext(where.garagem_escalaTipo_turno_dataOperacao)), []), eventos: [] }) }) },
     escalaDiaria: { findUnique: async () => ({ conteudo: scaleContent() }) },
+    reservaTerminal: { findMany: async () => [] },
     cicloOperacional: { findUnique: async () => cycle },
     folhaCI: { findUnique: async ({ where }: any) => {
       if (failRead) throw Error('SQL indisponivel');
@@ -244,8 +245,8 @@ test('troca por defeito salva descricao e autor no servidor e impede outro despa
  await writeSafeRelease(f.db, 1, body, false, clock, () => ['VCG']);
  const saved: any = await writeSafeRelease(f.db, 1, { ...body, carroRealizado: '4001', trocaCarro: { carroAnterior: '4000', motivo: 'Defeito Garagem', descricaoDefeito: '  Pneu furado  ' } }, false, clock, () => ['VCG']);
  const history = JSON.parse(saved.historicoTrocas);
- assert.equal(history.length, 1); assert.equal(history[0].descricaoDefeito, 'Pneu furado'); assert.equal(history[0].usuarioId, 1);
- assert.equal(history[0].registradoEm, clock().toISOString()); assert.equal(history[0].carroAnterior, '4000');
+ assert.equal(history.length, 2); assert.equal(history[1].descricaoDefeito, 'Pneu furado'); assert.equal(history[1].usuarioId, 1);
+ assert.equal(history[1].registradoEm, clock().toISOString()); assert.equal(history[1].carroAnterior, '4000');
  assert.equal(f.ci.length, 0);
  const before = structuredClone(f.rows());
  await assert.rejects(writeSafeRelease(f.db, 1, { ...body, ...secondItem, carroRealizado: '4000' }, false, clock, () => ['VCG']), reason('VEICULO_COM_DEFEITO_GARAGEM'));
@@ -254,10 +255,10 @@ test('troca por defeito salva descricao e autor no servidor e impede outro despa
  assert.deepEqual(JSON.parse(same.historicoTrocas), history);
 });
 
-test('troca exige motivo, descricao de defeito e prefixo anterior atual, sem gravacao parcial', async () => {
+test('comando legado de troca valida descricao de defeito e prefixo anterior atual sem gravacao parcial', async () => {
  const f = fixture(); const clock = () => eventInstant(target, 4);
  await writeSafeRelease(f.db, 1, body, false, clock, () => ['VCG']); const before = structuredClone(f.rows());
- for (const trocaCarro of [undefined, { carroAnterior: '4000', motivo: 'Defeito Garagem', descricaoDefeito: '  ' },
+ for (const trocaCarro of [{ carroAnterior: '4000', motivo: 'Defeito Garagem', descricaoDefeito: '  ' },
    { carroAnterior: '4002', motivo: 'Adicionado equivocadamente' }, { carroAnterior: '4000', motivo: 'Outro' },
    { carroAnterior: '4000', motivo: 'Defeito Garagem', descricaoDefeito: 'Pneu', usuarioId: 99 }]) {
    await assert.rejects(writeSafeRelease(f.db, 1, { ...body, carroRealizado: '4001', trocaCarro }, false, clock, () => ['VCG']));
@@ -269,9 +270,11 @@ test('equivoco registra troca sem criar defeito; cliente nao pode inventar histo
  const f = fixture(); const clock = () => eventInstant(target, 4);
  const forged = [{ carroAnterior: '4001', motivo: 'Defeito Garagem' }];
  const initial: any = await writeSafeRelease(f.db, 1, { ...body, historicoTrocas: forged }, false, clock, () => ['VCG']);
- assert.deepEqual(JSON.parse(initial.historicoTrocas), []);
+ assert.equal(JSON.parse(initial.historicoTrocas).length, 1);
+ assert.equal(JSON.parse(initial.historicoTrocas)[0].destino, 'PENDENTE');
+ assert.notEqual(JSON.parse(initial.historicoTrocas)[0].carroAnterior, '4001');
  const saved: any = await writeSafeRelease(f.db, 1, { ...body, carroRealizado: '4001', trocaCarro: { carroAnterior: '4000', motivo: 'Adicionado equivocadamente' } }, false, clock, () => ['VCG']);
- assert.equal(JSON.parse(saved.historicoTrocas)[0].motivo, 'Adicionado equivocadamente');
+ assert.equal(JSON.parse(saved.historicoTrocas).at(-1).motivo, 'Adicionado equivocadamente');
  await writeSafeRelease(f.db, 1, { ...body, ...secondItem, carroRealizado: '4000' }, false, clock, () => ['VCG']);
  assert.equal(f.rows().length, 2);
 });
@@ -414,3 +417,14 @@ for (const batch of [false, true]) test('fretamento sem tabela preserva o regist
  const g = fixture(); await assert.rejects(writeSafeRelease(g.db, 1, {...body, tabela:'ADULTERADA'}, false, () => eventInstant(target,4), () => ['VCG']),reason('VIAGEM_FORA_DO_MOLDE'));
  assert.equal(g.rows().length,0);
  });
+
+test('primeiro preenchimento com outro realizado retira programado oficial; so motorista usa programado', async () => {
+  const f = fixture(), clock = () => eventInstant(target, 4);
+  const saved: any = await writeSafeRelease(f.db, 1, body, false, clock, () => ['VCG']);
+  const first = JSON.parse(saved.historicoTrocas);
+  assert.equal(first.length, 1); assert.equal(first[0].carroAnterior, saved.carroProgramado);
+  assert.equal(first[0].novoCarro, '4000'); assert.equal(first[0].destino, 'PENDENTE');
+  const g = fixture();
+  const same: any = await writeSafeRelease(g.db, 1, { ...body, carroRealizado: '' }, false, clock, () => ['VCG']);
+  assert.equal(same.carroRealizado, same.carroProgramado); assert.deepEqual(JSON.parse(same.historicoTrocas), []);
+});

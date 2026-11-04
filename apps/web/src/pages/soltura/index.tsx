@@ -1,5 +1,8 @@
+import { ReleaseTreatmentCards } from './ReleaseTreatmentCards';
+import { ScaleVehiclePrefix } from './ScaleVehiclePrefix';
+import { treatReleaseWithdrawal, type ReleaseWithdrawal } from '@/lib/releaseProgramming';
 import { canEditHistoricalRelease } from '@/lib/releaseDateAccess';
-import { LineActionsMenu, type LineAction } from './LineActionsMenu';
+import { LineActionsMenu, type ScaleLineAction, type LineAction } from './LineActionsMenu';
 import { useDailyScaleDrafts } from '@/lib/useDailyScaleDrafts';
 import { canEditScaleDate } from '@/lib/dailyScaleWindow';
 import { ReleaseRowEditMenu } from './ReleaseRowEditMenu';
@@ -523,7 +526,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Tratamento nao gravado.'); return false; }
     finally { dailyWritePending.current = false; dailyWriteContext.current = null; }
   };
-  const persistClearDailyLine = async (id: string, action: LineAction = 'limpar-linha') => {
+  const persistClearDailyLine = async (id: string, action: ScaleLineAction = 'limpar-linha') => {
     if (!dailyReady || !dailyScale || !canEditDailyScale || dailyWritePending.current || !canEditScaleDate(dataOperacao)) return false;
     const base = fixedScheduleToken(scaleContext, id, dailyScale.programacao);
     if (!base) return false;
@@ -1001,8 +1004,9 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const checkBloqueioCI = useCallback((prefixo?: string) => {
     if (!prefixo) return null;
     if (['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode)) {
+      if (releaseAvailability?.substituidos?.some(r => r.prefixo === prefixo)) return { prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, motivo: 'Aguardando tratativa em Substituidos', data: dataOperacao };
       const defeito = releaseAvailability?.defeitosGaragem.find(d => d.prefixo === prefixo);
-      if (defeito) return { prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, motivo: 'Defeito Garagem: ' + defeito.descricao, data: dataOperacao };
+      if (defeito) return { prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, motivo: 'Bloqueado Portaria: ' + defeito.descricao, data: dataOperacao };
       if (!releaseState?.bloqueados.includes(prefixo)) return null;
       return { prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, motivo: 'Bloqueado na CI ' + releaseState.ciData, data: releaseState.ciData };
     }
@@ -1208,7 +1212,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   };
 
   // Alteração de carro com motivo e registro de histórico de trocas (Prints 2 e 3)
-  const handleTrocarCarro = async (item: SolturaItem, novoCarro: string, motivo: ReleaseExchangeCommand['motivo'], descricaoDefeito?: string): Promise<boolean> => {
+  const handleTrocarCarro = async (item: SolturaItem, novoCarro: string, motivo?: ReleaseExchangeCommand['motivo'], descricaoDefeito?: string): Promise<boolean> => {
     const cleanNovo = novoCarro.trim();
     if (!cleanNovo) {
       toast.error("Informe o prefixo do novo carro.");
@@ -1234,7 +1238,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     const currentDisp = dispatches[item.id];
     const carroAnterior = currentDisp?.carroRealizado || item.carroRealizado || item.carroProgramado || "---";
 
-    const trocaCarro: ReleaseExchangeCommand = { carroAnterior, motivo, descricaoDefeito };
+    const trocaCarro: ReleaseExchangeCommand | undefined = motivo ? { carroAnterior, motivo, descricaoDefeito } : undefined;
     if (motivo === 'Defeito Garagem' && !descricaoDefeito?.trim()) { toast.error('Descreva o defeito na garagem.'); return false; }
 
     const newRecord: DispatchedRecord = {
@@ -1275,6 +1279,26 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     return true;
   };
 
+  const handleTreatReleaseCar = async (item: ReleaseWithdrawal, destino: 'RESERVA' | 'BLOQUEAR', motivo: string) => {
+    if (!releaseUiAllowed || !releaseLifecycle.data || dispatchWritePending.current) return false;
+    dispatchWritePending.current = true;
+    const key = dispatchContextKey;
+    try {
+      await treatReleaseWithdrawal(releaseContext, releaseLifecycle.data.revisao, item, destino, motivo);
+      if (selectedDispatchKey.current === key) {
+        setDispatchReload(value => value + 1);
+        await Promise.all([releaseProgramming.reload(), releaseLifecycle.reload()]);
+        toast.success(destino === 'RESERVA' ? 'Carro devolvido a Reserva.' : 'Carro bloqueado pela Portaria.');
+      }
+      return true;
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Tratativa nao confirmada.'); return false; }
+    finally { dispatchWritePending.current = false; }
+  };
+  const releaseTreatmentCards = <ReleaseTreatmentCards key={JSON.stringify(releaseContext)} state={releaseState}
+    context={releaseContext} readOnly={!releaseUiAllowed}
+    pending={releaseAvailability?.substituidos} blocked={releaseAvailability?.bloqueadosPortaria}
+    onTreat={handleTreatReleaseCar} />;
+
   // Imprimir folha A4
   const handlePrint = async () => {
     const reportWindow = window.open('', '_blank');
@@ -1290,7 +1314,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     if (!releaseUiAllowed || dispatchWritePending.current || !releaseLifecycle.data) return false;
     const previous = dispatches[item.id];
     if ((action === 'limpar-linha' || item.carroRealizado) && !previous?.baseLinha) { setDispatchReload(value => value + 1); toast.info('Recarregando o registro oficial. Tente limpar novamente após a consulta.'); return false; }
-    const message = action === 'suspender-linha' ? 'Suspender esta linha? O carro e o MOTO ser\u00e3o retirados. Ela contar\u00e1 como resolvida para finalizar a folha.' : action === 'reativar-linha' ? 'Reativar esta linha? Ela ficar\u00e1 pendente, sem carro e sem MOTO.' : 'Limpar esta linha? O carro e o MOTO ser\u00e3o retirados e a viagem ficar\u00e1 pendente. O hist\u00f3rico ser\u00e1 preservado.';
+    const message = action === 'suspender-linha' ? 'Suspender esta linha? O carro e o MOTO ser\u00e3o retirados. Ela contar\u00e1 como resolvida para finalizar a folha.' : action === 'reativar-linha' ? 'Reativar esta linha? Ela ficar\u00e1 pendente, sem carro e sem MOTO.' : 'Limpar esta linha? O carro e o MOTO ser\u00e3o retirados e a viagem ficar\u00e1 pendente. As retiradas ligadas a esta linha serao desfeitas. Bloqueios independentes e o historico serao preservados.';
     if (!window.confirm(message)) return false;
     const key = dispatchContextKey;
     dispatchWritePending.current = true;
@@ -1321,7 +1345,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   // Renderização reutilizável do Card de Pendurados (para Painel Lateral Fixo e Impressão A4)
   // Renderização reutilizável do Card de Reserva da Garagem Central (Separado e Independente)
   // Renderização reutilizável do Card de Reserva Terminal (para Painel Lateral Fixo e Impressão A4)
-  const releaseLifecycleControl = (<ReleaseLifecycleBar state={releaseLifecycle.data} error={releaseLifecycle.error} pending={releaseLifecycle.pending || !dispatchLoaded || isSyncingDb}
+  const releaseLifecycleControl = (<ReleaseLifecycleBar withdrawalsPending={releaseAvailability?.substituidos?.filter(r => r.turno === releaseContext.turno && r.escalaTipo === releaseContext.escalaTipo).length ?? 0} state={releaseLifecycle.data} error={releaseLifecycle.error} pending={releaseLifecycle.pending || !dispatchLoaded || isSyncingDb}
           allowed={canDispatch(user) && garagem === 'VCG'} admin={isAdmin} today={dataOperacao === operationalContext().today}
           historicalEditable={historicalEditable} editingHistorical={editingHistorical}
           onEditHistorical={() => setHistoricalEditKey(editingHistorical ? null : historicalContextKey)}
@@ -1432,10 +1456,10 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
       {/* ========================================================= */}
       {['FOLHA', 'HISTORICO'].includes(viewMode) && <>
+        {releaseLifecycleControl}
         <ReleaseToolbar date={dataOperacao} garage={garagem} dayType={escalaTipo} period={turnoTipo} onDate={setDataOperacao}
           lineSearch={lineSearch} onLineSearch={setLineSearch}
           onGarage={isAdmin ? setGaragem : undefined} onDayType={setEscalaTipo} onPeriod={setTurnoTipo} onPrint={handlePrint} />
-        {releaseLifecycleControl}
         {dataOperacao !== operationalContext().today && !historicalEditable && <p className="text-xs text-muted-foreground print:hidden">Consulta por data: esta folha não permite edição.</p>}
         {releaseProgramming.error && <p role="alert" className="rounded-xl border border-rose-200 p-3 text-xs text-rose-600">{releaseProgramming.error}</p>}
       </>}
@@ -1608,7 +1632,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
             {/* 2. LADO DIREITO: COMPONENTE FIXO COM PENDURADOS, RESERVA GARAGEM E RESERVA TERMINAL */}
             <div className="min-w-0 xl:sticky xl:top-4 self-start space-y-4">
-              <ScaleFleetSidebar ciState={independentRelease ? eveningCIState : releaseState} ciError={independentRelease ? eveningCIError : undefined} state={releaseState} garage={garagem} defeitosGaragem={releaseAvailability?.defeitosGaragem ?? []} reserve={releaseState?.reserva.filter(prefixo => !activeSchedules.some(row => row.carroRealizado === prefixo) && !reservasTerminais.some(row => TERMINAIS_PADRAO.includes(row.terminal) && row.carro === prefixo))} />
+              <ScaleFleetSidebar ciState={independentRelease ? eveningCIState : releaseState} ciError={independentRelease ? eveningCIError : undefined} state={releaseState} garage={garagem} betweenCards={releaseTreatmentCards} reserve={releaseState?.reserva.filter(prefixo => !activeSchedules.some(row => row.carroRealizado === prefixo) && !reservasTerminais.some(row => TERMINAIS_PADRAO.includes(row.terminal) && row.carro === prefixo))} />
               {dataOperacao === operationalContext().today && renderCardReservaTerminal(false)}
             </div>
 
@@ -1832,7 +1856,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
               <div className="grid grid-cols-10 gap-4 items-stretch">
                 <div className="col-span-3">
-                  <ScaleFleetSidebar ciState={independentRelease ? eveningCIState : releaseState} ciError={independentRelease ? eveningCIError : undefined} state={releaseState} garage={garagem} defeitosGaragem={releaseAvailability?.defeitosGaragem ?? []} />
+                  <ScaleFleetSidebar ciState={independentRelease ? eveningCIState : releaseState} ciError={independentRelease ? eveningCIError : undefined} state={releaseState} garage={garagem} betweenCards={releaseTreatmentCards} />
                 </div>
                 <div className="col-span-7">
                   {dataOperacao === operationalContext().today && renderCardReservaTerminal(true)}
@@ -1969,6 +1993,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         <>
         {releaseLifecycleControl}
         <Button type="button" variant="outline" onClick={handlePrint}>Imprimir relatório</Button>
+        {releaseTreatmentCards}
         <CarroRealizadoView
           garagem={garagem}
           setGaragem={setGaragem}
@@ -1982,7 +2007,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           dispatches={dispatches}
           onSaveDispatch={handleSaveDispatchFromView}
           onTrocarCarro={handleTrocarCarro}
-          ciList={releaseState ? [...releaseState.bloqueados.map(prefixo => ({ prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, data: releaseState.ciData, motivo: 'Bloqueado na CI' })), ...(releaseAvailability?.defeitosGaragem ?? []).map(d => ({ prefixo: d.prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, data: dataOperacao, motivo: d.descricao }))] : []}
+          ciList={releaseState ? [...releaseState.bloqueados.map(prefixo => ({ prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, data: releaseState.ciData, motivo: 'Bloqueado na CI' })), ...(releaseAvailability?.defeitosGaragem ?? []).map(d => ({ prefixo: d.prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, data: dataOperacao, motivo: d.descricao })), ...(releaseAvailability?.substituidos ?? []).map(d => ({ prefixo: d.prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, data: dataOperacao, motivo: 'Aguardando tratativa em Substituidos' }))] : []}
           scaleState={releaseState}
           readOnly={!releaseUiAllowed}
         />
@@ -2255,7 +2280,7 @@ interface FolhaTableRowProps {
   checkBloqueioCI: (prefixo?: string) => BloqueioCarro | undefined | null;
   onRelease: (item: SolturaItem, carro?: string, moto?: string) => void;
   onDraftChange: (itemId: string, field: "carro" | "moto", value: string) => void;
-  onTrocarCarro?: (item: SolturaItem, novoCarro: string, motivo: ReleaseExchangeCommand['motivo'], descricaoDefeito?: string) => Promise<boolean>;
+  onTrocarCarro?: (item: SolturaItem, novoCarro: string, motivo?: ReleaseExchangeCommand['motivo'], descricaoDefeito?: string) => Promise<boolean>;
   onPenduradoAlert?: (prefixo: string, motivo?: string | null) => void;
   getOutraLinhaComCarroRealiz?: (carro: string, currentItemId: string) => SolturaItem | undefined | null;
   getOutraLinhaComMoto?: (moto: string, currentItemId: string) => SolturaItem | undefined | null;
@@ -2396,7 +2421,7 @@ function FolhaTableRow({
         {item.tabela}
       </td>
 
-      {!hideProgrammedCar && <td className="py-2 px-2.5 whitespace-nowrap text-center text-xs font-mono"><CiVehicleNotice state={scaleState} prefixo={item.carroProgramado || '—'} /></td>}
+      {!hideProgrammedCar && <td className="py-2 px-2.5 whitespace-nowrap text-center text-xs font-mono"><CiVehicleNotice state={scaleState} prefixo={item.carroProgramado || '—'}><ScaleVehiclePrefix state={scaleState} prefixo={item.carroProgramado || '—'} struck={Boolean(isDone && item.carroProgramado && item.carroRealizado && item.carroRealizado !== item.carroProgramado)} /></CiVehicleNotice></td>}
 
       {/* 5. Carro Realizado (P) - Com suporte a popover de Alteração e Histórico de Trocas (Prints 2 e 3) */}
       <td className={cn(

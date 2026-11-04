@@ -1,4 +1,4 @@
-import { LineActionsMenu, type LineAction } from './LineActionsMenu';
+import { LineActionsMenu, type ScaleLineAction } from './LineActionsMenu';
 import { VehicleAlertIcon } from './CiVehicleNotice';
 import { ScaleFleetSidebar } from './ScaleFleetSidebar';
 import { PreparationOverlay } from './PreparationOverlay';
@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { pendingScaleWithdrawals } from '@/lib/sharedEscala';
 import type { FixedScaleRow } from '@/lib/dailySchedule';
 import type { CardMutation, DailyEscala, ScaleCard, ScaleCardItem, ScaleWithdrawal, ScaleExchange } from '@/lib/sharedEscala';
 
@@ -23,7 +24,7 @@ interface Props {
   garagem: 'VCG' | 'VCM'; escalaTipo: 'SEG_SEX' | 'SABADO' | 'DOM_FER'; schedules: FixedScaleRow[];
   official: DailyEscala | null;
   onSaveSubstitution: (id: string, prefixo: string, retirada?: ScaleWithdrawal) => Promise<boolean>;
-  onClearLine?: (id: string, action?: LineAction) => Promise<boolean>;
+  onClearLine?: (id: string, action?: ScaleLineAction) => Promise<boolean>;
   onSaveCard: (change: CardMutation) => Promise<boolean>;
   onTreatSubstitution?: (id: string, retirada: ScaleWithdrawal) => Promise<boolean>;
   treatmentReadOnly?: boolean;
@@ -80,6 +81,7 @@ export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, read
   const suspended = schedules.filter(item => item.suspensa).length;
   const remaining = schedules.length - completed - suspended;
   const colorIds = ['AZUL', 'VERMELHO', 'MICRO', 'VERMELHO_AZUL', 'PRATA', 'OUTRO'];
+  const pendingWithdrawals = pendingScaleWithdrawals(official);
   const otherCards = official?.cards.filter(c => !colorIds.includes(c.id) && c.id !== 'SUBSTITUIDOS' && !c.id.startsWith('TERMINAL_')) ?? [];
   const terminalCards = official?.cards.filter(c => c.id.startsWith('TERMINAL_')) ?? [];
   const ciPending = Boolean(official?.fluxo && official.fluxo.status !== 'LEGADO' && !official.fluxo.ciFinalizada);
@@ -141,10 +143,10 @@ export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, read
       </div>
       <div className="min-w-0 space-y-4">
         <ScaleFleetSidebar state={official} garage={garagem} betweenCards={<div className={surface}>
-          <h3 className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide"><Bus className="h-3.5 w-3.5 text-[#164E3A]" />SUBSTITUIDOS ({official?.historicoTrocas?.filter(t => t.destino === 'PENDENTE').length ?? 0})</h3>
-          <div className="flex flex-wrap gap-1.5">{official?.historicoTrocas?.filter(t => t.destino === 'PENDENTE').map(t => <button key={t.id} type="button" disabled={treatmentReadOnly || saving} aria-label={'Tratar carro substituido ' + t.prefixo}
+          <h3 className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide"><Bus className="h-3.5 w-3.5 text-[#164E3A]" />SUBSTITUIDOS ({pendingWithdrawals.length})</h3>
+          <div className="flex flex-wrap gap-1.5">{pendingWithdrawals.map(t => <button key={t.id} type="button" disabled={treatmentReadOnly || saving} aria-label={'Tratar carro substituido ' + t.prefixo}
             className="rounded-full border border-border bg-muted/30 px-2 py-0.5 text-xs font-mono disabled:cursor-default" onClick={() => { setTreatment(t); onEditingChange?.('modal-tratamento', true); }}><ScaleVehiclePrefix state={official} prefixo={t.prefixo} /></button>)}</div>
-          {!official?.historicoTrocas?.some(t => t.destino === 'PENDENTE') && <p className="text-[10px] italic text-muted-foreground">Nenhum carro aguardando tratamento.</p>}
+          {!pendingWithdrawals.length && <p className="text-[10px] italic text-muted-foreground">Nenhum carro aguardando tratamento.</p>}
         </div>} />
         {otherCards.filter(card => card.id === 'PORTARIA').map(renderCard)}
         {terminalCards.length > 0 && <div className={surface}>
@@ -176,7 +178,7 @@ export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, read
   </div>;
 }
 function LineRow({ item, official, readOnly, onSave, onClear, onEditingChange, drafts }: { item: FixedScaleRow; official: DailyEscala | null; readOnly: boolean;
-  onClear?: (id: string, action?: LineAction) => Promise<boolean>;
+  onClear?: (id: string, action?: ScaleLineAction) => Promise<boolean>;
   onSave: (id: string, prefixo: string, retirada?: ScaleWithdrawal) => Promise<boolean>; onEditingChange?: (key: string, dirty: boolean) => void; drafts: Map<string, string> }) {
   const [prefixo, setPrefixo] = useState(drafts.get(item.id) ?? item.carroSubstituido ?? ''), [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -201,9 +203,9 @@ function LineRow({ item, official, readOnly, onSave, onClear, onEditingChange, d
       onChange={value => { dirty.current = true; drafts.set(item.id, value); onEditingChange?.(item.id, true); setPrefixo(value); }} onConfirm={() => void confirm()}
       renderPrefix={p => <span className="relative inline-flex"><ScaleVehiclePrefix state={official} prefixo={p} />{p === prefixo.trim() && <VehicleNoticeIcons {...vehicleNoticeFlags(official, p)} />}</span>} className="h-7 w-24 py-0 text-center" /></CiVehicleNotice>
       <button type="button" aria-label={(confirmed ? 'Linha confirmada ' : 'Confirmar linha ') + item.linha + ' tabela ' + item.tabela} title={confirmed ? 'Linha confirmada para esta data' : 'Confirmar linha'} disabled={readOnly || saving || confirmed || item.suspensa} onClick={() => void confirm()} className={cn('h-7 w-7 inline-flex items-center justify-center rounded-full', 'bg-[#164E3A] text-white', (readOnly || saving || confirmed) && 'opacity-40 cursor-not-allowed')}>{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}</button>
-      {onClear && !readOnly && <LineActionsMenu label={`${item.linha} tabela ${item.tabela}`} suspended={item.suspensa} disabled={saving} canClear={item.carroSubstituido !== ''}
+      {onClear && !readOnly && <LineActionsMenu label={`${item.linha} tabela ${item.tabela}`} suspended={item.suspensa} disabled={saving} canClear={Boolean(item.carroProgramado) || item.carroSubstituido !== ''}
         onAction={async action => {
-          const message = action === 'suspender-linha' ? 'Suspender esta linha? O carro ser\u00e1 retirado e ela contar\u00e1 como resolvida para finalizar.' : action === 'reativar-linha' ? 'Reativar esta linha? Ela ficar\u00e1 pendente, sem carro e sem confirma\u00e7\u00e3o.' : 'Limpar esta linha? Ela ficar\u00e1 sem carro e sem confirma\u00e7\u00e3o. O carro fixo continuar\u00e1 como refer\u00eancia.';
+          const message = action === 'suspender-linha' ? 'Suspender esta linha? O carro ser\u00e1 retirado e ela contar\u00e1 como resolvida para finalizar.' : action === 'reativar-linha' ? 'Reativar esta linha? Ela ficar\u00e1 pendente, sem carro e sem confirma\u00e7\u00e3o.' : 'Limpar esta linha? O substituto sera retirado e o fixo voltara a linha, sem confirmacao. Destinos gerados pela troca serao desfeitos; bloqueios independentes serao mantidos.';
           if (pending.current || !window.confirm(message)) return;
           pending.current = true; setSaving(true);
           try { if (await onClear(item.id, action)) { dirty.current = false; drafts.delete(item.id); onEditingChange?.(item.id, false); setEditing(false); setPrefixo(''); toast.success('Linha atualizada.'); } }

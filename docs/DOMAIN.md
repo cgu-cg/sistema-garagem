@@ -1,5 +1,108 @@
 # Domain model e entendimento operacional atual
 
+## Cards da Soltura por folha e programado riscado — 04/11/2026
+
+CONFIRMADO: Substituídos e Bloqueados Portaria aparecem somente na folha de
+origem, identificada por garagem, data, tipo de escala e turno. A consulta
+filtra garagem/data no banco e tipo/turno na projeção dos cards. Um registro
+matutino não aparece no card vespertino. Registros antigos sem tipo/turno
+comprovados não são atribuídos a uma folha por suposição. O histórico salvo
+não é movido, apagado ou reclassificado. A Escala já isola seus cards pelos
+quatro campos do contexto e mantém esse comportamento.
+
+A separação visual não libera carros: bloqueios e retiradas pendentes da
+mesma garagem/data continuam participando da validação de disponibilidade,
+inclusive entre turnos. O relatório novo usa os bloqueios da própria folha;
+fotografias antigas finalizadas continuam intactas.
+
+Na tabela da Folha de Soltura, o programado recebe risco horizontal quando
+a viagem está liberada e o realizado difere dele. A cor da frota e os avisos
+são mantidos. Programado igual ao realizado ou linha pendente fica sem risco.
+Os campos existentes atendem à alteração, sem mudança de schema ou SQL.
+
+## Tratativas de carros na Soltura — 04/11/2026
+
+CONFIRMADO pelo usuário: o programado é o carro inicial. Confirmar somente
+motorista usa esse carro sem retirada. Informar outro realizado envia o
+programado para Substituídos. Trocas seguintes retiram o realizado anterior.
+No vespertino independente, sem programado, o primeiro carro não gera retirada.
+O motivo deixa de ser solicitado ao trocar: o operador escolhe depois, no card,
+Reserva ou Bloqueados Portaria (motivo/defeito obrigatório). O card Defeito
+Garagem é substituído por Bloqueados Portaria. O histórico permanece acessível.
+
+Novas retiradas usam o JSON historicoTrocas existente, com origem SOLTURA e
+destino PENDENTE, RESERVA, BLOQUEAR ou DESFEITO. Tratativas e desfazimentos
+registram operador, instante e destino anterior. Eventos antigos de Defeito
+Garagem permanecem bloqueados e identificados como registros anteriores;
+não há conversão, exclusão ou desbloqueio automático. Comandos antigos que
+enviam motivo continuam compatíveis. Não foi alterado o schema nem executado SQL.
+
+Pendências e bloqueios são consultados por garagem/data e impedem novas
+atribuições e a criação de reserva terminal, inclusive entre turnos. Apenas
+eventos da própria folha em andamento podem receber tratativa. Desde o ajuste
+de isolamento acima, eventos de outro turno não aparecem nos cards. A finalização exige tratar todas as retiradas
+da própria folha, além de liberar ou suspender as viagens. Suspender não desfaz
+retiradas anteriores: elas continuam exigindo tratamento. Folhas finalizadas
+não são editadas por esses comandos. ADMIN conserva a edição explícita de
+folhas anteriores em andamento; demais perfis continuam na data corrente.
+
+Desbloquear exige frota oficial, ausência de uso em despachos, de outro bloqueio
+ou pendência, de bloqueio CI e, quando vinculada, de bloqueio/pendência na Escala.
+Nenhum comando remove bloqueios da CI ou altera a Escala de origem. A consulta
+da CI para desbloqueio não transforma o vespertino em operação vinculada à CI.
+Uma devolução não assegura disponibilidade se houver outra viagem programada
+ou reserva terminal: a Reserva continua sendo calculada pela ocupação efetiva.
+
+Limpar dados deixa a linha sem realizado/MOTO e sem liberação, conserva o
+programado como referência e desfaz a sequência de retiradas novas daquela
+linha. Eventos permanecem com destino DESFEITO, fora dos cards ativos. Bloqueios
+antigos/independentes permanecem. Se algum carro necessário estiver em uso em
+outro despacho ou em reserva terminal, a operação inteira é recusada. Permissões,
+revisão da folha e token do registro são revalidados na transação, com rollback
+de despacho e folha juntos. Escritores da Soltura e reservas de terminal usam
+o mesmo bloqueio por garagem/data para serializar essas decisões.
+
+## Limpar Escala restaura o fixo ? 04/11/2026
+
+CONFIRMADO: Limpar dados retira o substituto e a confirma??o, restaura o fixo
+na linha e desfaz seu destino ligado ? troca dessa linha. O fixo deixa a Reserva
+autom?tica por voltar a ocupar a linha. Substitu?dos exige o identificador exato
+da retirada; Bloqueados Portaria exige posi??o com o mesmo identificador da troca.
+Novos bloqueios gerados por troca usam esse v?nculo; bloqueios antigos sem prova
+ou independentes e todos os bloqueios CI s?o preservados. Isso n?o libera um
+carro bloqueado para confirma??o. Se o fixo estiver em outro local, a limpeza
+? recusada integralmente. Hist?rico permanece intacto e o desfazimento ?
+registrado na auditoria existente com usu?rio, instante e posi??es removidas.
+Valem as permiss?es e janela atuais, sem alterar folhas finalizadas ou a Soltura.
+Suspender/reativar continuam deixando a linha sem carro. Sem SQL novo.
+O card Substitu?dos e seu contador cruzam o hist?rico PENDENTE com as posi??es
+atuais pelo identificador e prefixo. Uma retirada limpa permanece no hist?rico,
+mas n?o aparece como pend?ncia nem oferece tratamento novamente.
+
+
+## Devolver carro fixo da Reserva a Substituídos — 04/11/2026
+
+O menu da linha da Escala oferece Devolver carro fixo a Substituídos quando
+o fixo está disponível na Reserva e sua última retirada nessa linha teve
+destino Reserva. A confirmação envia somente esse fixo para tratamento
+pendente, sem limpar/confirmar a linha nem mudar seu substituto atual.
+Aplica-se também após limpar e preencher a linha novamente.
+
+A API exige revisão e molde atuais, permissão de edição e a janela normal
+da Escala (até 06h do dia da operação). Não reabre nem modifica Escala
+finalizada. Recusa carro fora da frota, bloqueado na CI/Portaria, já atribuído
+a qualquer linha/card ou sem retirada anterior para Reserva. Não remove
+bloqueios nem retira automaticamente carros de outros locais.
+
+É criado um novo registro PENDENTE e uma posição em Substituídos; a retirada
+e o tratamento anteriores ficam intactos. Se a linha estiver vazia, o novo
+tratamento conserva a referência de substituto da retirada anterior, sem
+atribuir esse carro à linha. Com substituto atual, usa essa referência atual.
+A auditoria no JSON existente registra DEVOLVER_FIXO_SUBSTITUIDOS, retirada
+de origem, novo identificador pendente, usuário e instante. O operador volta
+a escolher Reserva ou Bloqueados Portaria pelo tratamento já existente.
+Persistência atômica na folha diária, sem nova tabela/coluna ou SQL.
+
 ## Edição administrativa de Soltura anterior em andamento — 04/11/2026
 
 CONFIRMADO pelo usuário: ADMIN pode editar Soltura já iniciada e ainda não

@@ -21,7 +21,8 @@ export function releaseHistory(value: unknown): Record<string, unknown>[] {
 export function garageDefects(records: { historicoTrocas?: unknown }[]) {
   const defects = new Map<string, { prefixo: string; descricao: string; registradoEm: string | null }>();
   for (const record of records) for (const event of releaseHistory(record.historicoTrocas)) {
-    if (event.motivo !== 'Defeito Garagem') continue;
+    if (event.destino && event.destino !== 'BLOQUEAR') continue;
+    if (event.motivo !== 'Defeito Garagem' && event.destino !== 'BLOQUEAR') continue;
     if (typeof event.carroAnterior !== 'string' || !/^\d{1,10}$/.test(event.carroAnterior))
       throw new MvpError(409, 'Historico de defeito sem prefixo valido.');
     const next = { prefixo: event.carroAnterior, descricao: typeof event.descricaoDefeito === 'string' ? event.descricaoDefeito : 'Defeito registrado anteriormente sem descricao.',
@@ -39,7 +40,12 @@ export function appendReleaseExchange(history: unknown, anterior: string | null 
     if (command) throw new MvpError(409, 'A troca exige um despacho existente e um carro diferente.');
     return previous;
   }
-  if (!command) throw new MvpError(400, 'Informe o motivo da troca de carro.');
+  if (!command) {
+    const stamp = now.toISOString();
+    return [...previous, { id: randomUUID(), carroAnterior: anterior, novoCarro: novo,
+      motivo: 'Aguardando tratativa', origem: 'SOLTURA', destino: 'PENDENTE',
+      usuarioId: userId, registradoEm: stamp, dataHora: stamp }];
+  }
   if (command.carroAnterior !== anterior) throw new MvpError(409, 'O carro realizado mudou em outro posto. Recarregue antes de trocar.');
   const stamp = now.toISOString();
   return [...previous, { id: randomUUID(), carroAnterior: anterior, novoCarro: novo, motivo: command.motivo,

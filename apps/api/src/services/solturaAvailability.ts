@@ -15,6 +15,7 @@ import { civil, dateValue, enabledGarages, addDays } from './c4Temporal';
 import { notifyC4Updated } from './c4Events';
 import { MvpError, operationalContext } from './mvpTemporal';
 import { createSolturaSchema, createSolturaFields, batchSyncSolturaSchema } from '../utils/schemas';
+import { releaseWithdrawals } from './releaseWithdrawals';
 import { appendReleaseExchange, garageDefects } from './releaseVehicleExchange';
 
 export class AvailabilityError extends MvpError {
@@ -99,6 +100,7 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
     const programming = await updatedReleaseSheetRows(tx, releaseContext, releaseSheet,
       dailyRecords.filter(record => record.escalaTipo === releaseContext.escalaTipo && record.turno === releaseContext.turno));
     const defects = new Set(garageDefects(dailyRecords).map(d => d.prefixo));
+    const pendingWithdrawals = new Set(releaseWithdrawals(dailyRecords).filter(r => r.destino === 'PENDENTE').map(r => r.prefixo));
     const snapshots = new Map<string, { existing: Soltura | undefined; programmed: string | null; realized: string; history: ReturnType<typeof appendReleaseExchange>; row: typeof programming[number] }>();
     for (const i of items) {
       if (releaseSheet.itens.find(row => row.id === i.scheduleId)?.suspensa) throw new AvailabilityError('LINHA_SUSPENSA_REATIVE_ANTES_DE_LIBERAR');
@@ -114,12 +116,22 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
       const realized = i.carroRealizado || programmed;
       if (!realized || !/^\d{1,10}$/.test(realized)) throw new AvailabilityError('CARRO_REALIZADO_OU_PROGRAMADO_OBRIGATORIO');
       if (fleet && !fleet.includes(realized)) throw new AvailabilityError('VEICULO_FORA_DA_FROTA');
-      const history = appendReleaseExchange(existing[0]?.historicoTrocas, existing[0]?.carroRealizado, realized, i.trocaCarro, userId, clock());
+      const history = appendReleaseExchange(existing[0]?.historicoTrocas, existing[0]?.carroRealizado || programmed, realized, i.trocaCarro, userId, clock());
       if (i.trocaCarro?.motivo === 'Defeito Garagem') {
         if (dailyRecords.some(r => r.id !== existing[0]?.id && r.turno === releaseContext.turno && r.escalaTipo === releaseContext.escalaTipo && r.carroRealizado === i.trocaCarro!.carroAnterior))
           throw new AvailabilityError('CARRO_RETIRADO_EM_OUTRO_DESPACHO');
         defects.add(i.trocaCarro.carroAnterior);
       }
+      const retirada = history.length > (existing[0]?.historicoTrocas ? JSON.parse(existing[0].historicoTrocas).length : 0) ? history.at(-1) : null;
+      if (retirada?.destino === 'PENDENTE' && typeof retirada.carroAnterior === 'string') {
+        if (pendingWithdrawals.has(retirada.carroAnterior) || defects.has(retirada.carroAnterior))
+          throw new AvailabilityError('CARRO_RETIRADO_JA_PENDENTE_OU_BLOQUEADO');
+        if (dailyRecords.some(r => r.id !== existing[0]?.id && r.turno === releaseContext.turno && r.escalaTipo === releaseContext.escalaTipo && r.carroRealizado === retirada.carroAnterior))
+          throw new AvailabilityError('CARRO_RETIRADO_EM_OUTRO_DESPACHO');
+        pendingWithdrawals.add(retirada.carroAnterior);
+      }
+      if (dailyRecords.some(r => r.id !== existing[0]?.id && r.escalaTipo === releaseContext.escalaTipo && r.turno === releaseContext.turno && r.carroRealizado === realized && !items.some(i => i.scheduleId === r.scheduleId)))
+        throw new AvailabilityError('CARRO_REALIZADO_EM_OUTRA_LINHA');
       snapshots.set(i.scheduleId, { existing: existing[0], programmed, realized, history, row });
       if (folha?.itens.some(row => row.prefixo === realized && row.categoria === 'BLOQUEADO' && row.statusItem !== 'LIBERADO'))
         throw new AvailabilityError('VEICULO_BLOQUEADO_NA_CI');
@@ -135,6 +147,8 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
     }
     // Inclui defeitos declarados no proprio lote, independentemente da ordem.
     for (const snapshot of snapshots.values()) if (defects.has(snapshot.realized)) throw new AvailabilityError('VEICULO_COM_DEFEITO_GARAGEM');
+    for (const snapshot of snapshots.values()) if (pendingWithdrawals.has(snapshot.realized)) throw new AvailabilityError('CARRO_AGUARDANDO_TRATATIVA');
+    if (new Set([...snapshots.values()].map(s => s.realized)).size !== snapshots.size) throw new AvailabilityError('CARRO_DUPLICADO_NO_LOTE');
     const historicalEdit = canEditHistoricalRelease(user?.role, context.ciDate, operationalContext(clock()).today, releaseSheetRecord!.status);
     if (historicalEdit) releaseSheet.limpezas = [...(releaseSheet.limpezas ?? []), ...items.map(item => ({
       id: randomUUID(), linhaId: item.scheduleId, usuarioId: userId, registradoEm: clock().toISOString(),
