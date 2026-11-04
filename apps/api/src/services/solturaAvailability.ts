@@ -1,4 +1,5 @@
 import { authorizeCiUse } from './ciUseConfirmation';
+import { duplicateUseNotice, ReleaseDuplicateUseError, type ReleaseAssignment } from './releaseDuplicateUse';
 import { randomUUID } from 'node:crypto';
 import { canEditHistoricalRelease } from './releaseDateAccess';
 import { assertReleaseStarted, lockReleaseSheet, parseReleaseSheet, releaseSheetWhere } from './releaseLifecycle';
@@ -105,8 +106,21 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
     const dailyRecords = await tx.soltura.findMany({ where: { garagem: 'VCG', dataOperacao: context.ciDate } });
     const programming = await updatedReleaseSheetRows(tx, releaseContext, releaseSheet,
       dailyRecords.filter(record => record.escalaTipo === releaseContext.escalaTipo && record.turno === releaseContext.turno));
+    // Projeta o resultado inteiro do lote antes de validar repeticoes ou retiradas.
+    const currentRecords = dailyRecords.filter(r => r.escalaTipo === releaseContext.escalaTipo && r.turno === releaseContext.turno);
+    const assignments: ReleaseAssignment[] = currentRecords.filter(r => r.scheduleId && !items.some(i => i.scheduleId === r.scheduleId))
+      .map(r => ({ scheduleId: r.scheduleId!, linha: r.linha, tabela: r.tabela ?? '', carroRealizado: r.carroRealizado, driverCode: r.driverCode }));
+    for (const i of items) {
+      const existing = currentRecords.find(r => r.scheduleId === i.scheduleId);
+      const released = existing && ['LIBERADO', 'SUBSTITUIDO'].includes(existing.status ?? '');
+      const programmed = independent ? null : released ? existing.carroProgramado : programming.find(r => r.id === i.scheduleId)?.carroProgramado;
+      assignments.push({ scheduleId: i.scheduleId, linha: i.linha, tabela: i.tabela,
+        carroRealizado: i.carroRealizado || programmed || null, driverCode: i.driverCode });
+    }
+    const sharedElsewhere = (prefixo: string, scheduleId: string) => assignments.some(r => r.scheduleId !== scheduleId && r.carroRealizado === prefixo);
     const defects = new Set(garageDefects(dailyRecords).map(d => d.prefixo));
     const pendingWithdrawals = new Set(releaseWithdrawals(dailyRecords).filter(r => r.destino === 'PENDENTE').map(r => r.prefixo));
+    const batchWithdrawals = new Set<string>();
     const snapshots = new Map<string, { existing: Soltura | undefined; programmed: string | null; realized: string; history: ReturnType<typeof appendReleaseExchange>; row: typeof programming[number] }>();
     for (const i of items) {
       if (releaseSheet.itens.find(row => row.id === i.scheduleId)?.suspensa) throw new AvailabilityError('LINHA_SUSPENSA_REATIVE_ANTES_DE_LIBERAR');
@@ -129,15 +143,21 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
         defects.add(i.trocaCarro.carroAnterior);
       }
       const retirada = history.length > (existing[0]?.historicoTrocas ? JSON.parse(existing[0].historicoTrocas).length : 0) ? history.at(-1) : null;
+      if (retirada?.destino === 'PENDENTE' && typeof retirada.carroAnterior === 'string' && sharedElsewhere(retirada.carroAnterior, i.scheduleId)) {
+        // A troca fica no historico, mas o carro nao foi retirado da operacao.
+        retirada.destino = 'DESFEITO';
+        retirada.motivo = 'Carro mantido em outra linha da mesma Soltura';
+      }
+      if (retirada?.destino === 'PENDENTE' && typeof retirada.carroAnterior === 'string' && batchWithdrawals.has(retirada.carroAnterior)) {
+        retirada.destino = 'DESFEITO';
+        retirada.motivo = 'Retirada registrada em outra linha deste lote';
+      }
       if (retirada?.destino === 'PENDENTE' && typeof retirada.carroAnterior === 'string') {
         if (pendingWithdrawals.has(retirada.carroAnterior) || defects.has(retirada.carroAnterior))
           throw new AvailabilityError('CARRO_RETIRADO_JA_PENDENTE_OU_BLOQUEADO');
-        if (dailyRecords.some(r => r.id !== existing[0]?.id && r.turno === releaseContext.turno && r.escalaTipo === releaseContext.escalaTipo && r.carroRealizado === retirada.carroAnterior))
-          throw new AvailabilityError('CARRO_RETIRADO_EM_OUTRO_DESPACHO');
         pendingWithdrawals.add(retirada.carroAnterior);
+        batchWithdrawals.add(retirada.carroAnterior);
       }
-      if (dailyRecords.some(r => r.id !== existing[0]?.id && r.escalaTipo === releaseContext.escalaTipo && r.turno === releaseContext.turno && r.carroRealizado === realized && !items.some(i => i.scheduleId === r.scheduleId)))
-        throw new AvailabilityError('CARRO_REALIZADO_EM_OUTRA_LINHA');
       snapshots.set(i.scheduleId, { existing: existing[0], programmed, realized, history, row });
       const uso = authorizeCiUse({ linhaId: i.scheduleId, prefixo: realized, ciData: context.ciDate,
         bloqueados: folha?.itens.filter(row => row.categoria === 'BLOQUEADO' && row.statusItem !== 'LIBERADO').map(row => row.prefixo) ?? [],
@@ -165,20 +185,25 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
     for (const snapshot of snapshots.values()) if (portaria.has(snapshot.realized)) throw new AvailabilityError('VEICULO_BLOQUEADO_NA_PORTARIA');
     for (const snapshot of snapshots.values()) if (defects.has(snapshot.realized)) throw new AvailabilityError('VEICULO_COM_DEFEITO_GARAGEM');
     for (const snapshot of snapshots.values()) if (pendingWithdrawals.has(snapshot.realized)) throw new AvailabilityError('CARRO_AGUARDANDO_TRATATIVA');
-    if (new Set([...snapshots.values()].map(s => s.realized)).size !== snapshots.size) throw new AvailabilityError('CARRO_DUPLICADO_NO_LOTE');
+    const duplicateUse = duplicateUseNotice(releaseContext, assignments, items.map(i => i.scheduleId));
+    if (duplicateUse.conflitos.length && parsed.confirmarRepeticao !== duplicateUse.token) throw new ReleaseDuplicateUseError(duplicateUse);
+    if (duplicateUse.conflitos.length) releaseSheet.limpezas = [...(releaseSheet.limpezas ?? []), {
+      id: randomUUID(), linhaId: items[0].scheduleId, usuarioId: userId, registradoEm: clock().toISOString(),
+      anterior: JSON.stringify({ operacao: 'USO_REPETIDO_CONFIRMADO', ...duplicateUse }),
+    }];
     const historicalEdit = canEditHistoricalRelease(user?.role, context.ciDate, operationalContext(clock()).today, releaseSheetRecord!.status);
     if (historicalEdit) releaseSheet.limpezas = [...(releaseSheet.limpezas ?? []), ...items.map(item => ({
       id: randomUUID(), linhaId: item.scheduleId, usuarioId: userId, registradoEm: clock().toISOString(),
       anterior: JSON.stringify({ operacao: 'EDICAO_ADMIN_HISTORICA',
         registro: snapshots.get(item.scheduleId)!.existing ?? null, linha: snapshots.get(item.scheduleId)!.row }),
     }))];
-    const sheetChanged = historicalEdit || items.some(i => Boolean(i.confirmarBloqueadoCI)) || previousCiUses !== JSON.stringify(releaseSheet.usosBloqueadosCI ?? []) || JSON.stringify(programming) !== JSON.stringify(releaseSheet.itens);
+    const sheetChanged = duplicateUse.conflitos.length > 0 || historicalEdit || items.some(i => Boolean(i.confirmarBloqueadoCI)) || previousCiUses !== JSON.stringify(releaseSheet.usosBloqueadosCI ?? []) || JSON.stringify(programming) !== JSON.stringify(releaseSheet.itens);
     const nextContent = sheetChanged ? JSON.stringify(parseReleaseSheet(JSON.stringify({ ...releaseSheet, itens: programming }))) : null;
     const records = [];
     for (const i of items) {
       const where = { scheduleId: i.scheduleId, dataOperacao: context.ciDate, garagem: 'VCG', turno: releaseContext.turno, escalaTipo: releaseContext.escalaTipo };
       const { existing, programmed, realized, history, row } = snapshots.get(i.scheduleId)!;
-      const { garagem: _g, dataOperacao: _d, turno: _t, escalaTipo: _e, trocaCarro: _troca, confirmarBloqueadoCI: _confirmarCI, historicoTrocas: _history, ...fields } = i;
+      const { garagem: _g, dataOperacao: _d, turno: _t, escalaTipo: _e, trocaCarro: _troca, confirmarBloqueadoCI: _confirmarCI, confirmarRepeticao: _confirmarRepeticao, historicoTrocas: _history, ...fields } = i;
       const data = { ...fields, ...where, userId, status: 'LIBERADO', carroProgramado: programmed, carroRealizado: realized,
         substituido: independent ? history.length > 0 : realized !== (programmed ?? ''),
         linha: existing?.linha ?? row.linha, tabela: existing?.tabela ?? row.tabela,

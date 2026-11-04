@@ -1,4 +1,5 @@
 import { ciUseCommandSchema } from '../services/ciUseConfirmation';
+import { duplicateUseCommandSchema } from '../services/releaseDuplicateUse';
 import { z } from "zod";
 import { hasValidReleaseTable } from '../services/solturaTemplateTable';
 import { releaseExchangeCommandSchema } from '../services/releaseVehicleExchange';
@@ -60,6 +61,7 @@ export const createSolturaFields = z.object({
   historicoTrocas: z.union([z.string(), z.array(z.any())]).optional().nullable(),
   trocaCarro: releaseExchangeCommandSchema.optional(),
   confirmarBloqueadoCI: ciUseCommandSchema,
+  confirmarRepeticao: duplicateUseCommandSchema,
   status: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
 });
@@ -68,6 +70,7 @@ export const createSolturaSchema = createSolturaFields.superRefine((item, ctx) =
 });
 
 export const batchSyncSolturaSchema = z.object({
+  confirmarRepeticao: duplicateUseCommandSchema,
   dataOperacao: z.string().min(1, "Data de operação é obrigatória"),
   garagem: z.string().min(1, "Garagem é obrigatória"),
   turno: z.string().optional().nullable(),

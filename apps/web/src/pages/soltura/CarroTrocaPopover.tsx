@@ -45,7 +45,6 @@ export function CarroTrocaPopover({
   onTrocarCarro,
   checkBloqueioCI,
   onPenduradoAlert,
-  getOutraLinhaComCarroRealiz,
   isReadOnly = false
 }: CarroTrocaPopoverProps) {
   const ciGate = useCiUseConfirmationContext();
@@ -89,15 +88,6 @@ export function CarroTrocaPopover({
       const bloqueio = checkBloqueioCI(cleanCarro);
       if (bloqueio) {
         onPenduradoAlert?.(cleanCarro, bloqueio.motivo);
-        return;
-      }
-    }
-
-    // Só poder adicionar se NÃO estiver sendo utilizado em nenhum outro campo de carro realiz
-    if (getOutraLinhaComCarroRealiz) {
-      const outraLinha = getOutraLinhaComCarroRealiz(cleanCarro, item.id);
-      if (outraLinha) {
-        toast.error(`Carro ${cleanCarro} já está sendo utilizado na Linha ${outraLinha.linha} / Tab ${outraLinha.tabela}!`);
         return;
       }
     }
@@ -230,19 +220,13 @@ export function CarroTrocaPopover({
                         return;
                       }
                     }
-                    if (getOutraLinhaComCarroRealiz) {
-                      const outraLinha = getOutraLinhaComCarroRealiz(val, item.id);
-                      if (outraLinha) {
-                        toast.error(`Carro ${val} já está sendo utilizado na Linha ${outraLinha.linha} / Tab ${outraLinha.tabela}!`);
-                      }
-                    }
                   }
                 }}
                 className="w-full h-9 px-3 rounded-xl border border-border/80 bg-background text-sm font-mono font-bold text-foreground placeholder:text-muted-foreground placeholder:font-normal focus:outline-hidden focus:ring-2 focus:ring-[#164E3A] transition-all shadow-2xs"
               />
             </div>
 
-            <p className="text-xs text-muted-foreground">O carro anterior ira para Substituidos. Escolha o destino dele no card apos salvar.</p>
+            <p className="text-xs text-muted-foreground">Se nao continuar em outra linha, o carro anterior ira para Substituidos para receber uma tratativa.</p>
             <Button
               type="submit"
               disabled={isReadOnly || saving || !novoCarro.trim()}

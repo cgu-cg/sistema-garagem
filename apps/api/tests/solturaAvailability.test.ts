@@ -7,11 +7,13 @@ import { eventInstant } from '../src/services/c4Temporal';
 import { currentReleaseTemplate } from '../src/data/scheduleTemplates';
 import { clearReleaseLine } from '../src/services/releaseLineClear';
 import { releaseLineToken } from '../src/services/lineClearAudit';
+import { ReleaseDuplicateUseError } from '../src/services/releaseDuplicateUse';
+import { releaseWithdrawals } from '../src/services/releaseWithdrawals';
 const day = '2026-10-08', target = '2026-10-09';
 const context = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'MATUTINO', dataOperacao: target } as const;
 const [first, second] = currentReleaseTemplate(context);
 const item = { scheduleId: first.id, carroRealizado: '4000', linha: first.linha, tabela: first.tabela, driverCode: '123' };
-const secondItem = { ...item, scheduleId: second.id, linha: second.linha, tabela: second.tabela, carroRealizado: '4001' };
+const secondItem = { ...item, driverCode: '456', scheduleId: second.id, linha: second.linha, tabela: second.tabela, carroRealizado: '4001' };
 function scaleContent(status = 'FINALIZADA') { return JSON.stringify({ version: 3, itens: [], cards: [], confirmacoes: [],
  fluxo: { status, iniciadaEm: '2026-10-08T15:00:00Z', finalizadaEm: status === 'FINALIZADA' ? '2026-10-08T16:00:00Z' : null,
  fonteCI: { ciData: target, bloqueados: [], ciAvisos: [] } } }); }
@@ -47,6 +49,84 @@ function fixture(status = 'FINALIZADA') {
   return { db, locks, states, ci, rows: () => rows, failRead: () => { failRead = true; }, failWrite: () => { failWrite = true; }, missingCycle: () => { cycle = null; } };
 }
 const reason = (code: string) => (e: any) => e.status === 409 && e.code === code;
+
+function duplicateFixture() {
+  const f = fixture(), evening = { ...context, turno: 'VESPERTINO' } as const;
+  const rows = currentReleaseTemplate(evening).slice(0, 2).map(row => ({ ...row, carroProgramado: '' }));
+  const sheet = { id: 7, revisao: 1, status: 'EM_ANDAMENTO', conteudo: JSON.stringify({ version: 1, itens: rows, eventos: [] }) };
+  f.db.folhaSoltura.findUnique = async () => sheet;
+  f.db.folhaSoltura.update = async ({ data }: any) => Object.assign(sheet, data);
+  const clock = () => eventInstant(target, 14);
+  const fleet = async () => ({ source: 'real', data: ['4000', '4001', '4002'].map(prefixo => ({ prefixo, idCarro: prefixo, garagem: 'VCG' })) });
+  const entry = (index: number, carroRealizado = '4000', driverCode = '123') => ({ scheduleId: rows[index].id,
+    linha: rows[index].linha, tabela: rows[index].tabela, carroRealizado, driverCode });
+  const write = (data: object, batch = false) => writeSafeRelease(f.db, 1, { ...evening, ...data }, batch, clock, () => [], fleet);
+  const notice = async (data: object, batch = false) => {
+    let details!: ReleaseDuplicateUseError['details'];
+    await assert.rejects(write(data, batch), (error: unknown) => {
+      assert.ok(error instanceof ReleaseDuplicateUseError); details = error.details; return true;
+    });
+    return details;
+  };
+  return { ...f, evening, sheet, entry, write, notice };
+}
+
+test('carro e MOTO repetidos exigem confirmacao exata, mostram linhas e registram anuencia', async () => {
+  const f = duplicateFixture(); await f.write(f.entry(0));
+  const prior = structuredClone(f.rows());
+  const aviso = await f.notice(f.entry(1));
+  assert.deepEqual(f.rows(), prior); // pedir/cancelar o aviso nao grava nada
+  assert.deepEqual(aviso.conflitos.map(c => c.tipo), ['CARRO', 'MOTO']);
+  assert.equal(aviso.conflitos[0].outras[0].scheduleId, f.entry(0).scheduleId);
+  assert.equal(aviso.conflitos[0].outras[0].linha, f.entry(0).linha);
+  await f.notice({ ...f.entry(1), confirmarRepeticao: '0'.repeat(64) });
+  await f.write({ ...f.entry(1), confirmarRepeticao: aviso.token });
+  assert.equal(f.rows().length, 2); assert.equal(f.rows()[1].driverCode, '123');
+  assert.equal(f.rows()[1].carroRealizado, '4000'); assert.equal('confirmarRepeticao' in f.rows()[1], false);
+  const audit = JSON.parse(JSON.parse(f.sheet.conteudo).limpezas[0].anterior);
+  assert.equal(audit.operacao, 'USO_REPETIDO_CONFIRMADO'); assert.equal(audit.token, aviso.token);
+});
+
+test('repeticao isolada de motorista e mudanca concorrente exigem novo aviso', async () => {
+  const f = duplicateFixture(); await f.write(f.entry(0));
+  const aviso = await f.notice(f.entry(1, '4001'));
+  assert.deepEqual(aviso.conflitos.map(c => c.tipo), ['MOTO']);
+  f.rows()[0].driverCode = '999';
+  const changed = await f.notice({ ...f.entry(1, '4000', '999'), confirmarRepeticao: aviso.token });
+  assert.notEqual(changed.token, aviso.token);
+  assert.deepEqual(changed.conflitos.map(c => c.tipo), ['CARRO', 'MOTO']); assert.equal(f.rows().length, 1);
+});
+
+test('lote repetido e atomico e confirmacao se limita a garagem data tipo e turno', async () => {
+  const f = duplicateFixture(); const items = [f.entry(0), f.entry(1)];
+  const aviso = await f.notice({ items }, true); assert.equal(f.rows().length, 0);
+  assert.equal(aviso.conflitos.length, 4);
+  await f.write({ items, confirmarRepeticao: aviso.token }, true); assert.equal(f.rows().length, 2);
+  for (const field of ['turno', 'escalaTipo', 'dataOperacao', 'garagem']) {
+    const isolated = duplicateFixture();
+    isolated.rows().push({ id: 90, ...isolated.evening, ...isolated.entry(0), [field]: 'OUTRO', status: 'LIBERADO' });
+    await isolated.write(isolated.entry(1)); assert.equal(isolated.rows().length, 2);
+  }
+});
+
+test('trocar carro compartilhado nao cria retirada ate a ultima linha deixar de usa-lo', async () => {
+  const f = duplicateFixture(); const items = [f.entry(0), f.entry(1)];
+  const aviso = await f.notice({ items }, true);
+  await f.write({ items, confirmarRepeticao: aviso.token }, true);
+  const troca = f.entry(0, '4001', '456'); await f.write(troca);
+  assert.deepEqual(releaseWithdrawals(f.rows()), []);
+  assert.equal(JSON.parse(f.rows()[0].historicoTrocas)[0].destino, 'DESFEITO');
+  await f.write(f.entry(1, '4002', '789'));
+  assert.deepEqual(releaseWithdrawals(f.rows()).map(r => r.prefixo), ['4000']);
+});
+
+test('troca de todas as linhas compartilhadas em lote gera uma unica tratativa do carro retirado', async () => {
+  const f = duplicateFixture(); const items = [f.entry(0), f.entry(1)];
+  const aviso = await f.notice({ items }, true);
+  await f.write({ items, confirmarRepeticao: aviso.token }, true);
+  await f.write({ items: [f.entry(0, '4001', '456'), f.entry(1, '4002', '789')] }, true);
+  assert.deepEqual(releaseWithdrawals(f.rows()).map(r => r.prefixo), ['4000']);
+});
 
 test('Soltura usa bloqueado CI somente com confirmacao, audita e preserva motorista sem confirmar outra vez', async () => {
   const f = fixture(), clock = () => eventInstant(target, 4);

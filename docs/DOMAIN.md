@@ -1,11 +1,28 @@
 # Domain model e entendimento operacional atual
 
+## Carro e motorista repetidos na mesma Soltura — 04/11/2026
+
+CONFIRMADO pelo usuário: o mesmo carro realizado e/ou MOTO pode ser usado em
+outras linhas da mesma Soltura. Ao salvar, inclusive trocar carro/motorista ou
+gravar lote, o popup central informa as linhas/tabelas que compartilham o dado
+e exige Sim ou Não. Cancelar não grava. A API calcula os conflitos na transação
+e exige a confirmação correspondente; mudança concorrente dos conflitos exige
+novo aviso. A anuência registra operador, instante e conflitos na auditoria JSON
+da folha. A repetição não altera regras de CI, Portaria, pendências, permissões,
+datas ou folhas finalizadas. A Escala de Carros não recebe esta exceção.
+
+Ao trocar um carro que continua em outra linha da mesma folha, a troca permanece
+no histórico sem gerar uma retirada ativa para Substituídos. Quando a última
+linha deixa de utilizá-lo, volta a valer a tratativa normal da retirada.
+Não há mudança de schema nem execução de SQL.
+
 ## Reserva da Soltura por folha — 04/11/2026
 
 CONFIRMADO pelo usuário: atribuições de carros e retornos para Reserva pertencem
 à própria Soltura (garagem, data, tipo e turno). Carros realizados em outra
 folha não reduzem sua Reserva, e retornos de outra folha não ampliam a lista.
-A gravação continua impedindo duplicidade dentro da folha selecionada.
+A gravação exige confirmação para repetição dentro da folha selecionada,
+conforme a atualização acima.
 Permanecem os bloqueios e retiradas pendentes aplicáveis à mesma garagem/data,
 a confirmação explícita para uso de bloqueados CI e as reservas de terminal.
 Solturas vinculadas continuam partindo da disponibilidade da Escala de origem;

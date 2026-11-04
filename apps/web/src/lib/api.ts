@@ -84,6 +84,7 @@ async function request(path: string, options: RequestCustomOptions = {}, include
       error.category = category;
       error.status = res.status;
       error.code = data?.code || data?.error;
+      error.details = data?.details;
       throw error;
     }
 
@@ -181,6 +182,7 @@ export const api = {
   createSoltura: (data: any) =>
     request("/solturas", { method: "POST", body: JSON.stringify(data) }),
   batchSyncSolturas: (data: {
+    confirmarRepeticao?: string;
     dataOperacao: string;
     garagem: string;
     turno?: string;

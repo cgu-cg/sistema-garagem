@@ -1,4 +1,5 @@
 import { CiUseConfirmationContext, useCiUseConfirmation } from './CiUseConfirmation';
+import { useReleaseDuplicateConfirmation } from './ReleaseDuplicateConfirmation';
 import { ReleaseTreatmentCards } from './ReleaseTreatmentCards';
 import { ScaleVehiclePrefix } from './ScaleVehiclePrefix';
 import { treatReleaseWithdrawal, type ReleaseWithdrawal } from '@/lib/releaseProgramming';
@@ -443,6 +444,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   [rawReleaseState, eveningCI, eveningCIKey, dataOperacao, garagem]);
   const releaseState = independentRelease ? eveningCIState : rawReleaseState;
   const ciUse = useCiUseConfirmation(`${viewMode}:${JSON.stringify(releaseContext)}:${dailyContextKey}`, viewMode === 'ALTERAR_CARRO_PROGRAMADO' ? dailyReady ? dailyScale?.bloqueados ?? [] : [] : ['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode) ? releaseState?.bloqueados ?? [] : []);
+  const duplicateUse = useReleaseDuplicateConfirmation(`${viewMode}:${JSON.stringify(releaseContext)}`);
   const eveningCIError = eveningCI?.key === eveningCIKey ? eveningCI.error : 'Consultando CI...';
   const releasePendingMessage = !independentRelease && releaseProgramming.data && dataOperacao >= operationalContext().today
     ? releasePreparationMessage(Boolean(releaseState?.fluxo?.ciFinalizada), releaseProgramming.data.escalaFinalizada) : null;
@@ -711,7 +713,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       const retained = releaseLifecycle.data?.usosBloqueadosCI?.some(c => c.linhaId === item.id && c.prefixo === effective);
       if (ciUse.gate.isBlocked(effective) && !retained && !await ciUse.gate.request(effective)) throw Error('Uso do carro bloqueado cancelado. Nenhuma alteracao foi salva.');
       if (selectedDispatchKey.current !== contextKey) throw Error('Contexto alterado. Confirme novamente.');
-      const saved: any = await api.createSoltura({
+      const saved: any = await duplicateUse.run(confirmarRepeticao => api.createSoltura({
+        confirmarRepeticao,
         confirmarBloqueadoCI: ciUse.gate.isBlocked(effective) && !retained ? effective : undefined,
         scheduleId: item.id,
         carroProgramado: item.carroProgramado || null,
@@ -732,7 +735,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         trocaCarro,
         status: "LIBERADO",
         notes: record.observacoes || null,
-      });
+      }));
       ciUse.gate.consume(effective);
       if (ciUse.gate.isBlocked(effective) && !retained) await releaseLifecycle.reload();
       return { ...record, status: saved.status ?? 'LIBERADO', baseLinha: saved.baseLinha, carroRealizado: saved.carroRealizado, carroProgramado: saved.carroProgramado ?? undefined, substituido: saved.substituido,
@@ -780,8 +783,8 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         }
       }
       if (selectedDispatchKey.current !== contextKey) return false;
-      await confirmedWrite(() => api.batchSyncSolturas({ dataOperacao, garagem,
-        turno: escalaTipo === "SEG_SEX" ? turnoTipo : "PADRAO", escalaTipo, items: itemsToPersist }),
+      await confirmedWrite(() => duplicateUse.run(confirmarRepeticao => api.batchSyncSolturas({ dataOperacao, garagem,
+        confirmarRepeticao, turno: escalaTipo === "SEG_SEX" ? turnoTipo : "PADRAO", escalaTipo, items: itemsToPersist })),
         (result: any) => saveDispatches(Object.fromEntries(Object.entries(newDispatches).map(([id, record]) => {
           const row = baseSchedules.find(item => item.id === id);
           const received = result.items.find((entry: any) => entry.scheduleId === id);
@@ -1151,20 +1154,6 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       return;
     }
 
-    // Só poder adicionar se não estiver sendo utilizado em nenhum outro campo de carro realiz
-    const conflitoOutraLinha = getOutraLinhaComCarroRealiz(finalCarro, item.id);
-    if (conflitoOutraLinha) {
-      toast.error(`Carro ${finalCarro} já está sendo utilizado na Linha ${conflitoOutraLinha.linha} / Tab ${conflitoOutraLinha.tabela}!`);
-      return;
-    }
-
-    // Não poder repetir o código MOTO em mais de uma linha ativa
-    const conflitoMoto = getOutraLinhaComMoto(finalMoto, item.id);
-    if (conflitoMoto) {
-      toast.error(`Motorista (MOTO ${finalMoto}) já está escalado na Linha ${conflitoMoto.linha} / Tab ${conflitoMoto.tabela}!`);
-      return;
-    }
-
     const agora = new Date();
     const horaAtual = `${String(agora.getHours()).padStart(2, "0")}:${String(agora.getMinutes()).padStart(2, "0")}`;
 
@@ -1224,8 +1213,6 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     if (!releaseUiAllowed || !current) { toast.error('Alteracao disponivel somente para viagem liberada com Soltura em andamento.'); return false; }
     const clean = codigo.trim();
     if (!clean || clean.length > 100) { toast.error('Informe um codigo MOTO valido.'); return false; }
-    const conflict = getOutraLinhaComMoto(clean, item.id);
-    if (conflict) { toast.error(`MOTO ${clean} ja esta na Linha ${conflict.linha} / Tab ${conflict.tabela}.`); return false; }
     if (dispatchWritePending.current) { toast.error('Aguarde a gravacao pendente.'); return false; }
     const record = { ...current, motoristaCodigo: clean, motoristaNome: drivers.find(driver => driver.code === clean)?.name || '' };
     dispatchWritePending.current = true;
@@ -1250,13 +1237,6 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     const bloqueio = checkBloqueioCI(cleanNovo);
     if (bloqueio) {
       triggerPenduradoAlert(cleanNovo, bloqueio.motivo);
-      return false;
-    }
-
-    // Só poder adicionar se não estiver sendo utilizado em nenhum outro campo de carro realiz
-    const conflitoOutraLinha = getOutraLinhaComCarroRealiz(cleanNovo, item.id);
-    if (conflitoOutraLinha) {
-      toast.error(`Carro ${cleanNovo} já está sendo utilizado na Linha ${conflitoOutraLinha.linha} / Tab ${conflitoOutraLinha.tabela}!`);
       return false;
     }
 
@@ -1463,7 +1443,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   );
 
   return (
-    <CiUseConfirmationContext.Provider value={ciUse.gate}>{ciUse.dialog}<div className="space-y-5 animate-in fade-in duration-300 pb-16">
+    <CiUseConfirmationContext.Provider value={ciUse.gate}>{ciUse.dialog}{duplicateUse.dialog}<div className="space-y-5 animate-in fade-in duration-300 pb-16">
       {!isCIView && viewMode !== 'ALTERAR_CARRO_PROGRAMADO' && (garagem !== 'VCG' || ciReadError) && <div role="alert" className="p-3 border rounded print:hidden">
         {ciReadError && <p>{ciReadError}</p>}
         {garagem !== 'VCG' && canReadScale(user) && (scaleError || (!sharedScale ? 'Carregando escala oficial...' : sharedScale.publicada ? 'Escala oficial carregada.' : 'Escala ainda nao publicada. Nenhum dado local foi importado.'))}
@@ -2351,8 +2331,8 @@ function FolhaTableRow({
   // Alerta de motorista repetido em outra linha ativa
   const conflitoMoto = motoValue.trim() && getOutraLinhaComMoto ? getOutraLinhaComMoto(motoValue.trim(), item.id) : null;
 
-  // Apenas permitir liberar se Carro Realizado e MOTO estiverem completados e sem conflito de motorista
-  const isLiberarHabilitado = Boolean((carroValue.trim() || item.carroProgramado) && motoValue.trim() && !conflitoMoto);
+  // Repeticoes sao confirmadas no popup com os conflitos revalidados pela API.
+  const isLiberarHabilitado = Boolean((carroValue.trim() || item.carroProgramado) && motoValue.trim());
 
   // Atalho: pressionar Enter com Carro Realizado e MOTO preenchidos já libera a saída
   const handleKeyDownCarro = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -2360,10 +2340,6 @@ function FolhaTableRow({
       e.preventDefault();
       if (isReadOnly || item.suspensa) return;
       if ((carroValue.trim() || item.carroProgramado) && motoValue.trim()) {
-        if (conflitoMoto) {
-          toast.error(`Motorista (MOTO ${motoValue.trim()}) já está escalado na Linha ${conflitoMoto.linha} / Tab ${conflitoMoto.tabela}!`);
-          return;
-        }
         onRelease(item, carroValue, motoValue);
       } else if (!motoValue.trim()) {
         const motoInput = document.getElementById(`moto-input-${item.id}`);
@@ -2379,10 +2355,6 @@ function FolhaTableRow({
     if (e.key === "Enter") {
       e.preventDefault();
       if ((carroValue.trim() || item.carroProgramado) && motoValue.trim()) {
-        if (conflitoMoto) {
-          toast.error(`Motorista (MOTO ${motoValue.trim()}) já está escalado na Linha ${conflitoMoto.linha} / Tab ${conflitoMoto.tabela}!`);
-          return;
-        }
         onRelease(item, carroValue, motoValue);
       } else if (!carroValue.trim()) {
         const carroInput = document.getElementById(`carro-input-${item.id}`);
@@ -2493,12 +2465,6 @@ function FolhaTableRow({
                       onPenduradoAlert?.(cleanVal, bloqueio.motivo);
                       return;
                     }
-                    if (getOutraLinhaComCarroRealiz) {
-                      const outraLinha = getOutraLinhaComCarroRealiz(cleanVal, item.id);
-                      if (outraLinha) {
-                        toast.error(`Carro ${cleanVal} já está sendo utilizado na Linha ${outraLinha.linha} / Tab ${outraLinha.tabela}!`);
-                      }
-                    }
                   }
                 }}
                 onBlur={() => {
@@ -2508,12 +2474,6 @@ function FolhaTableRow({
                     if (bloqueio) {
                       onPenduradoAlert?.(cleanVal, bloqueio.motivo);
                       return;
-                    }
-                    if (getOutraLinhaComCarroRealiz) {
-                      const outraLinha = getOutraLinhaComCarroRealiz(cleanVal, item.id);
-                      if (outraLinha) {
-                        toast.error(`Carro ${cleanVal} já está sendo utilizado na Linha ${outraLinha.linha} / Tab ${outraLinha.tabela}!`);
-                      }
                     }
                   }
                 }}
@@ -2554,23 +2514,6 @@ function FolhaTableRow({
             const val = e.target.value;
             setMotoValue(val);
             onDraftChange(item.id, "moto", val);
-
-            const cleanVal = val.trim();
-            if (cleanVal.length >= 2 && getOutraLinhaComMoto) {
-              const outraLinha = getOutraLinhaComMoto(cleanVal, item.id);
-              if (outraLinha) {
-                toast.error(`Motorista (MOTO ${cleanVal}) já está escalado na Linha ${outraLinha.linha} / Tab ${outraLinha.tabela}!`);
-              }
-            }
-          }}
-          onBlur={() => {
-            const cleanVal = motoValue.trim();
-            if (cleanVal && getOutraLinhaComMoto) {
-              const outraLinha = getOutraLinhaComMoto(cleanVal, item.id);
-              if (outraLinha) {
-                toast.error(`Motorista (MOTO ${cleanVal}) já está escalado na Linha ${outraLinha.linha} / Tab ${outraLinha.tabela}!`);
-              }
-            }
           }}
           className={cn(
             "print:hidden w-16 h-7 text-center rounded-md border text-xs font-mono font-bold focus:outline-hidden transition-all",

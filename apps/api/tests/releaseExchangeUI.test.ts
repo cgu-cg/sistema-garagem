@@ -82,6 +82,13 @@ test('carro vazio ou igual ao atual nao gera nova troca', async () => {
  h.car('4000'); await h.submit(); assert.deepEqual(h.calls, []);
 });
 
+test('carro usado em outra linha chega ao fluxo de confirmacao da API sem recusa local', async () => {
+ const h = harness();
+ h.props.getOutraLinhaComCarroRealiz = () => ({ id: 'outra', linha: '308', tabela: '2' });
+ h.render(); h.open(); h.car('4001'); await h.submit();
+ assert.equal(h.calls.length, 1); assert.equal(h.calls[0][1], '4001');
+});
+
 test('consulta temporaria preserva borda e tamanho do carro; formularios fechados nao sao montados', () => {
  const h = harness(); h.render();
  const editable = h.get(n => n.type === 'button' && n.props['aria-label']?.includes('Carro realizado')).props.className;

@@ -1,4 +1,5 @@
 import { treatReleaseCar } from '../services/releaseTreatment';
+import { ReleaseDuplicateUseError } from '../services/releaseDuplicateUse';
 import { Response } from "express";
 import prisma from "../utils/prisma";
 import { AuthRequest } from "../middleware/auth";
@@ -93,6 +94,7 @@ async function persist(req: AuthRequest, res: Response, batch: boolean) {
     return res.json({ ...result, baseLinha: releaseLineToken(result) });
   }
   catch (error) {
+    if (error instanceof ReleaseDuplicateUseError) return res.status(409).json({ code: error.code, error: error.message, details: error.details });
     if (error instanceof AvailabilityError) return res.status(409).json({ code: error.code, error: error.message });
     if (error instanceof MvpError) return res.status(error.status).json({ error: error.message });
     if (error instanceof ZodError) return res.status(400).json({ error: 'Contexto ou itens de soltura invalidos.' });
