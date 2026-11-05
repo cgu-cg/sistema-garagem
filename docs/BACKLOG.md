@@ -1,5 +1,15 @@
 # Pendencias identificadas
 
+## TECH - Teste offline do Controle ainda espera herdar bloqueados
+
+Identificado em 05/11/2026 ao verificar horarios de Usado Portaria.
+O teste `novo dia offline usa somente bloqueados confirmados e descarta fila
+antiga`, em `apps/api/tests/maintenanceManager.test.ts`, espera um bloqueado
+herdado, mas o contrato vigente inicia todos os cards vazios. Falha 0 !== 1
+reproduzida carregando os dois arquivos de frontend desta tarefa do HEAD.
+Atualizar separadamente o cenario de teste, preservando a verificacao de
+descarte de fila antiga e sem reintroduzir heranca de veiculos no novo dia.
+
 ## TECH - Teste VCM ainda depende da fase Substituidos removida
 
 Identificado em 05/11/2026 ao verificar marcacao automatica de uso no Controle.

@@ -14,6 +14,9 @@ export const maintenanceRowSchema = z.object({
   consorciada: z.enum(['VCG', 'VCM', 'VSF', 'JTU']), data: z.string(),
   observacao: z.string().max(255).nullable(), observacaoBloqueio: z.string().max(255).nullish(),
   observacaoOficina: z.string().max(255).nullish(), usadoPortaria: z.boolean().optional(),
+  saidasPortaria: z.array(z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)).max(1440).optional(),
+  viagensPortaria: z.array(z.object({ saidaGaragem: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
+    linha: z.string().min(1).max(100), tabela: z.string().max(100) }).strict()).max(2000).optional(),
   bloqueado: z.boolean(), emExecucao: z.boolean(), liberado: z.boolean(),
 });
 const itemsSchema = z.array(maintenanceRowSchema).max(5000);
@@ -27,7 +30,7 @@ const where = (garagem: string, dataOperacao: string) => ({ garagem_dataOperacao
 // Chamado somente dentro da transacao de despacho ja autorizada da Soltura.
 export async function markEveningReleaseMaintenanceUsage(tx: Pick<Tx, '$queryRaw' | 'controleManutencaoFolha'>,
   context: { garagem: string; dataOperacao: string; escalaTipo: string; turno: string },
-  assignments: { scheduleId: string; carroRealizado: string }[], userId: number, now: Date) {
+  assignments: { scheduleId: string; carroRealizado: string; saidaGaragem?: string | null; linha: string; tabela: string }[], userId: number, now: Date) {
   if (context.escalaTipo !== 'SEG_SEX' || context.turno !== 'VESPERTINO'
     || context.dataOperacao !== operationalContext(now).today) return;
   await tx.$queryRaw`SELECT id FROM dbo.controle_manutencao_folha WITH (UPDLOCK,HOLDLOCK) WHERE garagem=${context.garagem} AND data_operacao<=${context.dataOperacao}`;
@@ -37,9 +40,21 @@ export async function markEveningReleaseMaintenanceUsage(tx: Pick<Tx, '$queryRaw
   const prefixes = new Set(assignments.map(item => item.carroRealizado));
   let changed = false;
   const items = content.items.map(item => {
-    if (item.data !== context.dataOperacao || !prefixes.has(item.prefixo) || item.usadoPortaria
+    if (item.data !== context.dataOperacao || !prefixes.has(item.prefixo)
       || !(item.bloqueado || item.emExecucao || item.liberado)) return item;
-    changed = true; return { ...item, usadoPortaria: true };
+    const hours = assignments.filter(a => a.carroRealizado === item.prefixo).flatMap(a =>
+      a.saidaGaragem && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(a.saidaGaragem) ? [a.saidaGaragem] : []);
+    const saidasPortaria = [...new Set([...(item.saidasPortaria ?? []), ...hours])].sort();
+    const trips = assignments.filter(a => a.carroRealizado === item.prefixo).flatMap(a =>
+      a.saidaGaragem && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(a.saidaGaragem)
+        ? [{ saidaGaragem: a.saidaGaragem, linha: a.linha, tabela: a.tabela }] : []);
+    const viagensPortaria = [...new Map([...(item.viagensPortaria ?? []), ...trips].map(trip => [JSON.stringify(trip), trip])).values()]
+      .sort((a, b) => a.saidaGaragem.localeCompare(b.saidaGaragem) || a.linha.localeCompare(b.linha) || a.tabela.localeCompare(b.tabela));
+    if (viagensPortaria.length > 2000) throw new MvpError(409, 'Limite de saidas do carro no Controle atingido. Solicite revisao.');
+    if (item.usadoPortaria && JSON.stringify(saidasPortaria) === JSON.stringify(item.saidasPortaria ?? [])
+      && JSON.stringify(viagensPortaria) === JSON.stringify(item.viagensPortaria ?? [])) return item;
+    changed = true; return { ...item, usadoPortaria: true, ...(saidasPortaria.length ? { saidasPortaria } : {}),
+      ...(viagensPortaria.length ? { viagensPortaria } : {}) };
   });
   if (!changed) return;
   if (content.eventos.length >= 10000) throw new MvpError(409, 'Limite de operacoes do Controle atingido. Solicite revisao.');
@@ -117,7 +132,12 @@ export async function saveMaintenanceBoard(db: PrismaClient, userId: number | un
     if (c.operacao === 'USADO_PORTARIA') {
       if (c.confirmRelease) throw new MvpError(403, 'Usado Portaria nao autoriza liberacao.');
       assertMaintenanceUsageChange(baseline.items, c.items);
-    } else if (c.items.some(item => Boolean(item.usadoPortaria) !== Boolean(baseline.items.find(old => old.id === item.id)?.usadoPortaria))) {
+    } else if (c.items.some(item => {
+      const old = baseline.items.find(old => old.id === item.id);
+      return Boolean(item.usadoPortaria) !== Boolean(old?.usadoPortaria)
+        || JSON.stringify(item.saidasPortaria ?? []) !== JSON.stringify(old?.saidasPortaria ?? [])
+        || JSON.stringify(item.viagensPortaria ?? []) !== JSON.stringify(old?.viagensPortaria ?? []);
+    })) {
       throw new MvpError(403, 'A marcacao Usado Portaria exige o comando especifico.');
     }
     if (new Set(c.items.map(i => i.prefixo)).size !== c.items.length || new Set(c.items.map(i => i.id)).size !== c.items.length)

@@ -27,6 +27,21 @@ test('offline exige copia carregada e guarda fotografia e fila em uma unica escr
  assert.equal(JSON.stringify(local).includes('token'),false);
  const reopened=await f.client().load();assert.deepEqual(reopened.snapshot.items,[row]);
 });
+
+test('horarios vindos do servidor permanecem no cache e na fila de edicao offline', async () => {
+ const viagensPortaria = [{ saidaGaragem: '14:15', linha: '326', tabela: '1' }, { saidaGaragem: '15:30', linha: '401', tabela: '3' }];
+ const f = fixture(); f.server().items = [{ ...row, usadoPortaria: true, saidasPortaria: ['14:15', '15:30'], viagensPortaria }];
+ const client = f.client(); const loaded = await client.load();
+ assert.deepEqual(loaded.snapshot.items[0].saidasPortaria, ['14:15', '15:30']);
+ assert.deepEqual(loaded.snapshot.items[0].viagensPortaria, viagensPortaria);
+ f.online(false);
+ const saved = await client.save(loaded.snapshot.items.map(item => ({ ...item, observacao: 'Defeito atualizado' })), false, loaded.snapshot.items);
+ assert.deepEqual(saved.queue[0].items[0].saidasPortaria, ['14:15', '15:30']);
+ assert.deepEqual(saved.queue[0].items[0].viagensPortaria, viagensPortaria);
+ f.online(true); const synced = await client.load();
+ assert.deepEqual(synced.snapshot.items[0].saidasPortaria, ['14:15', '15:30']);
+ assert.deepEqual(synced.snapshot.items[0].viagensPortaria, viagensPortaria);
+});
 test('Usado Portaria persiste no cache e na fila offline com comando especifico',async()=>{
  const f=fixture(),client=f.client();await client.load();
  const saved=await client.save([row],false,[]);f.online(false);

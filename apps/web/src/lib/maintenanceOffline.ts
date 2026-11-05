@@ -2,7 +2,10 @@ import { z } from 'zod';
 
 export const maintenanceItemSchema = z.object({ id: z.string(), prefixo: z.string(), consorciada: z.enum(['VCG', 'VCM', 'VSF', 'JTU']),
   data: z.string(), observacao: z.string().nullable(), observacaoBloqueio: z.string().nullish(), observacaoOficina: z.string().nullish(),
-  bloqueado: z.boolean(), emExecucao: z.boolean(), liberado: z.boolean(), usadoPortaria: z.boolean().optional() });
+  bloqueado: z.boolean(), emExecucao: z.boolean(), liberado: z.boolean(), usadoPortaria: z.boolean().optional(),
+  saidasPortaria: z.array(z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)).max(1440).optional(),
+  viagensPortaria: z.array(z.object({ saidaGaragem: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
+    linha: z.string().min(1).max(100), tabela: z.string().max(100) }).strict()).max(2000).optional() });
 export const maintenanceSnapshotSchema = z.object({ garagem: z.enum(['VCG', 'VCM']), data: z.string(), revisao: z.number().int().nonnegative(),
   base: z.string(), items: z.array(maintenanceItemSchema), origem: z.enum(['PERSISTIDA', 'VIRADA', 'LEGADO', 'VAZIA']) });
 export type MaintenanceSnapshot = z.infer<typeof maintenanceSnapshotSchema>;

@@ -1,4 +1,4 @@
-import { canMarkMaintenanceUsage } from '@/lib/maintenancePortaria';
+import { canMarkMaintenanceUsage, maintenanceUsageLabel } from '@/lib/maintenancePortaria';
 import { explicitGarage } from '@/lib/operationalAccess';
 import { canWriteC4 } from '@/lib/c4Authorization';
 import { operationalContext } from '@/lib/mvpTemporal';
@@ -1133,7 +1133,7 @@ export function ManutencaoPage() {
                           <div className="flex flex-wrap items-center gap-1.5"><span className="truncate block max-w-[140px] sm:max-w-[170px] group-hover/cell:underline">
                             {item.observacao || "—"}
                           </span>
-                          {item.usadoPortaria && <span className="inline-flex shrink-0 whitespace-nowrap rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold normal-case text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300">Usado Portaria</span>}</div>
+                          {item.usadoPortaria && <span className="inline-flex shrink-0 whitespace-nowrap rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold normal-case text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300">{maintenanceUsageLabel(item)}</span>}</div>
                         </td>
                         <td className="py-2 px-3 text-center">
                           <DropdownMenu>
@@ -1227,7 +1227,7 @@ export function ManutencaoPage() {
                           <div className="flex flex-wrap items-center gap-1.5"><span className="truncate block max-w-[140px] sm:max-w-[170px] group-hover/cell:underline">
                             {item.observacao || "—"}
                           </span>
-                          {item.usadoPortaria && <span className="inline-flex shrink-0 whitespace-nowrap rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold normal-case text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300">Usado Portaria</span>}</div>
+                          {item.usadoPortaria && <span className="inline-flex shrink-0 whitespace-nowrap rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold normal-case text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300">{maintenanceUsageLabel(item)}</span>}</div>
                         </td>
                         <td className="py-2 px-3 text-center">
                           <DropdownMenu>
@@ -1321,7 +1321,7 @@ export function ManutencaoPage() {
                           <div className="flex flex-wrap items-center gap-1.5"><span className="truncate block max-w-[140px] sm:max-w-[170px] group-hover/cell:underline">
                             {item.observacao || "—"}
                           </span>
-                          {item.usadoPortaria && <span className="inline-flex shrink-0 whitespace-nowrap rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold normal-case text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300">Usado Portaria</span>}</div>
+                          {item.usadoPortaria && <span className="inline-flex shrink-0 whitespace-nowrap rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold normal-case text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300">{maintenanceUsageLabel(item)}</span>}</div>
                         </td>
                         <td className="py-2 px-3 text-center">
                           <DropdownMenu>

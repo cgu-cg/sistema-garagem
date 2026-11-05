@@ -2,6 +2,19 @@
 
 ## Uso automatico no Controle pela Soltura vespertina - 05/11/2026
 
+O badge mostra Saida Gar., linha e tabela oficiais da viagem confirmada:
+Usado Portaria - 10:30 L 326 T 1. Mais de uma saida acumula os detalhes em
+ordem, separados por /, inclusive linhas diferentes com o mesmo horario.
+Reconfirmacao nao duplica o mesmo conjunto de horario, linha e tabela.
+Nao usa a hora da confirmacao como horario de saida.
+
+viagensPortaria guarda os detalhes no JSON existente; saidasPortaria preserva
+compatibilidade com horarios antigos. Dados sobrevivem leitura, edicao e cache
+offline. O backend recusa alteracao desses campos por comandos manuais.
+Registros antigos sem detalhes mostram apenas os horarios conhecidos ou o badge
+simples, sem inferir linha/tabela ausentes. Reconfirmar acrescenta os detalhes
+oficiais. Limpeza/troca posterior nao apaga o registro de uso. Sem novo SQL.
+
 CONFIRMADO pelo usuario: confirmar uma linha da Soltura Seg-Sex vespertina
 marca usadoPortaria no carro realizado que ja existe no Controle de Manutencao
 da mesma data e garagem, em Bloqueados, Em Manutencao ou Liberados. Nao exige

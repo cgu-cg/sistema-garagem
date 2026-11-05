@@ -5,6 +5,7 @@ import { readMaintenanceBoard, saveMaintenanceBoard } from '../src/services/main
 import { eventInstant } from '../src/services/c4Temporal';
 import { canMarkMaintenanceUsage as backendUsage } from '../src/services/maintenancePortaria';
 import { canMarkMaintenanceUsage as frontendUsage } from '../../web/src/lib/maintenancePortaria';
+import { maintenanceUsageLabel } from '../../web/src/lib/maintenancePortaria';
 
 const day = '2026-10-30';
 const row = (prefixo = '4000', status = 'EM_EXECUCAO', data = day) => ({ id: `manut-${data}-${prefixo}`, prefixo, data,
@@ -40,6 +41,32 @@ test('permissao de Usado Portaria concorda no cliente e API sem conceder edicao 
         assert.equal(frontendUsage(user, scope), backendUsage(user, scope));
         assert.equal(backendUsage(user, scope), role === 'ADMIN' || role === 'soltura' && garagem === scope);
       }
+});
+
+test('horarios linha e tabela sobrevivem leitura/edicao e nao podem ser adulterados pelo cliente', async () => {
+  const f = fixture(); await f.save({ base: (await f.read()).base, items: [row()] });
+  const record = f.records()[0], content = JSON.parse(record.conteudo);
+  const viagensPortaria = [{ saidaGaragem: '14:15', linha: '326', tabela: '1' }];
+  content.items[0] = { ...content.items[0], usadoPortaria: true, saidasPortaria: ['14:15'], viagensPortaria };
+  record.conteudo = JSON.stringify(content);
+  const loaded = await f.read(); assert.deepEqual(loaded.items[0].saidasPortaria, ['14:15']);
+  const edited = await f.save({ base: loaded.base, items: loaded.items.map(item => ({ ...item, observacao: 'Servico atualizado' })) });
+  assert.deepEqual(edited.items[0].saidasPortaria, ['14:15']);
+  assert.deepEqual(edited.items[0].viagensPortaria, viagensPortaria);
+  for (const saidasPortaria of [[], ['15:00']]) {
+    await assert.rejects(f.save({ base: edited.base, items: edited.items.map(item => ({ ...item, saidasPortaria })) }), (e: any) => e.status === 403);
+  }
+  await assert.rejects(f.save({ base: edited.base, items: edited.items.map(item => ({ ...item,
+    viagensPortaria: [{ saidaGaragem: '14:15', linha: '999', tabela: '2' }] })) }), (e: any) => e.status === 403);
+});
+
+test('badge de uso exibe horario linha e tabela e preserva registros antigos sem detalhes', () => {
+  const trip = { saidaGaragem: '10:30', linha: '326', tabela: '1' };
+  assert.equal(maintenanceUsageLabel({ saidasPortaria: ['10:30'], viagensPortaria: [trip] }), 'Usado Portaria - 10:30 L 326 T 1');
+  assert.equal(maintenanceUsageLabel({ viagensPortaria: [trip, { ...trip, linha: '401', tabela: '3' }] }),
+    'Usado Portaria - 10:30 L 326 T 1 / 10:30 L 401 T 3');
+  assert.equal(maintenanceUsageLabel({ saidasPortaria: ['10:30'] }), 'Usado Portaria - 10:30');
+  assert.equal(maintenanceUsageLabel({}), 'Usado Portaria');
 });
 
 test('Portaria marca somente uso, preserva defeito/estado e audita usuario sem consultar CI', async () => {

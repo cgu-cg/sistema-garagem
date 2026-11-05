@@ -225,8 +225,12 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
         revisao: releaseSheetRecord!.revisao + 1, responsavelId: userId,
       } });
     }
-    await markEveningReleaseMaintenanceUsage(tx, releaseContext, items.map(i => ({ scheduleId: i.scheduleId,
-      carroRealizado: snapshots.get(i.scheduleId)!.realized })), userId, clock());
+    await markEveningReleaseMaintenanceUsage(tx, releaseContext, items.map(i => {
+      const snapshot = snapshots.get(i.scheduleId)!;
+      return { scheduleId: i.scheduleId, carroRealizado: snapshot.realized,
+        linha: snapshot.existing?.linha ?? snapshot.row.linha, tabela: snapshot.existing?.tabela ?? snapshot.row.tabela,
+        saidaGaragem: snapshot.existing ? snapshot.existing.saidaGaragem : snapshot.row.saidaGaragem };
+    }), userId, clock());
     checkTime();
     return batch ? { count: records.length, items: records } : records[0];
   }, { isolationLevel: 'Serializable' });

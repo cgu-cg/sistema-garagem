@@ -20,6 +20,8 @@ export interface ManutencaoCarroItem {
   observacaoBloqueio?: string | null;
   observacaoOficina?: string | null;
   usadoPortaria?: boolean;
+  saidasPortaria?: string[];
+  viagensPortaria?: { saidaGaragem: string; linha: string; tabela: string }[];
   dataBloqueio?: string;
   campoObservacao?: 'bloqueio' | 'oficina';
 }

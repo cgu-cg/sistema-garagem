@@ -103,7 +103,10 @@ test('vespertino marca Usado Portaria em qualquer card do Controle da mesma data
     const f = eveningMaintenanceFixture(status), before = JSON.parse(f.maintenance().conteudo);
     await f.write(f.entry(0));
     const after = JSON.parse(f.maintenance().conteudo);
-    assert.deepEqual(after.items, [{ ...before.items[0], usadoPortaria: true }, before.items[1]]);
+    const saida = JSON.parse(f.sheet.conteudo).itens[0].saidaGaragem;
+    const official = JSON.parse(f.sheet.conteudo).itens[0];
+    assert.deepEqual(after.items, [{ ...before.items[0], usadoPortaria: true, saidasPortaria: [saida],
+      viagensPortaria: [{ saidaGaragem: saida, linha: official.linha, tabela: official.tabela }] }, before.items[1]]);
     assert.equal(f.maintenance().revisao, 4); assert.equal(f.maintenance().responsavelId, 1);
     assert.equal(after.eventos.length, 1); assert.equal(after.eventos[0].usuarioId, 1);
     assert.equal(after.eventos[0].registradoEm, eventInstant(target, 14).toISOString());
@@ -112,6 +115,39 @@ test('vespertino marca Usado Portaria em qualquer card do Controle da mesma data
     await f.write(f.entry(0, '4000', '456'));
     assert.equal(f.maintenance().revisao, 4, 'reconfirmacao/MOTO nao duplica marcacao nem auditoria');
   }
+});
+
+test('Controle guarda Saida Gar oficial, acumula horarios distintos e nao usa horario digitado ou da confirmacao', async () => {
+  const f = eveningMaintenanceFixture();
+  const sheet = JSON.parse(f.sheet.conteudo);
+  sheet.itens[0].saidaGaragem = '14:15'; sheet.itens[1].saidaGaragem = '15:30';
+  f.sheet.conteudo = JSON.stringify(sheet);
+  await f.write({ ...f.entry(0), saidaGaragem: '23:59' });
+  assert.deepEqual(JSON.parse(f.maintenance().conteudo).items[0].saidasPortaria, ['14:15']);
+  assert.deepEqual(JSON.parse(f.maintenance().conteudo).items[0].viagensPortaria,
+    [{ saidaGaragem: '14:15', linha: sheet.itens[0].linha, tabela: sheet.itens[0].tabela }]);
+  const second = f.entry(1, '4000', '456'); const notice = await f.notice(second);
+  await f.write({ ...second, confirmarRepeticao: notice.token });
+  assert.deepEqual(JSON.parse(f.maintenance().conteudo).items[0].saidasPortaria, ['14:15', '15:30']);
+  assert.deepEqual(JSON.parse(f.maintenance().conteudo).items[0].viagensPortaria,
+    sheet.itens.map((row: any) => ({ saidaGaragem: row.saidaGaragem, linha: row.linha, tabela: row.tabela })));
+  await f.write(f.entry(1, '4001', '456'));
+  assert.deepEqual(JSON.parse(f.maintenance().conteudo).items[0].saidasPortaria, ['14:15', '15:30']);
+});
+
+test('mesmo carro em duas linhas no mesmo horario conserva linha/tabela e reconfirmacao nao duplica', async () => {
+  const f = eveningMaintenanceFixture(); const sheet = JSON.parse(f.sheet.conteudo);
+  sheet.itens.forEach((row: any) => { row.saidaGaragem = '10:30'; }); f.sheet.conteudo = JSON.stringify(sheet);
+  await f.write(f.entry(0));
+  const second = f.entry(1, '4000', '456'), notice = await f.notice(second);
+  await f.write({ ...second, confirmarRepeticao: notice.token });
+  const trips = JSON.parse(f.maintenance().conteudo).items[0].viagensPortaria;
+  assert.equal(trips.length, 2);
+  for (const row of sheet.itens) assert.ok(trips.some((trip: any) => trip.linha === row.linha && trip.tabela === row.tabela && trip.saidaGaragem === '10:30'));
+  const revision = f.maintenance().revisao;
+  const retry = await f.notice(second); await f.write({ ...second, confirmarRepeticao: retry.token });
+  assert.equal(f.maintenance().revisao, revision);
+  assert.deepEqual(JSON.parse(f.maintenance().conteudo).items[0].viagensPortaria, trips);
 });
 
 test('uso automatico nao cria Controle ou carro e nao altera outra garagem ou data', async () => {
