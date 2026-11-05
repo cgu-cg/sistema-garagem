@@ -123,7 +123,7 @@ test('limpeza rejeita folha finalizada, outra data/garagem, falta de permissao e
   await assert.rejects(clearReleaseLine(f.db, 7, command, now), /outro posto/);
   await assert.rejects(clearReleaseLine(f.db, 7, { ...f.command(), revisao: 0 }, now), /outro posto/);
   await assert.rejects(clearReleaseLine(f.db, 7, f.command(), () => new Date('2026-11-04T18:00:00Z')), /dia/);
-  await assert.rejects(clearReleaseLine(f.db, 7, { ...f.command(), contexto: { ...context, garagem: 'VCM' } }, now), /VCG/);
+  await assert.rejects(clearReleaseLine(f.db, 7, { ...f.command(), contexto: { ...context, garagem: 'VCM' } }, now), /contexto habilitado/);
 });
 
 test('falha na folha ou virada de data desfaz a retirada do carro e motorista', async () => {

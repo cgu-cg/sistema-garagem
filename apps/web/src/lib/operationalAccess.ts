@@ -1,3 +1,4 @@
+import { supportsReleaseContext } from './releaseSupport';
 // Politica operacional pura. Espelhada no frontend/API e verificada por testes de paridade.
 export type AccessUser = { role: string; garagem?: string | null; groups?: { permissions: unknown }[] };
 export function explicitGarage(user: AccessUser | null | undefined): 'VCG' | 'VCM' | undefined {
@@ -39,8 +40,8 @@ export function operationPageAccess(user: AccessUser | null | undefined, path: s
 }
 
 // Apenas impedimentos ja conhecidos pela tela; a API revalida fontes e concorrencia.
-export function canOfferRelease(user: AccessUser | null | undefined, garage: string, c4: boolean, status?: string) {
-  return canDispatch(user) && (user?.role === 'ADMIN' || explicitGarage(user) === garage) && garage === 'VCG' && c4 && status === 'FINALIZADA';
+export function canOfferRelease(user: AccessUser | null | undefined, garage: string, c4: boolean, status?: string, context?: { escalaTipo: string; turno: string }) {
+  return canDispatch(user) && (user?.role === 'ADMIN' || explicitGarage(user) === garage) && supportsReleaseContext({ garagem: garage, ...context }) && c4 && status === 'FINALIZADA';
 }
 
 export function canReadReservations(user: AccessUser | null | undefined) {

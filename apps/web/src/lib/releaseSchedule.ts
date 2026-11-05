@@ -1,8 +1,9 @@
 import { currentReleaseTemplate, type TemplateContext } from '../data/scheduleTemplates';
+import { supportsReleaseContext } from './releaseSupport';
 import type { SolturaItem } from '../data/solturaTypes';
 
 export function releaseScheduleBase(context: TemplateContext, published?: SolturaItem[]): SolturaItem[] {
-  if (context.garagem !== 'VCG' && published) return published;
+  if (!supportsReleaseContext(context) && published) return published;
   return currentReleaseTemplate(context).map(row => ({ ...row, status: 'PENDENTE' }));
 }
 export interface ReleaseRecord {

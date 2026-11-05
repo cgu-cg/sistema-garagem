@@ -1,3 +1,4 @@
+import vcmReleaseMatutino from './soltura/vcm/seg-sex-matutino.json';
 import escalaSegSex from './escala-carros/vcg/seg-sex.json';
 import escalaSabado from './escala-carros/vcg/sabado.json';
 import escalaDomingo from './escala-carros/vcg/domingo-feriado.json';
@@ -31,7 +32,7 @@ export function currentScaleTemplate(context: TemplateContext): TemplateRow[] {
   return rows(context.escalaTipo === 'SEG_SEX' ? escalaSegSex : context.escalaTipo === 'SABADO' ? escalaSabado : escalaDomingo);
 }
 export function currentReleaseTemplate(context: TemplateContext): TemplateRow[] {
-  if (context.garagem === 'VCM') return rows(context.escalaTipo === 'SEG_SEX' ? vcmReleaseSegSex : context.escalaTipo === 'SABADO' ? vcmReleaseSabado : vcmReleaseDomingo);
+  if (context.garagem === 'VCM') return rows(context.escalaTipo === 'SEG_SEX' ? (context.turno === 'MATUTINO' ? vcmReleaseMatutino : vcmReleaseSegSex) : context.escalaTipo === 'SABADO' ? vcmReleaseSabado : vcmReleaseDomingo);
   return rows(context.escalaTipo === 'SEG_SEX' ? context.turno === 'VESPERTINO' ? solturaVespertino : solturaMatutino
     : context.escalaTipo === 'SABADO' ? solturaSabado : solturaDomingo);
 }

@@ -1,4 +1,5 @@
 import { ciUseSchema, ciUseCommandSchema, authorizeCiUse } from './ciUseConfirmation';
+import legacyVcmWeekdays from '../data/escala-carros/vcm/seg-sex-legado.json';
 import { lineClearAuditSchema } from './lineClearAudit';
 import { dateProgramming } from './trafficProgramming';
 import { trafficRowSchema, trafficRowsSchema } from './trafficSchema';
@@ -57,7 +58,9 @@ export function parseStoredDailyScale(conteudo: string | undefined, contexto: Re
   if ('fluxo' in value && value.fluxo && value.fluxo.fonteCI.ciData !== contexto.dataOperacao) throw new MvpError(409, 'CI da escala pertence a outra data.');
   if (value.confirmacoes.some(c => c.usoBloqueadoCI && (c.usoBloqueadoCI.linhaId !== c.id || c.usoBloqueadoCI.prefixo !== c.prefixo || c.usoBloqueadoCI.ciData !== contexto.dataOperacao)))
     throw new MvpError(409, 'Confirmacao de uso da CI fora do contexto da linha.');
-  const programacao = 'programacao' in value ? value.programacao : undefined;
+  const programacao = ('programacao' in value ? value.programacao : undefined)
+    ?? (conteudo !== undefined && contexto.garagem === 'VCM' && contexto.escalaTipo === 'SEG_SEX'
+      ? legacyVcmWeekdays.map(row => ({ ...row, status: 'PENDENTE' as const })) : undefined);
   const ids = new Set([...(programacao ?? fixedSchedule(contexto)), ...retiredScaleRows(contexto)].map(i => i.id));
   if (value.itens.some(i => !ids.has(i.id)) || value.confirmacoes.some(i => !ids.has(i.id))) throw new MvpError(409, 'Substituicoes fora da programacao fixa. Revisar sem descartar historico.');
   return { ...value, programacao, historicoTrocas: 'historicoTrocas' in value ? value.historicoTrocas : [], fluxo: 'fluxo' in value ? value.fluxo ?? null : null };

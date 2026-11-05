@@ -1,3 +1,4 @@
+import { supportsReleaseContext } from './releaseSupport';
 import { releaseHistory } from './releaseVehicleExchange';
 import { undoReleaseWithdrawals } from './releaseWithdrawals';
 import { eventInstant } from './c4Temporal';
@@ -22,8 +23,8 @@ export async function clearReleaseLine(db: PrismaClient, userId: number | undefi
   const preflight = context.dataOperacao < operationalContext(clock()).today && userId ? await db.user.findUnique({ where: { id: userId } }) : null;
   const assertDate = (role?: string) => {
     const today = operationalContext(clock()).today;
-    if (context.garagem !== 'VCG' || context.dataOperacao !== today && !canEditHistoricalRelease(role, context.dataOperacao, today, 'EM_ANDAMENTO'))
-      throw new MvpError(409, 'Limpar linha exige VCG e o dia da operação.');
+    if (!supportsReleaseContext(context) || context.dataOperacao !== today && !canEditHistoricalRelease(role, context.dataOperacao, today, 'EM_ANDAMENTO'))
+      throw new MvpError(409, 'Limpar linha exige contexto habilitado e o dia da operação.');
   };
   assertDate(preflight?.role);
   const result = await db.$transaction(async tx => {

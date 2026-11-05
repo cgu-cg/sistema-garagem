@@ -1,3 +1,4 @@
+import { isVcmMorningRelease, supportsReleaseContext } from './releaseSupport';
 import { ciUseSchema } from './ciUseConfirmation';
 import { canEditHistoricalRelease } from './releaseDateAccess';
 import type { Prisma, PrismaClient, Soltura } from '@prisma/client';
@@ -96,8 +97,8 @@ export async function changeReleaseLifecycle(db: PrismaClient, userId: number | 
   const context = parseDailyContext(command.contexto);
   const preflight = command.operacao === 'finalizar' && context.dataOperacao < operationalContext(clock()).today && userId ? await db.user.findUnique({ where: { id: userId } }) : null;
   const assertDate = (role?: string) => { const today = operationalContext(clock()).today;
-    if (context.garagem !== 'VCG' || context.dataOperacao !== today && !(command.operacao === 'finalizar' && canEditHistoricalRelease(role, context.dataOperacao, today, 'EM_ANDAMENTO')))
-    throw new MvpError(409, 'Inicio, finalizacao e reabertura exigem VCG e o dia da operacao.'); };
+    if (!supportsReleaseContext(context) || context.dataOperacao !== today && !(command.operacao === 'finalizar' && canEditHistoricalRelease(role, context.dataOperacao, today, 'EM_ANDAMENTO')))
+    throw new MvpError(409, 'Inicio, finalizacao e reabertura exigem contexto habilitado e o dia da operacao.'); };
   assertDate(preflight?.role);
   // Leitura auxiliar antes dos locks; a fotografia da finalizacao e montada com despachos relidos na transacao.
   const preparation = command.operacao !== 'reabrir' ? await prepare(db, context, userId) : null;
@@ -121,7 +122,7 @@ export async function changeReleaseLifecycle(db: PrismaClient, userId: number | 
     const sourceCI = command.operacao === 'iniciar' && !isIndependentRelease(context)
       ? await tx.folhaCI.findUnique({ where: { garagem_dataFolha: { garagem: context.garagem, dataFolha: dateValue(context.dataOperacao) } } }) : null;
     if (command.operacao === 'iniciar' && (!currentRows || (!isIndependentRelease(context)
-      && (!enabledGarages().includes('VCG') || sourceCI?.status !== 'FINALIZADA' || !preparation?.escala.fluxo.ciFinalizada)))) throw new MvpError(409, 'Finalize a CI e a Escala desta data antes de iniciar a Soltura.');
+      && ((!isVcmMorningRelease(context) && !enabledGarages().includes(context.garagem)) || sourceCI?.status !== 'FINALIZADA' || !preparation?.escala.fluxo.ciFinalizada)))) throw new MvpError(409, 'Finalize a CI e a Escala desta data antes de iniciar a Soltura.');
     const records = await tx.soltura.findMany({ where: context });
     if (command.operacao === 'finalizar' && releaseWithdrawals(records).some(r => r.destino === 'PENDENTE'))
       throw new MvpError(409, 'Trate todos os carros em Substituidos antes de finalizar a Soltura.');

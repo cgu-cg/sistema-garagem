@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { parseStoredDailyScale } from '../src/services/escalaDiaria';
 import assert from 'node:assert/strict';
 import { readEscalaDiaria as readReal, saveEscalaDiaria as saveReal, parseDailyContext, fixedSchedule } from '../src/services/escalaDiaria';
 import { subscribeC4Updates } from '../src/services/c4Events';
@@ -64,6 +65,39 @@ function fixture() {
 }
 const command = (revisao = 1, carroSubstituido = '5001') => ({ contexto, revisao, id: original.id, carroSubstituido, base: JSON.stringify(original),
   retirada: { prefixo: revisao === 1 ? original.carroProgramado : '5001', destino: 'RESERVA' as const, motivo: 'Troca operacional' } });
+
+test('login Soltura VCM opera as 204 viagens da propria garagem e preserva a separacao VCG', async () => {
+  const f = fixture(), vcm = { ...contexto, garagem: 'VCM' } as const;
+  const rows = fixedSchedule(vcm), first = rows[0];
+  f.role('soltura'); f.garage('VCM');
+  f.db.__fleet = { source: 'real', data: [...rows.map(row => row.carroProgramado), '1000'].map(prefixo => ({ idCarro: Number(prefixo), prefixo, garagem: 1, garagemNome: 'VCM' })) };
+  const write = (command: object) => saveReal(f.db, 1, { contexto: vcm, ...command }, async () => f.db.__fleet, async () => null, now);
+  f.db.__ciStatus = 'EM_PREPARACAO';
+  await assert.rejects(write({ operacao: 'iniciar', revisao: 0 }), /CI/);
+  f.db.__ciStatus = 'FINALIZADA';
+  const started = await write({ operacao: 'iniciar', revisao: 0 });
+  assert.equal(started.programacao.length, 204); assert.equal(started.contexto.garagem, 'VCM');
+  const saved = await write({ revisao: 1, id: first.id, base: JSON.stringify(first), carroSubstituido: '1000',
+    retirada: { prefixo: first.carroProgramado, destino: 'RESERVA', motivo: '' } });
+  assert.ok(saved.confirmadas.includes(first.id)); assert.ok(saved.reserva.includes(first.carroProgramado));
+  const loaded = await readEscalaDiaria(f.db, vcm, 1);
+  assert.equal(loaded.itens[0].carroSubstituido, '1000');
+  assert.deepEqual(validateDailyEscala(loaded, vcm), loaded);
+  await assert.rejects(readEscalaDiaria(f.db, contexto, 1), (error: any) => error.status === 403);
+  f.garage('VCG');
+  await assert.rejects(write({ operacao: 'finalizar', revisao: 2 }), (error: any) => error.status === 403);
+  await assert.rejects(readEscalaDiaria(f.db, vcm, 1), (error: any) => error.status === 403);
+});
+
+test('folha antiga VCM sem fotografia conserva 59 viagens e fotografia explicita prevalece', () => {
+  const vcm = { ...contexto, garagem: 'VCM' } as const;
+  const legacy = parseStoredDailyScale('[]', vcm);
+  assert.equal(legacy.programacao?.length, 59);
+  assert.equal(legacy.programacao?.find(row => row.id === 'vcm-ss-07')?.carroProgramado, '1338');
+  assert.equal(parseStoredDailyScale(undefined, vcm).programacao, undefined);
+  const explicit = parseStoredDailyScale(JSON.stringify({ version: 2, itens: [], cards: [], programacao: fixedSchedule(vcm) }), vcm);
+  assert.equal(explicit.programacao?.length, 204);
+});
 
 test('CI bloqueada exige confirmacao do prefixo e permanece bloqueada apos confirmar fixo e finalizar', async () => {
   const f = fixture(); f.db.__blocks = [original.carroProgramado]; await lifecycle(f.db, 'iniciar');

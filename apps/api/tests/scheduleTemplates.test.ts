@@ -9,6 +9,26 @@ const XLSX = require('xlsx');
 const read = (file: string) => JSON.parse(readFileSync(file, 'utf8'));
 const context = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'MATUTINO' } as const;
 
+test('Escala VCM Seg-Sex transcreve os quatro blocos dos prints sem marcacoes especiais', () => {
+  const rows = currentScaleTemplate({ ...context, garagem: 'VCM' });
+  assert.equal(rows.length, 204);
+  assert.deepEqual(rows, read('apps/api/src/data/escala-carros/vcm/seg-sex.json'));
+  assert.equal(new Set(rows.map(row => row.id)).size, 204);
+  assert.equal(new Set(rows.map(row => row.carroProgramado)).size, 204);
+  assert.deepEqual(rows.map(row => row.ordem), Array.from({ length: 204 }, (_, i) => i + 1));
+  for (const [index, linha, tabela, car] of [[0, '053', '1', '1381'], [51, '080', '4', '3852'],
+    [52, '080', '6', '3215'], [103, '114', '5', '1230'], [104, '115', '1', '2629'],
+    [154, '319', '1', '3259'], [155, '319', '2', '3954'], [203, 'GAMELEIRA', '2', '3070']] as const) {
+    assert.deepEqual([rows[index].linha, rows[index].tabela, rows[index].carroProgramado], [linha, tabela, car]);
+  }
+  for (const row of rows) {
+    assert.match(row.saidaGaragem, /^\d{2}:\d{2}$/); assert.match(row.inicioLinha!, /^\d{2}:\d{2}$/);
+    assert.equal(row.status, 'PENDENTE'); assert.equal(row.observacoes, undefined);
+    assert.equal(row.carroRealizado, undefined); assert.equal(row.motoristaCodigo, undefined);
+  }
+  assert.equal(rows.find(row => row.id === 'vcm-ss-59')?.carroProgramado, '1387');
+});
+
 test('sete moldes reproduzem os Excel, sao deterministas e tem copias identicas na API', () => {
   const expected = [202, 108, 52, 202, 84, 108, 52];
   for (const [index, entry] of generate().entries()) {
@@ -57,14 +77,16 @@ test('molde da escala e da soltura ficam separados e os campos de garagem sao pr
   assert.equal(scale.filter(i => i.tipo === 'FRETAMENTO').length, 2);
   assert.ok(scale.filter(i => i.tipo === 'FRETAMENTO').every(i => i.tabela === ''));
 });
-test('VCG usa JSON mesmo com publicacao antiga; VCM conserva comportamento anterior', () => {
+test('VCG e matutino VCM usam JSON; demais contextos VCM conservam comportamento anterior', () => {
   const published = [{ ...releaseScheduleBase(context)[0], linha: 'PUBLICADA ANTIGA' }];
   assert.notEqual(releaseScheduleBase(context, published)[0].linha, 'PUBLICADA ANTIGA');
-  assert.equal(releaseScheduleBase({ ...context, garagem: 'VCM' }, published), published);
+  assert.notEqual(releaseScheduleBase({ ...context, garagem: 'VCM' }, published)[0].linha, 'PUBLICADA ANTIGA');
+  assert.equal(releaseScheduleBase({ ...context, garagem: 'VCM', turno: 'VESPERTINO' }, published), published);
   for (const [escalaTipo, count] of [['SEG_SEX', 202], ['SABADO', 108], ['DOM_FER', 52]] as const) {
     assert.equal(currentScaleTemplate({ ...context, escalaTipo }).length, count);
   }
-  assert.equal(releaseScheduleBase({ ...context, garagem: 'VCM' }).length, 59);
+  assert.equal(releaseScheduleBase({ ...context, garagem: 'VCM' }).length, 204);
+  assert.equal(releaseScheduleBase({ ...context, garagem: 'VCM', turno: 'VESPERTINO' }).length, 59);
 });
 test('despachos salvos sobrepoem campos operacionais e viagens retiradas continuam no historico', () => {
   const base = releaseScheduleBase(context), before = JSON.stringify(base);

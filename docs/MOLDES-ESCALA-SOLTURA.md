@@ -1,5 +1,45 @@
 # Moldes VCG em JSON - 21/10/2026
 
+## Soltura VCM Seg–Sex matutina — 05/11/2026
+
+Criado soltura/vcm/seg-sex-matutino.json na API e no web com as 204 viagens
+da Escala VCM e carroProgramado vazio. Mantem horarios e os 59 IDs ja existentes;
+novas viagens usam IDs proprios da Soltura. A correspondencia com a Escala
+operacional usa linha/tabela, sem depender de IDs iguais. Soltura VCM matutina
+agora permite operacao autenticada, CI VCM certificada/finalizada e Escala da
+mesma data finalizada. A versao seg-sex.json anterior permanece para consulta
+do vespertino, que nao foi habilitado para despacho. Fins de semana inalterados.
+
+As limitacoes de transcricao dos prints e a prioridade de modelos/excecoes
+salvos descritas abaixo tambem se aplicam. Folhas iniciadas ou finalizadas
+mantem sua fotografia. Implantar API e web juntos; nao exige SQL adicional.
+
+## Escala VCM Seg–Sex dos prints — 04/11/2026
+
+O JSON da Escala VCM Seg–Sex tem 204 viagens, na ordem dos quatro blocos
+impressos (52 + 52 + 51 + 49). Copias identicas na API e no web. Preserva os
+59 identificadores anteriores e acrescenta os demais. Coluna Inicio foi
+transcrita para inicioLinha/inicioBairro e chegadaGaragem, mantendo o contrato
+de apresentacao existente. Asteriscos, P, anotacoes VCG e cores do impresso
+nao criam flags ou regras especiais. FRETE, VOLVO, EXTRA, 118/SESOP e GAMELEIRA
+permanecem como linhas, sem interpretar marcacoes especiais.
+
+A Escala diaria ja permite ADMIN e login Soltura vinculado a VCM, com CI VCM
+da mesma data finalizada, frota oficial da garagem e janela ate 06h. Essa
+autorizacao nao habilita despacho de Soltura VCM nem edicao da CI por outros
+perfis. Nenhuma alteracao de permissao ou de banco foi necessaria.
+
+Novas folhas sem excecao/modelo salvo usam o novo JSON; programacoes salvas no
+Trafego continuam com prioridade. Folhas com programacao fotografada conservam
+essa fotografia. Para Escalas VCM Seg–Sex antigas sem programacao fotografada,
+a API usa seg-sex-legado.json (59 viagens), sem alterar dados via GET.
+
+Conferencia pendente do documento de origem: linha 072/tabela 5 tem saida
+05:30 e Inicio 05:10 no print. Transcrito como impresso, sem corrigir por
+suposicao. A linha 108/118, tabela 2/1, conserva Inicio 07:56 como impresso.
+Reservas nominais e marcacoes do rodape nao sao convertidas em alocacoes
+automaticas; a reserva operacional continua calculada pela frota disponivel.
+
 ## Atualização de carros vinculados em operação — 03/11/2026
 
 Nova regra autorizada: novas Solturas fotografam no JSON quais viagens herdam

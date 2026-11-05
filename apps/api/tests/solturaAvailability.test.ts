@@ -479,9 +479,9 @@ test('falha de consulta e erro na segunda escrita nunca deixam lote parcial', as
     assert.equal(f.rows().length, 0);
   }
 });
-test('VCM e legado permanecem suspensos sem consultar banco', async () => {
+test('VCM fora do matutino Seg-Sex e legado VCG permanecem suspensos sem consultar banco', async () => {
   const db: any = { $transaction: () => { throw Error('Nao consultar'); } };
-  await assert.rejects(writeSafeRelease(db, 1, { ...body, garagem: 'VCM' }, false), reason('FONTE_VCM_NAO_COMPROVADA'));
+  await assert.rejects(writeSafeRelease(db, 1, { ...body, garagem: 'VCM', turno: 'VESPERTINO' }, false), reason('FONTE_VCM_NAO_COMPROVADA'));
   await assert.rejects(writeSafeRelease(db, 1, body, false, () => eventInstant(target, 22), () => []), reason('LEGADO_SEM_FOLHA_FINALIZADA_CERTIFICAVEL'));
 });
 test('bloqueio confirmado durante espera pelo lock e visto antes de gravar', async () => {

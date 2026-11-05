@@ -1,3 +1,4 @@
+import { isVcmMorningRelease, supportsReleaseContext } from './releaseSupport';
 import { authorizeCiUse } from './ciUseConfirmation';
 import { duplicateUseNotice, ReleaseDuplicateUseError, type ReleaseAssignment } from './releaseDuplicateUse';
 import { randomUUID } from 'node:crypto';
@@ -24,7 +25,7 @@ export class AvailabilityError extends MvpError {
   constructor(public code: string) { super(409, `Soltura impedida: ${code}. Nenhum registro foi gravado.`); }
 }
 export function resolveReleaseContext(garagem: unknown, dataOperacao: unknown, now: Date, allowPast = false) {
-  if (garagem !== 'VCG') throw new AvailabilityError('FONTE_VCM_NAO_COMPROVADA');
+  if (garagem !== 'VCG' && garagem !== 'VCM') throw new AvailabilityError('FONTE_VCM_NAO_COMPROVADA');
   if (!dataOperacao) throw new AvailabilityError('DATA_OPERACIONAL_OBRIGATORIA');
   const ciDate = civil(dataOperacao), ctx = operationalContext(now);
   if (ciDate !== ctx.today && !(allowPast && ciDate < ctx.today)) throw new AvailabilityError('DATA_FORA_DO_CONTEXTO');
@@ -43,9 +44,9 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
   clock = () => new Date(), configured = () => enabledGarages(), loadFleet = officialFleet) {
   const parsed = batch ? batchSyncSolturaSchema.parse(body) : createSolturaSchema.parse(body);
   // Server configuration only; input flags cannot select the source.
-  if (parsed.garagem !== 'VCG') throw new AvailabilityError('FONTE_VCM_NAO_COMPROVADA');
+  if (!supportsReleaseContext(parsed)) throw new AvailabilityError('FONTE_VCM_NAO_COMPROVADA');
   const independent = isIndependentRelease({ escalaTipo: parsed.escalaTipo ?? '', turno: parsed.turno ?? '' });
-  if (!independent && !configured().includes('VCG')) throw new AvailabilityError('LEGADO_SEM_FOLHA_FINALIZADA_CERTIFICAVEL');
+  if (!independent && !isVcmMorningRelease(parsed) && !configured().includes('VCG')) throw new AvailabilityError('LEGADO_SEM_FOLHA_FINALIZADA_CERTIFICAVEL');
   const before = operationalContext(clock());
   // Preflight autoriza somente prosseguir aos locks. A folha real e o papel sao revalidados abaixo.
   const preflight = parsed.dataOperacao && parsed.dataOperacao < before.today && userId ? await db.user.findUnique({ where: { id: userId } }) : null;
@@ -56,29 +57,29 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
   const items = z.array(releaseItem).min(1).max(1000).parse(raw);
   if (!userId || !Number.isInteger(userId) || userId <= 0) throw new MvpError(403, 'Usuario autenticado obrigatorio.');
   if (new Set(items.map(i => i.scheduleId)).size !== items.length) throw new AvailabilityError('POSICAO_DUPLICADA_NO_LOTE');
-  const fleet = independent ? officialGarageFleet(await loadFleet(), 'VCG') : null;
+  const fleet = independent || isVcmMorningRelease(releaseContext) ? officialGarageFleet(await loadFleet(), releaseContext.garagem) : null;
   const result = await db.$transaction(async tx => {
     // Mesma funcao e mesma ordem dos escritores CI, manutencao e scheduler.
-    await lockManualCI(tx, 'VCG', context.ciDate);
+    await lockManualCI(tx, releaseContext.garagem, context.ciDate);
     const scaleContext = releaseScaleContext(releaseContext);
     if (!independent) await tx.$queryRaw`SELECT id FROM dbo.escala_diaria WITH (UPDLOCK,HOLDLOCK) WHERE garagem=${scaleContext.garagem} AND data_operacao=${scaleContext.dataOperacao}`;
     const user = await tx.user.findUnique({ where: { id: userId }, include: { groups: true } });
     if (!canDispatch(user)) throw new MvpError(403, 'Sem permissao para despachar.');
-    await assertC4Read(tx, userId, 'VCG');
+    await assertC4Read(tx, userId, releaseContext.garagem);
     await lockReleaseSheet(tx, releaseContext);
     const releaseSheetRecord = await tx.folhaSoltura.findUnique({ where: releaseSheetWhere(releaseContext) });
     assertReleaseStarted(releaseSheetRecord);
     const releaseSheet = parseReleaseSheet(releaseSheetRecord!.conteudo);
     const checkTime = () => {
       const current = resolveReleaseContext(parsed.garagem, parsed.dataOperacao, clock(), canEditHistoricalRelease(user?.role, context.ciDate, operationalContext(clock()).today, releaseSheetRecord!.status));
-      if ((!independent && !configured().includes('VCG')) || current.maintenanceDate !== context.maintenanceDate)
+      if ((!independent && !isVcmMorningRelease(releaseContext) && !configured().includes(releaseContext.garagem)) || current.maintenanceDate !== context.maintenanceDate)
         throw new AvailabilityError('CONTEXTO_ALTERADO_DURANTE_GRAVACAO');
     };
     checkTime();
     const previousCiUses = JSON.stringify(releaseSheet.usosBloqueadosCI ?? []);
     let folha: { itens: { prefixo: string; categoria: string; statusItem: string | null }[] } | null = null;
     if (!independent) {
-      const sourceFolha = await tx.folhaCI.findUnique({ where: { garagem_dataFolha: { garagem: 'VCG', dataFolha: dateValue(context.ciDate) } }, include: { itens: true } });
+      const sourceFolha = await tx.folhaCI.findUnique({ where: { garagem_dataFolha: { garagem: releaseContext.garagem, dataFolha: dateValue(context.ciDate) } }, include: { itens: true } });
       if (!sourceFolha) throw new AvailabilityError('CI_OPERACIONAL_AUSENTE');
       if (sourceFolha.status !== 'FINALIZADA') throw new AvailabilityError('CI_EM_PREPARACAO_NAO_AUTORIZA_SOLTURA');
       if (sourceFolha.origem === 'RECUPERACAO') throw new AvailabilityError('CI_RECUPERADA_NAO_CERTIFICA_DISPONIBILIDADE');
@@ -91,19 +92,19 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
           throw new AvailabilityError('ORIGEM_CI_NAO_CERTIFICADA');
         visited.add(ancestor.id);
         const parent = await tx.folhaCI.findUnique({ where: { id: ancestor.folhaOrigemId }, include: { itens: true } });
-        if (!parent || parent.garagem !== 'VCG' || parent.status !== 'FINALIZADA' || parent.dataFolha >= ancestor.dataFolha)
+        if (!parent || parent.garagem !== releaseContext.garagem || parent.status !== 'FINALIZADA' || parent.dataFolha >= ancestor.dataFolha)
           throw new AvailabilityError('ORIGEM_CI_NAO_CERTIFICADA');
         ancestor = parent;
       }
 
     }
-    if (independent) folha = await tx.folhaCI.findUnique({ where: { garagem_dataFolha: { garagem: 'VCG', dataFolha: dateValue(context.ciDate) } }, include: { itens: true } });
+    if (independent) folha = await tx.folhaCI.findUnique({ where: { garagem_dataFolha: { garagem: releaseContext.garagem, dataFolha: dateValue(context.ciDate) } }, include: { itens: true } });
     const liveProgramming = await finalizedReleaseRows(tx, releaseContext);
     if (!liveProgramming) throw new AvailabilityError('ESCALA_NAO_FINALIZADA');
     const sourceScale = !independent ? await tx.escalaDiaria.findUnique({ where: { garagem_escalaTipo_turno_dataOperacao: scaleContext } }) : null;
     const portaria = new Set((sourceScale ? parseStoredDailyScale(sourceScale.conteudo, scaleContext).cards ?? [] : [])
       .filter(card => card.id === 'PORTARIA').flatMap(card => card.itens.map(item => item.prefixo)));
-    const dailyRecords = await tx.soltura.findMany({ where: { garagem: 'VCG', dataOperacao: context.ciDate } });
+    const dailyRecords = await tx.soltura.findMany({ where: { garagem: releaseContext.garagem, dataOperacao: context.ciDate } });
     const programming = await updatedReleaseSheetRows(tx, releaseContext, releaseSheet,
       dailyRecords.filter(record => record.escalaTipo === releaseContext.escalaTipo && record.turno === releaseContext.turno));
     // Projeta o resultado inteiro do lote antes de validar repeticoes ou retiradas.
@@ -201,7 +202,7 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
     const nextContent = sheetChanged ? JSON.stringify(parseReleaseSheet(JSON.stringify({ ...releaseSheet, itens: programming }))) : null;
     const records = [];
     for (const i of items) {
-      const where = { scheduleId: i.scheduleId, dataOperacao: context.ciDate, garagem: 'VCG', turno: releaseContext.turno, escalaTipo: releaseContext.escalaTipo };
+      const where = { scheduleId: i.scheduleId, dataOperacao: context.ciDate, garagem: releaseContext.garagem, turno: releaseContext.turno, escalaTipo: releaseContext.escalaTipo };
       const { existing, programmed, realized, history, row } = snapshots.get(i.scheduleId)!;
       const { garagem: _g, dataOperacao: _d, turno: _t, escalaTipo: _e, trocaCarro: _troca, confirmarBloqueadoCI: _confirmarCI, confirmarRepeticao: _confirmarRepeticao, historicoTrocas: _history, ...fields } = i;
       const data = { ...fields, ...where, userId, status: 'LIBERADO', carroProgramado: programmed, carroRealizado: realized,
@@ -222,6 +223,6 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
     return batch ? { count: records.length, items: records } : records[0];
   }, { isolationLevel: 'Serializable' });
   // Transporte de invalidacao compartilhado; nao consulta nem altera CI.
-  await notifyC4Updated('VCG', addDays(context.ciDate, -1));
+  await notifyC4Updated(releaseContext.garagem, addDays(context.ciDate, -1));
   return result;
 }

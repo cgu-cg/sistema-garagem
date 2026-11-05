@@ -1,3 +1,4 @@
+import { supportsReleaseContext } from './releaseSupport';
 import type { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
@@ -34,7 +35,7 @@ export async function treatReleaseCar(db: PrismaClient, userId: number | undefin
     assertReleaseStarted(sheetRecord);
     const assertDate = () => {
       const today = operationalContext(clock()).today;
-      if (context.garagem !== 'VCG' || context.dataOperacao !== today && !canEditHistoricalRelease(user?.role, context.dataOperacao, today, sheetRecord!.status))
+      if (!supportsReleaseContext(context) || context.dataOperacao !== today && !canEditHistoricalRelease(user?.role, context.dataOperacao, today, sheetRecord!.status))
         throw new MvpError(409, 'Tratativa exige a data da operacao ou edicao administrativa de folha anterior.');
     };
     assertDate();

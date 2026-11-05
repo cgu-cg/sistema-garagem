@@ -1,5 +1,24 @@
 # Domain model e entendimento operacional atual
 
+## Soltura VCM Seg–Sex matutina — 05/11/2026
+
+CONFIRMADO pelo usuario: a Soltura matutina VCM usa as 204 viagens do molde
+da Escala VCM Seg–Sex, sem marcacoes especiais dos prints. O JSON da Soltura
+nao fixa carros: busca pela linha e tabela a Escala finalizada da mesma data
+e garagem, incluindo substitutos. Inicio exige CI VCM e Escala finalizadas;
+despacho revalida origem certificada da CI, frota oficial VCM e autorizacao.
+O fluxo nao depende da habilitacao global C4/legado VCM: esta habilitacao e
+especifica da Soltura matutina, preservando as exigencias das fontes oficiais.
+
+Permite ADMIN ou perfil/grupo de Soltura vinculado a VCM, conforme permissoes
+existentes. Garagem VCG nao opera VCM. Mesmos comandos de MOTO, confirmacao,
+avisos CI/repeticao, substituicao/tratativa, limpeza, suspensao, finalizacao e
+relatorio. Somente ADMIN reabre; historico anterior continua protegido pelas
+regras existentes. Novas folhas fotografam vinculos; apenas pendentes podem
+acompanhar correcoes da Escala. Folhas antigas mantem suas viagens salvas.
+VCM vespertina, Sabado e Dom/Fer continuam sem despacho habilitado nesta etapa.
+Modelos/excecoes salvos no Trafego mantem prioridade. Sem schema novo ou SQL.
+
 ## Enter na folha de Soltura — 04/11/2026
 
 Com carro e MOTO preenchidos, Enter confirma a viagem. Somente apos sucesso

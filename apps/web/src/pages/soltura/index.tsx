@@ -1,3 +1,4 @@
+import { isVcmMorningRelease, supportsReleaseContext } from '@/lib/releaseSupport';
 import { CiUseConfirmationContext, useCiUseConfirmation } from './CiUseConfirmation';
 import { useReleaseDuplicateConfirmation } from './ReleaseDuplicateConfirmation';
 import { confirmReleaseWithKeyboard, focusNextReleaseCar } from './releaseKeyboard';
@@ -413,6 +414,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const permanentReady = Boolean(sharedScale && JSON.stringify(sharedScale.contexto) === scaleContextKey && !scaleError);
   const releaseProgramming = useReleaseProgramming({ garagem, escalaTipo, turno: escalaTipo === 'SEG_SEX' ? turnoTipo : 'PADRAO', dataOperacao }, ['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode));
   const releaseContext = { garagem, escalaTipo, turno: escalaTipo === 'SEG_SEX' ? turnoTipo : 'PADRAO' as const, dataOperacao };
+  const releaseTerminals = garagem === 'VCM' ? [...new Set(terminaisReservaVCM.map(row => row.terminal))] : TERMINAIS_PADRAO;
   const releaseLifecycle = useReleaseLifecycle(releaseContext, canDispatch(user) && ['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode));
   const releaseAvailability = releaseProgramming.data?.disponibilidade;
   const rawReleaseState = useMemo(() => releaseProgramming.data ? { ...releaseProgramming.data.escala,
@@ -455,7 +457,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const historicalEditable = canEditHistoricalRelease(user?.role, dataOperacao, operationalContext().today, releaseLifecycle.data?.status);
   const editingHistorical = historicalEditable && historicalEditKey === historicalContextKey;
   const [dispatchLoaded, setDispatchLoaded] = useState(false);
-  const releaseUiAllowed = canDispatch(user) && garagem === 'VCG' && (independentRelease || Boolean(ciC4Enabled)) && (dataOperacao === operationalContext().today || editingHistorical)
+  const releaseUiAllowed = canDispatch(user) && supportsReleaseContext(releaseContext) && (independentRelease || isVcmMorningRelease(releaseContext) || Boolean(ciC4Enabled)) && (dataOperacao === operationalContext().today || editingHistorical)
     && releaseLifecycle.data?.status === 'EM_ANDAMENTO' && !releaseLifecycle.pending
     && dispatchLoaded && !releaseProgramming.loading && Boolean(releaseProgramming.data && (independentRelease || (releaseProgramming.data.escalaFinalizada && releaseState?.fluxo?.ciFinalizada)));
   const reloadDailyScale = async () => {
@@ -1356,7 +1358,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   // Renderização reutilizável do Card de Reserva da Garagem Central (Separado e Independente)
   // Renderização reutilizável do Card de Reserva Terminal (para Painel Lateral Fixo e Impressão A4)
   const releaseLifecycleControl = (<ReleaseLifecycleBar withdrawalsPending={releaseAvailability?.substituidos?.filter(r => r.turno === releaseContext.turno && r.escalaTipo === releaseContext.escalaTipo).length ?? 0} state={releaseLifecycle.data} error={releaseLifecycle.error} pending={releaseLifecycle.pending || !dispatchLoaded || isSyncingDb}
-          allowed={canDispatch(user) && garagem === 'VCG'} admin={isAdmin} today={dataOperacao === operationalContext().today}
+          allowed={canDispatch(user) && supportsReleaseContext(releaseContext)} admin={isAdmin} today={dataOperacao === operationalContext().today}
           historicalEditable={historicalEditable} editingHistorical={editingHistorical}
           onEditHistorical={() => setHistoricalEditKey(editingHistorical ? null : historicalContextKey)}
           ready={Boolean(releaseProgramming.data && (independentRelease || (releaseProgramming.data.escalaFinalizada && releaseState?.fluxo?.ciFinalizada)))}
@@ -1382,7 +1384,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
         "gap-2.5",
         isPrint ? "grid grid-cols-4" : "grid grid-cols-1 sm:grid-cols-2"
       )}>
-        {TERMINAIS_PADRAO.map(termNome => {
+        {releaseTerminals.map(termNome => {
           const carrosDoTerminal = reservasTerminais.filter(r => r.terminal === termNome);
           return (
             <div
@@ -1446,18 +1448,18 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
   return (
     <CiUseConfirmationContext.Provider value={ciUse.gate}>{ciUse.dialog}{duplicateUse.dialog}<div className="space-y-5 animate-in fade-in duration-300 pb-16">
-      {!isCIView && viewMode !== 'ALTERAR_CARRO_PROGRAMADO' && (garagem !== 'VCG' || ciReadError) && <div role="alert" className="p-3 border rounded print:hidden">
+      {!isCIView && viewMode !== 'ALTERAR_CARRO_PROGRAMADO' && (!supportsReleaseContext(releaseContext) || ciReadError) && <div role="alert" className="p-3 border rounded print:hidden">
         {ciReadError && <p>{ciReadError}</p>}
-        {garagem !== 'VCG' && canReadScale(user) && (scaleError || (!sharedScale ? 'Carregando escala oficial...' : sharedScale.publicada ? 'Escala oficial carregada.' : 'Escala ainda nao publicada. Nenhum dado local foi importado.'))}
-        {garagem !== 'VCG' && !permanentReady && <p>Programacao base exibida para consulta. Alteracoes oficiais nao confirmadas; gravacoes e liberacoes bloqueadas.</p>}
-        {garagem !== 'VCG' && canReadScale(user) && <Button type="button" variant="outline" onClick={() => {
+        {!supportsReleaseContext(releaseContext) && canReadScale(user) && (scaleError || (!sharedScale ? 'Carregando escala oficial...' : sharedScale.publicada ? 'Escala oficial carregada.' : 'Escala ainda nao publicada. Nenhum dado local foi importado.'))}
+        {!supportsReleaseContext(releaseContext) && !permanentReady && <p>Programacao base exibida para consulta. Alteracoes oficiais nao confirmadas; gravacoes e liberacoes bloqueadas.</p>}
+        {!supportsReleaseContext(releaseContext) && canReadScale(user) && <Button type="button" variant="outline" onClick={() => {
           if (dailyDirtyFields.current.size && !window.confirm('Descartar as alteracoes digitadas da escala para consultar os dados oficiais?')) return;
           clearDailyDrafts(); setDailyScale(null);
           setDailyEditEpoch(value => value + 1);
           void reloadSharedScale(); void reloadDailyScale();
         }}>Recarregar escala</Button>}
-        {garagem !== 'VCG' && isAdmin && sharedScale && !sharedScale.publicada && <details><summary>Revisar programacao padrao antes de publicar</summary><ul>{defaultSchedules.map(i => <li key={i.id}>{i.linha} / {i.tabela} / {i.carroProgramado} / {i.saidaGaragem}</li>)}</ul></details>}
-        {garagem !== 'VCG' && isAdmin && sharedScale && !sharedScale.publicada && <Button type="button" onClick={async () => {
+        {!supportsReleaseContext(releaseContext) && isAdmin && sharedScale && !sharedScale.publicada && <details><summary>Revisar programacao padrao antes de publicar</summary><ul>{defaultSchedules.map(i => <li key={i.id}>{i.linha} / {i.tabela} / {i.carroProgramado} / {i.saidaGaragem}</li>)}</ul></details>}
+        {!supportsReleaseContext(releaseContext) && isAdmin && sharedScale && !sharedScale.publicada && <Button type="button" onClick={async () => {
           if (!window.confirm('Publicar a programacao padrao exibida na revisao da equipe? Nenhum dado de localStorage sera usado.')) return;
           const saved = await persistCustomSchedules(() => ({ [scheduleKey]: defaultSchedules }));
           if (saved) toast.success('Escala publicada no servidor.');
@@ -1642,7 +1644,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
             {/* 2. LADO DIREITO: COMPONENTE FIXO COM PENDURADOS, RESERVA GARAGEM E RESERVA TERMINAL */}
             <div className="min-w-0 xl:sticky xl:top-4 self-start space-y-4">
-              <ScaleFleetSidebar ciState={independentRelease ? eveningCIState : releaseState} ciError={independentRelease ? eveningCIError : undefined} state={releaseState} garage={garagem} betweenCards={releaseTreatmentCards} reserve={releaseState?.reserva.filter(prefixo => !activeSchedules.some(row => row.carroRealizado === prefixo) && !reservasTerminais.some(row => TERMINAIS_PADRAO.includes(row.terminal) && row.carro === prefixo))} />
+              <ScaleFleetSidebar ciState={independentRelease ? eveningCIState : releaseState} ciError={independentRelease ? eveningCIError : undefined} state={releaseState} garage={garagem} betweenCards={releaseTreatmentCards} reserve={releaseState?.reserva.filter(prefixo => !activeSchedules.some(row => row.carroRealizado === prefixo) && !reservasTerminais.some(row => releaseTerminals.includes(row.terminal) && row.carro === prefixo))} />
               {dataOperacao === operationalContext().today && renderCardReservaTerminal(false)}
             </div>
 
@@ -1811,7 +1813,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
                     RESERVA TERMINAL
                   </div>
                   <div className="grid grid-cols-2 gap-1 text-[6.5pt] font-mono">
-                    {TERMINAIS_PADRAO.map(term => {
+                    {releaseTerminals.map(term => {
                       const carros = reservasTerminais.filter(r => r.terminal === term);
                       return (
                         <div key={term} className="border border-neutral-300 p-1 rounded">
