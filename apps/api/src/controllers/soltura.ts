@@ -1,4 +1,5 @@
 import { treatReleaseCar } from '../services/releaseTreatment';
+import { reserveAction } from '../services/reserveAction';
 import { ReleaseDuplicateUseError } from '../services/releaseDuplicateUse';
 import { Response } from "express";
 import prisma from "../utils/prisma";
@@ -119,5 +120,14 @@ export async function treatCar(req: AuthRequest, res: Response) {
     if (error instanceof MvpError) return res.status(error.status).json({ error: error.message });
     if (error instanceof ZodError) return res.status(400).json({ error: 'Tratativa invalida. Recarregue a folha.' });
     return res.status(409).json({ error: 'Tratativa nao confirmada. Recarregue antes de tentar novamente.' });
+  }
+}
+
+export async function actOnReserve(req: AuthRequest, res: Response) {
+  try { return res.json(await reserveAction(prisma, req.userId, req.body)); }
+  catch (error) {
+    if (error instanceof MvpError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof ZodError) return res.status(400).json({ error: 'Informe o carro, contexto e descricao valida.' });
+    return res.status(503).json({ error: 'Ação da Reserva indisponível. Recarregue a folha ou contate o administrador.' });
   }
 }

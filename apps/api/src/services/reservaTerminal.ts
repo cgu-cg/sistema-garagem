@@ -16,8 +16,8 @@ export async function createReserva(db: PrismaClient, userId: number | undefined
     if (!userId || !canDispatch(user) || user?.role !== 'ADMIN' && user?.garagem !== garagem)
       throw new MvpError(403, 'Sem permissao para criar reserva nesta garagem.');
     const records = await tx.soltura.findMany({ where: { garagem, dataOperacao: day } });
-    if (releaseWithdrawals(records).some(r => r.prefixo === command.carro.trim()))
-      throw new MvpError(409, 'Carro pendente de tratativa ou bloqueado na Soltura.');
+    if (releaseWithdrawals(records).some(r => r.prefixo === command.carro.trim() && r.destino === 'BLOQUEAR'))
+      throw new MvpError(409, 'Carro bloqueado na Soltura.');
     const result = await tx.reservaTerminal.create({ data: { carro: command.carro.trim(), tipo: command.tipo.toUpperCase(),
       terminal: command.terminal.trim(), garagem, userId, dataHora: clock() }, include: { user: { select: { id: true, name: true } } } });
     if (operationalContext(clock()).today !== day) throw new MvpError(409, 'Data alterada durante a reserva. Recarregue.');

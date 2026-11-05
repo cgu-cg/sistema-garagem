@@ -43,7 +43,7 @@ export function appendReleaseExchange(history: unknown, anterior: string | null 
   if (!command) {
     const stamp = now.toISOString();
     return [...previous, { id: randomUUID(), carroAnterior: anterior, novoCarro: novo,
-      motivo: 'Aguardando tratativa', origem: 'SOLTURA', destino: 'PENDENTE',
+      motivo: 'Substituicao', origem: 'SOLTURA', destino: 'RESERVA',
       usuarioId: userId, registradoEm: stamp, dataHora: stamp }];
   }
   if (command.carroAnterior !== anterior) throw new MvpError(409, 'O carro realizado mudou em outro posto. Recarregue antes de trocar.');

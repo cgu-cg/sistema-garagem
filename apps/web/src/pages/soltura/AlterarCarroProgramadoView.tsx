@@ -12,7 +12,6 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { pendingScaleWithdrawals } from '@/lib/sharedEscala';
 import type { FixedScaleRow } from '@/lib/dailySchedule';
 import type { CardMutation, DailyEscala, ScaleCard, ScaleCardItem, ScaleWithdrawal, ScaleExchange } from '@/lib/sharedEscala';
 
@@ -28,6 +27,7 @@ interface Props {
   onSaveCard: (change: CardMutation) => Promise<boolean>;
   onTreatSubstitution?: (id: string, retirada: ScaleWithdrawal) => Promise<boolean>;
   treatmentReadOnly?: boolean;
+  onReserveSaved?: () => Promise<void>;
   onSelectGaragem?: (garage: 'VCG' | 'VCM') => void;
   onSelectEscalaTipo?: (tipo: 'SEG_SEX' | 'SABADO' | 'DOM_FER') => void;
 }
@@ -49,7 +49,7 @@ export function pickerOptions(state: DailyEscala | null, ownKey: string, allowCI
 }
 
 export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, readOnly = true, readOnlyReason, onEditingChange, garagem, escalaTipo,
-  schedules, official, onSaveSubstitution, onClearLine, onSaveCard, onTreatSubstitution, treatmentReadOnly = readOnly, onSelectGaragem, onSelectEscalaTipo }: Props) {
+  schedules, official, onSaveSubstitution, onClearLine, onSaveCard, onTreatSubstitution, onReserveSaved, treatmentReadOnly = readOnly, onSelectGaragem, onSelectEscalaTipo }: Props) {
   const [search, setSearch] = useState(''), [extended, setExtended] = useState(false);
   const [modal, setModal] = useState<{ card: ScaleCard; item?: ScaleCardItem } | null>(null);
   const [prefixo, setPrefixo] = useState('');
@@ -81,7 +81,6 @@ export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, read
   const suspended = schedules.filter(item => item.suspensa).length;
   const remaining = schedules.length - completed - suspended;
   const colorIds = ['AZUL', 'VERMELHO', 'MICRO', 'VERMELHO_AZUL', 'PRATA', 'OUTRO'];
-  const pendingWithdrawals = pendingScaleWithdrawals(official);
   const otherCards = official?.cards.filter(c => !colorIds.includes(c.id) && c.id !== 'SUBSTITUIDOS' && !c.id.startsWith('TERMINAL_')) ?? [];
   const terminalCards = official?.cards.filter(c => c.id.startsWith('TERMINAL_')) ?? [];
   const ciPending = Boolean(official?.fluxo && official.fluxo.status !== 'LEGADO' && !official.fluxo.ciFinalizada);
@@ -114,7 +113,7 @@ export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, read
         <div className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-muted/50 p-1">{(['SEG_SEX', 'SABADO', 'DOM_FER'] as const).map(t => <button key={t} type="button" onClick={() => onSelectEscalaTipo?.(t)} aria-pressed={escalaTipo === t} className={cn('shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-[11px] leading-none transition-colors', escalaTipo === t ? 'bg-[#164E3A] font-semibold text-white shadow-xs' : 'text-muted-foreground hover:text-foreground')}>{t === 'SEG_SEX' ? 'Seg-Sex' : t === 'SABADO' ? 'Sabado' : 'Dom/Fer'}</button>)}</div>
       </div>
     </div>
-    {readOnly && !ciPending && <p role="status" className="text-sm text-muted-foreground">{treatmentReadOnly ? readOnlyReason : 'As linhas estão em consulta. Os carros substituídos podem ser tratados pela portaria.'}</p>}
+    {readOnly && !ciPending && <p role="status" className="text-sm text-muted-foreground">{treatmentReadOnly ? readOnlyReason : 'As linhas estão em consulta. As ações da Reserva continuam disponíveis para a portaria.'}</p>}
     {Boolean(official?.foraMolde?.length) && <details className="rounded-2xl border border-amber-300 bg-amber-50/40 p-3 text-xs dark:bg-amber-950/20">
       <summary className="cursor-pointer font-semibold">Substituicoes anteriores em linhas que nao fazem parte do molde atual ({official?.foraMolde?.length})</summary>
       <p className="mt-2">Estes registros foram preservados e nao sao aplicados a outras linhas.</p>
@@ -131,6 +130,7 @@ export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, read
           <div className="flex flex-wrap items-center gap-3">
             <span className="inline-flex items-center gap-1.5"><VehicleAlertIcon aria-hidden="true" className="h-3 w-3 text-rose-600" />Bloqueados CI</span>
             <span className="inline-flex items-center gap-1.5"><VehicleAlertIcon aria-hidden="true" className="h-3 w-3 text-amber-500" />Reforço</span>
+            <span className="inline-flex items-center gap-1.5"><VehicleAlertIcon aria-hidden="true" className="h-3 w-3 text-blue-600" />Justificativas</span>
           </div>
           <div role="status" className="ml-auto flex items-center gap-3 whitespace-nowrap font-mono">
             <span>Feito: <strong className="text-[#164E3A] dark:text-emerald-400">{String(completed).padStart(2, '0')}</strong></span>
@@ -142,12 +142,7 @@ export function AlterarCarroProgramadoView({ dateControl, lifecycleControl, read
         <div className="p-2"><Button type="button" variant="outline" className="w-full text-xs" onClick={() => setExtended(v => !v)}>{extended ? <ChevronUp className="h-3 w-3 mr-2" /> : <ChevronDown className="h-3 w-3 mr-2" />}{extended ? 'Recolher lista' : 'Estender toda a lista'} ({filtered.length} horarios)</Button></div>
       </div>
       <div className="min-w-0 space-y-4">
-        <ScaleFleetSidebar state={official} garage={garagem} betweenCards={<div className={surface}>
-          <h3 className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide"><Bus className="h-3.5 w-3.5 text-[#164E3A]" />SUBSTITUIDOS ({pendingWithdrawals.length})</h3>
-          <div className="flex flex-wrap gap-1.5">{pendingWithdrawals.map(t => <button key={t.id} type="button" disabled={treatmentReadOnly || saving} aria-label={'Tratar carro substituido ' + t.prefixo}
-            className="rounded-full border border-border bg-muted/30 px-2 py-0.5 text-xs font-mono disabled:cursor-default" onClick={() => { setTreatment(t); onEditingChange?.('modal-tratamento', true); }}><ScaleVehiclePrefix state={official} prefixo={t.prefixo} /></button>)}</div>
-          {!pendingWithdrawals.length && <p className="text-[10px] italic text-muted-foreground">Nenhum carro aguardando tratamento.</p>}
-        </div>} />
+        <ScaleFleetSidebar state={official} garage={garagem} readOnly={treatmentReadOnly} onReserveSaved={onReserveSaved} />
         {otherCards.filter(card => card.id === 'PORTARIA').map(renderCard)}
         {terminalCards.length > 0 && <div className={surface}>
           <div className="flex items-center justify-between gap-2"><h3 className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide"><MapPin aria-hidden="true" className="h-3.5 w-3.5 text-[#164E3A] dark:text-emerald-400" />RESERVA TERMINAL</h3><span className="text-[9px] font-mono text-muted-foreground">Garagem {garagem}</span></div>

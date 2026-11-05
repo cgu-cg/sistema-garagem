@@ -226,7 +226,7 @@ export function CarroTrocaPopover({
               />
             </div>
 
-            <p className="text-xs text-muted-foreground">Se nao continuar em outra linha, o carro anterior ira para Substituidos para receber uma tratativa.</p>
+            <p className="text-xs text-muted-foreground">O carro anterior volta para a Reserva quando nao estiver em uso em outra linha ou bloqueado.</p>
             <Button
               type="submit"
               disabled={isReadOnly || saving || !novoCarro.trim()}

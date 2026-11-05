@@ -21,6 +21,8 @@ export interface SolturaItem {
 }
 
 export interface BloqueioCarro {
+  bloqueadoPortaria?: boolean;
+  usadoPortaria?: boolean;
   chaveItem?: string;
   tipoPosicao?: 'FIXO' | 'EXTRA' | null;
   ordemPosicao?: number | null;

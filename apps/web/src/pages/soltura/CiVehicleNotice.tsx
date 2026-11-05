@@ -19,7 +19,7 @@ export function ciNoticesFor(state: DailyEscala | null, prefixo: string) {
 export function vehicleNoticeFlags(state: DailyEscala | null, prefixo: string, _warning?: string, substitution?: unknown) {
   return { blocked: Boolean(state?.bloqueados.includes(prefixo)),
     requested: ciNoticesFor(state, prefixo).length > 0,
-    defect: Boolean(substitution || state?.defeitosGaragem?.some(d => d.prefixo === prefixo)) };
+    defect: Boolean(state?.justificativas?.some(j => j.prefixo === prefixo) || substitution || state?.defeitosGaragem?.some(d => d.prefixo === prefixo)) };
 }
 export function VehicleNoticeIcons({ blocked, requested, defect }: ReturnType<typeof vehicleNoticeFlags>) {
   return <span className="pointer-events-none absolute -right-2 -top-2 inline-flex items-center -space-x-1">
@@ -36,7 +36,8 @@ export function CiVehicleNotice({ state, prefixo, warning, children, hideIcon = 
   const notices = ciNoticesFor(state, prefixo);
   const troca = state?.historicoTrocas?.filter(t => t.prefixo === prefixo).slice(-1)[0];
   const defeito = state?.defeitosGaragem?.find(d => d.prefixo === prefixo) ?? (defectDescription ? { descricao: defectDescription } : undefined);
-  const blue = Boolean(defeito || substitution);
+  const justificativa = state?.justificativas?.filter(j => j.prefixo === prefixo).slice(-1)[0];
+  const blue = Boolean(justificativa || defeito || substitution);
   const blockedCI = Boolean(state?.bloqueados.includes(prefixo));
   const blockedPortaria = Boolean(state?.cards.find(c => c.id === 'PORTARIA')?.itens.some(i => i.prefixo === prefixo));
   const blocked = blockedCI || blockedPortaria;
@@ -70,16 +71,17 @@ export function CiVehicleNotice({ state, prefixo, warning, children, hideIcon = 
       <p className={'text-xs font-bold ' + (red ? 'text-rose-600' : blue ? 'text-blue-600' : 'text-amber-600')}>Carro {prefixo} • {source}</p>
       {description && <p className="mt-2 text-xs">{description}</p>}
       {red && <p className="mt-2 text-xs font-semibold">{warning || (state?.bloqueados.includes(prefixo) ? 'Bloqueado na CI.' : 'Bloqueado na Portaria.')}</p>}
-      {defeito && <p className="mt-2 text-xs"><strong>Defeito Garagem:</strong> {defeito.descricao}</p>}
+      {defeito && <p className="mt-2 text-xs"><strong>Justificativas:</strong> {defeito.descricao}</p>}
       {substitution && <div className="mt-2 space-y-1 text-xs">
-        <p className="font-semibold">Substituição por Defeito Garagem: {substitution.carroAnterior} → {prefixo}</p>
+        <p className="font-semibold">Justificativa da substituição: {substitution.carroAnterior} → {prefixo}</p>
         {substitution.descricaoDefeito && <p>{substitution.descricaoDefeito}</p>}
       </div>}
       {troca && <div className="mt-2 space-y-1 border-t pt-2 text-xs">
         {troca.motivo && <p className="font-semibold">Motivo da substituição: {troca.motivo}</p>}
         <p>Substituído pelo carro {troca.substituto}. Destino: {troca.destino === 'PENDENTE' ? 'Aguardando tratamento da portaria' : troca.destino === 'RESERVA' ? 'Reserva' : 'Bloqueados Portaria'}.</p>
       </div>}
-      <ul className="mt-2 space-y-2 text-xs">{notices.map((item, index) => <li key={index}>
+      <ul className="mt-2 space-y-2 text-xs">{justificativa && <li className="text-xs text-blue-700"><strong>Justificativa: </strong>{justificativa.descricao}</li>}
+      {notices.map((item, index) => <li key={index}>
         <p className="font-semibold">{sections[item.categoria]}</p>
         {item.subTipo && <p>{subtypes[item.subTipo] ?? item.subTipo}</p>}
         {item.horario && <p>Horário: {item.horario}</p>}

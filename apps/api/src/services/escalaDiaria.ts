@@ -1,3 +1,4 @@
+import { portariaMetadata } from './portariaEvents';
 import { ciUseSchema, ciUseCommandSchema, authorizeCiUse } from './ciUseConfirmation';
 import legacyVcmWeekdays from '../data/escala-carros/vcm/seg-sex-legado.json';
 import { lineClearAuditSchema } from './lineClearAudit';
@@ -137,11 +138,14 @@ export async function readEscalaDiaria(db: PrismaClient, value: unknown, userId:
       source = { ...projectCiBlocks(previous, previous.dataFolha.toISOString().slice(0, 10), frota), ciAvisos: [] };
       ciProvisoria = true;
     }
+    const portaria = await portariaMetadata(tx, contexto, 'ESCALA');
+    const newBlocks = (currentCI?.itens ?? []).filter(i => i.categoria === 'BLOQUEADO' && i.statusItem !== 'LIBERADO' && portaria.ciPortaria.some(p => p.prefixo === i.prefixo && p.bloqueadoPortaria)).map(i => i.prefixo);
+    source = { ...source, bloqueados: [...new Set([...source.bloqueados, ...newBlocks])] };
     const programacao = state.programacao ?? (record ? fixedSchedule(contexto) : await dateProgramming(tx, 'ESCALA', contexto));
     const defaults = defaultAllocations(contexto.garagem, frota, source.bloqueados, programacao, state.itens);
     return { ...project(contexto, record?.revisao ?? 0, state.itens, state.cards ?? (legacy ? defaults.cards : cleanCards(contexto, frota, programacao)), frota, source,
       state.cards ? 'salvo' : 'padrao', legacy && !state.cards ? defaults.omitted : 0, state.confirmacoes, colorCache, programacao),
-      historicoTrocas: state.historicoTrocas, ciProvisoria, fluxo: flowView(state.fluxo, Boolean(record), live.ciFinalizada, await nextScaleStarted(tx, contexto)) };
+      ...portaria, historicoTrocas: state.historicoTrocas, ciProvisoria, fluxo: flowView(state.fluxo, Boolean(record), live.ciFinalizada, await nextScaleStarted(tx, contexto)) };
   }, { isolationLevel: 'Serializable' });
 }
 export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefined, value: unknown, loadFleet: FleetLoader = officialFleet, loadColors: ColorLoader = loadColorCache, clock = () => new Date()) {
@@ -196,7 +200,7 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
       if (old) await tx.escalaDiaria.update({ where: { id: old.id }, data });
       else await tx.escalaDiaria.create({ data: { ...contexto, ...data } });
       assertDate();
-      return { ...project(contexto, data.revisao, itens, cards, frota, source, 'salvo', 0, confirmacoes, colorCache, fixed),
+      return { ...await portariaMetadata(tx, contexto, 'ESCALA'), ...project(contexto, data.revisao, itens, cards, frota, source, 'salvo', 0, confirmacoes, colorCache, fixed),
         historicoTrocas, fluxo: flowView(fluxo, true, source.ciFinalizada, nextStarted) };
     }
     const itens = state.itens;
@@ -289,7 +293,7 @@ export async function saveEscalaDiaria(db: PrismaClient, userId: number | undefi
     else await tx.escalaDiaria.create({ data: { ...contexto, ...data } });
     assertDate();
     const presentationSource = treating && state.fluxo?.status === 'FINALIZADA' ? state.fluxo.fonteCI : source;
-    return { ...project(contexto, data.revisao, itens, cards, frota, presentationSource, 'salvo', 0, confirmacoes, colorCache, fixed),
+    return { ...await portariaMetadata(tx, contexto, 'ESCALA'), ...project(contexto, data.revisao, itens, cards, frota, presentationSource, 'salvo', 0, confirmacoes, colorCache, fixed),
       historicoTrocas, fluxo: flowView(payload.fluxo!, true, source.ciFinalizada, nextStarted) };
   }, { isolationLevel: 'Serializable' });
   if (operation !== 'editar' || treating) await notifyC4Updated(contexto.garagem, addDays(contexto.dataOperacao, -1));

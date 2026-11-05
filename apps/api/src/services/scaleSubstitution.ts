@@ -32,11 +32,8 @@ export function registerScaleWithdrawal(args: {
     if (!frota.includes(anterior)) throw new MvpError(409, 'Carro retirado fora da frota oficial.');
     if (occupations(fixed, itens, cards).some(o => o.prefixo === anterior && !o.chave.startsWith('card:PORTARIA:')))
       throw new MvpError(409, 'Carro retirado ainda esta alocado.');
-    let pending = cards.find(c => c.id === 'SUBSTITUIDOS');
-    if (!pending) { pending = { id: 'SUBSTITUIDOS', titulo: 'SUBSTITUIDOS', modo: 'lista', itens: [] }; cards.push(pending); }
-    const id = randomUUID(); pending.itens.push({ id, prefixo: anterior });
-    return scaleExchangeSchema.parse({ id, prefixo: anterior, substituto, linhaId: args.linhaId,
-      destino: 'PENDENTE', motivo: '', usuarioId: args.usuarioId, registradoEm: args.agora.toISOString() });
+    return scaleExchangeSchema.parse({ id: randomUUID(), prefixo: anterior, substituto, linhaId: args.linhaId,
+      destino: 'RESERVA', motivo: 'Substituicao', usuarioId: args.usuarioId, registradoEm: args.agora.toISOString() });
   }
   if (retirada.prefixo !== anterior) throw new MvpError(409, 'O carro da linha mudou. Recarregue e revise a substituicao.');
   if (!frota.includes(anterior)) throw new MvpError(409, 'Carro retirado fora da frota oficial desta garagem.');
@@ -88,6 +85,10 @@ export function returnFixedToSubstituted(args: {
   const pending = registerScaleWithdrawal({ ...args, anterior: args.prefixo,
     substituto: args.substituto || previous.substituto });
   if (!pending) throw new MvpError(409, 'Carro fixo ainda atribuido a esta linha.');
+  // Comando legado explicito; trocas normais seguem direto para Reserva.
+  pending.destino = 'PENDENTE'; pending.motivo = '';
+  if (!args.cards.some(c => c.id === 'SUBSTITUIDOS')) args.cards.push({ id: 'SUBSTITUIDOS', titulo: 'Substituidos', modo: 'lista', itens: [] });
+  args.cards.find(c => c.id === 'SUBSTITUIDOS')?.itens.push({ id: pending.id, prefixo: pending.prefixo });
   args.historico.push(pending);
   return { origem: previous, pendente: pending };
 }

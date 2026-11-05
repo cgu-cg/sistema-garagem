@@ -60,11 +60,11 @@ test('cards isolam turno e tipo, mas bloqueios e pendencias de outras folhas imp
  const morning = releaseFleetProjection(scale, programming, records, context);
  assert.deepEqual(morning.substituidos.map(r => r.prefixo), ['4000']);
  assert.deepEqual(morning.bloqueadosPortaria, []);
- assert.ok(!morning.reserva.includes('4002')); assert.ok(!morning.reserva.includes('4003'));
+ assert.ok(!morning.reserva.includes('4002')); assert.ok(morning.reserva.includes('4003'));
  const evening = releaseFleetProjection(scale, [], records, { ...context, turno: 'VESPERTINO' });
  assert.deepEqual(evening.substituidos, []);
  assert.deepEqual(evening.bloqueadosPortaria.map(r => r.prefixo), ['4002']);
- assert.ok(!evening.reserva.includes('4000')); assert.ok(!evening.reserva.includes('4003'));
+ assert.ok(!evening.reserva.includes('4000')); assert.ok(evening.reserva.includes('4003'));
  const saturday = releaseFleetProjection(scale, [], records, { escalaTipo: 'SABADO', turno: 'PADRAO' });
  assert.deepEqual(saturday.substituidos.map(r => r.prefixo), ['4003']); assert.deepEqual(saturday.bloqueadosPortaria, []);
  const sunday = releaseFleetProjection(scale, [], records, { escalaTipo: 'DOM_FER', turno: 'PADRAO' });

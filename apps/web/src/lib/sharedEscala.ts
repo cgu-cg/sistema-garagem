@@ -25,6 +25,8 @@ export type CiUse = z.infer<typeof ciUseSchema>;
 export interface DailyEscala { usosBloqueadosCI?: CiUse[]; programacao?: TrafficRow[]; contexto: EscalaContext & { dataOperacao: string }; revisao: number;
   // Anotacao de apresentacao da Soltura; nao altera a fotografia da Escala.
   defeitosGaragem?: { prefixo: string; descricao: string }[];
+  justificativas?: { prefixo: string; descricao: string; registradoEm: string }[];
+  ciPortaria?: { prefixo: string; bloqueadoPortaria: boolean; usadoPortaria: boolean }[];
   historicoTrocas?: ScaleExchange[];
   ciProvisoria?: boolean;
   fluxo?: { status: 'NAO_INICIADA' | 'EM_PREPARACAO' | 'FINALIZADA' | 'LEGADO'; ciFinalizada: boolean;
@@ -68,6 +70,8 @@ const dailyResponseSchema = z.object({
   itens: z.array(z.object({ id: z.string().min(1), carroSubstituido: z.string().regex(/^(\d{1,10})?$/), suspensa: z.boolean().optional() }).strict()).max(2000),
   cards: z.array(z.object({ id: z.string(), titulo: z.string(), modo: z.enum(['lista', 'unico', 'rabicho']), itens: z.array(z.object({ id: z.string(),
     prefixo: z.string().regex(/^(\d{1,10})?$/), linha: z.string().optional(), tabela: z.string().optional(), horario: z.string().optional() }).strict()) }).strict()),
+  justificativas: z.array(z.object({ prefixo: prefixSchema, descricao: z.string(), registradoEm: z.string() }).strict()).optional(),
+  ciPortaria: z.array(z.object({ prefixo: prefixSchema, bloqueadoPortaria: z.boolean(), usadoPortaria: z.boolean() }).strict()).optional(),
   frota: z.array(prefixSchema), bloqueados: z.array(prefixSchema), reserva: z.array(prefixSchema),
   ocupacoes: z.array(z.object({ prefixo: prefixSchema, local: z.string(), chave: z.string() }).strict()),
   ciData: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), cardsOrigem: z.enum(['padrao', 'salvo']), omitidosPadrao: z.number().int().nonnegative(),

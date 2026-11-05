@@ -117,7 +117,8 @@ test('trocar carro compartilhado nao cria retirada ate a ultima linha deixar de 
   assert.deepEqual(releaseWithdrawals(f.rows()), []);
   assert.equal(JSON.parse(f.rows()[0].historicoTrocas)[0].destino, 'DESFEITO');
   await f.write(f.entry(1, '4002', '789'));
-  assert.deepEqual(releaseWithdrawals(f.rows()).map(r => r.prefixo), ['4000']);
+  assert.deepEqual(releaseWithdrawals(f.rows()), []);
+  assert.ok(f.rows().some(r => JSON.parse(r.historicoTrocas ?? '[]').some(e => e.carroAnterior === '4000' && e.destino === 'RESERVA')));
 });
 
 test('troca de todas as linhas compartilhadas em lote gera uma unica tratativa do carro retirado', async () => {
@@ -125,24 +126,30 @@ test('troca de todas as linhas compartilhadas em lote gera uma unica tratativa d
   const aviso = await f.notice({ items }, true);
   await f.write({ items, confirmarRepeticao: aviso.token }, true);
   await f.write({ items: [f.entry(0, '4001', '456'), f.entry(1, '4002', '789')] }, true);
-  assert.deepEqual(releaseWithdrawals(f.rows()).map(r => r.prefixo), ['4000']);
+  assert.deepEqual(releaseWithdrawals(f.rows()), []);
+  assert.ok(f.rows().some(r => JSON.parse(r.historicoTrocas ?? '[]').some(e => e.carroAnterior === '4000' && e.destino === 'RESERVA')));
 });
 
 test('Soltura usa bloqueado CI somente com confirmacao, audita e preserva motorista sem confirmar outra vez', async () => {
   const f = fixture(), clock = () => eventInstant(target, 4);
+  const portaria: any[] = [];
+  f.db.ciPortariaEvento = { create: async ({ data }: any) => { portaria.push(data); return data; } };
   const sheet: any = { ...await f.db.folhaSoltura.findUnique({ where: { garagem_escalaTipo_turno_dataOperacao: context } }), id: 7, revisao: 1 };
   f.db.folhaSoltura.findUnique = async () => sheet;
   f.db.folhaSoltura.update = async ({ data }: any) => Object.assign(sheet, data);
-  f.ci.push({ prefixo: '4000', categoria: 'BLOQUEADO', statusItem: 'BLOQUEADO' });
+  f.ci.push({ folhaId: 2, chaveItem: '11111111-1111-4111-8111-111111111111', prefixo: '4000', categoria: 'BLOQUEADO', statusItem: 'BLOQUEADO' });
   await assert.rejects(writeSafeRelease(f.db, 1, body, false, clock, () => ['VCG']), reason('VEICULO_BLOQUEADO_NA_CI'));
   await assert.rejects(writeSafeRelease(f.db, 1, { ...body, confirmarBloqueadoCI: '4001' }, false, clock, () => ['VCG']), /outro carro/);
   await writeSafeRelease(f.db, 1, { ...body, confirmarBloqueadoCI: '4000' }, false, clock, () => ['VCG']);
   let saved = JSON.parse(sheet.conteudo);
   assert.equal(saved.usosBloqueadosCI[0].prefixo, '4000'); assert.equal(saved.usosBloqueadosCI[0].usuarioId, 1);
   assert.equal(saved.usosBloqueadosCI[0].linhaId, first.id); assert.equal(f.ci[0].statusItem, 'BLOQUEADO');
+  assert.equal(portaria.length, 1); assert.equal(portaria[0].tipo, 'USO_CI'); assert.equal(portaria[0].folhaId, 2);
+  assert.equal(portaria[0].itemChave, f.ci[0].chaveItem); assert.equal(portaria[0].dataOperacao, target);
   assert.ok(saved.limpezas.some((a: any) => JSON.parse(a.anterior).operacao === 'USO_BLOQUEADO_CI'));
   await writeSafeRelease(f.db, 1, { ...body, driverCode: '999' }, false, clock, () => ['VCG']);
   assert.equal(f.rows()[0].driverCode, '999');
+  assert.equal(portaria.length, 1, 'alterar apenas MOTO nao duplica a flag de uso');
   await clearReleaseLine(f.db, 1, { contexto: context, scheduleId: first.id, revisao: sheet.revisao, base: releaseLineToken(f.rows()[0]) }, clock);
   saved = JSON.parse(sheet.conteudo); assert.deepEqual(saved.usosBloqueadosCI, []);
   await assert.rejects(writeSafeRelease(f.db, 1, body, false, clock, () => ['VCG']), reason('VEICULO_BLOQUEADO_NA_CI'));
@@ -410,7 +417,7 @@ test('equivoco registra troca sem criar defeito; cliente nao pode inventar histo
  const forged = [{ carroAnterior: '4001', motivo: 'Defeito Garagem' }];
  const initial: any = await writeSafeRelease(f.db, 1, { ...body, historicoTrocas: forged }, false, clock, () => ['VCG']);
  assert.equal(JSON.parse(initial.historicoTrocas).length, 1);
- assert.equal(JSON.parse(initial.historicoTrocas)[0].destino, 'PENDENTE');
+ assert.equal(JSON.parse(initial.historicoTrocas)[0].destino, 'RESERVA');
  assert.notEqual(JSON.parse(initial.historicoTrocas)[0].carroAnterior, '4001');
  const saved: any = await writeSafeRelease(f.db, 1, { ...body, carroRealizado: '4001', trocaCarro: { carroAnterior: '4000', motivo: 'Adicionado equivocadamente' } }, false, clock, () => ['VCG']);
  assert.equal(JSON.parse(saved.historicoTrocas).at(-1).motivo, 'Adicionado equivocadamente');
@@ -562,7 +569,7 @@ test('primeiro preenchimento com outro realizado retira programado oficial; so m
   const saved: any = await writeSafeRelease(f.db, 1, body, false, clock, () => ['VCG']);
   const first = JSON.parse(saved.historicoTrocas);
   assert.equal(first.length, 1); assert.equal(first[0].carroAnterior, saved.carroProgramado);
-  assert.equal(first[0].novoCarro, '4000'); assert.equal(first[0].destino, 'PENDENTE');
+  assert.equal(first[0].novoCarro, '4000'); assert.equal(first[0].destino, 'RESERVA');
   const g = fixture();
   const same: any = await writeSafeRelease(g.db, 1, { ...body, carroRealizado: '' }, false, clock, () => ['VCG']);
   assert.equal(same.carroRealizado, same.carroProgramado); assert.deepEqual(JSON.parse(same.historicoTrocas), []);

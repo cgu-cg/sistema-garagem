@@ -41,7 +41,7 @@ export function occupations(lines: FixedLine[], substitutions: Substitution[], c
   const replacements = new Map(substitutions.map(s => [s.id, s.carroSubstituido]));
   const result: Occupation[] = lines.map(l => ({ prefixo: replacements.get(l.id) ?? l.carroProgramado,
     local: `Linha ${l.linha} / Tab ${l.tabela}`, chave: `linha:${l.id}` })).filter(o => /^\d{1,10}$/.test(o.prefixo));
-  for (const card of cards.filter(c => !isColorReserveCard(c.id))) for (const item of card.itens) if (item.prefixo)
+  for (const card of cards.filter(c => !isColorReserveCard(c.id) && c.id !== 'SUBSTITUIDOS')) for (const item of card.itens) if (item.prefixo)
     result.push({ prefixo: item.prefixo, local: card.titulo, chave: `card:${card.id}:${item.id}` });
   return result;
 }

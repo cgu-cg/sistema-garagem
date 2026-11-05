@@ -2165,6 +2165,8 @@ export function CiManutencaoView({
                                 </td>
                                 <td className="py-1.5 px-1.5 font-sans text-[11px] text-foreground font-medium">
                                   {item.motivo}
+                                  {item.bloqueadoPortaria && <span className="ml-1 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] text-rose-700 dark:bg-rose-950 dark:text-rose-300">Bloqueado Portaria</span>}
+                                  {item.usadoPortaria && <span className="ml-1 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] text-violet-700 dark:bg-violet-950 dark:text-violet-300">Usado Portaria</span>}
                                 </td>
                                 <td className="py-1.5 px-1.5 text-[10px] text-muted-foreground font-mono">
                                   {formatarDataBr(ciBlockDate(item, reportC4))}

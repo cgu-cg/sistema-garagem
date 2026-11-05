@@ -1038,7 +1038,6 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   const checkBloqueioCI = useCallback((prefixo?: string) => {
     if (!prefixo) return null;
     if (['FOLHA', 'HISTORICO', 'CARRO_REALIZADO'].includes(viewMode)) {
-      if (releaseAvailability?.substituidos?.some(r => r.prefixo === prefixo)) return { prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, motivo: 'Aguardando tratativa em Substituidos', data: dataOperacao };
       const defeito = releaseAvailability?.defeitosGaragem.find(d => d.prefixo === prefixo);
       if (defeito) return { prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, motivo: 'Bloqueado Portaria: ' + defeito.descricao, data: dataOperacao };
       if (releaseState?.cards.find(c => c.id === 'PORTARIA')?.itens.some(i => i.prefixo === prefixo)) return { prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, motivo: 'Bloqueado na Portaria', data: dataOperacao };
@@ -1357,7 +1356,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
   // Renderização reutilizável do Card de Pendurados (para Painel Lateral Fixo e Impressão A4)
   // Renderização reutilizável do Card de Reserva da Garagem Central (Separado e Independente)
   // Renderização reutilizável do Card de Reserva Terminal (para Painel Lateral Fixo e Impressão A4)
-  const releaseLifecycleControl = (<ReleaseLifecycleBar withdrawalsPending={releaseAvailability?.substituidos?.filter(r => r.turno === releaseContext.turno && r.escalaTipo === releaseContext.escalaTipo).length ?? 0} state={releaseLifecycle.data} error={releaseLifecycle.error} pending={releaseLifecycle.pending || !dispatchLoaded || isSyncingDb}
+  const releaseLifecycleControl = (<ReleaseLifecycleBar withdrawalsPending={0} state={releaseLifecycle.data} error={releaseLifecycle.error} pending={releaseLifecycle.pending || !dispatchLoaded || isSyncingDb}
           allowed={canDispatch(user) && supportsReleaseContext(releaseContext)} admin={isAdmin} today={dataOperacao === operationalContext().today}
           historicalEditable={historicalEditable} editingHistorical={editingHistorical}
           onEditHistorical={() => setHistoricalEditKey(editingHistorical ? null : historicalContextKey)}
@@ -1517,7 +1516,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
             {/* 1. LADO ESQUERDO: TABELA ÚNICA DE HORÁRIOS (fixo no topo da tela com scroll) */}
             <div className="min-w-0 border rounded-2xl overflow-hidden shadow-2xs bg-card border-border/80 sticky top-4 self-start z-10">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 text-xs text-muted-foreground">
-                <div className="flex flex-wrap gap-3">{!independentRelease && <><span className="inline-flex items-center gap-1.5"><VehicleAlertIcon className="h-3 w-3 text-rose-600" />Bloqueados CI</span><span className="inline-flex items-center gap-1.5"><VehicleAlertIcon className="h-3 w-3 text-amber-500" />Reforço</span></>}<span className="inline-flex items-center gap-1.5"><VehicleAlertIcon className="h-3 w-3 text-blue-600" />Defeito Garagem</span></div>
+                <div className="flex flex-wrap gap-3">{!independentRelease && <><span className="inline-flex items-center gap-1.5"><VehicleAlertIcon className="h-3 w-3 text-rose-600" />Bloqueados CI</span><span className="inline-flex items-center gap-1.5"><VehicleAlertIcon className="h-3 w-3 text-amber-500" />Reforço</span></>}<span className="inline-flex items-center gap-1.5"><VehicleAlertIcon className="h-3 w-3 text-blue-600" />Justificativas</span></div>
                 <div className="flex gap-3 font-mono"><span>Feito: <strong className="text-emerald-700">{String(stats.liberados).padStart(2, '0')}</strong></span><span>Falta: <strong>{String(stats.pendentes).padStart(2, '0')}</strong></span>{stats.suspensas > 0 && <span className="text-rose-700">Suspensas: <strong>{stats.suspensas}</strong></span>}</div>
               </div>
 
@@ -1644,7 +1643,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
             {/* 2. LADO DIREITO: COMPONENTE FIXO COM PENDURADOS, RESERVA GARAGEM E RESERVA TERMINAL */}
             <div className="min-w-0 xl:sticky xl:top-4 self-start space-y-4">
-              <ScaleFleetSidebar ciState={independentRelease ? eveningCIState : releaseState} ciError={independentRelease ? eveningCIError : undefined} state={releaseState} garage={garagem} betweenCards={releaseTreatmentCards} reserve={releaseState?.reserva.filter(prefixo => !activeSchedules.some(row => row.carroRealizado === prefixo) && !reservasTerminais.some(row => releaseTerminals.includes(row.terminal) && row.carro === prefixo))} />
+              <ScaleFleetSidebar ciState={independentRelease ? eveningCIState : releaseState} ciError={independentRelease ? eveningCIError : undefined} state={releaseState} garage={garagem} betweenCards={releaseTreatmentCards} modulo="SOLTURA" operationContext={releaseContext} readOnly={!releaseUiAllowed || dataOperacao !== operationalContext().today} onReserveSaved={async () => { await Promise.all([releaseProgramming.reload(), releaseLifecycle.reload()]); }} reserve={releaseState?.reserva.filter(prefixo => !activeSchedules.some(row => row.carroRealizado === prefixo) && !reservasTerminais.some(row => releaseTerminals.includes(row.terminal) && row.carro === prefixo))} />
               {dataOperacao === operationalContext().today && renderCardReservaTerminal(false)}
             </div>
 
@@ -1868,7 +1867,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
 
               <div className="grid grid-cols-10 gap-4 items-stretch">
                 <div className="col-span-3">
-                  <ScaleFleetSidebar ciState={independentRelease ? eveningCIState : releaseState} ciError={independentRelease ? eveningCIError : undefined} state={releaseState} garage={garagem} betweenCards={releaseTreatmentCards} />
+                  <ScaleFleetSidebar ciState={independentRelease ? eveningCIState : releaseState} ciError={independentRelease ? eveningCIError : undefined} state={releaseState} garage={garagem} betweenCards={releaseTreatmentCards} modulo="SOLTURA" operationContext={releaseContext} readOnly={!releaseUiAllowed || dataOperacao !== operationalContext().today} onReserveSaved={async () => { await Promise.all([releaseProgramming.reload(), releaseLifecycle.reload()]); }} />
                 </div>
                 <div className="col-span-7">
                   {dataOperacao === operationalContext().today && renderCardReservaTerminal(true)}
@@ -2019,7 +2018,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           dispatches={dispatches}
           onSaveDispatch={handleSaveDispatchFromView}
           onTrocarCarro={handleTrocarCarro}
-          ciList={releaseState ? [...(releaseState.cards.find(c => c.id === 'PORTARIA')?.itens ?? []).map(i => ({ prefixo: i.prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, data: dataOperacao, motivo: 'Bloqueado na Portaria' })), ...(releaseAvailability?.defeitosGaragem ?? []).map(d => ({ prefixo: d.prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, data: dataOperacao, motivo: d.descricao })), ...(releaseAvailability?.substituidos ?? []).map(d => ({ prefixo: d.prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, data: dataOperacao, motivo: 'Aguardando tratativa em Substituidos' }))] : []}
+          ciList={releaseState ? [...(releaseState.cards.find(c => c.id === 'PORTARIA')?.itens ?? []).map(i => ({ prefixo: i.prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, data: dataOperacao, motivo: 'Bloqueado na Portaria' })), ...(releaseAvailability?.defeitosGaragem ?? []).map(d => ({ prefixo: d.prefixo, tipo: 'BLOQUEADO_CORRETIVA' as const, data: dataOperacao, motivo: d.descricao }))] : []}
           scaleState={releaseState}
           readOnly={!releaseUiAllowed}
         />
@@ -2128,6 +2127,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
           }}>Recarregar substituicoes</Button>
         </div>}
         <AlterarCarroProgramadoView
+          onReserveSaved={async () => { await reloadDailyScale(); }}
           key={`${dailyContextKey}:${dailyEditEpoch}`}
           lifecycleControl={<DailyScaleLifecycle state={dailyReady ? dailyScale : null} allowed={canWriteDailyScale(user, garagem)} editableDate={dailyDateEditable}
             pending={dailyLifecyclePending || !dailyReady} dirty={dailyHasDrafts} onChange={operation => void changeScaleLifecycle(operation)}

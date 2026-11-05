@@ -14,13 +14,13 @@ export function releaseFleetProjection(scale: { frota: string[]; reserva: string
   const substituidos = retiradas.filter(r => r.destino === 'PENDENTE' && r.turno === context.turno && r.escalaTipo === context.escalaTipo);
   const bloqueadosPortaria = retiradas.filter(r => r.destino === 'BLOQUEAR' && r.turno === context.turno && r.escalaTipo === context.escalaTipo);
   const defeitosGaragem = garageDefects(records);
-  const blocked = new Set([...scale.bloqueados, ...defeitosGaragem.map(d => d.prefixo), ...retiradas.filter(r => r.destino === 'PENDENTE').map(d => d.prefixo),
-    ...scale.cards.filter(c => !['AZUL', 'VERMELHO', 'MICRO', 'VERMELHO_AZUL', 'PRATA', 'OUTRO'].includes(c.id)).flatMap(c => c.itens.map(i => i.prefixo))]);
+  const blocked = new Set([...scale.bloqueados, ...defeitosGaragem.map(d => d.prefixo),
+    ...scale.cards.filter(c => !['AZUL', 'VERMELHO', 'MICRO', 'VERMELHO_AZUL', 'PRATA', 'OUTRO', 'SUBSTITUIDOS'].includes(c.id)).flatMap(c => c.itens.map(i => i.prefixo))]);
   const currentRecords = records.filter(r => r.turno === context.turno && r.escalaTipo === context.escalaTipo);
   const activeRecords = currentRecords.filter(r => r.status !== 'PENDENTE');
   const used = new Set([...activeRecords.map(r => r.carroRealizado), ...programming.map(row =>
     activeRecords.find(r => r.scheduleId === row.id)?.carroRealizado ?? row.carroProgramado)]);
-  const returned = currentRecords.flatMap(r => releaseHistory(r.historicoTrocas).filter(h => h.destino === 'RESERVA' || !h.destino && h.motivo === 'Adicionado equivocadamente')
+  const returned = currentRecords.flatMap(r => releaseHistory(r.historicoTrocas).filter(h => h.destino === 'RESERVA' || h.destino === 'PENDENTE' || !h.destino && h.motivo === 'Adicionado equivocadamente')
     .map(h => h.carroAnterior).filter((p): p is string => typeof p === 'string'));
   const reserva = [...new Set([...scale.reserva, ...returned])].filter(p => scale.frota.includes(p) && !used.has(p) && !blocked.has(p))
     .sort((a, b) => Number(a) - Number(b));

@@ -1,3 +1,4 @@
+import { portariaMetadata } from './portariaEvents';
 import { resolveDateProgramming } from './trafficProgramming';
 import { parseReleaseSheet, releaseSheetWhere } from './releaseLifecycle';
 import { isIndependentRelease, readIndependentReleaseFleet } from './independentRelease';
@@ -68,6 +69,7 @@ export async function readReleaseProgramming(db: PrismaClient, value: unknown, u
     ? await updatedReleaseSheetRows(db, context, snapshot, contextRecords) : snapshot.itens : null;
   const template = frozen ? null : await resolveDateProgramming(db, 'SOLTURA', context);
   const itens = frozen ?? programReleaseRows(context, !independent && escalaFinalizada ? ('programacao' in escala ? escala.programacao : fixedSchedule(scaleContext)) : [], escala.itens, template!.itens, template!.excecao, template!.recorrente, template!.origemCarros === 'ESCALA');
-  return { contexto: context, escala, escalaFinalizada, itens, programacao: frozen ?? template!.itens,
+  const portaria = await portariaMetadata(db, context, 'SOLTURA');
+  return { contexto: context, escala: { ...escala, ...portaria }, escalaFinalizada, itens, programacao: frozen ?? template!.itens,
     disponibilidade: releaseFleetProjection(escala, itens, records, context) };
 }

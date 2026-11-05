@@ -51,9 +51,9 @@ export async function loadReleaseProgramming(context: DailyEscala['contexto']): 
     return { ...row, suspensa: received.suspensa, carroProgramado: received.carroProgramado, status: 'PENDENTE' as const };
   });
   if (raw.disponibilidade) {
-    const { reserva, defeitosGaragem, reservaPorCor, substituidos = [], bloqueadosPortaria = [] } = raw.disponibilidade;
+    const { reserva, defeitosGaragem, reservaPorCor, bloqueadosPortaria = [] } = raw.disponibilidade;
     const grouped = reservaPorCor.grupos.flatMap(g => g.prefixos);
-    if ([...substituidos, ...bloqueadosPortaria].some(r => reserva.includes(r.prefixo)) || new Set(reserva).size !== reserva.length || reserva.some(p => !escala.frota.includes(p) || escala.bloqueados.includes(p) || defeitosGaragem.some(d => d.prefixo === p))
+    if (bloqueadosPortaria.some(r => reserva.includes(r.prefixo)) || new Set(reserva).size !== reserva.length || reserva.some(p => !escala.frota.includes(p) || escala.bloqueados.includes(p) || defeitosGaragem.some(d => d.prefixo === p))
       || new Set(defeitosGaragem.map(d => d.prefixo)).size !== defeitosGaragem.length || new Set(reservaPorCor.grupos.map(g => g.id)).size !== 6
       || new Set(grouped).size !== grouped.length || grouped.some(p => !reserva.includes(p))
       || (reservaPorCor.updatedAt ? grouped.length !== reserva.length : grouped.length > 0)) throw Error('Disponibilidade da Soltura inconsistente.');

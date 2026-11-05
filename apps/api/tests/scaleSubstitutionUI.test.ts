@@ -125,18 +125,14 @@ test('popup: bloquear exige defeito e atalho PNEU FURADO preenche sem digitacao'
  assert.equal(h.calls[1].motivo, '');
 });
 
-test('card: clicar pendente abre tratamento mesmo com linhas em consulta; falha mantem popup', async () => {
- const h = harness('view'); let success = false;
- h.props.onTreatSubstitution = async (...args: any[]) => { h.calls.push(args); return success; };
- h.render();
- const car = h.get(n => n.type === 'button' && n.props['aria-label'] === 'Tratar carro substituido 3951');
- assert.equal(car.props.disabled, false); car.props.onClick(); h.render();
- assert.equal(h.modal().props.prefixo, '3951'); assert.equal(h.modal().props.substituto, '2319');
- const retirada = { prefixo: '3951', destino: 'RESERVA', motivo: 'Equivoco' };
- await h.modal().props.onSave(retirada); h.render(); assert.ok(h.modal());
- success = true; await h.modal().props.onSave(retirada); h.render();
- assert.deepEqual(h.calls, [['troca1', retirada], ['troca1', retirada]]);
+test('card: nao exibe Substituidos e disponibiliza acoes da Reserva com linhas em consulta', () => {
+ const h = harness('view'); h.props.onReserveSaved = async () => {}; h.render();
+ assert.ok(!h.nodes().some(n => n.props?.['aria-label'] === 'Tratar carro substituido 3951'));
  assert.ok(!h.nodes().some(n => n.type?.name === 'ScaleSubstitutionDialog'));
+ const sidebar = h.get(n => n.type?.name === 'ScaleFleetSidebar');
+ assert.equal(sidebar.props.readOnly, false); assert.equal(sidebar.props.onReserveSaved, h.props.onReserveSaved);
+ h.props.treatmentReadOnly = true; h.render();
+ assert.equal(h.get(n => n.type?.name === 'ScaleFleetSidebar').props.readOnly, true);
 });
 
 test('popup: reserva indisponivel nao permite salvar nem fechar durante gravacao', () => {

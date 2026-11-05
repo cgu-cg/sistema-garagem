@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
+import { ReserveActionDialog } from './ReserveActionDialog';
 import { AlertTriangle, BusFront, ShieldAlert } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { DailyEscala } from '@/lib/sharedEscala';
@@ -6,7 +7,9 @@ import type { GarageDefect } from '@/lib/releaseProgramming';
 import { CiVehicleNotice } from './CiVehicleNotice';
 
 const surface = 'rounded-2xl border border-border bg-card text-card-foreground p-3.5 shadow-xs space-y-2.5 dark:border-slate-800/90';
-export function ScaleFleetSidebar({ state, garage, reserve = state?.reserva ?? [], defeitosGaragem, hideCI = false, ciState = state, ciError, betweenCards }: { betweenCards?: ReactNode; ciState?: DailyEscala | null; ciError?: string; hideCI?: boolean; state: DailyEscala | null; garage: string; reserve?: string[]; defeitosGaragem?: GarageDefect[] }) {
+export function ScaleFleetSidebar({ state, garage, reserve = state?.reserva ?? [], defeitosGaragem, hideCI = false, ciState = state, ciError, betweenCards, readOnly = true, modulo = 'ESCALA', operationContext = state?.contexto, onReserveSaved }: { readOnly?: boolean; modulo?: 'ESCALA'|'SOLTURA'; operationContext?: DailyEscala['contexto']; onReserveSaved?: () => Promise<void>; betweenCards?: ReactNode; ciState?: DailyEscala | null; ciError?: string; hideCI?: boolean; state: DailyEscala | null; garage: string; reserve?: string[]; defeitosGaragem?: GarageDefect[] }) {
+  const [selected, setSelected] = useState<string | null>(null);
+  useEffect(() => { setSelected(null); }, [JSON.stringify(operationContext)]);
   const groups = state?.reservaPorCor?.grupos ?? ['AZUL', 'VERMELHO', 'MICRO', 'VERMELHO_AZUL', 'PRATA', 'OUTRO'].map(id => ({ id, titulo: id, prefixos: [] as string[] }));
   return <div className="space-y-4">
     <div className={surface}><h3 className="text-center text-xs font-bold border-b pb-2">RESERVA GARAGEM {garage}</h3>
@@ -15,14 +18,15 @@ export function ScaleFleetSidebar({ state, garage, reserve = state?.reserva ?? [
         {group.id === 'VERMELHO_AZUL' ? <span aria-hidden="true" className="relative h-3 w-3 shrink-0"><BusFront className="absolute inset-0 h-3 w-3 text-rose-600" style={{ clipPath: 'inset(0 50% 0 0)' }} /><BusFront className="absolute inset-0 h-3 w-3 text-sky-600" style={{ clipPath: 'inset(0 0 0 50%)' }} /></span> : <BusFront aria-hidden="true" className="h-3 w-3 shrink-0" />}
         <span>{group.id === 'VERMELHO_AZUL' ? <><span className="text-rose-600">VERMELHO/</span><span className="text-sky-600">AZUL ({group.prefixos.filter(p => reserve.includes(p)).length})</span></> : <>{group.titulo} ({group.prefixos.filter(p => reserve.includes(p)).length})</>}</span>
       </span>)}</div>
-      <div className="flex flex-wrap gap-x-2 gap-y-3 pt-1" aria-label="Carros da reserva">{[...reserve].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).map(prefixo => <span key={prefixo} className="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-mono"><CiVehicleNotice state={state} prefixo={prefixo} /></span>)}</div>
+      <div className="flex flex-wrap gap-x-2 gap-y-3 pt-1" aria-label="Carros da reserva">{[...reserve].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).map(prefixo => <button key={prefixo} type="button" disabled={readOnly || !operationContext || !onReserveSaved} onClick={() => setSelected(prefixo)} aria-label={`Acoes da Reserva para carro ${prefixo}`} className="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-mono disabled:cursor-default"><CiVehicleNotice state={state} prefixo={prefixo} hoverOnly hoverDisabled={selected === prefixo} /></button>)}</div>
       {!reserve.length && <p className="text-[10px] italic text-muted-foreground">Sem carros</p>}
     </div>
     {betweenCards}
+    {selected && operationContext && onReserveSaved && <ReserveActionDialog key={`${selected}:${JSON.stringify(operationContext)}`} prefixo={selected} contexto={operationContext} modulo={modulo} onClose={() => setSelected(null)} onSaved={onReserveSaved} />}
     {!hideCI && <div className={cn(surface, 'border-rose-300 bg-rose-50/30 dark:bg-rose-950/10')}><h3 className="text-xs font-bold text-rose-600 flex items-center gap-2"><AlertTriangle className="h-4 w-4" /> BLOQUEADOS CI {ciState?.ciData ?? ''}</h3>
       {ciError && <p role="status" className="text-[10px] text-muted-foreground">{ciError}</p>}
       {ciState?.ciProvisoria && <p className="text-[10px] text-muted-foreground">Referência provisória até iniciar a CI da data.</p>}
-      <div className="flex flex-wrap gap-1 text-xs font-mono">{ciState?.bloqueados.map(prefixo => <span key={prefixo} className="rounded-full border border-rose-300 px-2 py-0.5"><CiVehicleNotice state={ciState} prefixo={prefixo} hideIcon /></span>)}</div>
+      <div className="flex flex-wrap gap-1 text-xs font-mono">{ciState?.bloqueados.map(prefixo => <span key={prefixo} className="rounded-full border border-rose-300 px-2 py-0.5"><CiVehicleNotice state={ciState} prefixo={prefixo} hideIcon />{ciState?.ciPortaria?.find(p => p.prefixo === prefixo)?.bloqueadoPortaria && <span className="ml-1 text-[9px]">Bloqueado Portaria</span>}{ciState?.ciPortaria?.find(p => p.prefixo === prefixo)?.usadoPortaria && <span className="ml-1 rounded bg-violet-100 px-1 text-[9px] text-violet-700 dark:bg-violet-950 dark:text-violet-300">Usado Portaria</span>}</span>)}</div>
     </div>}
     {defeitosGaragem && <div className={surface}>
       <h3 className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide"><ShieldAlert aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[#164E3A] dark:text-emerald-400" />DEFEITO GARAGEM ({defeitosGaragem.length})</h3>

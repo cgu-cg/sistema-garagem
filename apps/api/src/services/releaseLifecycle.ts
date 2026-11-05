@@ -14,7 +14,6 @@ import { enabledGarages, eventInstant, addDays, dateValue } from './c4Temporal';
 import { isIndependentRelease } from './independentRelease';
 import { readReleaseProgramming, finalizedReleaseRows, releaseScaleContext, updatedReleaseSheetRows } from './releaseProgramming';
 import { notifyC4Updated } from './c4Events';
-import { releaseWithdrawals } from './releaseWithdrawals';
 import { garageDefects } from './releaseVehicleExchange';
 import { resolveDateProgramming } from './trafficProgramming';
 import { scaleLinkedReleaseIds } from './releaseScaleUpdates';
@@ -124,8 +123,6 @@ export async function changeReleaseLifecycle(db: PrismaClient, userId: number | 
     if (command.operacao === 'iniciar' && (!currentRows || (!isIndependentRelease(context)
       && ((!isVcmMorningRelease(context) && !enabledGarages().includes(context.garagem)) || sourceCI?.status !== 'FINALIZADA' || !preparation?.escala.fluxo.ciFinalizada)))) throw new MvpError(409, 'Finalize a CI e a Escala desta data antes de iniciar a Soltura.');
     const records = await tx.soltura.findMany({ where: context });
-    if (command.operacao === 'finalizar' && releaseWithdrawals(records).some(r => r.destino === 'PENDENTE'))
-      throw new MvpError(409, 'Trate todos os carros em Substituidos antes de finalizar a Soltura.');
     const sheet: ReleaseSheet = old ? parseReleaseSheet(old.conteudo) : { version: 1, itens: currentRows!, eventos: [] };
     if (!old && !isIndependentRelease(context)) {
       const template = await resolveDateProgramming(tx, 'SOLTURA', context);

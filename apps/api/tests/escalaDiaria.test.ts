@@ -156,7 +156,7 @@ test('devolver fixo da Reserva a Substituidos apos limpar e preencher preserva l
   assert.deepEqual(returned.historicoTrocas.slice(0, oldHistory.length), oldHistory);
   const pending = returned.historicoTrocas.at(-1)!;
   assert.equal(pending.destino, 'PENDENTE'); assert.equal(pending.prefixo, original.carroProgramado);
-  assert.equal(pending.substituto, '5002'); assert.equal(returned.reserva.includes(original.carroProgramado), false);
+  assert.equal(pending.substituto, '5002'); assert.equal(returned.reserva.includes(original.carroProgramado), true);
   assert.ok(returned.cards.find(c => c.id === 'SUBSTITUIDOS')!.itens.some(i => i.id === pending.id && i.prefixo === original.carroProgramado));
   assert.deepEqual(validateDailyEscala(returned, contexto), returned);
   await assert.rejects(returnFixed(f.db, returned.revisao));
@@ -718,12 +718,25 @@ test('manual: primeira escala persiste revisao 1 e rejeita inicio repetido com r
   assert.equal((await readEscalaDiaria(f.db, contexto, 1)).revisao, 2);
 });
 
+// Representa registros pendentes gravados antes da devolucao automatica.
+function seedLegacyPending(f: ReturnType<typeof fixture>, saved: any) {
+  const record = [...f.records.values()][0], state = JSON.parse(record.conteudo);
+  for (const data of [saved, state]) {
+    const event = data.historicoTrocas.at(-1);
+    event.destino = 'PENDENTE'; event.motivo = '';
+    if (!data.cards.some((c: any) => c.id === 'SUBSTITUIDOS')) data.cards.push({ id: 'SUBSTITUIDOS', titulo: 'Substituidos', modo: 'lista', itens: [] });
+    data.cards.find((c: any) => c.id === 'SUBSTITUIDOS').itens.push({ id: event.id, prefixo: event.prefixo });
+  }
+  record.conteudo = JSON.stringify(state);
+}
+
 test('troca pendente fica persistida fora da reserva e tratamento preserva autor original', async () => {
  const f = fixture(); await lifecycle(f.db, 'iniciar');
  const saved = await saveReal(f.db, 1, { ...command(), retirada: undefined }, async () => f.db.__fleet, async () => null, now);
+ seedLegacyPending(f, saved);
  const pending = saved.historicoTrocas[0];
  assert.equal(pending.destino, 'PENDENTE'); assert.equal(pending.motivo, '');
- assert.ok(!saved.reserva.includes(original.carroProgramado));
+ assert.ok(saved.reserva.includes(original.carroProgramado));
  assert.ok(saved.cards.find(c => c.id === 'SUBSTITUIDOS')?.itens.some(i => i.id === pending.id));
  const loaded = await readEscalaDiaria(f.db, contexto, 1);
  assert.equal(validateDailyEscala(loaded, contexto).historicoTrocas![0].destino, 'PENDENTE');
@@ -742,6 +755,7 @@ test('troca pendente fica persistida fora da reserva e tratamento preserva autor
 test('pendente permanece no historico e bloqueio CI nao pode virar reserva no tratamento', async () => {
  const f = fixture(); f.db.__blocks = [original.carroProgramado]; await lifecycle(f.db, 'iniciar');
  const saved = await saveReal(f.db, 1, { ...command(), retirada: undefined }, async () => f.db.__fleet, async () => null, now);
+ seedLegacyPending(f, saved);
  const pending = saved.historicoTrocas[0];
  const request = { contexto, revisao: saved.revisao, operacao: 'tratar-substituido', trocaId: pending.id,
   retirada: { prefixo: pending.prefixo, destino: 'RESERVA', motivo: 'Teste' } };
@@ -757,6 +771,7 @@ test('tratamento no dia da operacao nao reabre escala; dias anteriores preservam
  const f = fixture(); await lifecycle(f.db, 'iniciar');
  const saved = await saveReal(f.db, 1, { ...command(), retirada: undefined }, async () => f.db.__fleet, async () => null, now);
  const closed = await lifecycle(f.db, 'finalizar', saved.revisao);
+ seedLegacyPending(f, saved);
  const pending = saved.historicoTrocas[0];
  const request = { contexto, revisao: closed.revisao, operacao: 'tratar-substituido', trocaId: pending.id,
   retirada: { prefixo: pending.prefixo, destino: 'BLOQUEAR', motivo: 'Defeito' } };
@@ -777,6 +792,7 @@ test('tratamento no dia da operacao nao reabre escala; dias anteriores preservam
 test('tratamento de reserva aceita motivo ausente, bloqueio exige descricao', async () => {
  const f = fixture(); await lifecycle(f.db, 'iniciar');
  const saved = await saveReal(f.db, 1, { ...command(), retirada: undefined }, async () => f.db.__fleet, async () => null, now);
+ seedLegacyPending(f, saved);
  const pending = saved.historicoTrocas[0];
  const request = { contexto, revisao: saved.revisao, operacao: 'tratar-substituido', trocaId: pending.id,
    retirada: { prefixo: pending.prefixo, destino: 'BLOQUEAR' } };
@@ -1060,12 +1076,13 @@ test('limpar desfaz pendencia, reserva ou bloqueio criado pela troca e permite n
     assert.deepEqual(validateDailyEscala(cleared, contexto), cleared);
     const changed = await saveEscalaDiaria(f.db, 1, { ...command(3, '5002'), retirada: undefined });
     assert.equal(changed.historicoTrocas.at(-1)!.prefixo, original.carroProgramado);
-    assert.equal(changed.historicoTrocas.at(-1)!.destino, 'PENDENTE');
+    assert.equal(changed.historicoTrocas.at(-1)!.destino, 'RESERVA');
   }
 });
 
 test('limpar desfaz bloqueio tratado mas preserva CI e bloqueio independente', async () => {
   const f = fixture(); const pending = await saveEscalaDiaria(f.db, 1, { ...command(), retirada: undefined });
+  seedLegacyPending(f, pending);
   await saveReal(f.db, 1, { contexto, revisao: 2, operacao: 'tratar-substituido', trocaId: pending.historicoTrocas[0].id,
     retirada: { prefixo: original.carroProgramado, destino: 'BLOQUEAR', motivo: 'defeito' } }, async () => f.db.__fleet, async () => null, now);
   f.db.__blocks = [original.carroProgramado];
@@ -1110,13 +1127,14 @@ test('limpar restaura tambem fixo de linha vazia gravada pela versao anterior', 
 test('card Substituidos deixa de exibir retirada limpa e conserva historico apos recarga', async () => {
   const f = fixture();
   const saved = await saveEscalaDiaria(f.db, 1, { ...command(), retirada: undefined });
+  seedLegacyPending(f, saved);
   assert.equal(pendingScaleWithdrawals(saved).length, 1);
   const cleared = await clearFixed(f, saved.revisao);
   assert.equal(cleared.historicoTrocas[0].destino, 'PENDENTE');
   assert.deepEqual(pendingScaleWithdrawals(cleared), []);
   assert.deepEqual(pendingScaleWithdrawals(await readEscalaDiaria(f.db, contexto, 1)), []);
   const changed = await saveEscalaDiaria(f.db, 1, { ...command(cleared.revisao, '5002'), retirada: undefined });
-  assert.equal(pendingScaleWithdrawals(changed).length, 1);
-  assert.equal(pendingScaleWithdrawals(changed)[0].id, changed.historicoTrocas.at(-1)!.id);
+  assert.deepEqual(pendingScaleWithdrawals(changed), []);
+  assert.equal(changed.historicoTrocas.at(-1)!.destino, 'RESERVA');
   assert.deepEqual(pendingScaleWithdrawals(null), []);
 });

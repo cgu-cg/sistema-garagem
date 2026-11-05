@@ -32,6 +32,7 @@ model User {
   regularizacoesCIIniciadas FolhaCI[] @relation("CIRegularizacaoResponsavel")
   folhasCIFinalizadas FolhaCI[] @relation("CIFinalizador")
   itensFolhaCIRegistrados ItemFolhaCI[] @relation("ItemFolhaResponsavel")
+  eventosPortaria CiPortariaEvento[]
   estadosManutencaoRegistrados EstadoManutencao[] @relation("EstadoManutencaoResponsavel")
 
   @@map("users")
@@ -327,11 +328,34 @@ model FolhaCI {
   regularizacaoIniciadaPor User?             @relation("CIRegularizacaoResponsavel", fields: [regularizacaoIniciadaPorId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_folha_ci_regularizacao_usuario")
   finalizadaPor           User?             @relation("CIFinalizador", fields: [finalizadaPorId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_folha_ci_finalizador")
   itens                   ItemFolhaCI[]
+  eventosPortaria          CiPortariaEvento[]
 
   @@unique([garagem, dataFolha], map: "UQ_folha_ci_garagem_data")
   @@unique([id, garagem], map: "UQ_folha_ci_id_garagem")
   @@index([folhaOrigemId, garagem], map: "IX_folha_ci_folha_origem_garagem")
   @@map("folha_ci")
+}
+
+model CiPortariaEvento {
+  id Int @id @default(autoincrement())
+  operacaoId String @unique(map: "UQ_ci_portaria_evento_operacao") @map("operacao_id") @db.UniqueIdentifier
+  garagem String @db.NVarChar(10)
+  dataOperacao String @map("data_operacao") @db.NVarChar(10)
+  prefixo String @db.NVarChar(10)
+  tipo String @db.NVarChar(20)
+  modulo String @db.NVarChar(10)
+  escalaTipo String @map("escala_tipo") @db.NVarChar(10)
+  turno String @db.NVarChar(10)
+  descricao String? @db.NVarChar(1000)
+  folhaId Int? @map("folha_id")
+  itemChave String? @map("item_chave") @db.UniqueIdentifier
+  usuarioId Int @map("usuario_id")
+  createdAt DateTime @default(dbgenerated("SYSUTCDATETIME()")) @map("created_at") @db.DateTime2
+  folha FolhaCI? @relation(fields: [folhaId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuario User @relation(fields: [usuarioId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  @@index([garagem, dataOperacao, prefixo], map: "IX_ci_portaria_evento_contexto")
+  @@index([folhaId, itemChave], map: "IX_ci_portaria_evento_item")
+  @@map("ci_portaria_evento")
 }
 
 model ItemFolhaCI {

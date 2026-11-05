@@ -1,3 +1,4 @@
+import { registerCiUse } from './portariaEvents';
 import { isVcmMorningRelease, supportsReleaseContext } from './releaseSupport';
 import { authorizeCiUse } from './ciUseConfirmation';
 import { duplicateUseNotice, ReleaseDuplicateUseError, type ReleaseAssignment } from './releaseDuplicateUse';
@@ -77,7 +78,7 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
     };
     checkTime();
     const previousCiUses = JSON.stringify(releaseSheet.usosBloqueadosCI ?? []);
-    let folha: { itens: { prefixo: string; categoria: string; statusItem: string | null }[] } | null = null;
+    let folha: { itens: { prefixo: string; categoria: string; statusItem: string | null; folhaId?: number; chaveItem?: string }[] } | null = null;
     if (!independent) {
       const sourceFolha = await tx.folhaCI.findUnique({ where: { garagem_dataFolha: { garagem: releaseContext.garagem, dataFolha: dateValue(context.ciDate) } }, include: { itens: true } });
       if (!sourceFolha) throw new AvailabilityError('CI_OPERACIONAL_AUSENTE');
@@ -120,7 +121,7 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
     }
     const sharedElsewhere = (prefixo: string, scheduleId: string) => assignments.some(r => r.scheduleId !== scheduleId && r.carroRealizado === prefixo);
     const defects = new Set(garageDefects(dailyRecords).map(d => d.prefixo));
-    const pendingWithdrawals = new Set(releaseWithdrawals(dailyRecords).filter(r => r.destino === 'PENDENTE').map(r => r.prefixo));
+    const pendingWithdrawals = new Set<string>();
     const batchWithdrawals = new Set<string>();
     const snapshots = new Map<string, { existing: Soltura | undefined; programmed: string | null; realized: string; history: ReturnType<typeof appendReleaseExchange>; row: typeof programming[number] }>();
     for (const i of items) {
@@ -144,12 +145,12 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
         defects.add(i.trocaCarro.carroAnterior);
       }
       const retirada = history.length > (existing[0]?.historicoTrocas ? JSON.parse(existing[0].historicoTrocas).length : 0) ? history.at(-1) : null;
-      if (retirada?.destino === 'PENDENTE' && typeof retirada.carroAnterior === 'string' && sharedElsewhere(retirada.carroAnterior, i.scheduleId)) {
+      if ((retirada?.destino === 'PENDENTE' || retirada?.destino === 'RESERVA') && typeof retirada.carroAnterior === 'string' && sharedElsewhere(retirada.carroAnterior, i.scheduleId)) {
         // A troca fica no historico, mas o carro nao foi retirado da operacao.
         retirada.destino = 'DESFEITO';
         retirada.motivo = 'Carro mantido em outra linha da mesma Soltura';
       }
-      if (retirada?.destino === 'PENDENTE' && typeof retirada.carroAnterior === 'string' && batchWithdrawals.has(retirada.carroAnterior)) {
+      if ((retirada?.destino === 'PENDENTE' || retirada?.destino === 'RESERVA') && typeof retirada.carroAnterior === 'string' && batchWithdrawals.has(retirada.carroAnterior)) {
         retirada.destino = 'DESFEITO';
         retirada.motivo = 'Retirada registrada em outra linha deste lote';
       }
@@ -165,6 +166,10 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
         confirmar: i.confirmarBloqueadoCI, anterior: released && existing[0]?.carroRealizado === realized
           ? releaseSheet.usosBloqueadosCI?.find(c => c.linhaId === i.scheduleId && c.prefixo === realized) : undefined,
         usuarioId: userId, agora: clock() });
+      if (uso && i.confirmarBloqueadoCI) {
+        const ciItem = folha?.itens.find(row => row.prefixo === realized && row.categoria === 'BLOQUEADO' && row.statusItem !== 'LIBERADO');
+        if (ciItem) await registerCiUse(tx, releaseContext, ciItem, userId, `Linha ${i.linha} / Tab ${i.tabela}`, clock());
+      }
       const usos = (releaseSheet.usosBloqueadosCI ?? []).filter(c => c.linhaId !== i.scheduleId);
       if (uso) usos.push(uso);
       if (uso || releaseSheet.usosBloqueadosCI) releaseSheet.usosBloqueadosCI = usos;

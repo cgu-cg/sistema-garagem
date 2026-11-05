@@ -73,9 +73,30 @@ function fixture(source = true, empty = false, historical: boolean | '2026-10-08
     const result = queue.then(async () => { const before = structuredClone(tables); try { return await fn(tx); } catch (error) { tables = before; throw error; } });
     queue = result.then(() => undefined, () => undefined); return result;
   } };
-  return { db, tables: () => structuredClone(tables), writes: () => mutations, queries, identity: (value: any) => { operationalUser = value; }, role: (value: boolean) => { admin = value; } };
+  return { db, portaria: (events: any[]) => { tx.ciPortariaEvento = { findMany: async () => events }; }, tables: () => structuredClone(tables), writes: () => mutations, queries, identity: (value: any) => { operationalUser = value; }, role: (value: boolean) => { admin = value; } };
 }
 async function ready() { const f = fixture(); await startCycle(f.db, 'VCG', clock()); return f; }
+test('bloqueio exclusivo Portaria em CI finalizada nao trava Controle nem e removido por ele', async () => {
+  const f = await ready(), folha = f.tables().folhaCI.find(i => i.id !== 10)!;
+  const chaveItem = randomUUID();
+  await f.db.itemFolhaCI.create({ data: { folhaId: folha.id, chaveItem, prefixo: '4000', categoria: 'BLOQUEADO',
+    consorciada: 'VCG', motivo: 'Problema Portaria', statusItem: 'BLOQUEADO', dataBloqueio: dateValue(target) } });
+  await f.db.folhaCI.update({ where: { id: folha.id }, data: { status: 'FINALIZADA' } });
+  const ciclo = f.tables().cicloOperacional[0];
+  await f.db.estadoManutencao.create({ data: { cicloId: ciclo.id, prefixo: '4000', consorciada: 'VCG', bloqueado: false,
+    emExecucao: true, liberado: false, observacaoOficina: 'Servico da manutencao', observacaoBloqueio: null } });
+  f.portaria([{ folhaId: folha.id, itemChave: chaveItem, tipo: 'BLOQUEIO_CI' }]);
+  const c = await command(f, 'manutencao');
+  const state = c.items.find(i => i.prefixo === '4000') as any;
+  state.observacaoOficina = 'Servico atualizado';
+  await saveC4(f.db, 1, c, 'manutencao', clock());
+  const after = f.tables();
+  assert.equal(after.itemFolhaCI.find(i => i.chaveItem === chaveItem)?.motivo, 'Problema Portaria');
+  assert.equal(after.folhaCI.find(i => i.id === folha.id).status, 'FINALIZADA');
+  assert.equal(after.estadoManutencao.find(i => i.prefixo === '4000').observacaoOficina, 'Servico atualizado');
+  const context = await readContext(f.db, 'VCG', day);
+  assert.equal(context.ci.find(i => i.chaveItem === chaveItem)?.bloqueadoPortaria, true);
+});
 test('origem importada de 08/10 cria preparacao de 09/10 com 77 itens e 28 estados sem alterar historia', async () => {
   const f = fixture(true, false, '2026-10-08'), before = f.tables();
   assert.equal(before.itemFolhaCI.length, 77);

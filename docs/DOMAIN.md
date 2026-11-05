@@ -1,5 +1,46 @@
 # Domain model e entendimento operacional atual
 
+## Reserva e acoes da Portaria na CI - 05/11/2026
+
+CONFIRMADO pelo usuario: esta regra substitui as descricoes anteriores sobre
+pendencias em Substituidos. Escala e Soltura devolvem automaticamente o carro
+anterior para Reserva ao substituir; carros ainda utilizados, em terminal ou
+com impedimentos reais continuam indisponiveis. O card Substituidos foi retirado.
+Historicos e bloqueios antigos permanecem preservados e trataveis pelos comandos
+compativeis; pendencias antigas nao impedem reserva nem finalizacao.
+
+Na Reserva, a Portaria pode escolher Bloquear carro na CI (problema obrigatorio,
+ate 255 caracteres) ou Outro (justificativa obrigatoria, ate 1000). Outro conserva
+a disponibilidade, exibe triangulo azul e legenda Justificativas, com observacao
+vinculada ao modulo, garagem, data, tipo e turno. Nao registra defeito impeditivo.
+
+Bloquear adiciona item BLOQUEADO na CI da mesma data da operacao e garagem,
+com badge Bloqueado Portaria. Exige CI existente; nao inicia nem reabre folha.
+Excepcao explicita: pode adicionar esse bloqueio e flag Usado Portaria mesmo
+com CI finalizada. Nao autoriza outras edicoes da CI finalizada. Soltura deve
+estar em andamento; Escala iniciada, podendo estar finalizada para atuar na
+Reserva. Acoes nunca atingem data passada; Escala pode atuar na data futura
+selecionada e Soltura somente na data atual. Perfis e garagem sao revalidados
+pelo backend, assim como disponibilidade, frota oficial e reserva terminal.
+
+Ao confirmar uso de carro bloqueado na Soltura, apos anuencia ja exigida,
+a mesma transacao registra Usado Portaria. O bloqueio, motivo original e
+triangulo vermelho continuam. Flags vinculam folha e chave do item, nao sao
+transportadas para outra CI nem para item removido e recriado.
+
+Bloqueio exclusivo da Portaria nao altera estados do Controle de Manutencao.
+Enquanto nao houver bloqueio correspondente no Controle, a validacao da
+sincronizacao reconhece essa excecao: editar estados independentes nao remove
+esse item CI nem trava o Controle. Bloqueios ja sincronizados continuam sujeitos
+as validacoes anteriores. Edicao explicita da CI em preparacao conserva sua
+sincronizacao habitual, sem normalizacao automatica em consulta.
+
+Persistencia adicional: ci_portaria_evento guarda UUID idempotente, contexto,
+usuario, horario e descricao. Aplicar o script revisado
+`docs/sql/2026-11-05-ci-portaria-evento.sql` antes da nova API. Script preparado,
+nao executado automaticamente. Nao ha limpeza ou migracao destrutiva de dados.
+
+
 ## Soltura VCM Seg–Sex matutina — 05/11/2026
 
 CONFIRMADO pelo usuario: a Soltura matutina VCM usa as 204 viagens do molde

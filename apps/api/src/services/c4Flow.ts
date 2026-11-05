@@ -1,3 +1,4 @@
+import { portariaEvents, ciPortariaFlags } from './portariaEvents';
 import { assertMaintenanceTransition } from './maintenanceStatus';
 import { assertCompleteReinforcement } from './reinforcementValidation';
 import { createHash, randomUUID } from 'node:crypto';
@@ -83,10 +84,11 @@ export async function readContext(db: PrismaClient, scope: Garage, day: string, 
     const folhas = await tx.folhaCI.findMany({ where: { garagem: scope }, include: { itens: { orderBy: { id: 'asc' } },
       regularizacaoIniciadaPor: { select: { id: true, name: true } }, finalizadaPor: { select: { id: true, name: true } } }, orderBy: { dataFolha: 'asc' } });
     const user = userId ? await tx.user.findUnique({ where: { id: userId }, select: { role: true } }) : null;
+    const portaria = await portariaEvents(tx, { garagem: scope, folhaId: { in: folhas.map(f => f.id) } });
     return { mode: 'C4', garagem: scope, day, baseC4: b.baseC4,
       cycle: b.cycle, folha: b.folha ? { ...b.folha, itens: undefined } : null,
       folhas: folhas.map(f => ({ ...f, itens: undefined, dataFolha: dateString(f.dataFolha) })),
-      ci: folhas.flatMap(f => f.itens.map(i => projectItem(i, scope, dateString(f.dataFolha)))),
+      ci: folhas.flatMap(f => f.itens.map(i => ({ ...projectItem(i, scope, dateString(f.dataFolha)), ...ciPortariaFlags(portaria, f.id, i.chaveItem) }))),
       maintenance: b.states.map(s => projectState(s, day)),
       mutable: operationalContext(now()).open && day === operationalContext(now()).today && Boolean(b.cycle && b.folha && b.folha.cicloPreparacaoId === b.cycle.id),
       ciMutable: Boolean(b.folha?.status === 'EM_PREPARACAO' && (addDays(day, 1) > operationalContext(now()).today ||
@@ -166,9 +168,16 @@ export async function saveC4(db: PrismaClient, userId: number | undefined, body:
       return { unchanged: true };
     }
     // Divergencia preexistente nao pode ser corrigida implicitamente por uma gravacao.
-    const oldBlocks = folha.itens.filter(i => i.categoria === 'BLOQUEADO');
+    const allBlocks = folha.itens.filter(i => i.categoria === 'BLOQUEADO');
+    const events = await portariaEvents(tx, { garagem: c.garagem, folhaId: folha.id, tipo: 'BLOQUEIO_CI' });
+    // Bloqueio exclusivo da Portaria pertence a CI. Nao normaliza o Controle
+    // nem impede suas edicoes independentes; um bloqueio ja sincronizado continua normal.
+    const detached = new Set(allBlocks.filter(i => ciPortariaFlags(events, folha.id, i.chaveItem).bloqueadoPortaria
+      && !b.states.some(s => s.bloqueado && s.prefixo === i.prefixo)).map(i => i.chaveItem));
+    const synchronizedBlocks = allBlocks.filter(i => !detached.has(i.chaveItem));
+    const oldBlocks = kind === 'manutencao' ? synchronizedBlocks : allBlocks;
     const syncMaintenance = day === operationalContext(now()).today;
-    if (syncMaintenance && (oldBlocks.length !== b.states.filter(s => s.bloqueado).length || oldBlocks.some(i => !b.states.some(s => s.bloqueado && s.prefixo === i.prefixo && s.consorciada === i.consorciada && (s.observacaoBloqueio ?? null) === (i.motivo ?? null))))) throw new MvpError(409, 'CI e Controle divergentes; revisao explicita necessaria.');
+    if (syncMaintenance && (synchronizedBlocks.length !== b.states.filter(s => s.bloqueado).length || synchronizedBlocks.some(i => !b.states.some(s => s.bloqueado && s.prefixo === i.prefixo && s.consorciada === i.consorciada && (s.observacaoBloqueio ?? null) === (i.motivo ?? null))))) throw new MvpError(409, 'CI e Controle divergentes; revisao explicita necessaria.');
     if (kind === 'manutencao' && folha.status === 'FINALIZADA') {
       const before = b.states.filter(s => s.bloqueado).map(s => [s.prefixo, s.consorciada, s.observacaoBloqueio]).sort();
       const after = states.filter(s => s.bloqueado).map(s => [s.prefixo, s.consorciada, s.observacaoBloqueio !== undefined ? s.observacaoBloqueio : s.observacao ?? null]).sort();

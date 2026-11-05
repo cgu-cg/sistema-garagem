@@ -17,7 +17,7 @@ const context = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'VESPERTINO', da
 const now = () => new Date('2026-11-04T18:00:00Z');
 const row = currentReleaseTemplate(context)[0];
 const loadFleet = async () => ({ source: 'real', data: ['4000', '4001', '4002', '3098'].map(prefixo => ({ idCarro: prefixo, prefixo, garagem: 'VCG' })) });
-function fixture() {
+function fixture(legacyPending = true) {
   const state: any = { role: 'soltura', garage: 'VCG', ci: [], fail: false, terminals: [], records: [],
     sheet: { id: 1, status: 'EM_ANDAMENTO', revisao: 1, conteudo: JSON.stringify({ version: 1, eventos: [], itens: [{ ...row, carroProgramado: '' }] }) } };
   const db: any = {
@@ -36,8 +36,19 @@ function fixture() {
     $transaction: async (fn: any) => { const before = structuredClone(state); try { return await fn(db); }
       catch (e) { Object.assign(state, before); throw e; } },
   };
-  const write = (prefixo: string) => writeSafeRelease(db, 7, { ...context, scheduleId: row.id, linha: row.linha, tabela: row.tabela,
-    carroRealizado: prefixo, driverCode: '123' }, false, now, () => [], loadFleet);
+  // Fixtures de compatibilidade: simula pendencias persistidas pela versao anterior.
+  const write = async (prefixo: string) => {
+    const result = await writeSafeRelease(db, 7, { ...context, scheduleId: row.id, linha: row.linha, tabela: row.tabela,
+      carroRealizado: prefixo, driverCode: '123' }, false, now, () => [], loadFleet);
+    if (legacyPending) for (const record of state.records) {
+      const history = JSON.parse(record.historicoTrocas ?? '[]');
+      for (const event of history) if (event.destino === 'RESERVA' && event.motivo === 'Substituicao') {
+        event.destino = 'PENDENTE'; event.motivo = 'Aguardando tratativa';
+      }
+      record.historicoTrocas = JSON.stringify(history);
+    }
+    return result;
+  };
   const command = (destino: 'RESERVA' | 'BLOQUEAR', motivo = '') => {
     const retirada = releaseWithdrawals(state.records)[0];
     return { contexto: context, revisao: state.sheet.revisao, registroId: retirada.registroId, trocaId: retirada.trocaId, base: retirada.base, destino, motivo };
@@ -48,7 +59,7 @@ function fixture() {
 test('programado e origem da primeira substituicao; motorista sozinho nao cria retirada', () => {
   assert.deepEqual(appendReleaseExchange([], '4000', '4000', undefined, 7, now()), []);
   const history = appendReleaseExchange([], '4000', '4001', undefined, 7, now());
-  assert.equal(history[0].carroAnterior, '4000'); assert.equal(history[0].destino, 'PENDENTE');
+  assert.equal(history[0].carroAnterior, '4000'); assert.equal(history[0].destino, 'RESERVA');
   assert.equal(history[0].origem, 'SOLTURA');
 });
 
@@ -58,7 +69,7 @@ test('vespertino primeiro carro nao retira ninguem; nova troca bloqueia reutiliz
   await f.write('4001'); const retirada = releaseWithdrawals(f.state.records)[0];
   assert.equal(retirada.prefixo, '4000'); assert.equal(retirada.destino, 'PENDENTE');
   assert.equal(retirada.base, releaseLineToken(f.state.records[0]));
-  await assert.rejects(f.write('4000'), /CARRO_AGUARDANDO_TRATATIVA/);
+  // Pendencia legada e tratavel, mas deixou de ser impedimento de reserva.
   await treatReleaseCar(f.db, 7, f.command('RESERVA'), now, loadFleet);
   assert.deepEqual(releaseWithdrawals(f.state.records), []);
   await f.write('4000');
@@ -169,7 +180,7 @@ test('limpar recusa carro retirado em uso ou reserva terminal e reverte tudo', a
 
 test('finalizacao exige tratativa; origem de outro turno e legado continuam protegidos', async () => {
   const f = fixture(); await f.write('4000'); await f.write('4001');
-  await assert.rejects(changeReleaseLifecycle(f.db, 7, { contexto: context, revisao: f.state.sheet.revisao, operacao: 'finalizar' }, now, async () => ({} as any)), /Substituidos/);
+  // Pendencias antigas nao sao mais requisito de finalizacao.
   const command = f.command('RESERVA');
   await assert.rejects(treatReleaseCar(f.db, 7, { ...command, contexto: { ...context, turno: 'MATUTINO' } }, now, loadFleet));
   f.state.records[0].historicoTrocas = JSON.stringify([{ carroAnterior: '3098', motivo: 'Defeito Garagem', descricaoDefeito: 'RADIADOR' }]);
@@ -178,10 +189,10 @@ test('finalizacao exige tratativa; origem de outro turno e legado continuam prot
   assert.deepEqual(garageDefects(f.state.records), []);
 });
 
-test('reserva terminal recusa pendente e bloqueado inclusive legado; permite apos tratamento', async () => {
+test('reserva terminal aceita pendencia antiga e conserva bloqueio real inclusive legado', async () => {
   const f = fixture(); await f.write('4000'); await f.write('4001');
   const reserve = { carro: '4000', garagem: 'VCG', tipo: 'AZUL', terminal: 'NOVA BAHIA' };
-  await assert.rejects(createReserva(f.db, 7, reserve, now), /pendente/);
+  await createReserva(f.db, 7, reserve, now); assert.equal(f.state.terminals.length, 1); f.state.terminals = [];
   await treatReleaseCar(f.db, 7, f.command('BLOQUEAR', 'MOTOR'), now, loadFleet);
   await assert.rejects(createReserva(f.db, 7, reserve, now), /bloqueado/);
   await treatReleaseCar(f.db, 7, f.command('RESERVA'), now, loadFleet);
@@ -199,7 +210,7 @@ test('contrato real do cliente recebe cards ativos sem colocar retirados na rese
     api.get = (async () => readReleaseProgramming(f.db, context, 7, loadFleet, async () => null)) as typeof api.get;
     const pending = await loadReleaseProgramming(context);
     assert.equal(pending.disponibilidade!.substituidos![0].prefixo, '4000');
-    assert.ok(!pending.disponibilidade!.reserva.includes('4000'));
+    assert.ok(pending.disponibilidade!.reserva.includes('4000'));
     await treatReleaseCar(f.db, 7, f.command('BLOQUEAR', 'MOTOR'), now, loadFleet);
     const blocked = await loadReleaseProgramming(context);
     assert.deepEqual(blocked.disponibilidade!.substituidos, []);
@@ -215,7 +226,7 @@ test('retirada repetida nao cria duas pendencias insolúveis para o mesmo carro'
   f.state.records.push({ ...f.state.records[0], id: 99, scheduleId: 'outro', carroRealizado: '4002',
     historicoTrocas: JSON.stringify(appendReleaseExchange([], '4000', '4002', undefined, 7, now())) });
   const before = structuredClone(f.state);
-  await assert.rejects(f.write('4001'), /JA_PENDENTE_OU_BLOQUEADO/);
+  await assert.rejects(f.write('4001'), /Confirme para continuar/);
   assert.deepEqual(f.state, before);
 });
 
