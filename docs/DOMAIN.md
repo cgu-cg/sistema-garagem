@@ -2,6 +2,10 @@
 
 ## Reserva e acoes da Portaria na CI - 05/11/2026
 
+Os carros com flag Bloqueado Portaria aparecem no card Bloqueados Portaria CI
+da Escala e da Soltura, sem repetir no card Bloqueados CI. A separacao e visual:
+permanecem bloqueados na CI, conservando avisos e eventual badge Usado Portaria.
+
 CONFIRMADO pelo usuario: esta regra substitui as descricoes anteriores sobre
 pendencias em Substituidos. Escala e Soltura devolvem automaticamente o carro
 anterior para Reserva ao substituir; carros ainda utilizados, em terminal ou

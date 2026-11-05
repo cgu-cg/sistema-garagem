@@ -11,6 +11,10 @@ export function ScaleFleetSidebar({ state, garage, reserve = state?.reserva ?? [
   const [selected, setSelected] = useState<string | null>(null);
   useEffect(() => { setSelected(null); }, [JSON.stringify(operationContext)]);
   const groups = state?.reservaPorCor?.grupos ?? ['AZUL', 'VERMELHO', 'MICRO', 'VERMELHO_AZUL', 'PRATA', 'OUTRO'].map(id => ({ id, titulo: id, prefixos: [] as string[] }));
+  const portaria = new Set(ciState?.ciPortaria?.filter(item => item.bloqueadoPortaria).map(item => item.prefixo) ?? []);
+  const portariaBlocked = ciState?.bloqueados.filter(prefixo => portaria.has(prefixo)) ?? [];
+  const ciBlocked = ciState?.bloqueados.filter(prefixo => !portaria.has(prefixo)) ?? [];
+  const blockedCar = (prefixo: string) => <span key={prefixo} className="rounded-full border border-rose-300 px-2 py-0.5"><CiVehicleNotice state={ciState} prefixo={prefixo} hideIcon />{ciState?.ciPortaria?.find(p => p.prefixo === prefixo)?.usadoPortaria && <span className="ml-1 rounded bg-violet-100 px-1 text-[9px] text-violet-700 dark:bg-violet-950 dark:text-violet-300">Usado Portaria</span>}</span>;
   return <div className="space-y-4">
     <div className={surface}><h3 className="text-center text-xs font-bold border-b pb-2">RESERVA GARAGEM {garage}</h3>
       {state && !state.reservaPorCor?.updatedAt && <p role="status" className="text-xs text-amber-700">Cache de cores indisponível. A classificação aguarda atualização válida.</p>}
@@ -22,11 +26,16 @@ export function ScaleFleetSidebar({ state, garage, reserve = state?.reserva ?? [
       {!reserve.length && <p className="text-[10px] italic text-muted-foreground">Sem carros</p>}
     </div>
     {betweenCards}
+    {!hideCI && modulo === 'ESCALA' && <div className={cn(surface, 'border-rose-300')}>
+      <h3 className="text-xs font-bold text-rose-600 flex items-center gap-2"><ShieldAlert className="h-4 w-4" />BLOQUEADOS PORTARIA CI ({portariaBlocked.length})</h3>
+      <div className="flex flex-wrap gap-1 text-xs font-mono">{portariaBlocked.map(blockedCar)}</div>
+      {!portariaBlocked.length && <p className="text-[10px] italic text-muted-foreground">Nenhum carro bloqueado pela portaria na CI.</p>}
+    </div>}
     {selected && operationContext && onReserveSaved && <ReserveActionDialog key={`${selected}:${JSON.stringify(operationContext)}`} prefixo={selected} contexto={operationContext} modulo={modulo} onClose={() => setSelected(null)} onSaved={onReserveSaved} />}
     {!hideCI && <div className={cn(surface, 'border-rose-300 bg-rose-50/30 dark:bg-rose-950/10')}><h3 className="text-xs font-bold text-rose-600 flex items-center gap-2"><AlertTriangle className="h-4 w-4" /> BLOQUEADOS CI {ciState?.ciData ?? ''}</h3>
       {ciError && <p role="status" className="text-[10px] text-muted-foreground">{ciError}</p>}
       {ciState?.ciProvisoria && <p className="text-[10px] text-muted-foreground">Referência provisória até iniciar a CI da data.</p>}
-      <div className="flex flex-wrap gap-1 text-xs font-mono">{ciState?.bloqueados.map(prefixo => <span key={prefixo} className="rounded-full border border-rose-300 px-2 py-0.5"><CiVehicleNotice state={ciState} prefixo={prefixo} hideIcon />{ciState?.ciPortaria?.find(p => p.prefixo === prefixo)?.bloqueadoPortaria && <span className="ml-1 text-[9px]">Bloqueado Portaria</span>}{ciState?.ciPortaria?.find(p => p.prefixo === prefixo)?.usadoPortaria && <span className="ml-1 rounded bg-violet-100 px-1 text-[9px] text-violet-700 dark:bg-violet-950 dark:text-violet-300">Usado Portaria</span>}</span>)}</div>
+      <div className="flex flex-wrap gap-1 text-xs font-mono">{ciBlocked.map(blockedCar)}</div>
     </div>}
     {defeitosGaragem && <div className={surface}>
       <h3 className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide"><ShieldAlert aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[#164E3A] dark:text-emerald-400" />DEFEITO GARAGEM ({defeitosGaragem.length})</h3>
