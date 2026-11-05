@@ -1,4 +1,5 @@
 import { registerCiUse } from './portariaEvents';
+import { markEveningReleaseMaintenanceUsage } from './maintenanceBoard';
 import { isVcmMorningRelease, supportsReleaseContext } from './releaseSupport';
 import { authorizeCiUse } from './ciUseConfirmation';
 import { duplicateUseNotice, ReleaseDuplicateUseError, type ReleaseAssignment } from './releaseDuplicateUse';
@@ -224,6 +225,8 @@ export async function writeSafeRelease(db: PrismaClient, userId: number | undefi
         revisao: releaseSheetRecord!.revisao + 1, responsavelId: userId,
       } });
     }
+    await markEveningReleaseMaintenanceUsage(tx, releaseContext, items.map(i => ({ scheduleId: i.scheduleId,
+      carroRealizado: snapshots.get(i.scheduleId)!.realized })), userId, clock());
     checkTime();
     return batch ? { count: records.length, items: records } : records[0];
   }, { isolationLevel: 'Serializable' });

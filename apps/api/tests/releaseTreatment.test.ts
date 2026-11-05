@@ -21,6 +21,7 @@ function fixture(legacyPending = true) {
   const state: any = { role: 'soltura', garage: 'VCG', ci: [], fail: false, terminals: [], records: [],
     sheet: { id: 1, status: 'EM_ANDAMENTO', revisao: 1, conteudo: JSON.stringify({ version: 1, eventos: [], itens: [{ ...row, carroProgramado: '' }] }) } };
   const db: any = {
+    controleManutencaoFolha: { findUnique: async () => null },
     user: { findUnique: async () => ({ role: state.role, garagem: state.garage }) },
     $queryRaw: async () => [],
     folhaCI: { findUnique: async () => ({ itens: state.ci }) },

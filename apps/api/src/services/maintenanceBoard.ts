@@ -1,5 +1,5 @@
 import type { PrismaClient, Prisma } from '@prisma/client';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { civil, dateValue, dateString } from './c4Temporal';
 import { MvpError, operationalContext } from './mvpTemporal';
@@ -24,6 +24,32 @@ const commandSchema = contextSchema.extend({ base: z.string().min(1), operacaoId
 type Tx = Prisma.TransactionClient;
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const where = (garagem: string, dataOperacao: string) => ({ garagem_dataOperacao: { garagem, dataOperacao } });
+// Chamado somente dentro da transacao de despacho ja autorizada da Soltura.
+export async function markEveningReleaseMaintenanceUsage(tx: Pick<Tx, '$queryRaw' | 'controleManutencaoFolha'>,
+  context: { garagem: string; dataOperacao: string; escalaTipo: string; turno: string },
+  assignments: { scheduleId: string; carroRealizado: string }[], userId: number, now: Date) {
+  if (context.escalaTipo !== 'SEG_SEX' || context.turno !== 'VESPERTINO'
+    || context.dataOperacao !== operationalContext(now).today) return;
+  await tx.$queryRaw`SELECT id FROM dbo.controle_manutencao_folha WITH (UPDLOCK,HOLDLOCK) WHERE garagem=${context.garagem} AND data_operacao<=${context.dataOperacao}`;
+  const saved = await tx.controleManutencaoFolha.findUnique({ where: where(context.garagem, context.dataOperacao) });
+  if (!saved) return;
+  const content = sheetSchema.parse(JSON.parse(saved.conteudo));
+  const prefixes = new Set(assignments.map(item => item.carroRealizado));
+  let changed = false;
+  const items = content.items.map(item => {
+    if (item.data !== context.dataOperacao || !prefixes.has(item.prefixo) || item.usadoPortaria
+      || !(item.bloqueado || item.emExecucao || item.liberado)) return item;
+    changed = true; return { ...item, usadoPortaria: true };
+  });
+  if (!changed) return;
+  if (content.eventos.length >= 10000) throw new MvpError(409, 'Limite de operacoes do Controle atingido. Solicite revisao.');
+  const event = { id: randomUUID(), hash: hash(['SOLTURA_VESPERTINA_USADO_PORTARIA', context, assignments]),
+    usuarioId: userId, registradoEm: now.toISOString() };
+  await tx.controleManutencaoFolha.update({ where: { id: saved.id }, data: {
+    revisao: saved.revisao + 1, responsavelId: userId,
+    conteudo: JSON.stringify({ ...content, items, eventos: [...content.eventos, event] }),
+  } });
+}
 export function rolloverMaintenance(_items: z.infer<typeof itemsSchema>, _day: string): z.infer<typeof itemsSchema> {
   // Todos os quadros iniciam vazios; a folha anterior permanece no historico.
   return [];

@@ -9,6 +9,7 @@ import { clearReleaseLine } from '../src/services/releaseLineClear';
 import { releaseLineToken } from '../src/services/lineClearAudit';
 import { ReleaseDuplicateUseError } from '../src/services/releaseDuplicateUse';
 import { releaseWithdrawals } from '../src/services/releaseWithdrawals';
+import { readMaintenanceBoard, saveMaintenanceBoard } from '../src/services/maintenanceBoard';
 const day = '2026-10-08', target = '2026-10-09';
 const context = { garagem: 'VCG', escalaTipo: 'SEG_SEX', turno: 'MATUTINO', dataOperacao: target } as const;
 const [first, second] = currentReleaseTemplate(context);
@@ -23,6 +24,7 @@ function fixture(status = 'FINALIZADA') {
   const locks: string[] = [], states: any[] = [], ci: any[] = [];
   let cycle: any = { id: 1, origem: 'NORMAL' };
   const db: any = {
+    controleManutencaoFolha: { findUnique: async () => null },
     user: { findUnique: async () => ({ role: 'soltura', garagem: 'VCG' }) },
     $queryRaw: async (parts: TemplateStringsArray) => { locks.push(parts.join('?')); },
     folhaSoltura: { findUnique: async ({ where }: any) => ({ status: 'EM_ANDAMENTO', conteudo: JSON.stringify({ version: 1,
@@ -70,6 +72,95 @@ function duplicateFixture() {
   };
   return { ...f, evening, sheet, entry, write, notice };
 }
+
+function eveningMaintenanceFixture(status = 'bloqueado') {
+  const f = duplicateFixture();
+  let maintenance: any = { id: 42, garagem: 'VCG', dataOperacao: target, revisao: 3, responsavelId: 2,
+    conteudo: JSON.stringify({ version: 1, eventos: [], items: ['4000','4001'].map(prefixo => ({
+      id: `controle-${prefixo}`, prefixo, data: target, consorciada: 'VCG', observacao: 'Defeito original',
+      observacaoBloqueio: 'Motivo original', observacaoOficina: 'Servico original',
+      bloqueado: status === 'bloqueado', emExecucao: status === 'emExecucao', liberado: status === 'liberado',
+    })) }) };
+  let fail = false;
+  f.db.controleManutencaoFolha = {
+    findUnique: async ({ where }: any) => maintenance && maintenance.garagem === where.garagem_dataOperacao.garagem
+      && maintenance.dataOperacao === where.garagem_dataOperacao.dataOperacao ? maintenance : null,
+    update: async ({ data }: any) => { Object.assign(maintenance, data); if (fail) throw Error('Falha marca manutencao'); return maintenance; },
+  };
+  const transaction = f.db.$transaction;
+  f.db.$transaction = async (fn: any, options: any) => {
+    const before = structuredClone(maintenance), sheet = structuredClone(f.sheet);
+    try { return await transaction(fn, options); }
+    catch (error) { maintenance = before; Object.assign(f.sheet, sheet); throw error; }
+  };
+  return { ...f, maintenance: () => maintenance, fail: () => { fail = true; },
+    scope: (garage: string, date = target) => { maintenance.garagem = garage; maintenance.dataOperacao = date; },
+    absent: () => { maintenance = null; } };
+}
+
+test('vespertino marca Usado Portaria em qualquer card do Controle da mesma data preservando defeitos e estado', async () => {
+  for (const status of ['bloqueado','emExecucao','liberado']) {
+    const f = eveningMaintenanceFixture(status), before = JSON.parse(f.maintenance().conteudo);
+    await f.write(f.entry(0));
+    const after = JSON.parse(f.maintenance().conteudo);
+    assert.deepEqual(after.items, [{ ...before.items[0], usadoPortaria: true }, before.items[1]]);
+    assert.equal(f.maintenance().revisao, 4); assert.equal(f.maintenance().responsavelId, 1);
+    assert.equal(after.eventos.length, 1); assert.equal(after.eventos[0].usuarioId, 1);
+    assert.equal(after.eventos[0].registradoEm, eventInstant(target, 14).toISOString());
+    const read = await readMaintenanceBoard(f.db, 1, { garagem: 'VCG', data: target }, () => eventInstant(target, 14));
+    assert.equal(read.items[0].usadoPortaria, true);
+    await f.write(f.entry(0, '4000', '456'));
+    assert.equal(f.maintenance().revisao, 4, 'reconfirmacao/MOTO nao duplica marcacao nem auditoria');
+  }
+});
+
+test('uso automatico nao cria Controle ou carro e nao altera outra garagem ou data', async () => {
+  for (const change of [(f: ReturnType<typeof eveningMaintenanceFixture>) => f.scope('VCM'),
+    (f: ReturnType<typeof eveningMaintenanceFixture>) => f.scope('VCG', day),
+    (f: ReturnType<typeof eveningMaintenanceFixture>) => f.absent()]) {
+    const f = eveningMaintenanceFixture(); change(f); const before = structuredClone(f.maintenance());
+    await f.write(f.entry(0)); assert.deepEqual(f.maintenance(), before); assert.equal(f.rows().length, 1);
+  }
+  const f = eveningMaintenanceFixture(), before = structuredClone(f.maintenance());
+  await f.write(f.entry(0, '4002')); assert.deepEqual(f.maintenance(), before);
+});
+
+test('falha na marca do Controle reverte despacho e lote inteiro, inclusive revisoes e eventos', async () => {
+  for (const batch of [false, true]) {
+    const f = eveningMaintenanceFixture(), before = structuredClone(f.maintenance()), sheet = structuredClone(f.sheet);
+    f.fail();
+    await assert.rejects(f.write(batch ? { items: [f.entry(0), f.entry(1, '4001', '456')] } : f.entry(0), batch), /Falha marca/);
+    assert.deepEqual(f.rows(), []); assert.deepEqual(f.maintenance(), before); assert.deepEqual(f.sheet, sheet);
+  }
+});
+
+test('lote vespertino marca ambos os carros uma vez; troca nao apaga marca do carro ja usado', async () => {
+  const f = eveningMaintenanceFixture();
+  await f.write({ items: [f.entry(0), f.entry(1, '4001', '456')] }, true);
+  assert.ok(JSON.parse(f.maintenance().conteudo).items.every((item: any) => item.usadoPortaria));
+  assert.equal(f.maintenance().revisao, 4);
+  await f.write(f.entry(0, '4002', '123'));
+  assert.ok(JSON.parse(f.maintenance().conteudo).items.every((item: any) => item.usadoPortaria));
+  assert.equal(f.maintenance().revisao, 4);
+});
+
+test('aviso de carro ou motorista repetido nao marca Controle antes da confirmacao', async () => {
+  const f = eveningMaintenanceFixture(); await f.write(f.entry(0));
+  const before = structuredClone(f.maintenance());
+  await f.notice(f.entry(1, '4001', '123'));
+  assert.deepEqual(f.maintenance(), before);
+  assert.equal(JSON.parse(f.maintenance().conteudo).items[1].usadoPortaria, undefined);
+});
+
+test('edicao de Controle com revisao anterior ao uso automatico nao apaga a marca', async () => {
+  const f = eveningMaintenanceFixture(), previous = JSON.parse(f.maintenance().conteudo).items;
+  await f.write(f.entry(0));
+  f.db.user.findUnique = async () => ({ role: 'ADMIN', garagem: 'VCG' });
+  const fleet = async () => ({ source: 'real', data: ['4000','4001'].map(prefixo => ({ prefixo, idCarro: prefixo, garagem: 'VCG' })) });
+  await assert.rejects(saveMaintenanceBoard(f.db, 1, { garagem: 'VCG', data: target, base: '3', items: previous,
+    operacaoId: '11111111-1111-4111-8111-111111111111' }, () => eventInstant(target, 14), fleet), /outro dispositivo/);
+  assert.equal(JSON.parse(f.maintenance().conteudo).items[0].usadoPortaria, true);
+});
 
 test('carro e MOTO repetidos exigem confirmacao exata, mostram linhas e registram anuencia', async () => {
   const f = duplicateFixture(); await f.write(f.entry(0));
@@ -343,7 +434,8 @@ test('vespertino consulta bloqueios opcionais sem exigir CI finalizada, manutenc
  const f = fixture();
  const forbid = async () => { throw Error('Dependencia proibida no vespertino'); };
  f.db.folhaCI.findUnique = async () => null; f.db.cicloOperacional.findUnique = forbid;
- f.db.escalaDiaria.findUnique = forbid; f.db.$queryRaw = async (sql: TemplateStringsArray) => { assert.match(sql.join('?'), /soltura_folha|folha_ci|ciclo_operacional/); return []; };
+ // Consulta/lock opcional do Controle permite marcar uso sem exigir folha existente.
+ f.db.escalaDiaria.findUnique = forbid; f.db.$queryRaw = async (sql: TemplateStringsArray) => { assert.match(sql.join('?'), /soltura_folha|folha_ci|ciclo_operacional|controle_manutencao_folha/); return []; };
  const evening = { ...context, turno: 'VESPERTINO' } as const;
  const row = currentReleaseTemplate(evening)[0];
  const request = { ...body, turno: 'VESPERTINO', scheduleId: row.id, linha: row.linha, tabela: row.tabela, carroProgramado: '9999' };

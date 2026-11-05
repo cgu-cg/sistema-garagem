@@ -1,5 +1,24 @@
 # Domain model e entendimento operacional atual
 
+## Uso automatico no Controle pela Soltura vespertina - 05/11/2026
+
+CONFIRMADO pelo usuario: confirmar uma linha da Soltura Seg-Sex vespertina
+marca usadoPortaria no carro realizado que ja existe no Controle de Manutencao
+da mesma data e garagem, em Bloqueados, Em Manutencao ou Liberados. Nao exige
+bloqueio CI para essa marca; nao altera card, estado, defeito ou observacoes.
+Digitacao e avisos cancelados nao marcam. Lotes sao atomicos: despacho e marca
+do Controle pertencem a mesma transacao, com lock e incremento da revisao do
+Controle para impedir sobrescrita por dispositivo desatualizado. Usuario e
+horario ficam no historico existente. Reconfirmacao nao duplica a marca.
+
+Nao cria folha ou carro ausentes, nao modifica outro turno, data ou garagem,
+nem altera Controle historico em edicao administrativa de Soltura passada.
+Limpar/trocar depois nao apaga o fato de que o carro foi usado. Virada continua
+iniciando o proximo Controle vazio. A janela de edicao manual de manutencao
+permanece inalterada; a marca automatica acompanha o despacho autorizado do dia.
+Reutiliza usadoPortaria e eventos do JSON controle_manutencao_folha: sem novo
+schema ou SQL. O badge ja existente aparece na atualizacao habitual da tela.
+
 ## Reserva e acoes da Portaria na CI - 05/11/2026
 
 Os carros com flag Bloqueado Portaria aparecem no card Bloqueados Portaria CI
