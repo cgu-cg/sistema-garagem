@@ -1,5 +1,6 @@
 import { CiUseConfirmationContext, useCiUseConfirmation } from './CiUseConfirmation';
 import { useReleaseDuplicateConfirmation } from './ReleaseDuplicateConfirmation';
+import { confirmReleaseWithKeyboard, focusNextReleaseCar } from './releaseKeyboard';
 import { ReleaseTreatmentCards } from './ReleaseTreatmentCards';
 import { ScaleVehiclePrefix } from './ScaleVehiclePrefix';
 import { treatReleaseWithdrawal, type ReleaseWithdrawal } from '@/lib/releaseProgramming';
@@ -1145,13 +1146,13 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
       } else {
         toast.error(`Preencha o código MOTO para liberar a Linha ${item.linha} / Tab ${item.tabela}.`);
       }
-      return;
+      return false;
     }
 
     const bloqueio = checkBloqueioCI(finalCarro);
     if (bloqueio) {
       triggerPenduradoAlert(finalCarro, bloqueio.motivo);
-      return;
+      return false;
     }
 
     const agora = new Date();
@@ -1176,16 +1177,16 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     };
 
     const updated = { ...dispatches, [item.id]: newRecord };
-    if (dispatchWritePending.current) { toast.error("Aguarde a gravacao pendente."); return; }
+    if (dispatchWritePending.current) { toast.error("Aguarde a gravacao pendente."); return false; }
     dispatchWritePending.current = true;
     try {
       await confirmedWrite(() => persistDispatchToApi(item, newRecord), saved => saveDispatches({ ...updated, [item.id]: saved }));
       await releaseProgramming.reload();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Soltura nao confirmada."); return;
+      toast.error(error instanceof Error ? error.message : "Soltura nao confirmada."); return false;
     } finally { dispatchWritePending.current = false; }
 
-    if (selectedDispatchKey.current !== dispatchContextKey) return;
+    if (selectedDispatchKey.current !== dispatchContextKey) return false;
 
     // Limpar rascunho
     setDrafts(prev => {
@@ -1206,6 +1207,7 @@ export function SolturaPage({ defaultTab }: SolturaPageProps) {
     }
 
     toast.success(`Linha ${item.linha} / Tab ${item.tabela} liberada às ${horaAtual}!`);
+    return true;
   };
 
   const handleTrocarMoto = async (item: SolturaItem, codigo: string): Promise<boolean> => {
@@ -2286,7 +2288,7 @@ interface FolhaTableRowProps {
   index: number;
   reservasTerminais?: ReservaTerminalItem[];
   checkBloqueioCI: (prefixo?: string) => BloqueioCarro | undefined | null;
-  onRelease: (item: SolturaItem, carro?: string, moto?: string) => void;
+  onRelease: (item: SolturaItem, carro?: string, moto?: string) => Promise<boolean>;
   onDraftChange: (itemId: string, field: "carro" | "moto", value: string) => void;
   onTrocarCarro?: (item: SolturaItem, novoCarro: string, motivo?: ReleaseExchangeCommand['motivo'], descricaoDefeito?: string) => Promise<boolean>;
   onPenduradoAlert?: (prefixo: string, motivo?: string | null) => void;
@@ -2319,6 +2321,14 @@ function FolhaTableRow({
 
   const [carroValue, setCarroValue] = useState(item.carroRealizado || "");
   const [motoValue, setMotoValue] = useState(item.motoristaCodigo || "");
+  const rowRef = useRef<HTMLTableRowElement>(null);
+  const keyboardSavePending = useRef(false);
+  const confirmAndKeepFocus = async () => {
+    if (keyboardSavePending.current || isReadOnly || item.suspensa || isDone || !rowRef.current) return;
+    keyboardSavePending.current = true;
+    try { await confirmReleaseWithKeyboard(rowRef.current, () => onRelease(item, carroValue, motoValue)); }
+    finally { keyboardSavePending.current = false; }
+  };
 
   useEffect(() => {
     setCarroValue(item.carroRealizado || "");
@@ -2338,9 +2348,10 @@ function FolhaTableRow({
   const handleKeyDownCarro = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
+      if (e.repeat) return;
       if (isReadOnly || item.suspensa) return;
       if ((carroValue.trim() || item.carroProgramado) && motoValue.trim()) {
-        onRelease(item, carroValue, motoValue);
+        void confirmAndKeepFocus();
       } else if (!motoValue.trim()) {
         const motoInput = document.getElementById(`moto-input-${item.id}`);
         if (motoInput) {
@@ -2354,8 +2365,9 @@ function FolhaTableRow({
     if (isReadOnly || item.suspensa) return;
     if (e.key === "Enter") {
       e.preventDefault();
+      if (e.repeat) return;
       if ((carroValue.trim() || item.carroProgramado) && motoValue.trim()) {
-        onRelease(item, carroValue, motoValue);
+        void confirmAndKeepFocus();
       } else if (!carroValue.trim()) {
         const carroInput = document.getElementById(`carro-input-${item.id}`);
         if (carroInput) {
@@ -2380,6 +2392,8 @@ function FolhaTableRow({
 
   return (
     <tr
+      ref={rowRef}
+      data-release-row={item.id}
       className={cn(
         "transition-colors group border-b",
         item.suspensa ? 'bg-rose-100 hover:bg-rose-200/70 dark:bg-rose-950/50 border-rose-300' : isVCM
@@ -2448,6 +2462,7 @@ function FolhaTableRow({
             <>
               <FleetVehicleInput fleetState={scaleState}
                 id={`carro-input-${item.id}`}
+                data-release-car
                 type="text"
                 placeholder=""
                 value={carroValue}
@@ -2560,12 +2575,19 @@ function FolhaTableRow({
           </div>
         ) : isDone ? (
           <div className="flex items-center justify-center">
-            <span
+            <button
+              type="button"
+              data-release-confirmed
+              aria-label={`Linha ${item.linha} confirmada. Ir para o carro da próxima linha pendente`}
+              onClick={() => { if (rowRef.current) focusNextReleaseCar(rowRef.current); }}
+              onKeyDown={event => {
+                if (event.key === 'Enter' && event.repeat) event.preventDefault();
+              }}
               className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 shadow-2xs"
-              title="Saída liberada"
+              title="Saída liberada. Pressione Enter para ir ao carro da próxima linha pendente"
             >
               <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            </span>
+            </button>
             <ReleaseRowEditMenu car={{ item, scaleState, carroAtual: carroValue || item.carroRealizado || item.carroProgramado || '',
               historicoTrocas, onTrocarCarro: onTrocarCarro || (async () => false), checkBloqueioCI, onPenduradoAlert,
               getOutraLinhaComCarroRealiz, isReadOnly: isReadOnly || !onTrocarCarro }}
@@ -2577,7 +2599,7 @@ function FolhaTableRow({
             <button
               type="button"
               disabled={!isLiberarHabilitado || item.suspensa}
-              onClick={() => onRelease(item, carroValue, motoValue)}
+              onClick={() => void confirmAndKeepFocus()}
               className={cn(
                 "w-7 h-7 rounded-full flex items-center justify-center transition-all shadow-2xs select-none",
                 isLiberarHabilitado

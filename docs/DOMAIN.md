@@ -1,5 +1,14 @@
 # Domain model e entendimento operacional atual
 
+## Enter na folha de Soltura — 04/11/2026
+
+Com carro e MOTO preenchidos, Enter confirma a viagem. Somente apos sucesso
+da gravacao e dos avisos obrigatorios, o foco fica no botao da linha confirmada.
+Um novo Enter leva ao Carro da proxima linha pendente da mesma tabela exibida,
+rolando a lista quando necessario e pulando confirmadas e suspensas. Na ultima
+linha nao retorna ao inicio. Erro ou cancelamento nao avanca; manter Enter
+pressionado nao confirma nem pula linhas por repeticao automatica da tecla.
+
 ## Separadores no relatorio de Soltura — 04/11/2026
 
 O relatorio impresso exibe as secoes do vespertino (observacoes salvas na
