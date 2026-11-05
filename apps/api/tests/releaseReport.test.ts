@@ -40,3 +40,42 @@ test('relatorio novo imprime bloqueios da propria folha sem misturar impedimento
  delete report.bloqueadosPortaria;
  assert.match(buildReleaseReportHtml(report), /3098/, 'Relatorio antigo conserva a fotografia original');
 });
+
+test('relatorio imprime faixas do vespertino, VCM e fretamento na ordem das viagens', () => {
+ const report = fixture(5); report.contexto.turno = 'VESPERTINO';
+ report.itens[0].observacoes = 'V.C.G.'; report.itens[1].observacoes = 'V.C.G.';
+ report.itens[2].observacoes = 'TERMINAL NOVA BAHIA';
+ report.itens[3].tipo = 'VCM'; report.itens[4].tipo = 'FRETAMENTO';
+ const html = buildReleaseReportHtml(report);
+ assert.equal((html.match(/SOLTURA VESPERTINA V\.C\.G\./g) ?? []).length, 1);
+ assert.ok(html.indexOf('SOLTURA VESPERTINA V.C.G.') < html.indexOf('LINHA-0'));
+ assert.ok(html.indexOf('LINHA-1') < html.indexOf('SOLTURA VESPERTINA TERMINAL NOVA BAHIA'));
+ assert.ok(html.indexOf('SOLTURA VESPERTINA TERMINAL NOVA BAHIA') < html.indexOf('LINHA-2'));
+ assert.ok(html.indexOf('MOTORISTAS VCM QUE SAEM DA VCG') < html.indexOf('LINHA-3'));
+ assert.ok(html.indexOf('ESPECIAL FRETAMENTO') < html.indexOf('LINHA-4'));
+ assert.match(html, /class="section evening"><th colspan="6"/);
+ const morning = fixture(1); morning.itens[0].tipo = 'VCM';
+ assert.match(buildReleaseReportHtml(morning), /class="section vcm"><th colspan="7"/);
+});
+
+test('titulos acompanham viagens nas quebras e repetem grupo na coluna e pagina seguintes', () => {
+ const report = fixture(103); report.contexto.turno = 'VESPERTINO';
+ report.itens.forEach(row => { row.observacoes = 'V.C.G.'; });
+ const html = buildReleaseReportHtml(report);
+ assert.match(html, /Página 1 de 2/); assert.match(html, /Página 2 de 2/);
+ assert.equal((html.match(/SOLTURA VESPERTINA V\.C\.G\./g) ?? []).length, 3);
+ assert.equal((html.match(/LINHA-/g) ?? []).length, 103);
+ assert.ok(html.indexOf('LINHA-50') < html.indexOf('LINHA-51'));
+ const boundary = fixture(53); boundary.itens[51].tipo = 'VCM'; boundary.itens[52].tipo = 'VCM';
+ const bodies = [...buildReleaseReportHtml(boundary).matchAll(/<tbody>(.*?)<\/tbody>/g)].map(m => m[1]);
+ assert.doesNotMatch(bodies[0], /MOTORISTAS VCM/);
+ assert.match(bodies[1], /^<tr class="section vcm"><th colspan="7">MOTORISTAS VCM QUE SAEM DA VCG<\/th><\/tr><tr><td>LINHA-51/);
+});
+
+test('titulo salvo e escapado e relatorio nao modifica a fotografia recebida', () => {
+ const report = fixture(1); report.contexto.turno = 'VESPERTINO';
+ report.itens[0].observacoes = '<img src=x onerror=alert(1)>';
+ const before = structuredClone(report), html = buildReleaseReportHtml(report);
+ assert.match(html, /SOLTURA VESPERTINA &lt;img/); assert.doesNotMatch(html, /<img/);
+ assert.deepEqual(report, before);
+});

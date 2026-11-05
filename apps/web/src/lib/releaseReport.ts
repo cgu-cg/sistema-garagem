@@ -19,12 +19,34 @@ export function buildReleaseReportHtml(report: ReleaseReport): string {
   const c = report.contexto, weekend = c.escalaTipo !== 'SEG_SEX';
   const independent = c.escalaTipo === 'SEG_SEX' && c.turno === 'VESPERTINO';
   const columns = weekend ? 3 : 2, perColumn = weekend ? 45 : 52;
-  const capacity = columns * perColumn, pages: string[] = [];
-  const totalPages = Math.max(1, Math.ceil(report.itens.length / capacity));
+  const sections = (row: SolturaItem, previous?: SolturaItem) => [
+    ...(independent && row.observacoes && row.observacoes !== previous?.observacoes
+      ? [{ kind: 'evening', title: `SOLTURA VESPERTINA ${row.observacoes}` }] : []),
+    ...(row.tipo === 'VCM' && previous?.tipo !== 'VCM'
+      ? [{ kind: 'vcm', title: 'MOTORISTAS VCM QUE SAEM DA VCG' }] : []),
+    ...(row.tipo === 'FRETAMENTO' && previous?.tipo !== 'FRETAMENTO'
+      ? [{ kind: 'charter', title: 'ESPECIAL FRETAMENTO' }] : []),
+  ];
+  // Titulos ocupam espaco na pagina e acompanham a primeira viagem do grupo.
+  const columnRows: SolturaItem[][] = [[]];
+  let occupied = 0;
+  for (const row of report.itens) {
+    let current = columnRows[columnRows.length - 1];
+    let needed = 1 + sections(row, current[current.length - 1]).length;
+    if (occupied + needed > perColumn && current.length) {
+      current = []; columnRows.push(current); occupied = 0;
+      needed = 1 + sections(row).length;
+    }
+    current.push(row); occupied += needed;
+  }
+  const pages: string[] = [];
+  const totalPages = Math.max(1, Math.ceil(columnRows.length / columns));
   for (let page = 0; page < totalPages; page++) {
     const tables = Array.from({ length: columns }, (_, column) => {
-      const rows = report.itens.slice(page * capacity + column * perColumn, page * capacity + (column + 1) * perColumn);
-      const body = rows.map(row => {
+      const rows = columnRows[page * columns + column] ?? [];
+      const body = rows.map((row, index) => {
+        const headings = sections(row, rows[index - 1]).map(section =>
+          `<tr class="section ${section.kind}"><th colspan="${independent ? 6 : 7}">${escape(section.title)}</th></tr>`).join('');
         const done = row.status === 'LIBERADO' || row.status === 'SUBSTITUIDO';
         const changed = Boolean(done && row.carroProgramado && row.carroRealizado && row.carroRealizado !== row.carroProgramado);
         const kind = row.tipo === 'VCM' ? 'VCM' : row.tipo === 'FRETAMENTO' ? 'Fretamento' : '';
@@ -32,7 +54,7 @@ export function buildReleaseReportHtml(report: ReleaseReport): string {
           ...(!independent ? [`<span class="${changed ? 'replaced' : ''}">${escape(row.carroProgramado)}</span>`] : []),
           escape(done ? row.carroRealizado || row.carroProgramado : ''), escape(done ? row.motoristaCodigo : ''),
           escape(row.saidaGaragem), escape(weekend ? row.chegadaGaragem : row.inicioLinha || row.inicioBairro)];
-        return `<tr${row.suspensa ? ' style="background:#ffe4e6"' : ''}>${cells.map(value => `<td>${value}</td>`).join('')}</tr>`;
+        return `${headings}<tr${row.suspensa ? ' style="background:#ffe4e6"' : ''}>${cells.map(value => `<td>${value}</td>`).join('')}</tr>`;
       }).join('');
       return `<table><thead><tr><th>Linha</th><th>Tab.</th>${!independent ? `<th>${weekend ? 'Carro' : 'Programado'}</th>` : ''}<th>${weekend ? 'Realiz.' : 'Realizado'}</th><th>MOTO</th><th>Saída</th><th>${weekend ? 'Chegada' : 'Início'}</th></tr></thead><tbody>${body}</tbody></table>`;
     }).join('');
@@ -49,6 +71,6 @@ export function buildReleaseReportHtml(report: ReleaseReport): string {
   }
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Soltura ${escape(c.garagem)} ${escape(c.dataOperacao)}</title><style>
     @page{size:A4 portrait;margin:8mm}*{box-sizing:border-box}body{margin:0;color:#111;background:#eee;font-family:Arial,sans-serif}.sheet{width:194mm;min-height:275mm;margin:5mm auto;padding:0;background:white;break-after:page}.sheet:last-child{break-after:auto}
-    header{border:1px solid #222;text-align:center;padding:2mm;margin-bottom:2mm}h1{font-size:10pt;margin:0 0 1mm}h2{font-size:8pt;margin:0}header p{font-size:7pt;margin:1mm 0 0}.columns{display:grid;gap:2mm;align-items:start}table{border-collapse:collapse;width:100%;table-layout:fixed;font-size:${weekend ? '5.5' : '6.5'}pt}th,td{border:.2mm solid #444;text-align:center;padding:.5mm .2mm;height:3.8mm;overflow-wrap:anywhere}thead{display:table-header-group}th{background:#eee;font-size:${weekend ? '5' : '6'}pt}td:first-child{font-weight:bold}.replaced{text-decoration:line-through}small{display:block;font-size:5pt}tr{break-inside:avoid}.auxiliary{display:grid;grid-template-columns:repeat(3,1fr);gap:2mm;margin-top:2mm;font-size:6pt;break-inside:avoid}.auxiliary>div{border:.2mm solid #555;padding:1mm}h3{font-size:6.5pt;margin:0;border-bottom:1px solid #aaa}p{margin:1mm 0}footer{font-size:6pt;border-top:1px solid #333;margin-top:2mm;padding-top:1mm}.actions{text-align:center;padding:12px}button{padding:8px 18px;cursor:pointer}@media print{body{background:white}.sheet{margin:0;width:auto;min-height:0}.actions{display:none}}
+    header{border:1px solid #222;text-align:center;padding:2mm;margin-bottom:2mm}h1{font-size:10pt;margin:0 0 1mm}h2{font-size:8pt;margin:0}header p{font-size:7pt;margin:1mm 0 0}.columns{display:grid;gap:2mm;align-items:start}table{border-collapse:collapse;width:100%;table-layout:fixed;font-size:${weekend ? '5.5' : '6.5'}pt}th,td{border:.2mm solid #444;text-align:center;padding:.5mm .2mm;height:3.8mm;overflow-wrap:anywhere}thead{display:table-header-group}th{background:#eee;font-size:${weekend ? '5' : '6'}pt}td:first-child{font-weight:bold}.section{break-after:avoid}.section th{text-align:left;font-weight:bold;padding:.7mm 1mm;print-color-adjust:exact;-webkit-print-color-adjust:exact}.section.evening th{background:#dcf5ed;color:#164e3a}.section.vcm th{background:#eaf0ff;color:#254edb}.section.charter th{background:#fff3cd;color:#805600}.replaced{text-decoration:line-through}small{display:block;font-size:5pt}tr{break-inside:avoid}.auxiliary{display:grid;grid-template-columns:repeat(3,1fr);gap:2mm;margin-top:2mm;font-size:6pt;break-inside:avoid}.auxiliary>div{border:.2mm solid #555;padding:1mm}h3{font-size:6.5pt;margin:0;border-bottom:1px solid #aaa}p{margin:1mm 0}footer{font-size:6pt;border-top:1px solid #333;margin-top:2mm;padding-top:1mm}.actions{text-align:center;padding:12px}button{padding:8px 18px;cursor:pointer}@media print{body{background:white}.sheet{margin:0;width:auto;min-height:0}.actions{display:none}}
     </style></head><body><div class="actions"><button onclick="window.print()">Imprimir / Salvar PDF</button></div>${pages.join('')}</body></html>`;
 }

@@ -1,5 +1,15 @@
 # Domain model e entendimento operacional atual
 
+## Separadores no relatorio de Soltura — 04/11/2026
+
+O relatorio impresso exibe as secoes do vespertino (observacoes salvas na
+viagem), Motoristas VCM que saem da VCG e Especial Fretamento. Os titulos
+acompanham as viagens e se repetem na continuacao de coluna/pagina, ocupando
+espaco na paginacao A4. Usa somente os metadados recebidos da fotografia ou
+da folha consultada; nao consulta moldes atuais para completar historicos.
+Fotografias finalizadas nao sao alteradas. Historicos sem esses metadados
+continuam sem separadores inferidos.
+
 ## Carro e motorista repetidos na mesma Soltura — 04/11/2026
 
 CONFIRMADO pelo usuário: o mesmo carro realizado e/ou MOTO pode ser usado em
