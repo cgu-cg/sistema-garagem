@@ -24,9 +24,9 @@ const commandSchema = contextSchema.extend({ base: z.string().min(1), operacaoId
 type Tx = Prisma.TransactionClient;
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const where = (garagem: string, dataOperacao: string) => ({ garagem_dataOperacao: { garagem, dataOperacao } });
-export function rolloverMaintenance(items: z.infer<typeof itemsSchema>, day: string) {
-  return items.filter(item => item.bloqueado).map(item => ({ ...item, id: `manut-${day}-${item.prefixo}`, data: day,
-    bloqueado: true, emExecucao: false, liberado: false }));
+export function rolloverMaintenance(_items: z.infer<typeof itemsSchema>, _day: string): z.infer<typeof itemsSchema> {
+  // Todos os quadros iniciam vazios; a folha anterior permanece no historico.
+  return [];
 }
 export async function projectMaintenance(db: Pick<Tx, 'controleManutencaoFolha' | 'cicloOperacional' | 'estadoManutencao' | 'manutencaoCarro'>,
   garagem: 'VCG' | 'VCM', day: string, now: Date) {

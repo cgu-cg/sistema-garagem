@@ -12,8 +12,7 @@ export const LOCAL_MAINTENANCE_FLEET: InventoryVehicle[] = INVENTORY_CARS.map(pr
 
 export async function localMaintenanceSnapshot(garagem: 'VCG' | 'VCM', data: string, previous?: MaintenanceSnapshot): Promise<MaintenanceSnapshot> {
   const source = previous?.garagem === garagem && previous.data < data && previous.origem === 'PERSISTIDA' ? previous : undefined;
-  const items = source ? source.items.filter(item => item.bloqueado).map(item => ({ ...item,
-    id: `manut-${data}-${item.prefixo}`, data, bloqueado: true, emExecucao: false, liberado: false })) : [];
+  const items: MaintenanceSnapshot['items'] = [];
   const base = '0:' + maintenanceRevisionHash(JSON.stringify(source ? [source.data, source.revisao, items] : []));
   return { garagem, data, revisao: 0, base, items, origem: source ? 'VIRADA' : 'VAZIA' };
 }

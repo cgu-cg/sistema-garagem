@@ -12,7 +12,7 @@ test('cadastro embarcado contem a lista existente e nao preenche os quadros',asy
  const empty=await localMaintenanceSnapshot('VCG','2026-10-31');
  assert.deepEqual(empty.items,[]);assert.equal(empty.base,'0:'+createHash('sha256').update('[]').digest('hex'));
 });
-test('virada offline e backend geram o mesmo conteudo e base para somente bloqueados',async()=>{
+test('virada offline e backend iniciam todos os quadros vazios com a mesma base',async()=>{
  const previous=maintenanceSnapshotSchema.parse({garagem:'VCG',data:'2026-10-30',revisao:3,base:'3',origem:'PERSISTIDA',items:[
   {id:'m1',prefixo:'4000',consorciada:'VCG',data:'2026-10-30',observacao:'MOTOR',bloqueado:true,emExecucao:false,liberado:false},
   {id:'m2',prefixo:'4001',consorciada:'VCG',data:'2026-10-30',observacao:'FREIO',bloqueado:false,emExecucao:true,liberado:false},
@@ -20,7 +20,7 @@ test('virada offline e backend geram o mesmo conteudo e base para somente bloque
  ]});
  const next=await localMaintenanceSnapshot('VCG','2026-10-31',previous);
  const official=rolloverMaintenance(previous.items,'2026-10-31');
- assert.deepEqual(next.items,official);assert.equal(next.items.length,1);
+ assert.deepEqual(next.items,official);assert.deepEqual(next.items,[]);
  assert.equal(next.base,'0:'+createHash('sha256').update(JSON.stringify([previous.data,previous.revisao,official])).digest('hex'));
  const db:any={controleManutencaoFolha:{findUnique:async()=>null,findFirst:async()=>({id:999,dataOperacao:previous.data,revisao:previous.revisao,
   conteudo:JSON.stringify({version:1,items:previous.items,eventos:[]})})}};

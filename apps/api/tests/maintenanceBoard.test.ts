@@ -87,17 +87,31 @@ test('controle salva os tres estados em folha independente sem ler/escrever CI',
   assert.match(f.locks[0], /controle_manutencao_folha.*UPDLOCK,HOLDLOCK/);
   assert.equal(JSON.parse(f.records()[0].conteudo).eventos[0].usuarioId,1);
 });
-test('virada preserva somente bloqueados e esvazia manutencao/liberados sem alterar historico', async () => {
+test('virada esvazia bloqueados manutencao e liberados sem alterar historico', async () => {
   const f = fixture(), baseline = await f.read();
   await f.save({ base: baseline.base, items: [row('4000','BLOQUEADO'),row('4001'),row('4002','LIBERADO')] });
   const before = structuredClone(f.records()); f.time(eventInstant('2026-11-02',10));
   const current = await f.read('2026-11-02');
   assert.equal(current.origem,'VIRADA'); assert.equal(current.items.filter(i=>i.liberado).length,0);
-  assert.equal(current.items.filter(i=>i.emExecucao).length,0); assert.equal(current.items.filter(i=>i.bloqueado).length,1);
-  assert.equal(current.items.length,1);
-  assert.ok(current.items.every(i=>i.data==='2026-11-02'));
+  assert.deepEqual(current.items,[]);
   assert.deepEqual(f.records(),before);
   const historical = await f.read(day); assert.equal(historical.items.filter(i=>i.liberado).length,1);
+  assert.equal(historical.items.filter(i=>i.bloqueado).length,1);
+  assert.equal(historical.items.filter(i=>i.emExecucao).length,1);
+});
+
+test('virada ocorre na meia noite e nao limpa a folha ja salva do novo dia', async () => {
+  const f = fixture(), baseline = await f.read();
+  await f.save({ base: baseline.base, items: [row('4000','BLOQUEADO')] });
+  const yesterday = structuredClone(f.records()[0]);
+  f.time(eventInstant('2026-10-31',0));
+  const empty = await f.read('2026-10-31'); assert.deepEqual(empty.items,[]);
+  assert.equal(f.records().length,1, 'consulta nao grava nem apaga folhas');
+  f.time(eventInstant('2026-10-31',10));
+  await f.save({ data:'2026-10-31', base:empty.base, items:[row('4001','BLOQUEADO','2026-10-31')] });
+  const current = await f.read('2026-10-31');
+  assert.equal(current.origem,'PERSISTIDA'); assert.equal(current.items[0].prefixo,'4001');
+  assert.deepEqual(f.records()[0],yesterday);
 });
 test('folha vazia persistida impede ressuscitar carros de dias anteriores', async () => {
   const f = fixture(), baseline=await f.read();

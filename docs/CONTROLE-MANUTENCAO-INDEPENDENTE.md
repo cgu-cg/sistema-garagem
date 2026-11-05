@@ -7,10 +7,11 @@ Liberados pertencem somente ao Controle. A CI nao recebe suas alteracoes,
 nem fornece estados para novas folhas. A Soltura matutina/PADRAO nao consulta
 manutencao para impedir despachos; continua validando sua CI e Escala.
 
-Na virada da data civil America/Campo_Grande, somente os bloqueados permanecem,
-com suas observacoes. Em Manutencao e Liberados comecam vazios. Esta regra
-substitui o retorno automatico dos liberados para Em Manutencao, cancelado
-pelo usuario. Nao sao incluidos todos os carros da frota automaticamente.
+Atualizacao de 04/11/2026: na virada da data civil America/Campo_Grande,
+Bloqueados, Em Manutencao e Liberados comecam vazios, sem copiar carros ou
+observacoes do dia anterior. Esta regra substitui a continuidade dos bloqueados.
+O retorno automatico dos liberados para Em Manutencao continua cancelado.
+Nao sao incluidos todos os carros da frota automaticamente.
 
 A virada e uma projecao de leitura baseada na ultima folha independente:
 nao depende de job, da hora de abrir a tela ou de a CI estar iniciada/finalizada.
@@ -51,8 +52,9 @@ oficial consultada e seu cache podem atualizar inclusive a garagem fisica.
 A API revalida a frota ao sincronizar.
 
 Nao e obrigatorio carregar cada nova data no Wi-Fi: sem copia do dia, o
-aplicativo inicia vazio, ou com apenas os bloqueados da ultima folha confirmada
-em cache. Estados de uma fila ainda nao confirmada nunca alimentam a virada.
+aplicativo inicia com todos os quadros vazios. A folha anterior em cache nao
+fornece carros nem observacoes para o novo dia. Estados de uma fila ainda nao
+confirmada tambem nao alimentam a virada.
 A base de revisao corresponde a fonte local conhecida; se outro dispositivo
 mudou o banco, a sincronizacao recusa a base antiga sem sobrescrever o servidor.
 Na ausencia de cache, o aplicativo nao conhece bloqueios adicionados em outros

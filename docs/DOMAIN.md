@@ -407,7 +407,8 @@ matutina/PADRAO considera os bloqueios da CI, sem consultar estados de
 manutencao; requisitos de CI/Escala, frota e defeitos proprios permanecem.
 
 Atualizacao confirmada: na mudanca de data civil America/Campo_Grande,
-somente Bloqueados permanecem. Em Manutencao e Liberados comecam vazios.
+todos os quadros comecam vazios: Bloqueados, Em Manutencao e Liberados.
+Atualizacao de 04/11/2026 substitui a continuidade anterior dos bloqueados.
 Nao se transportam os demais carros nem se inclui a frota automaticamente.
 GET projeta a virada sem gravar, e o primeiro comando persiste a nova folha.
 Datas intermediarias sem folha nao sao reconstruidas; folhas anteriores
@@ -416,8 +417,8 @@ Nao ha limpeza destrutiva de historico nem dependencia de scheduler/CI.
 
 O cadastro de veiculos ja embarcado no frontend fornece o seletor offline;
 a consulta oficial pode atualizar essa lista e a garagem. Sem folha local do
-dia, o app inicia vazio, ou com somente bloqueados da ultima folha confirmada
-em cache. Essa projecao e identificada como copia local, sem autoridade sobre
+dia, o app inicia com todos os quadros vazios, sem copiar carros da ultima
+folha em cache. Essa projecao e identificada como copia local, sem autoridade sobre
 o banco. Conflitos de revisao e frota continuam verificados ao sincronizar.
 O PWA e a sessao ainda precisam ter sido disponibilizados no aparelho.
 Alteracoes
