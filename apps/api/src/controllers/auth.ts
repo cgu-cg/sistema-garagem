@@ -1,5 +1,6 @@
 import { Response } from "express";
 import bcrypt from "bcryptjs";
+import { SESSION_DURATION_SECONDS } from '../services/sessionDuration';
 import jwt from "jsonwebtoken";
 import prisma from "../utils/prisma";
 import { AuthRequest } from "../middleware/auth";
@@ -32,7 +33,7 @@ export async function login(req: AuthRequest, res: Response) {
   const token = jwt.sign(
     { id: user.id, role: user.role },
     jwtSecret,
-    { expiresIn: (process.env.JWT_EXPIRES_IN || "365d") as jwt.SignOptions["expiresIn"] }
+    { expiresIn: SESSION_DURATION_SECONDS }
   );
 
   return res.json({

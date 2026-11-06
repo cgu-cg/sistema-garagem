@@ -1,4 +1,5 @@
 import { TrafegoPage } from '@/pages/trafego';
+import { PwaInstallPrompt } from '@/components/PwaInstallPrompt';
 import { operationPageAccess, explicitGarage } from '@/lib/operationalAccess';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useEffect } from "react";
@@ -101,6 +102,7 @@ export function App() {
   return (
     <BrowserRouter>
       <Toaster richColors position="top-right" />
+      <PwaInstallPrompt />
       <Routes>
         <Route path="/" element={<LoginPage />} />
 

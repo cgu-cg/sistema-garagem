@@ -1,10 +1,10 @@
-const CACHE_VERSION = "garagem-v10";
+const CACHE_VERSION = "garagem-v11";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_VERSION).then(async (cache) => {
       // Pre-cache core files
-      const coreUrls = ["/", "/index.html", "/manifest.json"];
+      const coreUrls = ["/", "/index.html", "/manifest.json", "/icons/icon-192.png", "/icons/icon-512.png"];
       for (const url of coreUrls) {
         try {
           await cache.add(url);
