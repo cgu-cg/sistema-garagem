@@ -31,7 +31,10 @@ test('email nao concede papel ou garagem; grupo de consulta nao concede edicao C
   assert.equal(backend.canDispatch({ ...user, garagem: 'VCG', groups: [{ permissions: '["/soltura"]' }] }), true);
   assert.equal(canWriteC4({ ...user, garagem: 'VCG' }, 'VCG'), false);
   assert.equal(canWriteC4({ role: 'manutencao', garagem: 'VCG' }, 'VCG'), true);
-  assert.equal(canWriteC4({ role: 'manutencao', garagem: 'VCM' }, 'VCM'), false);
+  assert.equal(canWriteC4({ role: 'manutencao', garagem: 'VCM' }, 'VCM'), true);
+  assert.equal(canWriteC4({ role: 'manutencao', garagem: 'VCM' }, 'VCG'), false);
+  assert.equal(canWriteC4({ role: 'manutencao', garagem: 'VCG' }, 'VCM'), false);
+  assert.equal(canWriteC4({ role: 'manutencao' }, 'VCM'), false);
   assert.equal(canWriteC4({ role: 'ADMIN' }, 'VCM'), true);
 });
 

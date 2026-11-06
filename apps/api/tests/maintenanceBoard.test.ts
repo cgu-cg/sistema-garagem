@@ -114,6 +114,21 @@ test('controle salva os tres estados em folha independente sem ler/escrever CI',
   assert.match(f.locks[0], /controle_manutencao_folha.*UPDLOCK,HOLDLOCK/);
   assert.equal(JSON.parse(f.records()[0].conteudo).eventos[0].usuarioId,1);
 });
+
+test('manutencao VCM salva Controle da propria garagem e manutencao VCG nao pode editar', async () => {
+ const f = fixture(); f.user({ role: 'manutencao', garagem: 'VCM' });
+ const now = () => eventInstant(day, 10);
+ const baseline = await readMaintenanceBoard(f.db, 1, { garagem: 'VCM', data: day }, now);
+ const fleet = async () => ({ source: 'real', data: [{ prefixo: '1000', idCarro: '1000', garagem: 'VCM' }] });
+ const command = { garagem: 'VCM', data: day, base: baseline.base, operacaoId: randomUUID(),
+   items: [{ ...row('1000'), consorciada: 'VCM' }] };
+ const saved = await saveMaintenanceBoard(f.db, 1, command, now, fleet);
+ assert.equal(saved.garagem, 'VCM'); assert.equal(saved.items[0].prefixo, '1000');
+ f.user({ role: 'manutencao', garagem: 'VCG' });
+ const before = structuredClone(f.records());
+ await assert.rejects(saveMaintenanceBoard(f.db, 1, { ...command, base: saved.base, operacaoId: randomUUID() }, now, fleet), (e: any) => e.status === 403);
+ assert.deepEqual(f.records(), before);
+});
 test('virada esvazia bloqueados manutencao e liberados sem alterar historico', async () => {
   const f = fixture(), baseline = await f.read();
   await f.save({ base: baseline.base, items: [row('4000','BLOQUEADO'),row('4001'),row('4002','LIBERADO')] });

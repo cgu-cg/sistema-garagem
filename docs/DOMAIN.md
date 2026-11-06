@@ -1,5 +1,29 @@
 # Domain model e entendimento operacional atual
 
+## Primeira fotografia CI VCM - 05/11/2026
+
+CONFIRMADO pelo usuario: iniciar a base VCM em 05/11/2026 com somente o carro
+1341 em Bloqueados, sem dados de defeito adicionais. Script revisavel em
+docs/sql/2026-11-05-ci-vcm-inicial-1341.sql, nao executado automaticamente.
+Usa o contrato existente de carga inicial IMPORTACAO/FINALIZADA, sem folha
+anterior ficticia ou alteracao de CHECKs. E uma fotografia inicial informada,
+nao cria ciclo, manutencao, Escala ou Soltura. Horario historico de finalizacao
+e motivo nao sao inventados; timestamps de gravacao e executor SQL sao reais.
+Interrompe se ja existir qualquer folha/ciclo VCM, sem sobrescrever dados.
+Depois da carga, Iniciar CI de 06/11 copia 1341 para EM_PREPARACAO; as demais
+inclusoes e a finalizacao de 06/11 seguem o fluxo normal e permissoes vigentes.
+
+## Acesso de manutencao VCM - 05/11/2026
+
+CONFIRMADO pelo pedido de usuario proprio para manutencao VCM: perfil
+manutencao pode editar CI e Controle da sua garagem cadastrada, VCG ou VCM.
+Backend e frontend exigem igualdade de garagem; nao amplia acesso entre
+garagens, nao autoriza regularizacao reservada ao ADMIN e nao ignora janelas,
+finalizacao, origem inicial ou habilitacao da CI VCM. ADMIN conserva seu acesso.
+O script docs/sql/2026-11-05-usuario-manutencao-vcm.sql cria somente o novo login
+e vinculo com grupo Manutencao existente, copiando hash da senha VCG sem expo-lo.
+Script preparado para revisao, sem execucao automatica ou alteracao de schema.
+
 ## Uso automatico no Controle pela Soltura vespertina - 05/11/2026
 
 O badge mostra Saida Gar., linha e tabela oficiais da viagem confirmada:

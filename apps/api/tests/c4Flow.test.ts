@@ -76,6 +76,28 @@ function fixture(source = true, empty = false, historical: boolean | '2026-10-08
   return { db, portaria: (events: any[]) => { tx.ciPortariaEvento = { findMany: async () => events }; }, tables: () => structuredClone(tables), writes: () => mutations, queries, identity: (value: any) => { operationalUser = value; }, role: (value: boolean) => { admin = value; } };
 }
 async function ready() { const f = fixture(); await startCycle(f.db, 'VCG', clock()); return f; }
+test('primeira fotografia VCM 05/11 com 1341 permite iniciar e finalizar CI 06/11 sem origem ficticia', async () => {
+  const f = fixture(false), now = () => new Date('2026-11-05T16:00:00Z');
+  const source = await f.db.folhaCI.create({ data: { garagem: 'VCM', dataFolha: dateValue('2026-11-05'),
+    status: 'FINALIZADA', origem: 'IMPORTACAO', cicloPreparacaoId: null, folhaOrigemId: null,
+    tituloColunaAdicional: null, finalizadaEm: null, referenciaOrigem: 'IMPLANTACAO VCM informada pelo usuario' } });
+  await f.db.itemFolhaCI.create({ data: { folhaId: source.id, chaveItem: randomUUID(), prefixo: '1341',
+    categoria: 'BLOQUEADO', consorciada: 'VCM', motivo: null, statusItem: 'BLOQUEADO', dataBloqueio: dateValue('2026-11-05') } });
+  const initial = f.tables();
+  f.identity({ role: 'manutencao', garagem: 'VCM' });
+  const startContext = await readContext(f.db, 'VCM', '2026-11-05', now, 1);
+  await changeCILifecycle(f.db, 1, { garagem: 'VCM', data: '2026-11-06', operacao: 'iniciar', baseC4: startContext.baseC4 }, now, ['VCM']);
+  const after = f.tables(), next = after.folhaCI.find(i => i.id !== source.id)!;
+  assert.equal(next.status, 'EM_PREPARACAO'); assert.equal(next.folhaOrigemId, source.id);
+  assert.equal(next.origem, 'NORMAL'); assert.equal(next.dataFolha.toISOString().slice(0,10), '2026-11-06');
+  assert.deepEqual(after.itemFolhaCI.filter(i => i.folhaId === next.id).map(i => i.prefixo), ['1341']);
+  assert.deepEqual(after.folhaCI.find(i => i.id === source.id), initial.folhaCI[0]);
+  assert.deepEqual(after.itemFolhaCI.filter(i => i.folhaId === source.id), initial.itemFolhaCI);
+  assert.ok(after.folhaCI.every(i => i.garagem === 'VCM')); assert.equal(after.folhaCI.length, 2);
+  const finishContext = await readContext(f.db, 'VCM', '2026-11-05', now, 1);
+  await changeCILifecycle(f.db, 1, { garagem: 'VCM', data: '2026-11-06', operacao: 'finalizar', baseC4: finishContext.baseC4 }, now, ['VCM']);
+  assert.equal(f.tables().folhaCI.find(i => i.id === next.id).status, 'FINALIZADA');
+});
 test('bloqueio exclusivo Portaria em CI finalizada nao trava Controle nem e removido por ele', async () => {
   const f = await ready(), folha = f.tables().folhaCI.find(i => i.id !== 10)!;
   const chaveItem = randomUUID();
@@ -697,6 +719,23 @@ test('autorizacao C4 frontend/backend equivalente e leitura isolada', async () =
  }
  const db:any={user:{findUnique:async()=>({role:'manutencao',garagem:'VCG'})}};
  await server.assertC4Read(db,1,'VCG'); await assert.rejects(server.assertC4Read(db,1,'VCM'), /garagem/); await assert.rejects(server.assertC4Read(db,undefined,'VCG'), /garagem/);
+});
+
+test('manutencao VCM edita CI VCM sem permitir escrita pelo usuario VCG', async () => {
+ const f = fixture();
+ await f.db.folhaCI.update({ where: { id: 10 }, data: { garagem: 'VCM' } });
+ await startCycle(f.db, 'VCM', clock());
+ f.identity({ role: 'manutencao', garagem: 'VCM' });
+ const ctx = await readContext(f.db, 'VCM', day, clock(), 1);
+ const items = structuredClone(ctx.ci.filter(i => i.data === target));
+ const c = { garagem: 'VCM', data: target, base: revision(items), baseC4: ctx.baseC4, items, removeBlocked: [], confirmRelease: false };
+ items[0].motivo = 'Defeito informado pela manutencao VCM';
+ await saveC4(f.db, 1, c, 'ci', clock());
+ assert.ok(f.tables().itemFolhaCI.some(i => i.folhaId !== 10 && i.motivo === items[0].motivo));
+ f.identity({ role: 'manutencao', garagem: 'VCG' });
+ const before = f.tables();
+ await assert.rejects(saveC4(f.db, 1, c, 'ci', clock()), (e: any) => e.status === 403);
+ assert.deepEqual(f.tables(), before);
 });
 
 test('administracao de usuarios exige role ADMIN sem permissao de grupo alternativa', () => {
